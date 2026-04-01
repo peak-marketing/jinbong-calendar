@@ -615,14 +615,14 @@ function renderIdeas() {
   container.innerHTML = filtered.map(idea => {
     const cat = IDEA_CATS[idea.category] || { color: '#888' };
     const urlHtml = idea.url ? `<a href="${escHtml(idea.url)}" target="_blank" class="idea-url">${escHtml(idea.url)}</a>` : '';
-    return `<div class="idea-card">
+    return `<div class="idea-card" style="cursor:pointer" onclick="openIdeaDetail('${idea.id}')">
       <div class="idea-card-header">
         <span class="idea-category-badge" style="background:${cat.color}">${escHtml(idea.category)}</span>
         <span class="idea-source">${escHtml(idea.source)}</span>
       </div>
       <div class="idea-summary">${escHtml(idea.summary)}</div>
       ${urlHtml}
-      <button class="idea-delete" onclick="deleteIdea('${idea.id}')">✕</button>
+      <button class="idea-delete" onclick="event.stopPropagation();deleteIdea('${idea.id}')">✕</button>
     </div>`;
   }).join('');
 }
@@ -740,6 +740,19 @@ function saveIdea() {
 });
 
 // ── Init ───────────────────────────────────────────────────
+function openIdeaDetail(id) {
+  var idea = ideas.find(function(i){ return String(i.id) === String(id); });
+  if (!idea) return;
+  var cat = IDEA_CATS[idea.category] || { color: '#999' };
+  var h = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><span style="background:'+cat.color+';color:#fff;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600">'+escHtml(idea.category)+'</span><button onclick="document.getElementById(\'ideaDetailOverlay\').style.display=\'none\'" style="background:none;border:none;font-size:22px;cursor:pointer;color:#999;padding:4px">✕</button></div>';
+  h += '<div style="font-size:13px;color:#888;margin-bottom:12px">'+escHtml(idea.source||'')+'</div>';
+  h += '<div style="font-size:15px;line-height:1.7;color:#222;margin-bottom:16px;white-space:pre-wrap">'+escHtml(idea.summary||'')+'</div>';
+  if (idea.url) h += '<a href="'+escHtml(idea.url)+'" target="_blank" style="display:block;padding:12px 14px;background:#F3F4F6;border-radius:10px;color:#3B82F6;text-decoration:none;font-size:13px;word-break:break-all;margin-bottom:12px">🔗 '+escHtml(idea.url)+'</a>';
+  if (idea.date) h += '<div style="font-size:12px;color:#bbb;text-align:right;margin-top:8px">'+idea.date+'</div>';
+  document.getElementById('ideaDetailContent').innerHTML = h;
+  document.getElementById('ideaDetailOverlay').style.display = 'flex';
+}
+
 (function init() {
   loadData();
   const now = new Date();
@@ -749,5 +762,6 @@ function saveIdea() {
   renderCalendar();
 })();
 </script>
+<div id="ideaDetailOverlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);display:none;align-items:center;justify-content:center;z-index:1000;padding:16px;backdrop-filter:blur(4px)" onclick="this.style.display='none'"><div id="ideaDetailContent" style="background:#fff;border-radius:16px;padding:24px;max-width:420px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.15)" onclick="event.stopPropagation()"></div></div>
 </body>
 </html>
