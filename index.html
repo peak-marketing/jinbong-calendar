@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>진봉 × Claude</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #fff;
+    color: #111;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .app {
+    width: 100%;
+    max-width: 480px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+  }
+
+  /* Header */
+  header {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid #e5e5e5;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .header-title { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+  .header-nav { display: flex; align-items: center; gap: 8px; }
+  .nav-btn {
+    background: none; border: none; cursor: pointer;
+    font-size: 18px; color: #555; padding: 4px;
+    line-height: 1;
+  }
+  .month-label { font-size: 15px; font-weight: 600; min-width: 80px; text-align: center; }
+
+  /* Tabs */
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid #e5e5e5;
+    background: #fff;
+  }
+  .tab {
+    flex: 1; padding: 12px 8px; text-align: center;
+    font-size: 13px; font-weight: 500; color: #888;
+    cursor: pointer; border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  .tab.active { color: #111; border-bottom-color: #111; }
+
+  /* Calendar view */
+  .calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    padding: 0 4px;
+  }
+  .weekday-label {
+    text-align: center; font-size: 11px; font-weight: 600;
+    color: #888; padding: 10px 0 6px;
+  }
+  .weekday-label:first-child { color: #ef4444; }
+  .weekday-label:last-child { color: #3b82f6; }
+  .day-cell {
+    aspect-ratio: 1; display: flex; flex-direction: column;
+    align-items: center; padding: 4px 2px; cursor: pointer;
+    border-radius: 8px; transition: background 0.1s;
+    position: relative;
+  }
+  .day-cell:hover { background: #f5f5f5; }
+  .day-cell.other-month .day-num { color: #ccc; }
+  .day-cell.today .day-num {
+    background: #111; color: #fff;
+    border-radius: 50%; width: 24px; height: 24px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .day-cell.selected { background: #f0f0f0; }
+  .day-num {
+    font-size: 13px; font-weight: 500; line-height: 24px;
+    width: 24px; height: 24px; text-align: center;
+  }
+  .day-cell:first-child .day-num, .day-cell.sun .day-num { color: #ef4444; }
+  .day-cell:last-child .day-num, .day-cell.sat .day-num { color: #3b82f6; }
+  .day-cell.today .day-num { color: #fff !important; }
+  .event-dots { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; margin-top: 2px; }
+  .event-dot { width: 5px; height: 5px; border-radius: 50%; }
+
+  /* Day detail */
+  .day-detail {
+    border-top: 1px solid #e5e5e5;
+    padding: 12px 16px;
+    flex: 1;
+    overflow-y: auto;
+  }
+  .day-detail-title { font-size: 13px; font-weight: 600; color: #555; margin-bottom: 8px; }
+  .no-events { font-size: 13px; color: #aaa; text-align: center; padding: 20px 0; }
+
+  /* Event items */
+  .event-item {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 8px 0; border-bottom: 1px solid #f0f0f0;
+  }
+  .event-item:last-child { border-bottom: none; }
+  .event-color-bar { width: 3px; border-radius: 2px; align-self: stretch; min-height: 20px; flex-shrink: 0; }
+  .event-body { flex: 1; min-width: 0; }
+  .event-type-icon { font-size: 12px; margin-right: 4px; }
+  .event-title { font-size: 14px; font-weight: 500; word-break: break-word; }
+  .event-time { font-size: 11px; color: #888; margin-top: 2px; }
+  .event-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .icon-btn {
+    background: none; border: none; cursor: pointer;
+    font-size: 14px; color: #aaa; padding: 2px;
+  }
+  .icon-btn:hover { color: #555; }
+  .todo-checkbox {
+    width: 18px; height: 18px; border-radius: 4px;
+    border: 2px solid #ccc; cursor: pointer; flex-shrink: 0;
+    margin-top: 2px; background: #fff;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+  }
+  .todo-checkbox.done { background: #10B981; border-color: #10B981; }
+  .todo-checkbox.done::after { content: '✓'; color: #fff; font-size: 11px; font-weight: 700; }
+  .event-title.done-text { text-decoration: line-through; color: #aaa; }
+
+  /* List view */
+  .list-view { flex: 1; overflow-y: auto; padding: 0 16px; }
+  .list-date-group { margin-bottom: 4px; }
+  .list-date-header {
+    font-size: 12px; font-weight: 700; color: #888;
+    padding: 12px 0 6px; letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  /* Ideas view */
+  .ideas-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .ideas-filters {
+    display: flex; gap: 6px; padding: 10px 16px;
+    overflow-x: auto; border-bottom: 1px solid #f0f0f0;
+    scrollbar-width: none;
+  }
+  .ideas-filters::-webkit-scrollbar { display: none; }
+  .filter-chip {
+    flex-shrink: 0; padding: 4px 12px; border-radius: 20px;
+    font-size: 12px; font-weight: 500; cursor: pointer;
+    border: 1.5px solid transparent; transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .filter-chip.active { color: #fff; }
+  .ideas-list { flex: 1; overflow-y: auto; padding: 8px 16px 80px; }
+  .idea-card {
+    border: 1px solid #e5e5e5; border-radius: 10px;
+    padding: 12px; margin-bottom: 10px;
+    position: relative;
+  }
+  .idea-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .idea-category-badge {
+    font-size: 10px; font-weight: 700; padding: 2px 8px;
+    border-radius: 10px; color: #fff; flex-shrink: 0;
+  }
+  .idea-source { font-size: 12px; color: #888; }
+  .idea-summary { font-size: 13px; line-height: 1.5; color: #222; }
+  .idea-url {
+    font-size: 11px; color: #3b82f6; margin-top: 6px;
+    word-break: break-all; display: block;
+    text-decoration: none;
+  }
+  .idea-url:hover { text-decoration: underline; }
+  .idea-delete {
+    position: absolute; top: 8px; right: 8px;
+    background: none; border: none; cursor: pointer;
+    font-size: 14px; color: #ccc;
+  }
+  .idea-delete:hover { color: #888; }
+
+  /* FAB */
+  .fab {
+    position: fixed; bottom: 24px; right: calc(50% - 228px);
+    width: 52px; height: 52px; border-radius: 50%;
+    background: #111; color: #fff; font-size: 28px;
+    border: none; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100; transition: transform 0.15s;
+  }
+  .fab:hover { transform: scale(1.06); }
+  @media (max-width: 480px) {
+    .fab { right: 20px; }
+  }
+
+  /* Modal */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+    display: flex; align-items: flex-end; justify-content: center;
+    z-index: 200;
+  }
+  .modal-overlay.hidden { display: none; }
+  .modal {
+    width: 100%; max-width: 480px; background: #fff;
+    border-radius: 20px 20px 0 0; padding: 24px 20px 32px;
+    max-height: 85vh; overflow-y: auto;
+  }
+  .modal-title { font-size: 17px; font-weight: 700; margin-bottom: 18px; }
+  .form-group { margin-bottom: 14px; }
+  .form-label { font-size: 12px; font-weight: 600; color: #555; margin-bottom: 6px; display: block; }
+  .form-input {
+    width: 100%; padding: 10px 12px; border: 1.5px solid #e5e5e5;
+    border-radius: 8px; font-size: 14px; outline: none;
+    font-family: inherit; transition: border-color 0.15s;
+  }
+  .form-input:focus { border-color: #111; }
+  .type-selector { display: flex; gap: 8px; flex-wrap: wrap; }
+  .type-btn {
+    padding: 6px 14px; border-radius: 20px; border: 1.5px solid #e5e5e5;
+    font-size: 13px; cursor: pointer; background: #fff; transition: all 0.15s;
+  }
+  .type-btn.active { border-color: #111; background: #111; color: #fff; }
+  .modal-actions { display: flex; gap: 8px; margin-top: 18px; }
+  .btn {
+    flex: 1; padding: 12px; border-radius: 10px; font-size: 15px;
+    font-weight: 600; border: none; cursor: pointer; transition: all 0.15s;
+  }
+  .btn-primary { background: #111; color: #fff; }
+  .btn-primary:hover { background: #333; }
+  .btn-secondary { background: #f0f0f0; color: #444; }
+  .btn-secondary:hover { background: #e5e5e5; }
+
+  /* Type choice modal */
+  .type-choice { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+  .type-choice-btn {
+    padding: 14px 16px; border: 1.5px solid #e5e5e5; border-radius: 10px;
+    background: #fff; cursor: pointer; text-align: left;
+    font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 10px;
+    transition: all 0.15s;
+  }
+  .type-choice-btn:hover { border-color: #111; background: #fafafa; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="header-title">진봉 × Claude</div>
+    <div class="header-nav" id="calNav">
+      <button class="nav-btn" onclick="changeMonth(-1)">‹</button>
+      <span class="month-label" id="monthLabel"></span>
+      <button class="nav-btn" onclick="changeMonth(1)">›</button>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('calendar')">📅 월별</div>
+    <div class="tab" onclick="switchTab('list')">≡ 목록</div>
+    <div class="tab" onclick="switchTab('ideas')">💡 아이디어</div>
+  </div>
+
+  <!-- Calendar View -->
+  <div id="calendarView">
+    <div class="calendar-grid" id="calendarGrid"></div>
+    <div class="day-detail" id="dayDetail">
+      <div class="day-detail-title" id="dayDetailTitle"></div>
+      <div id="dayEventsList"></div>
+    </div>
+  </div>
+
+  <!-- List View -->
+  <div id="listView" class="list-view" style="display:none"></div>
+
+  <!-- Ideas View -->
+  <div id="ideasView" class="ideas-view" style="display:none">
+    <div class="ideas-filters" id="ideasFilters"></div>
+    <div class="ideas-list" id="ideasList"></div>
+  </div>
+</div>
+
+<!-- FAB -->
+<button class="fab" id="fab" onclick="openAddModal()">+</button>
+
+<!-- Type Choice Modal -->
+<div class="modal-overlay hidden" id="typeChoiceModal">
+  <div class="modal">
+    <div class="modal-title">무엇을 추가할까요?</div>
+    <div class="type-choice">
+      <button class="type-choice-btn" onclick="openEventModal()">📅 일정 / 할 일 / 링크 / 메모</button>
+      <button class="type-choice-btn" onclick="openIdeaModal()">💡 아이디어</button>
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn btn-secondary" onclick="closeTypeChoice()">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- Event Modal -->
+<div class="modal-overlay hidden" id="eventModal">
+  <div class="modal">
+    <div class="modal-title" id="eventModalTitle">일정 추가</div>
+    <div class="form-group">
+      <label class="form-label">종류</label>
+      <div class="type-selector">
+        <button class="type-btn active" data-type="meeting" onclick="selectEventType(this)">📅 미팅</button>
+        <button class="type-btn" data-type="todo" onclick="selectEventType(this)">✅ 할 일</button>
+        <button class="type-btn" data-type="link" onclick="selectEventType(this)">🔗 링크</button>
+        <button class="type-btn" data-type="memo" onclick="selectEventType(this)">📝 메모</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">제목</label>
+      <input class="form-input" id="eventTitle" placeholder="제목 입력" />
+    </div>
+    <div class="form-group" id="eventDateGroup">
+      <label class="form-label">날짜</label>
+      <input class="form-input" type="date" id="eventDate" />
+    </div>
+    <div class="form-group" id="eventTimeGroup">
+      <label class="form-label">시간 (선택)</label>
+      <input class="form-input" type="time" id="eventTime" />
+    </div>
+    <div class="form-group" id="eventUrlGroup" style="display:none">
+      <label class="form-label">URL</label>
+      <input class="form-input" id="eventUrl" placeholder="https://" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">메모 (선택)</label>
+      <textarea class="form-input" id="eventMemo" rows="2" placeholder="내용 입력" style="resize:none"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeEventModal()">취소</button>
+      <button class="btn btn-primary" onclick="saveEvent()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- Idea Modal -->
+<div class="modal-overlay hidden" id="ideaModal">
+  <div class="modal">
+    <div class="modal-title">아이디어 추가</div>
+    <div class="form-group">
+      <label class="form-label">카테고리</label>
+      <div class="type-selector" id="ideaCategorySelector">
+        <button class="type-btn active" data-cat="AI도구" onclick="selectIdeaCat(this)">AI도구</button>
+        <button class="type-btn" data-cat="영상제작" onclick="selectIdeaCat(this)">영상제작</button>
+        <button class="type-btn" data-cat="수익화" onclick="selectIdeaCat(this)">수익화</button>
+        <button class="type-btn" data-cat="자산구조" onclick="selectIdeaCat(this)">자산구조</button>
+        <button class="type-btn" data-cat="미래전망" onclick="selectIdeaCat(this)">미래전망</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">출처</label>
+      <input class="form-input" id="ideaSource" placeholder="@계정명 또는 출처" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">URL (선택)</label>
+      <input class="form-input" id="ideaUrl" placeholder="https://" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">요약</label>
+      <textarea class="form-input" id="ideaSummary" rows="3" placeholder="아이디어 요약" style="resize:none"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeIdeaModal()">취소</button>
+      <button class="btn btn-primary" onclick="saveIdea()">저장</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Constants ──────────────────────────────────────────────
+const EVENTS_KEY = 'jinbong-claude-calendar';
+const IDEAS_KEY  = 'jinbong-claude-ideas';
+
+const EVENT_TYPES = {
+  meeting: { icon: '📅', color: '#3B82F6', label: '미팅' },
+  todo:    { icon: '✅', color: '#10B981', label: '할 일' },
+  link:    { icon: '🔗', color: '#8B5CF6', label: '링크' },
+  memo:    { icon: '📝', color: '#F59E0B', label: '메모' },
+};
+
+const IDEA_CATS = {
+  'AI도구':  { color: '#3B82F6' },
+  '영상제작': { color: '#8B5CF6' },
+  '수익화':  { color: '#10B981' },
+  '자산구조': { color: '#F59E0B' },
+  '미래전망': { color: '#6366F1' },
+};
+
+const DEFAULT_IDEAS = [
+  { category: 'AI도구',  source: '@figma_tutor',         url: '', summary: '클로드 필수 MCP 서버 4종: Desktop Commander, Figma MCP, shadcn/ui, Apify' },
+  { category: 'AI도구',  source: '@sebia.ai',             url: '', summary: '클로드코드 세팅 실수 5가지. CLAUDE.md 400줄 넘기면 규칙 적용률 급락' },
+  { category: 'AI도구',  source: '@trenddalkak.ai',       url: '', summary: '클로드 Computer Use/Dispatch. 폰으로 지시하면 맥이 혼자 작업' },
+  { category: 'AI도구',  source: '@jay.pm.ai',            url: '', summary: '클로드 코드로 카드뉴스 자동화 에이전트. AI 카피→구글시트→피그마' },
+  { category: '영상제작', source: '@ai.brief.kr',          url: '', summary: '오픈클로(OpenClaw) - 촬영부터 편집까지 1인 군단 AI 영상 제작 툴' },
+  { category: '수익화',  source: '@marketerjjj',          url: '', summary: '유튜브 롱폼 자동화 프로그램으로 하루 90만원' },
+  { category: '수익화',  source: '@edutrend_',            url: '', summary: 'AI 1인 기업 Naive. 비즈니스 설명만 던지면 AI가 회사 세팅+운영' },
+  { category: '수익화',  source: '클래스유/Jamez',         url: '', summary: '비트코인 자동매매 프로그램. 승률 90%, 수익률 80~720%' },
+  { category: '자산구조', source: '@ogata_marito',         url: '', summary: '지주회사→운영회사→자산회사. 부는 노력보다 구조에서 갈린다' },
+  { category: '자산구조', source: '@richesse.club',        url: '', summary: 'C-Level 직책 총정리. CEO, COO, CFO, CTO 등 역할 차이' },
+  { category: '미래전망', source: '@blahblah.magazine',    url: '', summary: 'AI 시대 미래 전망. 1인 브랜드 중요, 툴을 생산에 써야' },
+];
+
+// ── State ──────────────────────────────────────────────────
+let currentTab = 'calendar';
+let currentYear, currentMonth;
+let selectedDate;
+let events = [];
+let ideas  = [];
+let activeIdeaCat = 'all';
+let editingEventId = null;
+let selectedEventType = 'meeting';
+let selectedIdeaCat = 'AI도구';
+
+// ── Storage ────────────────────────────────────────────────
+function loadData() {
+  const ev = localStorage.getItem(EVENTS_KEY);
+  events = ev ? JSON.parse(ev) : [];
+  const id = localStorage.getItem(IDEAS_KEY);
+  if (id) {
+    ideas = JSON.parse(id);
+  } else {
+    ideas = DEFAULT_IDEAS.map((d, i) => ({ ...d, id: 'default_' + i, createdAt: Date.now() - i * 1000 }));
+    saveIdeas();
+  }
+}
+function saveEvents() { localStorage.setItem(EVENTS_KEY, JSON.stringify(events)); }
+function saveIdeas()  { localStorage.setItem(IDEAS_KEY,  JSON.stringify(ideas));  }
+
+// ── Utilities ──────────────────────────────────────────────
+function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
+function toDateStr(y, m, d) {
+  return y + '-' + String(m).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+}
+function formatDateHeader(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const days = ['일','월','화','수','목','금','토'];
+  const dow = new Date(y, m-1, d).getDay();
+  return `${m}월 ${d}일 (${days[dow]})`;
+}
+function todayStr() {
+  const t = new Date();
+  return toDateStr(t.getFullYear(), t.getMonth()+1, t.getDate());
+}
+
+// ── Tab switching ──────────────────────────────────────────
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach((el, i) => {
+    const tabs = ['calendar','list','ideas'];
+    el.classList.toggle('active', tabs[i] === tab);
+  });
+  document.getElementById('calendarView').style.display = tab === 'calendar' ? '' : 'none';
+  document.getElementById('listView').style.display     = tab === 'list'     ? '' : 'none';
+  document.getElementById('ideasView').style.display    = tab === 'ideas'    ? '' : 'none';
+  document.getElementById('calNav').style.display       = tab === 'calendar' ? '' : 'none';
+  if (tab === 'list')   renderList();
+  if (tab === 'ideas')  renderIdeas();
+}
+
+// ── Calendar rendering ─────────────────────────────────────
+function renderCalendar() {
+  const grid = document.getElementById('calendarGrid');
+  const label = document.getElementById('monthLabel');
+  label.textContent = `${currentYear}년 ${currentMonth}월`;
+
+  const days = ['일','월','화','수','목','금','토'];
+  const firstDay = new Date(currentYear, currentMonth-1, 1).getDay();
+  const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+  const prevDays = new Date(currentYear, currentMonth-1, 0).getDate();
+  const today = todayStr();
+
+  let html = days.map(d => `<div class="weekday-label">${d}</div>`).join('');
+
+  // prev month tail
+  for (let i = firstDay - 1; i >= 0; i--) {
+    const day = prevDays - i;
+    const pm = currentMonth === 1 ? 12 : currentMonth - 1;
+    const py = currentMonth === 1 ? currentYear - 1 : currentYear;
+    const ds = toDateStr(py, pm, day);
+    html += dayCell(day, ds, true, today, 'other-month');
+  }
+  // current month
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = toDateStr(currentYear, currentMonth, d);
+    const dow = (firstDay + d - 1) % 7;
+    const extra = dow === 0 ? 'sun' : dow === 6 ? 'sat' : '';
+    html += dayCell(d, ds, false, today, extra);
+  }
+  // next month
+  const total = firstDay + daysInMonth;
+  const remaining = 7 - (total % 7);
+  if (remaining < 7) {
+    for (let d = 1; d <= remaining; d++) {
+      const nm = currentMonth === 12 ? 1 : currentMonth + 1;
+      const ny = currentMonth === 12 ? currentYear + 1 : currentYear;
+      const ds = toDateStr(ny, nm, d);
+      html += dayCell(d, ds, true, today, 'other-month');
+    }
+  }
+
+  grid.innerHTML = html;
+  renderDayDetail(selectedDate);
+}
+
+function dayCell(day, ds, otherMonth, today, extra) {
+  const isToday = ds === today;
+  const isSelected = ds === selectedDate;
+  const evs = events.filter(e => e.date === ds);
+  const dots = evs.slice(0,3).map(e =>
+    `<div class="event-dot" style="background:${EVENT_TYPES[e.type]?.color || '#888'}"></div>`
+  ).join('');
+  const classes = ['day-cell', extra, isToday ? 'today' : '', isSelected ? 'selected' : ''].filter(Boolean).join(' ');
+  return `<div class="${classes}" onclick="selectDay('${ds}')">
+    <div class="day-num">${day}</div>
+    <div class="event-dots">${dots}</div>
+  </div>`;
+}
+
+function selectDay(ds) {
+  selectedDate = ds;
+  renderCalendar();
+}
+
+function changeMonth(delta) {
+  currentMonth += delta;
+  if (currentMonth > 12) { currentMonth = 1; currentYear++; }
+  if (currentMonth < 1)  { currentMonth = 12; currentYear--; }
+  renderCalendar();
+}
+
+function renderDayDetail(ds) {
+  const title = document.getElementById('dayDetailTitle');
+  const list  = document.getElementById('dayEventsList');
+  if (!ds) { title.textContent = '날짜를 선택하세요'; list.innerHTML = ''; return; }
+  title.textContent = formatDateHeader(ds);
+  const evs = events.filter(e => e.date === ds).sort((a,b) => (a.time||'').localeCompare(b.time||''));
+  if (!evs.length) { list.innerHTML = '<div class="no-events">일정 없음</div>'; return; }
+  list.innerHTML = evs.map(e => eventItemHTML(e)).join('');
+}
+
+function eventItemHTML(e) {
+  const t = EVENT_TYPES[e.type] || EVENT_TYPES.meeting;
+  const isDone = e.done;
+  const checkbox = e.type === 'todo'
+    ? `<div class="todo-checkbox ${isDone ? 'done' : ''}" onclick="toggleTodo('${e.id}')"></div>` : '';
+  const titleClass = isDone ? 'event-title done-text' : 'event-title';
+  const timeStr = e.time ? `<div class="event-time">${e.time}</div>` : '';
+  const urlStr = e.url ? `<a href="${e.url}" target="_blank" class="idea-url">${e.url}</a>` : '';
+  const memoStr = e.memo ? `<div class="event-time">${e.memo}</div>` : '';
+  return `<div class="event-item">
+    ${checkbox}
+    <div class="event-color-bar" style="background:${t.color}"></div>
+    <div class="event-body">
+      <div class="${titleClass}">${t.icon} ${escHtml(e.title)}</div>
+      ${timeStr}${urlStr}${memoStr}
+    </div>
+    <div class="event-actions">
+      <button class="icon-btn" onclick="deleteEvent('${e.id}')">🗑</button>
+    </div>
+  </div>`;
+}
+
+function toggleTodo(id) {
+  const ev = events.find(e => e.id === id);
+  if (ev) { ev.done = !ev.done; saveEvents(); renderCalendar(); if (currentTab === 'list') renderList(); }
+}
+
+function deleteEvent(id) {
+  events = events.filter(e => e.id !== id);
+  saveEvents(); renderCalendar(); if (currentTab === 'list') renderList();
+}
+
+// ── List view ──────────────────────────────────────────────
+function renderList() {
+  const container = document.getElementById('listView');
+  if (!events.length) { container.innerHTML = '<div class="no-events" style="padding:40px 0">일정 없음</div>'; return; }
+  const sorted = [...events].sort((a,b) => a.date.localeCompare(b.date) || (a.time||'').localeCompare(b.time||''));
+  const groups = {};
+  sorted.forEach(e => { (groups[e.date] = groups[e.date] || []).push(e); });
+  container.innerHTML = Object.entries(groups).map(([ds, evs]) =>
+    `<div class="list-date-group">
+      <div class="list-date-header">${formatDateHeader(ds)}</div>
+      ${evs.map(e => eventItemHTML(e)).join('')}
+    </div>`
+  ).join('');
+}
+
+// ── Ideas view ─────────────────────────────────────────────
+function renderIdeasFilters() {
+  const container = document.getElementById('ideasFilters');
+  const cats = ['all', ...Object.keys(IDEA_CATS)];
+  container.innerHTML = cats.map(cat => {
+    const color = cat === 'all' ? '#111' : IDEA_CATS[cat].color;
+    const isActive = activeIdeaCat === cat;
+    const style = isActive
+      ? `background:${color}; border-color:${color}; color:#fff;`
+      : `border-color:${color}; color:${color};`;
+    return `<div class="filter-chip ${isActive ? 'active' : ''}" style="${style}" onclick="filterIdeas('${cat}')">
+      ${cat === 'all' ? '전체' : cat}
+    </div>`;
+  }).join('');
+}
+
+function filterIdeas(cat) {
+  activeIdeaCat = cat;
+  renderIdeas();
+}
+
+function renderIdeas() {
+  renderIdeasFilters();
+  const filtered = activeIdeaCat === 'all' ? ideas : ideas.filter(i => i.category === activeIdeaCat);
+  const container = document.getElementById('ideasList');
+  if (!filtered.length) { container.innerHTML = '<div class="no-events" style="padding:40px 0">아이디어 없음</div>'; return; }
+  container.innerHTML = filtered.map(idea => {
+    const cat = IDEA_CATS[idea.category] || { color: '#888' };
+    const urlHtml = idea.url ? `<a href="${escHtml(idea.url)}" target="_blank" class="idea-url">${escHtml(idea.url)}</a>` : '';
+    return `<div class="idea-card">
+      <div class="idea-card-header">
+        <span class="idea-category-badge" style="background:${cat.color}">${escHtml(idea.category)}</span>
+        <span class="idea-source">${escHtml(idea.source)}</span>
+      </div>
+      <div class="idea-summary">${escHtml(idea.summary)}</div>
+      ${urlHtml}
+      <button class="idea-delete" onclick="deleteIdea('${idea.id}')">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function deleteIdea(id) {
+  ideas = ideas.filter(i => i.id !== id);
+  saveIdeas(); renderIdeas();
+}
+
+// ── Modal helpers ──────────────────────────────────────────
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function openAddModal() {
+  document.getElementById('typeChoiceModal').classList.remove('hidden');
+}
+function closeTypeChoice() {
+  document.getElementById('typeChoiceModal').classList.add('hidden');
+}
+
+function openEventModal() {
+  closeTypeChoice();
+  editingEventId = null;
+  selectedEventType = 'meeting';
+  document.getElementById('eventModalTitle').textContent = '일정 추가';
+  document.getElementById('eventTitle').value = '';
+  document.getElementById('eventDate').value = selectedDate || todayStr();
+  document.getElementById('eventTime').value = '';
+  document.getElementById('eventUrl').value = '';
+  document.getElementById('eventMemo').value = '';
+  document.querySelectorAll('.type-btn[data-type]').forEach(b => b.classList.toggle('active', b.dataset.type === 'meeting'));
+  document.getElementById('eventUrlGroup').style.display = 'none';
+  document.getElementById('eventModal').classList.remove('hidden');
+}
+function closeEventModal() { document.getElementById('eventModal').classList.add('hidden'); }
+
+function selectEventType(btn) {
+  selectedEventType = btn.dataset.type;
+  document.querySelectorAll('.type-btn[data-type]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('eventUrlGroup').style.display = selectedEventType === 'link' ? '' : 'none';
+}
+
+function saveEvent() {
+  const title = document.getElementById('eventTitle').value.trim();
+  const date  = document.getElementById('eventDate').value;
+  if (!title || !date) { alert('제목과 날짜를 입력하세요'); return; }
+  const ev = {
+    id: editingEventId || uid(),
+    type: selectedEventType,
+    title,
+    date,
+    time: document.getElementById('eventTime').value,
+    url:  document.getElementById('eventUrl').value.trim(),
+    memo: document.getElementById('eventMemo').value.trim(),
+    done: false,
+    createdAt: Date.now(),
+  };
+  if (editingEventId) {
+    const idx = events.findIndex(e => e.id === editingEventId);
+    if (idx !== -1) { ev.done = events[idx].done; events[idx] = ev; }
+  } else {
+    events.push(ev);
+  }
+  saveEvents();
+  closeEventModal();
+  selectedDate = date;
+  if (currentTab === 'calendar') renderCalendar();
+  else if (currentTab === 'list') renderList();
+}
+
+function openIdeaModal() {
+  closeTypeChoice();
+  selectedIdeaCat = 'AI도구';
+  document.querySelectorAll('#ideaCategorySelector .type-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.cat === 'AI도구'));
+  document.getElementById('ideaSource').value = '';
+  document.getElementById('ideaUrl').value = '';
+  document.getElementById('ideaSummary').value = '';
+  document.getElementById('ideaModal').classList.remove('hidden');
+}
+function closeIdeaModal() { document.getElementById('ideaModal').classList.add('hidden'); }
+
+function selectIdeaCat(btn) {
+  selectedIdeaCat = btn.dataset.cat;
+  document.querySelectorAll('#ideaCategorySelector .type-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function saveIdea() {
+  const source  = document.getElementById('ideaSource').value.trim();
+  const summary = document.getElementById('ideaSummary').value.trim();
+  if (!summary) { alert('요약을 입력하세요'); return; }
+  ideas.unshift({
+    id: uid(),
+    category: selectedIdeaCat,
+    source,
+    url:  document.getElementById('ideaUrl').value.trim(),
+    summary,
+    createdAt: Date.now(),
+  });
+  saveIdeas();
+  closeIdeaModal();
+  if (currentTab === 'ideas') renderIdeas();
+}
+
+// Close modals on overlay click
+['typeChoiceModal','eventModal','ideaModal'].forEach(id => {
+  document.getElementById(id).addEventListener('click', function(e) {
+    if (e.target === this) {
+      this.classList.add('hidden');
+    }
+  });
+});
+
+// ── Init ───────────────────────────────────────────────────
+(function init() {
+  loadData();
+  const now = new Date();
+  currentYear  = now.getFullYear();
+  currentMonth = now.getMonth() + 1;
+  selectedDate = todayStr();
+  renderCalendar();
+})();
+</script>
+</body>
+</html>
