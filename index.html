@@ -168,10 +168,11 @@
   .idea-summary { font-size: 13px; line-height: 1.5; color: #222; }
   .idea-url {
     font-size: 11px; color: #3b82f6; margin-top: 6px;
-    word-break: break-all; display: block;
-    text-decoration: none;
+    display: block; text-decoration: none;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .idea-url:hover { text-decoration: underline; }
+  .idea-date { font-size: 11px; color: #bbb; margin-top: 6px; }
   .idea-delete {
     position: absolute; top: 8px; right: 8px;
     background: none; border: none; cursor: pointer;
@@ -388,17 +389,17 @@ const IDEA_CATS = {
 };
 
 const DEFAULT_IDEAS = [
-  { category: 'AI도구',  source: '@figma_tutor',         url: '', summary: '클로드 필수 MCP 서버 4종: Desktop Commander, Figma MCP, shadcn/ui, Apify' },
-  { category: 'AI도구',  source: '@sebia.ai',             url: '', summary: '클로드코드 세팅 실수 5가지. CLAUDE.md 400줄 넘기면 규칙 적용률 급락' },
-  { category: 'AI도구',  source: '@trenddalkak.ai',       url: '', summary: '클로드 Computer Use/Dispatch. 폰으로 지시하면 맥이 혼자 작업' },
-  { category: 'AI도구',  source: '@jay.pm.ai',            url: '', summary: '클로드 코드로 카드뉴스 자동화 에이전트. AI 카피→구글시트→피그마' },
-  { category: '영상제작', source: '@ai.brief.kr',          url: '', summary: '오픈클로(OpenClaw) - 촬영부터 편집까지 1인 군단 AI 영상 제작 툴' },
-  { category: '수익화',  source: '@marketerjjj',          url: '', summary: '유튜브 롱폼 자동화 프로그램으로 하루 90만원' },
-  { category: '수익화',  source: '@edutrend_',            url: '', summary: 'AI 1인 기업 Naive. 비즈니스 설명만 던지면 AI가 회사 세팅+운영' },
-  { category: '수익화',  source: '클래스유/Jamez',         url: '', summary: '비트코인 자동매매 프로그램. 승률 90%, 수익률 80~720%' },
-  { category: '자산구조', source: '@ogata_marito',         url: '', summary: '지주회사→운영회사→자산회사. 부는 노력보다 구조에서 갈린다' },
-  { category: '자산구조', source: '@richesse.club',        url: '', summary: 'C-Level 직책 총정리. CEO, COO, CFO, CTO 등 역할 차이' },
-  { category: '미래전망', source: '@blahblah.magazine',    url: '', summary: 'AI 시대 미래 전망. 1인 브랜드 중요, 툴을 생산에 써야' },
+  { category: 'AI도구',  source: '@figma_tutor',      url: 'https://www.instagram.com/p/DV8JXlpEkhK/', summary: '클로드 필수 MCP 서버 4종: Desktop Commander, Figma MCP, shadcn/ui, Apify', date: '2026-03-31' },
+  { category: 'AI도구',  source: '@sebia.ai',          url: 'https://www.instagram.com/p/DWdWVNZkRsG/', summary: '클로드코드 세팅 실수 5가지. CLAUDE.md 400줄 넘기면 규칙 적용률 급락', date: '2026-03-31' },
+  { category: 'AI도구',  source: '@trenddalkak.ai',    url: 'https://www.instagram.com/p/DWRSn6YFN1H/', summary: '클로드 Computer Use/Dispatch. 폰으로 지시하면 맥이 혼자 작업', date: '2026-03-31' },
+  { category: 'AI도구',  source: '@jay.pm.ai',         url: 'https://www.instagram.com/reel/DWIWgfMjKre/', summary: '클로드 코드로 카드뉴스 자동화 에이전트. AI 카피→구글시트→피그마', date: '2026-03-31' },
+  { category: '영상제작', source: '@ai.brief.kr',       url: 'https://www.instagram.com/p/DWOVNt5AXKz/', summary: '오픈클로(OpenClaw) - 촬영부터 편집까지 1인 군단 AI 영상 제작 툴', date: '2026-03-31' },
+  { category: '수익화',  source: '@marketerjjj',       url: 'https://www.instagram.com/p/DV46e-Wk_pB/', summary: '유튜브 롱폼 자동화 프로그램으로 하루 90만원. 카카오 출신 개발자', date: '2026-03-31' },
+  { category: '수익화',  source: '@edutrend_',         url: 'https://www.instagram.com/reel/DWIWgfMjKre/', summary: 'AI 1인 기업 Naive. 비즈니스 설명만 던지면 AI가 회사 세팅+운영', date: '2026-03-31' },
+  { category: '수익화',  source: '클래스유/Jamez',      url: 'https://www.classu.co.kr/class/classDetail/19402', summary: '비트코인 자동매매 프로그램. 승률 90%, 수익률 80~720%', date: '2026-03-31' },
+  { category: '자산구조', source: '@ogata_marito',      url: 'https://www.instagram.com/p/DVJElQ2gb8J/', summary: '지주회사→운영회사→자산회사. 부는 노력보다 구조에서 갈린다', date: '2026-03-31' },
+  { category: '자산구조', source: '@richesse.club',     url: 'https://www.instagram.com/p/DWQxz_Pj0yV/', summary: 'C-Level 직책 총정리. CEO, COO, CFO, CTO 등 역할 차이', date: '2026-03-31' },
+  { category: '미래전망', source: '@blahblah.magazine', url: 'https://www.instagram.com/p/DWECTXkEUCH/', summary: 'AI 시대 미래 전망. 1인 브랜드 중요, 툴을 생산에 써야', date: '2026-03-31' },
 ];
 
 // ── State ──────────────────────────────────────────────────
@@ -419,6 +420,11 @@ function loadData() {
   const id = localStorage.getItem(IDEAS_KEY);
   if (id) {
     ideas = JSON.parse(id);
+    // migrate: if all ideas have empty url, reset to new defaults with URLs
+    if (ideas.length > 0 && ideas.every(i => !i.url)) {
+      ideas = DEFAULT_IDEAS.map((d, i) => ({ ...d, id: 'default_' + i, createdAt: Date.now() - i * 1000 }));
+      saveIdeas();
+    }
   } else {
     ideas = DEFAULT_IDEAS.map((d, i) => ({ ...d, id: 'default_' + i, createdAt: Date.now() - i * 1000 }));
     saveIdeas();
@@ -614,7 +620,12 @@ function renderIdeas() {
   if (!filtered.length) { container.innerHTML = '<div class="no-events" style="padding:40px 0">아이디어 없음</div>'; return; }
   container.innerHTML = filtered.map(idea => {
     const cat = IDEA_CATS[idea.category] || { color: '#888' };
-    const urlHtml = idea.url ? `<a href="${escHtml(idea.url)}" target="_blank" class="idea-url">${escHtml(idea.url)}</a>` : '';
+    const urlHtml = idea.url
+      ? `<a href="${escHtml(idea.url)}" target="_blank" class="idea-url">${escHtml(idea.url)}</a>`
+      : '';
+    const dateHtml = idea.date
+      ? `<div class="idea-date">${escHtml(idea.date)}</div>`
+      : '';
     return `<div class="idea-card">
       <div class="idea-card-header">
         <span class="idea-category-badge" style="background:${cat.color}">${escHtml(idea.category)}</span>
@@ -622,6 +633,7 @@ function renderIdeas() {
       </div>
       <div class="idea-summary">${escHtml(idea.summary)}</div>
       ${urlHtml}
+      ${dateHtml}
       <button class="idea-delete" onclick="deleteIdea('${idea.id}')">✕</button>
     </div>`;
   }).join('');
