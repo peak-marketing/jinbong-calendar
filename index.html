@@ -250,6 +250,10 @@
     transition: all 0.15s;
   }
   .type-choice-btn:hover { border-color: #111; background: #fafafa; }
+  @keyframes modalIn {
+    from { opacity: 0; transform: scale(0.95) translateY(10px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+  }
 </style>
 </head>
 <body>
@@ -663,27 +667,34 @@ function deleteIdea(id) {
 }
 
 function openIdeaDetail(id) {
-  const idea = ideas.find(i => i.id === id);
+  var idea = ideas.find(function(i){ return String(i.id) === String(id); });
   if (!idea) return;
-  const cat = IDEA_CATS[idea.category] || { color: '#888' };
-  const badge = document.getElementById('detailBadge');
-  badge.textContent = idea.category;
-  badge.style.background = cat.color;
-  document.getElementById('detailSource').textContent = idea.source || '';
-  document.getElementById('detailSummary').textContent = idea.summary || '';
-  const urlEl = document.getElementById('detailUrl');
-  if (idea.url) {
-    urlEl.href = idea.url;
-    urlEl.textContent = idea.url;
-    urlEl.style.display = 'block';
-  } else {
-    urlEl.style.display = 'none';
-  }
-  document.getElementById('detailDate').textContent = idea.date || '';
-  document.getElementById('ideaDetailModal').classList.remove('hidden');
+  var cats = {
+    ai:       {name:'AI도구',  color:'#3B82F6'},
+    video:    {name:'영상제작', color:'#8B5CF6'},
+    monetize: {name:'수익화',  color:'#10B981'},
+    asset:    {name:'자산구조', color:'#F59E0B'},
+    future:   {name:'미래전망', color:'#6366F1'},
+    'AI도구':  {name:'AI도구',  color:'#3B82F6'},
+    '영상제작': {name:'영상제작', color:'#8B5CF6'},
+    '수익화':  {name:'수익화',  color:'#10B981'},
+    '자산구조': {name:'자산구조', color:'#F59E0B'},
+    '미래전망': {name:'미래전망', color:'#6366F1'},
+  };
+  var catKey = idea.cat || idea.category || '';
+  var cat = cats[catKey] || {name: catKey || '기타', color: '#999'};
+  var h = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
+  h += '<span style="background:'+cat.color+';color:#fff;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600">'+cat.name+'</span>';
+  h += '<button onclick="document.getElementById(\'ideaDetailOverlay\').style.display=\'none\'" style="background:none;border:none;font-size:22px;cursor:pointer;color:#999;padding:4px">✕</button></div>';
+  h += '<div style="font-size:13px;color:#888;margin-bottom:12px">'+escHtml(idea.source||'')+'</div>';
+  h += '<div style="font-size:15px;line-height:1.7;color:#222;margin-bottom:16px;white-space:pre-wrap">'+escHtml(idea.summary||'')+'</div>';
+  if (idea.url) h += '<a href="'+escHtml(idea.url)+'" target="_blank" rel="noopener" style="display:block;padding:12px 14px;background:#F3F4F6;border-radius:10px;color:#3B82F6;text-decoration:none;font-size:13px;word-break:break-all;margin-bottom:12px">🔗 '+escHtml(idea.url)+'</a>';
+  if (idea.date) h += '<div style="font-size:12px;color:#bbb;text-align:right;margin-top:8px">'+idea.date+'</div>';
+  document.getElementById('ideaDetailContent').innerHTML = h;
+  document.getElementById('ideaDetailOverlay').style.display = 'flex';
 }
 function closeIdeaDetail() {
-  document.getElementById('ideaDetailModal').classList.add('hidden');
+  document.getElementById('ideaDetailOverlay').style.display = 'none';
 }
 
 // ── Modal helpers ──────────────────────────────────────────
@@ -803,5 +814,9 @@ function saveIdea() {
   renderCalendar();
 })();
 </script>
+
+<div id="ideaDetailOverlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);display:none;align-items:center;justify-content:center;z-index:1000;padding:16px;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)" onclick="this.style.display='none'">
+  <div id="ideaDetailContent" style="background:#fff;border-radius:16px;padding:24px;max-width:420px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.15);animation:modalIn 0.2s ease" onclick="event.stopPropagation()"></div>
+</div>
 </body>
 </html>
