@@ -652,10 +652,11 @@ function renderDayDetail(ds) {
     let catTodos = evs.filter(e => e.type === 'todo' && (e.todoCat || e.category || '개인할일') === cat);
     if (todoStatusFilter !== 'all')
       catTodos = catTodos.filter(e => todoStatusFilter === '완료' ? e.done : !e.done);
+    const catColor = CAT_COLORS[cat] || '#6B7280';
     html += `<div class="todo-cat-section">
       <div class="todo-cat-header">
-        <span class="todo-cat-name">${escHtml(cat)}</span>
-        <button class="todo-cat-add-btn" onclick="addTodoToCategory('${ds}','${escHtml(cat)}')">+</button>
+        <span class="todo-cat-name" style="color:${catColor}"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${catColor};margin-right:5px;vertical-align:middle;"></span>${escHtml(cat)}</span>
+        <button class="todo-cat-add-btn" style="color:${catColor};border-color:${catColor};" onclick="addTodoToCategory('${ds}','${escHtml(cat)}')">+</button>
       </div>
       <div class="todo-cat-items">
         ${catTodos.length ? catTodos.map(e => todoItemHTML(e)).join('') : ''}
@@ -716,7 +717,7 @@ function eventItemHTML(e) {
   const timeStr = e.time ? `<div class="event-time">${e.time}</div>` : '';
   const urlStr = e.url ? `<a href="${e.url}" target="_blank" class="idea-url">${e.url}</a>` : '';
   const memoStr = e.memo ? `<div class="event-time">${e.memo}</div>` : '';
-  const CAT_COLORS = { '개인할일': '#10B981', '회사업무': '#3B82F6' };
+  const CAT_COLORS = { '피크마케팅': '#3B82F6', '운동': '#F59E0B', '개인할일': '#10B981' };
   const catBadge = (e.type === 'todo' && e.category)
     ? `<span class="todo-cat-badge" style="background:${CAT_COLORS[e.category]||'#888'}">${e.category}</span>` : '';
   const editBtn = e.type === 'todo'
