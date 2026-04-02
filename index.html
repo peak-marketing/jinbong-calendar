@@ -133,6 +133,38 @@
     font-size: 10px; font-weight: 600; color: #fff; margin-left: 5px;
     vertical-align: middle;
   }
+  .todo-cat-section {
+    margin-bottom: 12px;
+  }
+  .todo-cat-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 4px 4px; border-bottom: 1.5px solid #e5e7eb; margin-bottom: 4px;
+  }
+  .todo-cat-name {
+    font-size: 12px; font-weight: 700; color: #374151; letter-spacing: 0.3px;
+  }
+  .todo-cat-add-btn {
+    background: none; border: none; cursor: pointer; font-size: 18px;
+    color: #9CA3AF; line-height: 1; padding: 0 2px;
+    transition: color 0.15s;
+  }
+  .todo-cat-add-btn:hover { color: #10B981; }
+  .todo-cat-items { padding: 2px 0; }
+  .todo-item {
+    display: flex; align-items: center; gap: 8px; padding: 5px 4px;
+    border-radius: 6px; transition: background 0.1s;
+  }
+  .todo-item:hover { background: #F9FAFB; }
+  .todo-item-title {
+    flex: 1; font-size: 13px; color: #1F2937; cursor: pointer;
+    padding: 1px 0;
+  }
+  .todo-del-btn {
+    background: none; border: none; cursor: pointer; font-size: 16px;
+    color: #D1D5DB; padding: 0 2px; line-height: 1;
+    transition: color 0.15s;
+  }
+  .todo-del-btn:hover { color: #EF4444; }
   .todo-filter-bar {
     display: flex; gap: 5px; padding: 8px 0 6px; flex-wrap: wrap; align-items: center;
     background: #fff; position: sticky; top: 0; z-index: 1;
@@ -361,8 +393,9 @@
     <div class="form-group" id="todoCatGroup" style="display:none">
       <label class="form-label">카테고리</label>
       <div class="type-selector" id="todoCatSelector">
-        <button class="type-btn active" data-cat="개인할일" onclick="selectTodoCat(this)">🟢 개인할일</button>
-        <button class="type-btn" data-cat="회사업무" onclick="selectTodoCat(this)">🔵 회사업무</button>
+        <button class="type-btn active" data-cat="피크마케팅" onclick="selectTodoCat(this)">🔴 피크마케팅</button>
+        <button class="type-btn" data-cat="운동" onclick="selectTodoCat(this)">🟠 운동</button>
+        <button class="type-btn" data-cat="개인할일" onclick="selectTodoCat(this)">🟢 개인할일</button>
       </div>
     </div>
     <div class="modal-actions">
@@ -425,6 +458,8 @@
 // ── Constants ──────────────────────────────────────────────
 const EVENTS_KEY = 'jinbong-claude-calendar';
 const IDEAS_KEY  = 'jinbong-claude-ideas';
+const TODO_CATS_KEY = 'jinbong-todo-cats';
+const DEFAULT_TODO_CATS = ['피크마케팅', '운동', '개인할일'];
 
 const EVENT_TYPES = {
   meeting: { icon: '📅', color: '#3B82F6', label: '미팅' },
@@ -465,7 +500,7 @@ let activeIdeaCat = 'all';
 let editingEventId = null;
 let selectedEventType = 'meeting';
 let selectedIdeaCat = 'AI도구';
-let selectedTodoCat = '개인할일';
+let selectedTodoCat = '피크마케팅';
 let todoStatusFilter = 'all';
 let todoCatFilter = 'all';
 
@@ -473,6 +508,8 @@ let todoCatFilter = 'all';
 function loadData() {
   const ev = localStorage.getItem(EVENTS_KEY);
   events = ev ? JSON.parse(ev) : [];
+  const savedCats = localStorage.getItem(TODO_CATS_KEY);
+  window.todoCats = savedCats ? JSON.parse(savedCats) : [...DEFAULT_TODO_CATS];
   const id = localStorage.getItem(IDEAS_KEY);
   if (id) {
     ideas = JSON.parse(id);
@@ -597,14 +634,77 @@ function renderDayDetail(ds) {
   if (!ds) { title.textContent = '날짜를 선택하세요'; list.innerHTML = ''; return; }
   title.textContent = formatDateHeader(ds);
   let evs = events.filter(e => e.date === ds);
-  if (todoStatusFilter !== 'all')
-    evs = evs.filter(e => e.type !== 'todo' || (todoStatusFilter === '완료' ? e.done : !e.done));
-  if (todoCatFilter !== 'all')
-    evs = evs.filter(e => e.type !== 'todo' || e.category === todoCatFilter);
   evs = evs.sort((a,b) => (a.time||'').localeCompare(b.time||''));
-  const fb = todoFilterBarHTML();
-  if (!evs.length) { list.innerHTML = fb + '<div class="no-events">일정 없음</div>'; return; }
-  list.innerHTML = fb + evs.map(e => eventItemHTML(e)).join('');
+
+  // Non-todo events
+  const nonTodos = evs.filter(e => e.type !== 'todo');
+  const cats = window.todoCats || DEFAULT_TODO_CATS;
+
+  let html = '';
+
+  // Non-todo section
+  if (nonTodos.length) {
+    html += nonTodos.map(e => eventItemHTML(e)).join('');
+  }
+
+  // Todo sections grouped by category (todomate style)
+  cats.forEach(cat => {
+    let catTodos = evs.filter(e => e.type === 'todo' && (e.todoCat || e.category || '개인할일') === cat);
+    if (todoStatusFilter !== 'all')
+      catTodos = catTodos.filter(e => todoStatusFilter === '완료' ? e.done : !e.done);
+    html += `<div class="todo-cat-section">
+      <div class="todo-cat-header">
+        <span class="todo-cat-name">${escHtml(cat)}</span>
+        <button class="todo-cat-add-btn" onclick="addTodoToCategory('${ds}','${escHtml(cat)}')">+</button>
+      </div>
+      <div class="todo-cat-items">
+        ${catTodos.length ? catTodos.map(e => todoItemHTML(e)).join('') : ''}
+      </div>
+    </div>`;
+  });
+
+  if (!nonTodos.length && cats.every(cat => {
+    let t = evs.filter(e => e.type === 'todo' && (e.todoCat || e.category || '개인할일') === cat);
+    if (todoStatusFilter !== 'all') t = t.filter(e => todoStatusFilter === '완료' ? e.done : !e.done);
+    return !t.length;
+  })) {
+    html = '<div class="no-events">일정 없음</div>' + html;
+  }
+
+  list.innerHTML = html;
+}
+
+function todoItemHTML(e) {
+  const isDone = e.done;
+  const titleStyle = isDone ? 'text-decoration:line-through;opacity:0.45;' : '';
+  return `<div class="todo-item" id="todo-${e.id}">
+    <div class="todo-checkbox ${isDone ? 'done' : ''}" onclick="toggleTodo('${e.id}')"></div>
+    <div class="todo-item-title" style="${titleStyle}" onclick="editTodoInline('${e.id}')">${escHtml(e.title)}</div>
+    <button class="todo-del-btn" onclick="deleteTodo('${e.id}')">×</button>
+  </div>`;
+}
+
+function addTodoToCategory(ds, cat) {
+  const title = prompt(cat + '에 할 일 추가:');
+  if (!title || !title.trim()) return;
+  const ev = { id: uid(), type: 'todo', title: title.trim(), date: ds, todoCat: cat, category: cat, done: false, createdAt: Date.now() };
+  events.push(ev);
+  saveEvents(); renderCalendar(); renderDayDetail(ds);
+}
+
+function editTodoInline(id) {
+  const ev = events.find(e => e.id === id);
+  if (!ev) return;
+  const newTitle = prompt('할 일 수정:', ev.title);
+  if (newTitle === null) return;
+  if (!newTitle.trim()) { alert('제목을 입력하세요'); return; }
+  ev.title = newTitle.trim();
+  saveEvents(); renderCalendar(); renderDayDetail(selectedDate);
+}
+
+function deleteTodo(id) {
+  events = events.filter(e => e.id !== id);
+  saveEvents(); renderCalendar(); renderDayDetail(selectedDate);
 }
 
 function eventItemHTML(e) {
@@ -619,6 +719,8 @@ function eventItemHTML(e) {
   const CAT_COLORS = { '개인할일': '#10B981', '회사업무': '#3B82F6' };
   const catBadge = (e.type === 'todo' && e.category)
     ? `<span class="todo-cat-badge" style="background:${CAT_COLORS[e.category]||'#888'}">${e.category}</span>` : '';
+  const editBtn = e.type === 'todo'
+    ? `<button class="icon-btn" onclick="event.stopPropagation();editTodoInline('${e.id}')">✏️</button>` : '';
   return `<div class="event-item">
     ${checkbox}
     <div class="event-color-bar" style="background:${t.color}"></div>
@@ -627,6 +729,7 @@ function eventItemHTML(e) {
       ${timeStr}${urlStr}${memoStr}
     </div>
     <div class="event-actions">
+      ${editBtn}
       <button class="icon-btn" onclick="event.stopPropagation();deleteEvent('${e.id}')">🗑</button>
     </div>
   </div>`;
@@ -807,13 +910,7 @@ function todoFilterBarHTML() {
     const active = todoStatusFilter === val;
     return `<button class="todo-filter-btn ${active?'active':''}" onclick="setTodoStatusFilter('${val}')">${label}</button>`;
   }).join('');
-  const cats = [['all','전체','#111'], ['개인할일','개인할일','#10B981'], ['회사업무','회사업무','#3B82F6']];
-  const cBtns = cats.map(([val, label, color]) => {
-    const active = todoCatFilter === val;
-    const style = active ? `background:${color};border-color:${color};color:#fff` : `border-color:${color};color:${color}`;
-    return `<button class="todo-filter-btn ${active?'active':''}" style="${style}" onclick="setTodoCatFilter('${val}')">${label}</button>`;
-  }).join('');
-  return `<div class="todo-filter-bar">${sBtns}<span class="todo-filter-divider"></span>${cBtns}</div>`;
+  return `<div class="todo-filter-bar">${sBtns}</div>`;
 }
 
 function setTodoStatusFilter(f) {
@@ -840,6 +937,7 @@ function saveEvent() {
     url:  document.getElementById('eventUrl').value.trim(),
     memo: document.getElementById('eventMemo').value.trim(),
     category: selectedEventType === 'todo' ? selectedTodoCat : null,
+    todoCat: selectedEventType === 'todo' ? selectedTodoCat : null,
     done: false,
     createdAt: Date.now(),
   };
