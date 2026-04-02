@@ -795,7 +795,7 @@ function renderIdeas() {
   if (!filtered.length) { container.innerHTML = '<div class="no-events" style="padding:40px 0">아이디어 없음</div>'; return; }
   container.innerHTML = filtered.map(idea => {
     const cat = IDEA_CATS[idea.category] || { color: '#888' };
-    return `<div class="idea-card" onclick="openIdeaDetail('${idea.id}')">`
+    return `<div class="idea-card" onclick="openIdeaDetail('${idea.id}')">
       <div class="idea-card-header">
         <span class="idea-category-badge" style="background:${cat.color}">${escHtml(idea.category)}</span>
         <span class="idea-source">${escHtml(idea.source)}</span>
