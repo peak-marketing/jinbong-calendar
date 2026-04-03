@@ -1013,7 +1013,6 @@ function openIdeaDetail(id) {
   document.getElementById('ideaDetailOverlay').style.display = 'flex';
 }
 
-(
 function editTodo(id) {
   var ev = data.events.find(function(e){ return String(e.id) === String(id); });
   if (!ev) return;
@@ -1039,7 +1038,8 @@ function init() {
   currentMonth = now.getMonth() + 1;
   selectedDate = todayStr();
   renderCalendar();
-})();
+}
+init();
 </script>
 
 <div id="ideaDetailOverlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);display:none;align-items:center;justify-content:center;z-index:1000;padding:16px;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)" onclick="this.style.display='none'">
