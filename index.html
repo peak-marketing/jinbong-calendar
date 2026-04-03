@@ -24,6 +24,22 @@
     background: #fff;
   }
 
+  /* Notification bar */
+  .notif-bar {
+    background: #FFFBEB; padding: 8px 16px; font-size: 12px; color: #92400E;
+    display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #FDE68A;
+    flex-wrap: wrap;
+  }
+  .notif-bar span { flex: 1; }
+  .notif-allow {
+    padding: 3px 10px; border-radius: 6px; border: none; cursor: pointer;
+    font-size: 11px; font-weight: 600; background: #F59E0B; color: #fff;
+  }
+  .notif-later {
+    padding: 3px 10px; border-radius: 6px; border: none; cursor: pointer;
+    font-size: 11px; font-weight: 600; background: #E5E7EB; color: #6B7280;
+  }
+
   /* Header */
   header {
     padding: 16px 20px 12px;
@@ -112,6 +128,7 @@
   .event-type-icon { font-size: 12px; margin-right: 4px; }
   .event-title { font-size: 14px; font-weight: 500; word-break: break-word; }
   .event-time { font-size: 11px; color: #888; margin-top: 2px; }
+  .event-alarm-badge { font-size: 10px; color: #F59E0B; margin-left: 4px; }
   .event-actions { display: flex; gap: 4px; flex-shrink: 0; }
   .icon-btn {
     background: none; border: none; cursor: pointer;
@@ -169,7 +186,6 @@
     display: flex; gap: 5px; padding: 8px 0 6px; flex-wrap: wrap; align-items: center;
     background: #fff; position: sticky; top: 0; z-index: 1;
   }
-  .todo-filter-divider { width: 1px; height: 16px; background: #ddd; margin: 0 2px; display: inline-block; }
   .todo-filter-btn {
     padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;
     border: 1.5px solid #ccc; background: #fff; color: #888; cursor: pointer;
@@ -224,19 +240,32 @@
     font-size: 14px; color: #ccc; z-index: 1;
   }
   .idea-delete:hover { color: #888; }
-  /* Idea detail modal content */
-  .idea-detail-cat { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+
+  /* Idea detail sections */
+  .idea-detail-section { margin-bottom: 14px; }
+  .idea-detail-label {
+    font-size: 10px; font-weight: 700; color: #9CA3AF; letter-spacing: 0.8px;
+    text-transform: uppercase; margin-bottom: 4px;
+  }
+  .idea-detail-topic {
+    font-size: 17px; font-weight: 700; color: #111; line-height: 1.4;
+  }
+  .idea-detail-key {
+    font-size: 14px; line-height: 1.65; color: #1F2937; font-weight: 500;
+    white-space: pre-wrap;
+  }
+  .idea-detail-body {
+    font-size: 13px; line-height: 1.7; color: #6B7280;
+    white-space: pre-wrap;
+  }
   .idea-detail-source { font-size: 13px; color: #888; }
-  .idea-detail-summary {
-    font-size: 14px; line-height: 1.7; color: #222;
-    margin-bottom: 14px; white-space: pre-wrap;
-  }
   .idea-detail-url {
-    font-size: 12px; color: #3b82f6; display: block;
-    word-break: break-all; text-decoration: none; margin-bottom: 10px;
+    display: block; padding: 10px 14px; background: #F3F4F6; border-radius: 10px;
+    color: #3B82F6; text-decoration: none; font-size: 13px;
+    word-break: break-all; margin-bottom: 10px;
   }
-  .idea-detail-url:hover { text-decoration: underline; }
-  .idea-detail-date { font-size: 12px; color: #bbb; margin-bottom: 18px; }
+  .idea-detail-url:hover { background: #E5E7EB; }
+  .idea-detail-date { font-size: 12px; color: #bbb; text-align: right; margin-top: 8px; }
 
   /* FAB */
   .fab {
@@ -298,6 +327,7 @@
     transition: all 0.15s;
   }
   .type-choice-btn:hover { border-color: #111; background: #fafafa; }
+
   @keyframes modalIn {
     from { opacity: 0; transform: scale(0.95) translateY(10px); }
     to   { opacity: 1; transform: scale(1) translateY(0); }
@@ -306,6 +336,13 @@
 </head>
 <body>
 <div class="app">
+  <!-- Notification permission bar -->
+  <div id="notifBar" class="notif-bar" style="display:none">
+    <span>🔔 할 일·일정 알림을 받으려면 알림을 허용해주세요</span>
+    <button class="notif-allow" onclick="requestNotifPermission()">허용</button>
+    <button class="notif-later" onclick="hideNotifBar()">나중에</button>
+  </div>
+
   <header>
     <div class="header-title">진봉 × Claude</div>
     <div class="header-nav" id="calNav">
@@ -392,11 +429,11 @@
     </div>
     <div class="form-group" id="todoCatGroup" style="display:none">
       <label class="form-label">카테고리</label>
-      <div class="type-selector" id="todoCatSelector">
-        <button class="type-btn active" data-cat="피크마케팅" onclick="selectTodoCat(this)">🔴 피크마케팅</button>
-        <button class="type-btn" data-cat="운동" onclick="selectTodoCat(this)">🟠 운동</button>
-        <button class="type-btn" data-cat="개인할일" onclick="selectTodoCat(this)">🟢 개인할일</button>
-      </div>
+      <div class="type-selector" id="todoCatSelector"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">🔔 알림 시간 (선택)</label>
+      <input class="form-input" type="datetime-local" id="eventAlarm" />
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeEventModal()">취소</button>
@@ -417,7 +454,12 @@
         <button class="type-btn" data-cat="수익화" onclick="selectIdeaCat(this)">수익화</button>
         <button class="type-btn" data-cat="자산구조" onclick="selectIdeaCat(this)">자산구조</button>
         <button class="type-btn" data-cat="미래전망" onclick="selectIdeaCat(this)">미래전망</button>
+        <button class="type-btn" data-cat="콘텐츠" onclick="selectIdeaCat(this)">콘텐츠</button>
       </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">주제</label>
+      <input class="form-input" id="ideaTopic" placeholder="핵심 주제 한 줄" />
     </div>
     <div class="form-group">
       <label class="form-label">출처</label>
@@ -428,8 +470,12 @@
       <input class="form-input" id="ideaUrl" placeholder="https://" />
     </div>
     <div class="form-group">
-      <label class="form-label">요약</label>
-      <textarea class="form-input" id="ideaSummary" rows="3" placeholder="아이디어 요약" style="resize:none"></textarea>
+      <label class="form-label">핵심요약</label>
+      <textarea class="form-input" id="ideaKeySummary" rows="2" placeholder="핵심 포인트" style="resize:none"></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">상세요약 (선택)</label>
+      <textarea class="form-input" id="ideaDetailSummary" rows="3" placeholder="상세 내용" style="resize:none"></textarea>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeIdeaModal()">취소</button>
@@ -438,20 +484,24 @@
   </div>
 </div>
 
-<!-- Idea Detail Modal -->
-<div class="modal-overlay hidden" id="ideaDetailModal">
+<!-- Todo Edit Modal -->
+<div class="modal-overlay hidden" id="todoEditModal">
   <div class="modal">
-    <div class="idea-detail-cat">
-      <span class="idea-category-badge" id="detailBadge"></span>
-      <span class="idea-detail-source" id="detailSource"></span>
+    <div class="modal-title">할 일 수정</div>
+    <div class="form-group">
+      <label class="form-label">할 일</label>
+      <input class="form-input" id="todoEditTitle" placeholder="할 일 입력" />
     </div>
-    <div class="idea-detail-summary" id="detailSummary"></div>
-    <a class="idea-detail-url" id="detailUrl" target="_blank" href="#"></a>
-    <div class="idea-detail-date" id="detailDate"></div>
     <div class="modal-actions">
-      <button class="btn btn-secondary" onclick="closeIdeaDetail()">닫기</button>
+      <button class="btn btn-secondary" onclick="closeTodoEdit()">취소</button>
+      <button class="btn btn-primary" onclick="saveTodoEdit()">저장</button>
     </div>
   </div>
+</div>
+
+<!-- Idea Detail Overlay -->
+<div id="ideaDetailOverlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);display:none;align-items:center;justify-content:center;z-index:1000;padding:16px;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)" onclick="this.style.display='none'">
+  <div id="ideaDetailContent" style="background:#fff;border-radius:16px;padding:24px;max-width:420px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.15);animation:modalIn 0.2s ease" onclick="event.stopPropagation()"></div>
 </div>
 
 <script>
@@ -460,6 +510,7 @@ const EVENTS_KEY = 'jinbong-claude-calendar';
 const IDEAS_KEY  = 'jinbong-claude-ideas';
 const TODO_CATS_KEY = 'jinbong-todo-cats';
 const DEFAULT_TODO_CATS = ['피크마케팅', '운동', '개인할일'];
+const CAT_COLOR_PALETTE = ['#3B82F6', '#F59E0B', '#10B981', '#8B5CF6', '#EC4899', '#EF4444', '#6366F1'];
 
 const EVENT_TYPES = {
   meeting: { icon: '📅', color: '#3B82F6', label: '미팅' },
@@ -474,6 +525,7 @@ const IDEA_CATS = {
   '수익화':  { color: '#10B981' },
   '자산구조': { color: '#F59E0B' },
   '미래전망': { color: '#6366F1' },
+  '콘텐츠':  { color: '#EC4899' },
 };
 
 const DEFAULT_IDEAS = [
@@ -498,6 +550,7 @@ let events = [];
 let ideas  = [];
 let activeIdeaCat = 'all';
 let editingEventId = null;
+let editingTodoId = null;
 let selectedEventType = 'meeting';
 let selectedIdeaCat = 'AI도구';
 let selectedTodoCat = '피크마케팅';
@@ -513,7 +566,6 @@ function loadData() {
   const id = localStorage.getItem(IDEAS_KEY);
   if (id) {
     ideas = JSON.parse(id);
-    // migrate: if all ideas have empty url, reset to new defaults with URLs
     if (ideas.length > 0 && ideas.every(i => !i.url)) {
       ideas = DEFAULT_IDEAS.map((d, i) => ({ ...d, id: 'default_' + i, createdAt: Date.now() - i * 1000 }));
       saveIdeas();
@@ -540,6 +592,53 @@ function formatDateHeader(dateStr) {
 function todayStr() {
   const t = new Date();
   return toDateStr(t.getFullYear(), t.getMonth()+1, t.getDate());
+}
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function getCatColor(cat) {
+  const cats = window.todoCats || DEFAULT_TODO_CATS;
+  const idx = cats.indexOf(cat);
+  if (idx >= 0) return CAT_COLOR_PALETTE[idx % CAT_COLOR_PALETTE.length];
+  return '#6B7280';
+}
+
+// ── Notification system ────────────────────────────────────
+function initNotifications() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    document.getElementById('notifBar').style.display = 'flex';
+  } else if (Notification.permission === 'granted') {
+    scheduleAllAlarms();
+  }
+}
+
+function requestNotifPermission() {
+  Notification.requestPermission().then(perm => {
+    hideNotifBar();
+    if (perm === 'granted') scheduleAllAlarms();
+  });
+}
+
+function hideNotifBar() {
+  document.getElementById('notifBar').style.display = 'none';
+}
+
+function scheduleAllAlarms() {
+  events.forEach(ev => { if (ev.alarmAt) scheduleAlarm(ev); });
+}
+
+function scheduleAlarm(ev) {
+  if (!ev.alarmAt || Notification.permission !== 'granted') return;
+  const alarmTime = new Date(ev.alarmAt).getTime();
+  const delay = alarmTime - Date.now();
+  if (delay > 0 && delay < 24 * 60 * 60 * 1000) {
+    setTimeout(() => {
+      new Notification('🔔 ' + ev.title, {
+        body: ev.memo || (EVENT_TYPES[ev.type] ? EVENT_TYPES[ev.type].label : '알림'),
+      });
+    }, delay);
+  }
 }
 
 // ── Tab switching ──────────────────────────────────────────
@@ -571,22 +670,19 @@ function renderCalendar() {
 
   let html = days.map(d => `<div class="weekday-label">${d}</div>`).join('');
 
-  // prev month tail
   for (let i = firstDay - 1; i >= 0; i--) {
     const day = prevDays - i;
     const pm = currentMonth === 1 ? 12 : currentMonth - 1;
     const py = currentMonth === 1 ? currentYear - 1 : currentYear;
     const ds = toDateStr(py, pm, day);
-    html += dayCell(day, ds, true, today, 'other-month');
+    html += dayCell(day, ds, today, 'other-month');
   }
-  // current month
   for (let d = 1; d <= daysInMonth; d++) {
     const ds = toDateStr(currentYear, currentMonth, d);
     const dow = (firstDay + d - 1) % 7;
     const extra = dow === 0 ? 'sun' : dow === 6 ? 'sat' : '';
-    html += dayCell(d, ds, false, today, extra);
+    html += dayCell(d, ds, today, extra);
   }
-  // next month
   const total = firstDay + daysInMonth;
   const remaining = 7 - (total % 7);
   if (remaining < 7) {
@@ -594,7 +690,7 @@ function renderCalendar() {
       const nm = currentMonth === 12 ? 1 : currentMonth + 1;
       const ny = currentMonth === 12 ? currentYear + 1 : currentYear;
       const ds = toDateStr(ny, nm, d);
-      html += dayCell(d, ds, true, today, 'other-month');
+      html += dayCell(d, ds, today, 'other-month');
     }
   }
 
@@ -602,7 +698,7 @@ function renderCalendar() {
   renderDayDetail(selectedDate);
 }
 
-function dayCell(day, ds, otherMonth, today, extra) {
+function dayCell(day, ds, today, extra) {
   const isToday = ds === today;
   const isSelected = ds === selectedDate;
   const evs = events.filter(e => e.date === ds);
@@ -636,40 +732,38 @@ function renderDayDetail(ds) {
   let evs = events.filter(e => e.date === ds);
   evs = evs.sort((a,b) => (a.time||'').localeCompare(b.time||''));
 
-  // Non-todo events
   const nonTodos = evs.filter(e => e.type !== 'todo');
   const cats = window.todoCats || DEFAULT_TODO_CATS;
 
-  let html = '';
+  let html = todoFilterBarHTML();
 
-  // Non-todo section
   if (nonTodos.length) {
     html += nonTodos.map(e => eventItemHTML(e)).join('');
   }
 
-  // Todo sections grouped by category (todomate style)
   cats.forEach(cat => {
     let catTodos = evs.filter(e => e.type === 'todo' && (e.todoCat || e.category || '개인할일') === cat);
     if (todoStatusFilter !== 'all')
       catTodos = catTodos.filter(e => todoStatusFilter === '완료' ? e.done : !e.done);
-    const catColor = CAT_COLORS[cat] || '#6B7280';
+    const catColor = getCatColor(cat);
     html += `<div class="todo-cat-section">
       <div class="todo-cat-header">
         <span class="todo-cat-name" style="color:${catColor}"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${catColor};margin-right:5px;vertical-align:middle;"></span>${escHtml(cat)}</span>
-        <button class="todo-cat-add-btn" style="color:${catColor};border-color:${catColor};" onclick="addTodoToCategory('${ds}','${escHtml(cat)}')">+</button>
+        <button class="todo-cat-add-btn" style="color:${catColor}" onclick="addTodoToCategory('${ds}','${escHtml(cat)}')">+</button>
       </div>
       <div class="todo-cat-items">
-        ${catTodos.length ? catTodos.map(e => todoItemHTML(e)).join('') : ''}
+        ${catTodos.map(e => todoItemHTML(e)).join('')}
       </div>
     </div>`;
   });
 
-  if (!nonTodos.length && cats.every(cat => {
+  const hasSomething = nonTodos.length > 0 || cats.some(cat => {
     let t = evs.filter(e => e.type === 'todo' && (e.todoCat || e.category || '개인할일') === cat);
     if (todoStatusFilter !== 'all') t = t.filter(e => todoStatusFilter === '완료' ? e.done : !e.done);
-    return !t.length;
-  })) {
-    html = '<div class="no-events">일정 없음</div>' + html;
+    return t.length > 0;
+  });
+  if (!hasSomething) {
+    html += '<div class="no-events">일정 없음</div>';
   }
 
   list.innerHTML = html;
@@ -678,29 +772,52 @@ function renderDayDetail(ds) {
 function todoItemHTML(e) {
   const isDone = e.done;
   const titleStyle = isDone ? 'text-decoration:line-through;opacity:0.45;' : '';
+  const alarmBadge = e.alarmAt ? '<span class="event-alarm-badge">🔔</span>' : '';
   return `<div class="todo-item" id="todo-${e.id}">
     <div class="todo-checkbox ${isDone ? 'done' : ''}" onclick="toggleTodo('${e.id}')"></div>
-    <div class="todo-item-title" style="${titleStyle}" onclick="editTodoInline('${e.id}')">${escHtml(e.title)}</div>
+    <div class="todo-item-title" style="${titleStyle}" onclick="openTodoEdit('${e.id}')">${escHtml(e.title)}${alarmBadge}</div>
     <button class="todo-del-btn" onclick="deleteTodo('${e.id}')">×</button>
   </div>`;
 }
 
 function addTodoToCategory(ds, cat) {
-  const title = prompt(cat + '에 할 일 추가:');
-  if (!title || !title.trim()) return;
-  const ev = { id: uid(), type: 'todo', title: title.trim(), date: ds, todoCat: cat, category: cat, done: false, createdAt: Date.now() };
-  events.push(ev);
-  saveEvents(); renderCalendar(); renderDayDetail(ds);
+  editingTodoId = null;
+  document.getElementById('todoEditTitle').value = '';
+  document.getElementById('todoEditModal').dataset.date = ds;
+  document.getElementById('todoEditModal').dataset.cat = cat;
+  document.getElementById('todoEditModal').querySelector('.modal-title').textContent = cat + ' 할 일 추가';
+  document.getElementById('todoEditModal').classList.remove('hidden');
 }
 
-function editTodoInline(id) {
+function openTodoEdit(id) {
   const ev = events.find(e => e.id === id);
   if (!ev) return;
-  const newTitle = prompt('할 일 수정:', ev.title);
-  if (newTitle === null) return;
-  if (!newTitle.trim()) { alert('제목을 입력하세요'); return; }
-  ev.title = newTitle.trim();
-  saveEvents(); renderCalendar(); renderDayDetail(selectedDate);
+  editingTodoId = id;
+  document.getElementById('todoEditTitle').value = ev.title;
+  document.getElementById('todoEditModal').querySelector('.modal-title').textContent = '할 일 수정';
+  document.getElementById('todoEditModal').classList.remove('hidden');
+}
+
+function closeTodoEdit() {
+  editingTodoId = null;
+  document.getElementById('todoEditModal').classList.add('hidden');
+}
+
+function saveTodoEdit() {
+  const title = document.getElementById('todoEditTitle').value.trim();
+  if (!title) { alert('할 일을 입력하세요'); return; }
+  if (editingTodoId) {
+    const ev = events.find(e => e.id === editingTodoId);
+    if (ev) { ev.title = title; saveEvents(); renderCalendar(); renderDayDetail(selectedDate); }
+  } else {
+    const modal = document.getElementById('todoEditModal');
+    const ds = modal.dataset.date;
+    const cat = modal.dataset.cat;
+    const ev = { id: uid(), type: 'todo', title, date: ds, todoCat: cat, category: cat, done: false, createdAt: Date.now() };
+    events.push(ev);
+    saveEvents(); renderCalendar(); renderDayDetail(ds);
+  }
+  closeTodoEdit();
 }
 
 function deleteTodo(id) {
@@ -715,22 +832,20 @@ function eventItemHTML(e) {
     ? `<div class="todo-checkbox ${isDone ? 'done' : ''}" onclick="toggleTodo('${e.id}')"></div>` : '';
   const titleClass = isDone ? 'event-title done-text' : 'event-title';
   const timeStr = e.time ? `<div class="event-time">${e.time}</div>` : '';
-  const urlStr = e.url ? `<a href="${e.url}" target="_blank" class="idea-url">${e.url}</a>` : '';
-  const memoStr = e.memo ? `<div class="event-time">${e.memo}</div>` : '';
-  const CAT_COLORS = { '피크마케팅': '#3B82F6', '운동': '#F59E0B', '개인할일': '#10B981' };
+  const urlStr = e.url ? `<a href="${escHtml(e.url)}" target="_blank" class="idea-url" style="font-size:11px;color:#3b82f6;display:block;margin-top:2px;word-break:break-all">${escHtml(e.url)}</a>` : '';
+  const memoStr = e.memo ? `<div class="event-time">${escHtml(e.memo)}</div>` : '';
+  const alarmBadge = e.alarmAt ? '<span class="event-alarm-badge">🔔</span>' : '';
+  const catColor = e.category ? getCatColor(e.category) : '#888';
   const catBadge = (e.type === 'todo' && e.category)
-    ? `<span class="todo-cat-badge" style="background:${CAT_COLORS[e.category]||'#888'}">${e.category}</span>` : '';
-  const editBtn = e.type === 'todo'
-    ? `<button class="icon-btn" onclick="event.stopPropagation();editTodoInline('${e.id}')">✏️</button>` : '';
+    ? `<span class="todo-cat-badge" style="background:${catColor}">${escHtml(e.category)}</span>` : '';
   return `<div class="event-item">
     ${checkbox}
     <div class="event-color-bar" style="background:${t.color}"></div>
     <div class="event-body" style="cursor:pointer" onclick="editEvent('${e.id}')">
-      <div class="${titleClass}">${t.icon} ${escHtml(e.title)}${catBadge}</div>
+      <div class="${titleClass}">${t.icon} ${escHtml(e.title)}${catBadge}${alarmBadge}</div>
       ${timeStr}${urlStr}${memoStr}
     </div>
     <div class="event-actions">
-      ${editBtn}
       <button class="icon-btn" onclick="event.stopPropagation();deleteEvent('${e.id}')">🗑</button>
     </div>
   </div>`;
@@ -738,7 +853,7 @@ function eventItemHTML(e) {
 
 function toggleTodo(id) {
   const ev = events.find(e => e.id === id);
-  if (ev) { ev.done = !ev.done; saveEvents(); renderCalendar(); if (currentTab === 'list') renderList(); }
+  if (ev) { ev.done = !ev.done; saveEvents(); renderCalendar(); if (currentTab === 'list') renderList(); renderDayDetail(selectedDate); }
 }
 
 function deleteEvent(id) {
@@ -795,12 +910,13 @@ function renderIdeas() {
   if (!filtered.length) { container.innerHTML = '<div class="no-events" style="padding:40px 0">아이디어 없음</div>'; return; }
   container.innerHTML = filtered.map(idea => {
     const cat = IDEA_CATS[idea.category] || { color: '#888' };
+    const displayTitle = idea.topic || idea.keySummary || idea.summary || '';
     return `<div class="idea-card" onclick="openIdeaDetail('${idea.id}')">
       <div class="idea-card-header">
         <span class="idea-category-badge" style="background:${cat.color}">${escHtml(idea.category)}</span>
-        <span class="idea-source">${escHtml(idea.source)}</span>
+        <span class="idea-source">${escHtml(idea.source||'')}</span>
       </div>
-      <div class="idea-card-title">${escHtml(idea.summary)}</div>
+      <div class="idea-card-title">${escHtml(displayTitle)}</div>
       <button class="idea-delete" onclick="event.stopPropagation();deleteIdea('${idea.id}')">✕</button>
     </div>`;
   }).join('');
@@ -812,46 +928,73 @@ function deleteIdea(id) {
 }
 
 function openIdeaDetail(id) {
-  var idea = ideas.find(function(i){ return String(i.id) === String(id); });
+  const idea = ideas.find(i => String(i.id) === String(id));
   if (!idea) return;
-  var cats = {
-    ai:       {name:'AI도구',  color:'#3B82F6'},
-    video:    {name:'영상제작', color:'#8B5CF6'},
-    monetize: {name:'수익화',  color:'#10B981'},
-    asset:    {name:'자산구조', color:'#F59E0B'},
-    future:   {name:'미래전망', color:'#6366F1'},
-    'AI도구':  {name:'AI도구',  color:'#3B82F6'},
-    '영상제작': {name:'영상제작', color:'#8B5CF6'},
-    '수익화':  {name:'수익화',  color:'#10B981'},
-    '자산구조': {name:'자산구조', color:'#F59E0B'},
-    '미래전망': {name:'미래전망', color:'#6366F1'},
-  };
-  var catKey = idea.cat || idea.category || '';
-  var cat = cats[catKey] || {name: catKey || '기타', color: '#999'};
-  var h = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
-  h += '<span style="background:'+cat.color+';color:#fff;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600">'+cat.name+'</span>';
-  h += '<button onclick="document.getElementById(\'ideaDetailOverlay\').style.display=\'none\'" style="background:none;border:none;font-size:22px;cursor:pointer;color:#999;padding:4px">✕</button></div>';
-  h += '<div style="font-size:13px;color:#888;margin-bottom:12px">'+escHtml(idea.source||'')+'</div>';
-  h += '<div style="font-size:15px;line-height:1.7;color:#222;margin-bottom:16px;white-space:pre-wrap">'+escHtml(idea.summary||'')+'</div>';
-  if (idea.url) h += '<a href="'+escHtml(idea.url)+'" target="_blank" rel="noopener" style="display:block;padding:12px 14px;background:#F3F4F6;border-radius:10px;color:#3B82F6;text-decoration:none;font-size:13px;word-break:break-all;margin-bottom:12px">🔗 '+escHtml(idea.url)+'</a>';
-  if (idea.date) h += '<div style="font-size:12px;color:#bbb;text-align:right;margin-top:8px">'+idea.date+'</div>';
+  const cat = IDEA_CATS[idea.category] || { color: '#999' };
+
+  let h = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">';
+  h += '<span style="background:' + cat.color + ';color:#fff;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600">' + escHtml(idea.category) + '</span>';
+  h += '<button onclick="document.getElementById(\'ideaDetailOverlay\').style.display=\'none\'" style="background:none;border:none;font-size:22px;cursor:pointer;color:#999;padding:4px">✕</button>';
+  h += '</div>';
+
+  // 주제
+  if (idea.topic) {
+    h += '<div style="font-size:10px;font-weight:700;color:#9CA3AF;letter-spacing:0.8px;text-transform:uppercase;margin-bottom:4px">주제</div>';
+    h += '<div style="font-size:17px;font-weight:700;color:#111;line-height:1.4;margin-bottom:16px">' + escHtml(idea.topic) + '</div>';
+  }
+
+  // 출처
+  if (idea.source) {
+    h += '<div style="font-size:10px;font-weight:700;color:#9CA3AF;letter-spacing:0.8px;text-transform:uppercase;margin-bottom:4px">출처</div>';
+    h += '<div style="font-size:13px;color:#888;margin-bottom:16px">' + escHtml(idea.source) + '</div>';
+  }
+
+  // 핵심요약
+  const keySummary = idea.keySummary || idea.summary || '';
+  if (keySummary) {
+    h += '<div style="font-size:10px;font-weight:700;color:#9CA3AF;letter-spacing:0.8px;text-transform:uppercase;margin-bottom:4px">핵심요약</div>';
+    h += '<div style="font-size:14px;line-height:1.65;color:#1F2937;font-weight:500;margin-bottom:16px;white-space:pre-wrap">' + escHtml(keySummary) + '</div>';
+  }
+
+  // 상세요약
+  if (idea.detailSummary) {
+    h += '<div style="font-size:10px;font-weight:700;color:#9CA3AF;letter-spacing:0.8px;text-transform:uppercase;margin-bottom:4px">상세요약</div>';
+    h += '<div style="font-size:13px;line-height:1.7;color:#6B7280;margin-bottom:16px;white-space:pre-wrap">' + escHtml(idea.detailSummary) + '</div>';
+  }
+
+  // URL
+  if (idea.url) {
+    h += '<a href="' + escHtml(idea.url) + '" target="_blank" rel="noopener" style="display:block;padding:12px 14px;background:#F3F4F6;border-radius:10px;color:#3B82F6;text-decoration:none;font-size:13px;word-break:break-all;margin-bottom:12px">🔗 ' + escHtml(idea.url) + '</a>';
+  }
+
+  // Date
+  const dateStr = idea.date || (idea.createdAt ? new Date(idea.createdAt).toISOString().slice(0,10) : '');
+  if (dateStr) {
+    h += '<div style="font-size:12px;color:#bbb;text-align:right;margin-top:8px">' + dateStr + '</div>';
+  }
+
   document.getElementById('ideaDetailContent').innerHTML = h;
   document.getElementById('ideaDetailOverlay').style.display = 'flex';
 }
-function closeIdeaDetail() {
-  document.getElementById('ideaDetailOverlay').style.display = 'none';
-}
 
 // ── Modal helpers ──────────────────────────────────────────
-function escHtml(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
 function openAddModal() {
   document.getElementById('typeChoiceModal').classList.remove('hidden');
 }
 function closeTypeChoice() {
   document.getElementById('typeChoiceModal').classList.add('hidden');
+}
+
+function buildTodoCatSelector() {
+  const cats = window.todoCats || DEFAULT_TODO_CATS;
+  const sel = document.getElementById('todoCatSelector');
+  sel.innerHTML = cats.map((cat, idx) => {
+    const color = CAT_COLOR_PALETTE[idx % CAT_COLOR_PALETTE.length];
+    return `<button class="type-btn" data-cat="${escHtml(cat)}" onclick="selectTodoCat(this)" style="">${escHtml(cat)}</button>`;
+  }).join('');
+  // set first as active if none selected
+  if (!selectedTodoCat || !cats.includes(selectedTodoCat)) selectedTodoCat = cats[0];
+  sel.querySelectorAll('.type-btn').forEach(b => b.classList.toggle('active', b.dataset.cat === selectedTodoCat));
 }
 
 function openEventModal() {
@@ -864,11 +1007,12 @@ function openEventModal() {
   document.getElementById('eventTime').value = '';
   document.getElementById('eventUrl').value = '';
   document.getElementById('eventMemo').value = '';
+  document.getElementById('eventAlarm').value = '';
   document.querySelectorAll('.type-btn[data-type]').forEach(b => b.classList.toggle('active', b.dataset.type === 'meeting'));
   document.getElementById('eventUrlGroup').style.display = 'none';
-  selectedTodoCat = '개인할일';
+  selectedTodoCat = (window.todoCats || DEFAULT_TODO_CATS)[0] || '개인할일';
   document.getElementById('todoCatGroup').style.display = 'none';
-  document.querySelectorAll('.type-btn[data-cat]').forEach(b => b.classList.toggle('active', b.dataset.cat === '개인할일'));
+  buildTodoCatSelector();
   document.getElementById('eventModal').classList.remove('hidden');
 }
 function closeEventModal() { document.getElementById('eventModal').classList.add('hidden'); }
@@ -883,7 +1027,7 @@ function selectEventType(btn) {
 
 function selectTodoCat(btn) {
   selectedTodoCat = btn.dataset.cat;
-  document.querySelectorAll('.type-btn[data-cat]').forEach(b => b.classList.toggle('active', b.dataset.cat === selectedTodoCat));
+  document.querySelectorAll('#todoCatSelector .type-btn').forEach(b => b.classList.toggle('active', b.dataset.cat === selectedTodoCat));
 }
 
 function editEvent(id) {
@@ -891,17 +1035,18 @@ function editEvent(id) {
   if (!ev) return;
   editingEventId = id;
   selectedEventType = ev.type;
-  selectedTodoCat = ev.category || '개인할일';
+  selectedTodoCat = ev.category || (window.todoCats || DEFAULT_TODO_CATS)[0] || '개인할일';
   document.getElementById('eventModalTitle').textContent = '일정 수정';
   document.getElementById('eventTitle').value = ev.title;
   document.getElementById('eventDate').value = ev.date;
   document.getElementById('eventTime').value = ev.time || '';
   document.getElementById('eventUrl').value = ev.url || '';
   document.getElementById('eventMemo').value = ev.memo || '';
+  document.getElementById('eventAlarm').value = ev.alarmAt || '';
   document.querySelectorAll('.type-btn[data-type]').forEach(b => b.classList.toggle('active', b.dataset.type === ev.type));
   document.getElementById('eventUrlGroup').style.display = ev.type === 'link' ? '' : 'none';
   document.getElementById('todoCatGroup').style.display = ev.type === 'todo' ? '' : 'none';
-  document.querySelectorAll('.type-btn[data-cat]').forEach(b => b.classList.toggle('active', b.dataset.cat === selectedTodoCat));
+  buildTodoCatSelector();
   document.getElementById('eventModal').classList.remove('hidden');
 }
 
@@ -929,6 +1074,7 @@ function saveEvent() {
   const title = document.getElementById('eventTitle').value.trim();
   const date  = document.getElementById('eventDate').value;
   if (!title || !date) { alert('제목과 날짜를 입력하세요'); return; }
+  const alarmAt = document.getElementById('eventAlarm').value || null;
   const ev = {
     id: editingEventId || uid(),
     type: selectedEventType,
@@ -939,6 +1085,7 @@ function saveEvent() {
     memo: document.getElementById('eventMemo').value.trim(),
     category: selectedEventType === 'todo' ? selectedTodoCat : null,
     todoCat: selectedEventType === 'todo' ? selectedTodoCat : null,
+    alarmAt,
     done: false,
     createdAt: Date.now(),
   };
@@ -949,6 +1096,7 @@ function saveEvent() {
     events.push(ev);
   }
   saveEvents();
+  if (alarmAt) scheduleAlarm(ev);
   closeEventModal();
   selectedDate = date;
   if (currentTab === 'calendar') renderCalendar();
@@ -960,9 +1108,11 @@ function openIdeaModal() {
   selectedIdeaCat = 'AI도구';
   document.querySelectorAll('#ideaCategorySelector .type-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.cat === 'AI도구'));
+  document.getElementById('ideaTopic').value = '';
   document.getElementById('ideaSource').value = '';
   document.getElementById('ideaUrl').value = '';
-  document.getElementById('ideaSummary').value = '';
+  document.getElementById('ideaKeySummary').value = '';
+  document.getElementById('ideaDetailSummary').value = '';
   document.getElementById('ideaModal').classList.remove('hidden');
 }
 function closeIdeaModal() { document.getElementById('ideaModal').classList.add('hidden'); }
@@ -974,15 +1124,19 @@ function selectIdeaCat(btn) {
 }
 
 function saveIdea() {
-  const source  = document.getElementById('ideaSource').value.trim();
-  const summary = document.getElementById('ideaSummary').value.trim();
-  if (!summary) { alert('요약을 입력하세요'); return; }
+  const keySummary = document.getElementById('ideaKeySummary').value.trim();
+  if (!keySummary) { alert('핵심요약을 입력하세요'); return; }
+  const topic = document.getElementById('ideaTopic').value.trim();
+  const detailSummary = document.getElementById('ideaDetailSummary').value.trim();
   ideas.unshift({
     id: uid(),
     category: selectedIdeaCat,
-    source,
+    topic,
+    source: document.getElementById('ideaSource').value.trim(),
     url:  document.getElementById('ideaUrl').value.trim(),
-    summary,
+    keySummary,
+    detailSummary,
+    summary: keySummary, // backward compat
     createdAt: Date.now(),
   });
   saveIdeas();
@@ -991,47 +1145,13 @@ function saveIdea() {
 }
 
 // Close modals on overlay click
-['typeChoiceModal','eventModal','ideaModal','ideaDetailModal'].forEach(id => {
+['typeChoiceModal','eventModal','ideaModal','todoEditModal'].forEach(id => {
   document.getElementById(id).addEventListener('click', function(e) {
-    if (e.target === this) {
-      this.classList.add('hidden');
-    }
+    if (e.target === this) this.classList.add('hidden');
   });
 });
 
 // ── Init ───────────────────────────────────────────────────
-function openIdeaDetail(id) {
-  var idea = ideas.find(function(i){ return String(i.id) === String(id); });
-  if (!idea) return;
-  var cat = IDEA_CATS[idea.category] || { color: '#999' };
-  var h = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><span style="background:'+cat.color+';color:#fff;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600">'+escHtml(idea.category)+'</span><button onclick="document.getElementById(\'ideaDetailOverlay\').style.display=\'none\'" style="background:none;border:none;font-size:22px;cursor:pointer;color:#999;padding:4px">✕</button></div>';
-  h += '<div style="font-size:13px;color:#888;margin-bottom:12px">'+escHtml(idea.source||'')+'</div>';
-  h += '<div style="font-size:15px;line-height:1.7;color:#222;margin-bottom:16px;white-space:pre-wrap">'+escHtml(idea.summary||'')+'</div>';
-  if (idea.url) h += '<a href="'+escHtml(idea.url)+'" target="_blank" style="display:block;padding:12px 14px;background:#F3F4F6;border-radius:10px;color:#3B82F6;text-decoration:none;font-size:13px;word-break:break-all;margin-bottom:12px">🔗 '+escHtml(idea.url)+'</a>';
-  if (idea.date) h += '<div style="font-size:12px;color:#bbb;text-align:right;margin-top:8px">'+idea.date+'</div>';
-  document.getElementById('ideaDetailContent').innerHTML = h;
-  document.getElementById('ideaDetailOverlay').style.display = 'flex';
-}
-
-(
-function editTodo(id) {
-  var ev = data.events.find(function(e){ return String(e.id) === String(id); });
-  if (!ev) return;
-  
-  var currentCat = ev.todoCat || '개인할일';
-  var catInput = prompt('카테고리 선택 (개인할일 / 회사업무):', currentCat);
-  if (catInput === null) return;
-  
-  var newTitle = prompt('할 일 수정:', ev.title);
-  if (newTitle !== null && newTitle.trim()) {
-    ev.title = newTitle.trim();
-    ev.todoCat = (catInput === '회사업무' ? '회사업무' : '개인할일');
-    saveEvents();
-    render();
-  }
-}
-
-
 function init() {
   loadData();
   const now = new Date();
@@ -1039,11 +1159,10 @@ function init() {
   currentMonth = now.getMonth() + 1;
   selectedDate = todayStr();
   renderCalendar();
-})();
-</script>
+  initNotifications();
+}
 
-<div id="ideaDetailOverlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);display:none;align-items:center;justify-content:center;z-index:1000;padding:16px;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)" onclick="this.style.display='none'">
-  <div id="ideaDetailContent" style="background:#fff;border-radius:16px;padding:24px;max-width:420px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.15);animation:modalIn 0.2s ease" onclick="event.stopPropagation()"></div>
-</div>
+init();
+</script>
 </body>
 </html>
