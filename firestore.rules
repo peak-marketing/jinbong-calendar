@@ -9,11 +9,16 @@ service cloud.firestore {
       return isLoggedIn() &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('approved', false) == true;
     }
+    function isAdmin() {
+      return isLoggedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin';
+    }
 
-    // 유저 프로필 — 로그인한 모든 사람 읽기 가능, 본인만 쓰기 가능
+    // 유저 프로필
     match /users/{uid} {
       allow read: if isLoggedIn();
-      allow write: if request.auth.uid == uid;
+      allow create: if request.auth.uid == uid;
+      allow update: if request.auth.uid == uid || isAdmin();
     }
 
     match /events/{eventId} {
