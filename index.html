@@ -444,11 +444,8 @@
     <div id="approvedList"></div>
     <div style="margin-top:20px;padding-top:16px;border-top:1px solid #f0f0f0">
       <div style="font-size:13px;font-weight:600;color:#555;margin-bottom:8px">⚠️ 데이터 관리</div>
-      <button onclick="claimAllIdeas()" style="width:100%;padding:10px;border-radius:8px;border:1.5px solid #e5e5e5;background:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;text-align:left;margin-bottom:8px">
-        📥 기존 아이디어 전체 내 소유로 가져오기
-      </button>
-      <button onclick="cleanupDuplicateIdeas()" style="width:100%;padding:10px;border-radius:8px;border:1.5px solid #fecaca;background:#fff5f5;color:#EF4444;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;text-align:left">
-        🗑 중복 아이디어 정리 (내 소유 아닌 것 삭제)
+      <button onclick="nukeAllIdeas()" style="width:100%;padding:10px;border-radius:8px;border:1.5px solid #fecaca;background:#fff5f5;color:#EF4444;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;text-align:left">
+        🗑 아이디어 전체 초기화 (모두 삭제 후 재시작)
       </button>
     </div>
     <div class="modal-actions" style="margin-top:12px">
@@ -1183,34 +1180,26 @@ async function approveUser(uid) {
 }
 function closeAdminPanel() { document.getElementById('adminModal').classList.add('hidden'); }
 
-async function cleanupDuplicateIdeas() {
-  if (!confirm('내 소유가 아닌 아이디어를 전부 삭제할까요?\n(멤버들이 잘못 생성된 기본 아이디어 삭제)')) return;
-  const snap = await db.collection('ideas').get();
-  const batch = db.batch();
-  let count = 0;
-  snap.docs.forEach(d => {
-    if (d.data().ownerId !== currentUser.uid) {
+async function nukeAllIdeas() {
+  if (!confirm('아이디어를 전부 삭제할까요?\n삭제 후 새로 직접 추가하시면 됩니다.')) return;
+  try {
+    const snap = await db.collection('ideas').get();
+    // Firestore batch는 500개 제한
+    const chunks = [];
+    let batch = db.batch();
+    let count = 0;
+    snap.docs.forEach((d, i) => {
       batch.delete(d.ref);
       count++;
-    }
-  });
-  await batch.commit();
-  alert(`완료! ${count}개 삭제됐어요.`);
-}
-
-async function claimAllIdeas() {
-  if (!confirm('기존 아이디어 전체를 내 소유(나만 보기)로 변경할까요?\n(되돌릴 수 없어요)')) return;
-  const snap = await db.collection('ideas').get();
-  const batch = db.batch();
-  snap.docs.forEach(d => {
-    batch.update(d.ref, {
-      ownerId: currentUser.uid,
-      ownerName: currentUser.displayName || currentUser.email,
-      scope: 'personal'
+      if (count % 400 === 0) { chunks.push(batch); batch = db.batch(); }
     });
-  });
-  await batch.commit();
-  alert('완료! 아이디어 전체가 내 소유(나만 보기)로 변경됐어요.');
+    chunks.push(batch);
+    for (const b of chunks) await b.commit();
+    alert('완료! 아이디어가 전부 삭제됐어요.');
+    closeAdminPanel();
+  } catch(e) {
+    alert('오류: ' + e.message + '\n\nFirestore 규칙을 다시 확인해주세요.');
+  }
 }
 
 // ── Reminders ─────────────────────────────────────────────────
