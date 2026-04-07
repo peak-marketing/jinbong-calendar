@@ -442,7 +442,13 @@
     <div id="pendingList"><div style="font-size:13px;color:#aaa;padding:12px 0">대기 중인 사용자 없음</div></div>
     <div style="font-size:13px;font-weight:600;color:#555;margin:16px 0 8px">승인된 팀원</div>
     <div id="approvedList"></div>
-    <div class="modal-actions" style="margin-top:16px">
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid #f0f0f0">
+      <div style="font-size:13px;font-weight:600;color:#555;margin-bottom:8px">⚠️ 데이터 관리</div>
+      <button onclick="claimAllIdeas()" style="width:100%;padding:10px;border-radius:8px;border:1.5px solid #e5e5e5;background:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;text-align:left">
+        📥 기존 아이디어 전체 내 소유로 가져오기
+      </button>
+    </div>
+    <div class="modal-actions" style="margin-top:12px">
       <button class="btn btn-secondary" onclick="closeAdminPanel()">닫기</button>
     </div>
   </div>
@@ -617,8 +623,19 @@ function initApp() {
 function subscribeEvents() {
   if (unsubscribeEvents) unsubscribeEvents();
   const uid = currentUser.uid;
-  let personalEvs = [], teamEvs = [];
 
+  if (isAdmin) {
+    // 어드민 — 전체 열람
+    unsubscribeEvents = db.collection('events')
+      .onSnapshot(snap => {
+        events = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => !e.deleted);
+        renderCalendar();
+        if (currentTab === 'list') renderList();
+      }, err => console.error('admin events:', err));
+    return;
+  }
+
+  let personalEvs = [], teamEvs = [];
   const merge = () => {
     const map = {};
     [...personalEvs, ...teamEvs].forEach(e => map[e.id] = e);
@@ -626,57 +643,42 @@ function subscribeEvents() {
     renderCalendar();
     if (currentTab === 'list') renderList();
   };
-
-  // 내 일정
-  const unsubP = db.collection('events')
-    .where('ownerId', '==', uid)
-    .onSnapshot(snap => {
-      personalEvs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      merge();
-    }, err => console.error('personal events:', err));
-
-  // 팀 일정
-  const unsubT = db.collection('events')
-    .where('scope', '==', 'team')
-    .onSnapshot(snap => {
-      teamEvs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      merge();
-    }, err => console.error('team events:', err));
-
+  const unsubP = db.collection('events').where('ownerId', '==', uid)
+    .onSnapshot(snap => { personalEvs = snap.docs.map(d => ({ id: d.id, ...d.data() })); merge(); }, err => console.error('personal events:', err));
+  const unsubT = db.collection('events').where('scope', '==', 'team')
+    .onSnapshot(snap => { teamEvs = snap.docs.map(d => ({ id: d.id, ...d.data() })); merge(); }, err => console.error('team events:', err));
   unsubscribeEvents = () => { unsubP(); unsubT(); };
 }
 
 function subscribeIdeas() {
   if (unsubscribeIdeas) unsubscribeIdeas();
   const uid = currentUser.uid;
-  let personalIdeas = [], teamIdeas = [];
 
+  const sortIdeas = arr => arr.sort((a,b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+
+  if (isAdmin) {
+    // 어드민 — 전체 열람
+    unsubscribeIdeas = db.collection('ideas')
+      .onSnapshot(snap => {
+        ideas = sortIdeas(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        if (ideas.length === 0) seedDefaultIdeas();
+        if (currentTab === 'ideas') renderIdeas();
+      }, err => console.error('admin ideas:', err));
+    return;
+  }
+
+  let personalIdeas = [], teamIdeas = [];
   const merge = () => {
     const map = {};
     [...personalIdeas, ...teamIdeas].forEach(i => map[i.id] = i);
-    ideas = Object.values(map).sort((a, b) => {
-      const ta = a.createdAt?.toMillis?.() || 0;
-      const tb = b.createdAt?.toMillis?.() || 0;
-      return tb - ta;
-    });
+    ideas = sortIdeas(Object.values(map));
     if (ideas.length === 0) seedDefaultIdeas();
     if (currentTab === 'ideas') renderIdeas();
   };
-
-  const unsubP = db.collection('ideas')
-    .where('ownerId', '==', uid)
-    .onSnapshot(snap => {
-      personalIdeas = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      merge();
-    }, err => console.error('personal ideas:', err));
-
-  const unsubT = db.collection('ideas')
-    .where('scope', '==', 'team')
-    .onSnapshot(snap => {
-      teamIdeas = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      merge();
-    }, err => console.error('team ideas:', err));
-
+  const unsubP = db.collection('ideas').where('ownerId', '==', uid)
+    .onSnapshot(snap => { personalIdeas = snap.docs.map(d => ({ id: d.id, ...d.data() })); merge(); }, err => console.error('personal ideas:', err));
+  const unsubT = db.collection('ideas').where('scope', '==', 'team')
+    .onSnapshot(snap => { teamIdeas = snap.docs.map(d => ({ id: d.id, ...d.data() })); merge(); }, err => console.error('team ideas:', err));
   unsubscribeIdeas = () => { unsubP(); unsubT(); };
 }
 
@@ -1177,6 +1179,17 @@ async function approveUser(uid) {
   openAdminPanel();
 }
 function closeAdminPanel() { document.getElementById('adminModal').classList.add('hidden'); }
+
+async function claimAllIdeas() {
+  if (!confirm('기존 아이디어 전체를 내 소유로 변경할까요?\n(되돌릴 수 없어요)')) return;
+  const snap = await db.collection('ideas').get();
+  const batch = db.batch();
+  snap.docs.forEach(d => {
+    batch.update(d.ref, { ownerId: currentUser.uid, ownerName: currentUser.displayName || currentUser.email });
+  });
+  await batch.commit();
+  alert('완료! 아이디어 전체가 내 소유로 변경됐어요.');
+}
 
 // ── Reminders ─────────────────────────────────────────────────
 function requestNotifPermission() {

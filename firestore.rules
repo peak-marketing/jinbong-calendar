@@ -21,22 +21,22 @@ service cloud.firestore {
     }
 
     match /events/{eventId} {
-      allow read: if isApproved() &&
-        (resource.data.scope == 'team' || resource.data.ownerId == request.auth.uid);
+      allow read: if isAdmin() || (isApproved() &&
+        (resource.data.scope == 'team' || resource.data.ownerId == request.auth.uid));
       allow create: if isApproved();
-      allow update, delete: if isApproved() && resource.data.ownerId == request.auth.uid;
+      allow update, delete: if isAdmin() || (isApproved() && resource.data.ownerId == request.auth.uid);
     }
 
     match /ideas/{ideaId} {
-      allow read: if isApproved() &&
-        (resource.data.scope == 'team' || resource.data.ownerId == request.auth.uid);
+      allow read: if isAdmin() || (isApproved() &&
+        (resource.data.scope == 'team' || resource.data.ownerId == request.auth.uid));
       allow create: if isApproved();
-      allow update, delete: if isApproved() && resource.data.ownerId == request.auth.uid;
+      allow update, delete: if isAdmin() || (isApproved() && resource.data.ownerId == request.auth.uid);
     }
 
     match /chat/{msgId} {
       allow read, create: if isApproved();
-      allow delete: if isApproved() && resource.data.uid == request.auth.uid;
+      allow delete: if isAdmin() || (isApproved() && resource.data.uid == request.auth.uid);
     }
   }
 }
