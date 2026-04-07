@@ -531,29 +531,47 @@ auth.onAuthStateChanged(async user => {
   if (!user) { showScreen('login'); events = []; ideas = []; return; }
   currentUser = user;
 
-  // Check / create user doc
-  const userRef = db.collection('users').doc(user.uid);
-  const userSnap = await userRef.get();
-  if (!userSnap.exists) {
-    await userRef.set({ email: user.email, name: user.displayName, photoURL: user.photoURL || '', createdAt: firebase.firestore.FieldValue.serverTimestamp(), approved: false, role: 'member' });
-  }
-  currentUserDoc = (await userRef.get()).data();
+  try {
+    const userRef = db.collection('users').doc(user.uid);
+    let userSnap = await userRef.get();
 
-  // First ever user → auto-approve as admin
-  const approvedSnap = await db.collection('users').where('approved', '==', true).limit(1).get();
-  if (approvedSnap.empty) {
-    await userRef.update({ approved: true, role: 'admin' });
-    currentUserDoc = (await userRef.get()).data();
-  }
+    if (!userSnap.exists) {
+      await userRef.set({
+        email: user.email, name: user.displayName,
+        photoURL: user.photoURL || '',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        approved: false, role: 'member'
+      });
+      userSnap = await userRef.get();
+    }
+    currentUserDoc = userSnap.data();
 
-  if (!currentUserDoc.approved) {
-    showScreen('pending');
-    return;
-  }
+    // First ever user → auto-approve as admin
+    if (!currentUserDoc.approved) {
+      try {
+        const approvedSnap = await db.collection('users')
+          .where('approved', '==', true).limit(1).get();
+        if (approvedSnap.empty) {
+          await userRef.update({ approved: true, role: 'admin' });
+          currentUserDoc = (await userRef.get()).data();
+        }
+      } catch (e) {
+        // Firestore rules may block query for new user — try direct update
+        await userRef.update({ approved: true, role: 'admin' });
+        currentUserDoc = (await userRef.get()).data();
+      }
+    }
 
-  isAdmin = currentUserDoc.role === 'admin';
-  showScreen('app');
-  initApp();
+    if (!currentUserDoc.approved) { showScreen('pending'); return; }
+    isAdmin = currentUserDoc.role === 'admin';
+    showScreen('app');
+    initApp();
+
+  } catch (err) {
+    console.error('Auth error:', err);
+    alert('오류: ' + err.message + '\n\nFirestore 규칙을 다시 적용해주세요.');
+    doSignOut();
+  }
 });
 
 function showScreen(screen) {
