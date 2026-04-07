@@ -8,235 +8,178 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #fff;
-    color: #111;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+    background: #fff; color: #111; min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center;
   }
   .app {
-    width: 100%;
-    max-width: 480px;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    background: #fff;
+    width: 100%; max-width: 480px; min-height: 100vh;
+    display: flex; flex-direction: column; background: #fff;
   }
-
-  /* Header */
   header {
-    padding: 16px 20px 12px;
-    border-bottom: 1px solid #e5e5e5;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    padding: 12px 16px; border-bottom: 1px solid #e5e5e5;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; background: #fff; z-index: 50;
   }
-  .header-title { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
-  .header-nav { display: flex; align-items: center; gap: 8px; }
-  .nav-btn {
-    background: none; border: none; cursor: pointer;
-    font-size: 18px; color: #555; padding: 4px;
-    line-height: 1;
+  .header-left { display: flex; align-items: center; gap: 8px; }
+  .header-title { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
+  .header-right { display: flex; align-items: center; gap: 8px; }
+  .header-nav { display: flex; align-items: center; gap: 4px; }
+  .nav-btn { background: none; border: none; cursor: pointer; font-size: 18px; color: #555; padding: 4px; line-height: 1; }
+  .month-label { font-size: 14px; font-weight: 600; min-width: 72px; text-align: center; }
+  .user-avatar {
+    width: 30px; height: 30px; border-radius: 50%;
+    overflow: hidden; cursor: pointer; flex-shrink: 0;
+    background: #f0f0f0; display: flex; align-items: center;
+    justify-content: center; font-size: 14px; border: 1.5px solid #e5e5e5;
   }
-  .month-label { font-size: 15px; font-weight: 600; min-width: 80px; text-align: center; }
+  .user-avatar img { width: 100%; height: 100%; object-fit: cover; }
 
   /* Tabs */
-  .tabs {
-    display: flex;
-    border-bottom: 1px solid #e5e5e5;
-    background: #fff;
-  }
+  .tabs { display: flex; border-bottom: 1px solid #e5e5e5; background: #fff; }
   .tab {
-    flex: 1; padding: 12px 8px; text-align: center;
-    font-size: 13px; font-weight: 500; color: #888;
-    cursor: pointer; border-bottom: 2px solid transparent;
-    transition: all 0.15s;
+    flex: 1; padding: 11px 4px; text-align: center;
+    font-size: 12px; font-weight: 500; color: #888;
+    cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s;
   }
   .tab.active { color: #111; border-bottom-color: #111; }
 
-  /* Calendar view */
-  .calendar-grid {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    padding: 0 4px;
-  }
-  .weekday-label {
-    text-align: center; font-size: 11px; font-weight: 600;
-    color: #888; padding: 10px 0 6px;
-  }
+  /* Calendar */
+  .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); padding: 0 4px; }
+  .weekday-label { text-align: center; font-size: 11px; font-weight: 600; color: #888; padding: 10px 0 6px; }
   .weekday-label:first-child { color: #ef4444; }
   .weekday-label:last-child { color: #3b82f6; }
   .day-cell {
     aspect-ratio: 1; display: flex; flex-direction: column;
     align-items: center; padding: 4px 2px; cursor: pointer;
-    border-radius: 8px; transition: background 0.1s;
-    position: relative;
+    border-radius: 8px; transition: background 0.1s; position: relative;
   }
   .day-cell:hover { background: #f5f5f5; }
   .day-cell.other-month .day-num { color: #ccc; }
   .day-cell.today .day-num {
-    background: #111; color: #fff;
+    background: #111; color: #fff !important;
     border-radius: 50%; width: 24px; height: 24px;
     display: flex; align-items: center; justify-content: center;
   }
   .day-cell.selected { background: #f0f0f0; }
-  .day-num {
-    font-size: 13px; font-weight: 500; line-height: 24px;
-    width: 24px; height: 24px; text-align: center;
-  }
-  .day-cell:first-child .day-num, .day-cell.sun .day-num { color: #ef4444; }
-  .day-cell:last-child .day-num, .day-cell.sat .day-num { color: #3b82f6; }
-  .day-cell.today .day-num { color: #fff !important; }
+  .day-num { font-size: 13px; font-weight: 500; line-height: 24px; width: 24px; height: 24px; text-align: center; }
+  .day-cell.sun .day-num { color: #ef4444; }
+  .day-cell.sat .day-num { color: #3b82f6; }
   .event-dots { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; margin-top: 2px; }
   .event-dot { width: 5px; height: 5px; border-radius: 50%; }
 
   /* Day detail */
-  .day-detail {
-    border-top: 1px solid #e5e5e5;
-    padding: 12px 16px;
-    flex: 1;
-    overflow-y: auto;
-  }
+  .day-detail { border-top: 1px solid #e5e5e5; padding: 12px 16px; flex: 1; overflow-y: auto; }
   .day-detail-title { font-size: 13px; font-weight: 600; color: #555; margin-bottom: 8px; }
   .no-events { font-size: 13px; color: #aaa; text-align: center; padding: 20px 0; }
 
   /* Event items */
-  .event-item {
-    display: flex; align-items: flex-start; gap: 10px;
-    padding: 8px 0; border-bottom: 1px solid #f0f0f0;
-  }
+  .event-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
   .event-item:last-child { border-bottom: none; }
   .event-color-bar { width: 3px; border-radius: 2px; align-self: stretch; min-height: 20px; flex-shrink: 0; }
   .event-body { flex: 1; min-width: 0; }
-  .event-type-icon { font-size: 12px; margin-right: 4px; }
   .event-title { font-size: 14px; font-weight: 500; word-break: break-word; }
   .event-time { font-size: 11px; color: #888; margin-top: 2px; }
   .event-actions { display: flex; gap: 4px; flex-shrink: 0; }
-  .icon-btn {
-    background: none; border: none; cursor: pointer;
-    font-size: 14px; color: #aaa; padding: 2px;
-  }
+  .icon-btn { background: none; border: none; cursor: pointer; font-size: 14px; color: #aaa; padding: 2px; }
   .icon-btn:hover { color: #555; }
+  .team-badge {
+    display: inline-block; padding: 1px 6px; border-radius: 8px;
+    font-size: 9px; font-weight: 700; background: #EFF6FF; color: #3B82F6;
+    margin-left: 5px; vertical-align: middle; border: 1px solid #BFDBFE;
+  }
+  .owner-label { font-size: 11px; color: #888; margin-top: 2px; }
+
+  /* Todo styles */
   .todo-checkbox {
-    width: 18px; height: 18px; border-radius: 4px;
-    border: 2px solid #ccc; cursor: pointer; flex-shrink: 0;
-    margin-top: 2px; background: #fff;
-    display: flex; align-items: center; justify-content: center;
-    transition: all 0.15s;
+    width: 18px; height: 18px; border-radius: 4px; border: 2px solid #ccc;
+    cursor: pointer; flex-shrink: 0; margin-top: 2px; background: #fff;
+    display: flex; align-items: center; justify-content: center; transition: all 0.15s;
   }
   .todo-checkbox.done { background: #10B981; border-color: #10B981; }
   .todo-checkbox.done::after { content: '✓'; color: #fff; font-size: 11px; font-weight: 700; }
   .event-title.done-text { text-decoration: line-through; color: #aaa; }
-  .todo-cat-badge {
-    display: inline-block; padding: 1px 7px; border-radius: 10px;
-    font-size: 10px; font-weight: 600; color: #fff; margin-left: 5px;
-    vertical-align: middle;
-  }
-  .todo-cat-section {
-    margin-bottom: 12px;
-  }
+  .todo-cat-section { margin-bottom: 12px; }
   .todo-cat-header {
     display: flex; align-items: center; justify-content: space-between;
     padding: 6px 4px 4px; border-bottom: 1.5px solid #e5e7eb; margin-bottom: 4px;
   }
-  .todo-cat-name {
-    font-size: 12px; font-weight: 700; color: #374151; letter-spacing: 0.3px;
-  }
+  .todo-cat-name { font-size: 12px; font-weight: 700; color: #374151; letter-spacing: 0.3px; }
   .todo-cat-add-btn {
     background: none; border: none; cursor: pointer; font-size: 18px;
-    color: #9CA3AF; line-height: 1; padding: 0 2px;
-    transition: color 0.15s;
+    color: #9CA3AF; line-height: 1; padding: 0 2px; transition: color 0.15s;
   }
-  .todo-cat-add-btn:hover { color: #10B981; }
-  .todo-cat-items { padding: 2px 0; }
-  .todo-item {
-    display: flex; align-items: center; gap: 8px; padding: 5px 4px;
-    border-radius: 6px; transition: background 0.1s;
-  }
+  .todo-item { display: flex; align-items: center; gap: 8px; padding: 5px 4px; border-radius: 6px; transition: background 0.1s; }
   .todo-item:hover { background: #F9FAFB; }
-  .todo-item-title {
-    flex: 1; font-size: 13px; color: #1F2937; cursor: pointer;
-    padding: 1px 0;
-  }
-  .todo-del-btn {
-    background: none; border: none; cursor: pointer; font-size: 16px;
-    color: #D1D5DB; padding: 0 2px; line-height: 1;
-    transition: color 0.15s;
-  }
+  .todo-item-title { flex: 1; font-size: 13px; color: #1F2937; cursor: pointer; padding: 1px 0; }
+  .todo-del-btn { background: none; border: none; cursor: pointer; font-size: 16px; color: #D1D5DB; padding: 0 2px; line-height: 1; transition: color 0.15s; }
   .todo-del-btn:hover { color: #EF4444; }
   .todo-filter-bar {
     display: flex; gap: 5px; padding: 8px 0 6px; flex-wrap: wrap; align-items: center;
     background: #fff; position: sticky; top: 0; z-index: 1;
   }
-  .todo-filter-divider { width: 1px; height: 16px; background: #ddd; margin: 0 2px; display: inline-block; }
   .todo-filter-btn {
     padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;
-    border: 1.5px solid #ccc; background: #fff; color: #888; cursor: pointer;
-    transition: all 0.15s; white-space: nowrap;
+    border: 1.5px solid #ccc; background: #fff; color: #888; cursor: pointer; transition: all 0.15s;
   }
   .todo-filter-btn.active { background: #111; border-color: #111; color: #fff; }
 
+  /* Scope toggle in header area */
+  .scope-toggle {
+    display: flex; border: 1.5px solid #e5e5e5; border-radius: 8px; overflow: hidden;
+  }
+  .scope-btn {
+    padding: 4px 12px; border: none; font-size: 12px; font-weight: 600;
+    cursor: pointer; font-family: inherit; transition: all 0.15s; white-space: nowrap;
+  }
+  .scope-btn.active { background: #111; color: #fff; }
+  .scope-btn:not(.active) { background: #fff; color: #888; }
+
   /* List view */
   .list-view { flex: 1; overflow-y: auto; padding: 0 16px; }
-  .list-date-group { margin-bottom: 4px; }
-  .list-date-header {
-    font-size: 12px; font-weight: 700; color: #888;
-    padding: 12px 0 6px; letter-spacing: 0.5px;
-    text-transform: uppercase;
-  }
+  .list-date-header { font-size: 12px; font-weight: 700; color: #888; padding: 12px 0 6px; letter-spacing: 0.5px; text-transform: uppercase; }
 
   /* Ideas view */
   .ideas-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-  .ideas-filters {
-    display: flex; gap: 6px; padding: 10px 16px;
-    overflow-x: auto; border-bottom: 1px solid #f0f0f0;
-    scrollbar-width: none;
-  }
+  .ideas-filters { display: flex; gap: 6px; padding: 10px 16px; overflow-x: auto; border-bottom: 1px solid #f0f0f0; scrollbar-width: none; }
   .ideas-filters::-webkit-scrollbar { display: none; }
-  .filter-chip {
-    flex-shrink: 0; padding: 4px 12px; border-radius: 20px;
-    font-size: 12px; font-weight: 500; cursor: pointer;
-    border: 1.5px solid transparent; transition: all 0.15s;
-    white-space: nowrap;
-  }
+  .filter-chip { flex-shrink: 0; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; cursor: pointer; border: 1.5px solid transparent; transition: all 0.15s; white-space: nowrap; }
   .filter-chip.active { color: #fff; }
   .ideas-list { flex: 1; overflow-y: auto; padding: 8px 16px 80px; }
-  .idea-card {
-    border: 1px solid #e5e5e5; border-radius: 10px;
-    padding: 12px 40px 12px 12px; margin-bottom: 10px;
-    position: relative; cursor: pointer; transition: background 0.1s;
-  }
+  .idea-card { border: 1px solid #e5e5e5; border-radius: 10px; padding: 12px 40px 12px 12px; margin-bottom: 10px; position: relative; cursor: pointer; transition: background 0.1s; }
   .idea-card:hover { background: #fafafa; }
   .idea-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
-  .idea-category-badge {
-    font-size: 10px; font-weight: 700; padding: 2px 8px;
-    border-radius: 10px; color: #fff; flex-shrink: 0;
-  }
+  .idea-category-badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; color: #fff; flex-shrink: 0; }
   .idea-source { font-size: 12px; color: #888; }
-  .idea-card-title {
-    font-size: 13px; line-height: 1.4; color: #222;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .idea-delete {
-    position: absolute; top: 8px; right: 8px;
-    background: none; border: none; cursor: pointer;
-    font-size: 14px; color: #ccc; z-index: 1;
-  }
-  .idea-delete:hover { color: #888; }
-  /* Idea detail modal content */
-  .idea-detail-cat { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
-  .idea-detail-source { font-size: 13px; color: #888; }
-  .idea-detail-summary {
-    font-size: 14px; line-height: 1.7; color: #222;
-    margin-bottom: 14px; white-space: pre-wrap;
-  }
-  .idea-detail-url {
-    font-size: 12px; color: #3b82f6; display: block;
-    word-break: break-all; text-decoration: none; margin-bottom: 10px;
-  }
-  .idea-detail-url:hover { text-decoration: underline; }
-  .idea-detail-date { font-size: 12px; color: #bbb; margin-bottom: 18px; }
+  .idea-card-title { font-size: 13px; line-height: 1.4; color: #222; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .idea-delete { position: absolute; top: 8px; right: 8px; background: none; border: none; cursor: pointer; font-size: 14px; color: #ccc; z-index: 1; }
+
+  /* Chat view */
+  .chat-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .chat-messages { flex: 1; overflow-y: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .chat-msg { display: flex; gap: 8px; align-items: flex-end; }
+  .chat-msg.mine { flex-direction: row-reverse; }
+  .chat-avatar { width: 28px; height: 28px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: #f0f0f0; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+  .chat-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .chat-content { max-width: 72%; }
+  .chat-name { font-size: 11px; color: #888; margin-bottom: 3px; }
+  .chat-msg.mine .chat-name { text-align: right; }
+  .chat-bubble { padding: 8px 12px; border-radius: 16px; font-size: 13px; line-height: 1.5; word-break: break-word; }
+  .chat-msg:not(.mine) .chat-bubble { background: #f0f0f0; color: #111; border-bottom-left-radius: 4px; }
+  .chat-msg.mine .chat-bubble { background: #111; color: #fff; border-bottom-right-radius: 4px; }
+  .chat-time { font-size: 10px; color: #bbb; margin-top: 3px; }
+  .chat-msg.mine .chat-time { text-align: right; }
+  .chat-input-area { padding: 10px 16px 20px; border-top: 1px solid #f0f0f0; display: flex; gap: 8px; align-items: center; background: #fff; }
+  .chat-input { flex: 1; padding: 9px 14px; border: 1.5px solid #e5e5e5; border-radius: 22px; font-size: 14px; outline: none; font-family: inherit; transition: border-color 0.15s; }
+  .chat-input:focus { border-color: #111; }
+  .chat-send-btn { width: 38px; height: 38px; border-radius: 50%; background: #111; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 18px; flex-shrink: 0; transition: background 0.15s; }
+  .chat-send-btn:hover { background: #333; }
+  .chat-date-divider { text-align: center; font-size: 11px; color: #bbb; margin: 4px 0; }
+  .chat-empty { text-align: center; font-size: 13px; color: #bbb; padding: 40px 0; }
+
+  /* Admin panel */
+  .pending-item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #f0f0f0; }
+  .pending-name { flex: 1; font-size: 14px; }
+  .approve-btn { padding: 5px 14px; border-radius: 8px; border: none; background: #10B981; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; }
 
   /* FAB */
   .fab {
@@ -248,77 +191,98 @@
     z-index: 100; transition: transform 0.15s;
   }
   .fab:hover { transform: scale(1.06); }
-  @media (max-width: 480px) {
-    .fab { right: 20px; }
-  }
+  @media (max-width: 480px) { .fab { right: 20px; } }
 
   /* Modal */
-  .modal-overlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.45);
-    display: flex; align-items: flex-end; justify-content: center;
-    z-index: 200;
-  }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: flex-end; justify-content: center; z-index: 200; }
   .modal-overlay.hidden { display: none; }
-  .modal {
-    width: 100%; max-width: 480px; background: #fff;
-    border-radius: 20px 20px 0 0; padding: 24px 20px 32px;
-    max-height: 85vh; overflow-y: auto;
-  }
+  .modal { width: 100%; max-width: 480px; background: #fff; border-radius: 20px 20px 0 0; padding: 24px 20px 32px; max-height: 90vh; overflow-y: auto; }
   .modal-title { font-size: 17px; font-weight: 700; margin-bottom: 18px; }
   .form-group { margin-bottom: 14px; }
   .form-label { font-size: 12px; font-weight: 600; color: #555; margin-bottom: 6px; display: block; }
-  .form-input {
-    width: 100%; padding: 10px 12px; border: 1.5px solid #e5e5e5;
-    border-radius: 8px; font-size: 14px; outline: none;
-    font-family: inherit; transition: border-color 0.15s;
-  }
+  .form-input { width: 100%; padding: 10px 12px; border: 1.5px solid #e5e5e5; border-radius: 8px; font-size: 14px; outline: none; font-family: inherit; transition: border-color 0.15s; }
   .form-input:focus { border-color: #111; }
   .type-selector { display: flex; gap: 8px; flex-wrap: wrap; }
-  .type-btn {
-    padding: 6px 14px; border-radius: 20px; border: 1.5px solid #e5e5e5;
-    font-size: 13px; cursor: pointer; background: #fff; transition: all 0.15s;
-  }
+  .type-btn { padding: 6px 14px; border-radius: 20px; border: 1.5px solid #e5e5e5; font-size: 13px; cursor: pointer; background: #fff; transition: all 0.15s; font-family: inherit; }
   .type-btn.active { border-color: #111; background: #111; color: #fff; }
   .modal-actions { display: flex; gap: 8px; margin-top: 18px; }
-  .btn {
-    flex: 1; padding: 12px; border-radius: 10px; font-size: 15px;
-    font-weight: 600; border: none; cursor: pointer; transition: all 0.15s;
-  }
+  .btn { flex: 1; padding: 12px; border-radius: 10px; font-size: 15px; font-weight: 600; border: none; cursor: pointer; transition: all 0.15s; font-family: inherit; }
   .btn-primary { background: #111; color: #fff; }
   .btn-primary:hover { background: #333; }
   .btn-secondary { background: #f0f0f0; color: #444; }
-  .btn-secondary:hover { background: #e5e5e5; }
-
-  /* Type choice modal */
   .type-choice { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
-  .type-choice-btn {
-    padding: 14px 16px; border: 1.5px solid #e5e5e5; border-radius: 10px;
-    background: #fff; cursor: pointer; text-align: left;
-    font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 10px;
-    transition: all 0.15s;
-  }
+  .type-choice-btn { padding: 14px 16px; border: 1.5px solid #e5e5e5; border-radius: 10px; background: #fff; cursor: pointer; text-align: left; font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 10px; transition: all 0.15s; font-family: inherit; }
   .type-choice-btn:hover { border-color: #111; background: #fafafa; }
-  @keyframes modalIn {
-    from { opacity: 0; transform: scale(0.95) translateY(10px); }
-    to   { opacity: 1; transform: scale(1) translateY(0); }
+  @keyframes modalIn { from { opacity: 0; transform: scale(0.95) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+
+  /* Login / Pending screens */
+  .full-screen {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: #fff; z-index: 1000; padding: 40px 20px; text-align: center;
   }
 </style>
 </head>
 <body>
-<div class="app">
+
+<!-- ── Login Screen ── -->
+<div id="loginScreen" class="full-screen">
+  <div style="font-size:56px;margin-bottom:20px">📌</div>
+  <div style="font-size:22px;font-weight:700;margin-bottom:8px">피크마케팅 캘린더</div>
+  <div style="font-size:14px;color:#888;margin-bottom:48px;line-height:1.7">팀과 함께 일정을 관리하세요</div>
+  <button onclick="signInWithGoogle()" style="display:flex;align-items:center;gap:10px;padding:14px 28px;border:1.5px solid #e5e5e5;border-radius:12px;background:#fff;cursor:pointer;font-size:15px;font-weight:600;font-family:inherit;transition:all 0.15s" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='#fff'">
+    <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+    구글로 로그인
+  </button>
+</div>
+
+<!-- ── Pending Screen ── -->
+<div id="pendingScreen" class="full-screen" style="display:none">
+  <div style="font-size:56px;margin-bottom:20px">⏳</div>
+  <div style="font-size:20px;font-weight:700;margin-bottom:12px">승인 대기 중</div>
+  <div style="font-size:14px;color:#888;line-height:1.8;margin-bottom:36px">관리자에게 접근 권한을 요청하세요.<br>승인 후 새로고침하면 이용 가능합니다.</div>
+  <button onclick="doSignOut()" style="padding:10px 28px;border:1.5px solid #e5e5e5;border-radius:8px;background:#fff;cursor:pointer;font-size:14px;font-family:inherit">로그아웃</button>
+</div>
+
+<!-- ── Main App ── -->
+<div class="app" id="appScreen" style="display:none">
   <header>
-    <div class="header-title">📌 피크마케팅 캘린더</div>
-    <div class="header-nav" id="calNav">
-      <button class="nav-btn" onclick="changeMonth(-1)">‹</button>
-      <span class="month-label" id="monthLabel"></span>
-      <button class="nav-btn" onclick="changeMonth(1)">›</button>
+    <div class="header-left">
+      <div class="header-title">📌 피크마케팅</div>
+    </div>
+    <div class="header-right">
+      <div class="header-nav" id="calNav" style="display:none">
+        <button class="nav-btn" onclick="changeMonth(-1)">‹</button>
+        <span class="month-label" id="monthLabel"></span>
+        <button class="nav-btn" onclick="changeMonth(1)">›</button>
+      </div>
+      <div id="userAvatar" class="user-avatar" onclick="toggleUserMenu()">👤</div>
     </div>
   </header>
+
+  <!-- User menu -->
+  <div id="userMenu" style="display:none;position:fixed;top:54px;right:calc(50% - 228px);background:#fff;border:1px solid #e5e5e5;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.12);z-index:150;min-width:180px;padding:8px 0">
+    <div id="userMenuName" style="padding:10px 16px;font-size:13px;font-weight:600;border-bottom:1px solid #f0f0f0"></div>
+    <div id="adminMenuItems" style="display:none">
+      <div onclick="openAdminPanel()" style="padding:10px 16px;font-size:13px;cursor:pointer;color:#111" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='#fff'">👥 팀 관리</div>
+    </div>
+    <div onclick="doSignOut()" style="padding:10px 16px;font-size:13px;cursor:pointer;color:#EF4444" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='#fff'">로그아웃</div>
+  </div>
 
   <div class="tabs">
     <div class="tab active" onclick="switchTab('calendar')">📅 월별</div>
     <div class="tab" onclick="switchTab('list')">≡ 목록</div>
     <div class="tab" onclick="switchTab('ideas')">💡 아이디어</div>
+    <div class="tab" onclick="switchTab('chat')">💬 채팅</div>
+  </div>
+
+  <!-- Scope toggle (calendar + list) -->
+  <div id="scopeBar" style="padding:8px 16px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;gap:8px">
+    <div class="scope-toggle">
+      <button class="scope-btn active" id="scopePersonalTab" onclick="setViewScope('personal')">🔒 내 일정</button>
+      <button class="scope-btn" id="scopeTeamTab" onclick="setViewScope('team')">👥 팀 일정</button>
+      <button class="scope-btn" id="scopeAllTab" onclick="setViewScope('all')">전체</button>
+    </div>
   </div>
 
   <!-- Calendar View -->
@@ -338,10 +302,22 @@
     <div class="ideas-filters" id="ideasFilters"></div>
     <div class="ideas-list" id="ideasList"></div>
   </div>
+
+  <!-- Chat View -->
+  <div id="chatView" class="chat-view" style="display:none">
+    <div class="chat-messages" id="chatMessages">
+      <div class="chat-empty">팀 채팅을 시작하세요! 💬</div>
+    </div>
+    <div class="chat-input-area">
+      <input class="chat-input" id="chatInput" placeholder="메시지 입력..." maxlength="500"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}" />
+      <button class="chat-send-btn" onclick="sendChat()">↑</button>
+    </div>
+  </div>
 </div>
 
 <!-- FAB -->
-<button class="fab" id="fab" onclick="openAddModal()">+</button>
+<button class="fab" id="fab" onclick="openAddModal()" style="display:none">+</button>
 
 <!-- Type Choice Modal -->
 <div class="modal-overlay hidden" id="typeChoiceModal">
@@ -362,6 +338,13 @@
   <div class="modal">
     <div class="modal-title" id="eventModalTitle">일정 추가</div>
     <div class="form-group">
+      <label class="form-label">공개 범위</label>
+      <div class="scope-toggle" style="width:fit-content">
+        <button class="scope-btn active" id="evScopePersonal" onclick="selectEvScope('personal')">🔒 내 일정</button>
+        <button class="scope-btn" id="evScopeTeam" onclick="selectEvScope('team')">👥 팀 일정</button>
+      </div>
+    </div>
+    <div class="form-group">
       <label class="form-label">종류</label>
       <div class="type-selector">
         <button class="type-btn active" data-type="meeting" onclick="selectEventType(this)">📅 미팅</button>
@@ -374,11 +357,11 @@
       <label class="form-label">제목</label>
       <input class="form-input" id="eventTitle" placeholder="제목 입력" />
     </div>
-    <div class="form-group" id="eventDateGroup">
+    <div class="form-group">
       <label class="form-label">날짜</label>
       <input class="form-input" type="date" id="eventDate" />
     </div>
-    <div class="form-group" id="eventTimeGroup">
+    <div class="form-group">
       <label class="form-label">시간 (선택)</label>
       <input class="form-input" type="time" id="eventTime" />
     </div>
@@ -444,181 +427,302 @@
   </div>
 </div>
 
-<script>
-// ── Constants ──────────────────────────────────────────────
-const EVENTS_KEY = 'jinbong-claude-calendar';
-const IDEAS_KEY  = 'jinbong-claude-ideas';
-const TODO_CATS_KEY = 'jinbong-todo-cats';
-const DEFAULT_TODO_CATS = ['피크마케팅', '운동', '개인할일', '콘텐츠'];
+<!-- Admin Panel Modal -->
+<div class="modal-overlay hidden" id="adminModal">
+  <div class="modal">
+    <div class="modal-title">👥 팀 관리</div>
+    <div style="font-size:13px;font-weight:600;color:#555;margin-bottom:8px">승인 대기</div>
+    <div id="pendingList"><div style="font-size:13px;color:#aaa;padding:12px 0">대기 중인 사용자 없음</div></div>
+    <div style="font-size:13px;font-weight:600;color:#555;margin:16px 0 8px">승인된 팀원</div>
+    <div id="approvedList"></div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn btn-secondary" onclick="closeAdminPanel()">닫기</button>
+    </div>
+  </div>
+</div>
 
+<!-- Idea Detail Overlay -->
+<div id="ideaDetailOverlay" onclick="closeIdeaDetail()" style="position:fixed;inset:0;background:rgba(0,0,0,0.45);display:none;align-items:center;justify-content:center;z-index:300;padding:16px;backdrop-filter:blur(4px)">
+  <div id="ideaDetailContent" onclick="event.stopPropagation()" style="background:#fff;border-radius:20px;padding:24px;max-width:440px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.18);animation:modalIn 0.2s ease"></div>
+</div>
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<script>
+// ── Firebase Init ───────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyCde38yMmqtxA0RPUivfI1iT5o56ZYqWF0",
+  authDomain: "peakmarketing-3f3a3.firebaseapp.com",
+  projectId: "peakmarketing-3f3a3",
+  storageBucket: "peakmarketing-3f3a3.firebasestorage.app",
+  messagingSenderId: "901027878178",
+  appId: "1:901027878178:web:7c12ebb7c431cef973817b",
+  measurementId: "G-L6Q1MSK78G"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+// ── Constants ───────────────────────────────────────────────
 const EVENT_TYPES = {
   meeting: { icon: '📅', color: '#3B82F6', label: '미팅' },
   todo:    { icon: '✅', color: '#10B981', label: '할 일' },
   link:    { icon: '🔗', color: '#8B5CF6', label: '링크' },
   memo:    { icon: '📝', color: '#F59E0B', label: '메모' },
 };
-
 const CAT_COLORS = {
-  '피크마케팅': '#3B82F6',
-  '운동':      '#F59E0B',
-  '개인할일':  '#10B981',
-  '콘텐츠':   '#EC4899',
+  '피크마케팅': '#3B82F6', '운동': '#F59E0B',
+  '개인할일': '#10B981',  '콘텐츠': '#EC4899',
 };
-
 const IDEA_CATS = {
-  'AI도구':  { color: '#3B82F6' },
-  '영상제작': { color: '#8B5CF6' },
-  '수익화':  { color: '#10B981' },
-  '자산구조': { color: '#F59E0B' },
-  '미래전망': { color: '#6366F1' },
-  '콘텐츠':  { color: '#EC4899' },
+  'AI도구': { color: '#3B82F6' }, '영상제작': { color: '#8B5CF6' },
+  '수익화': { color: '#10B981' }, '자산구조': { color: '#F59E0B' },
+  '미래전망': { color: '#6366F1' }, '콘텐츠': { color: '#EC4899' },
 };
-
+const DEFAULT_TODO_CATS = ['피크마케팅', '운동', '개인할일', '콘텐츠'];
 const DEFAULT_IDEAS = [
-  { category: 'AI도구',  source: '@figma_tutor',      url: 'https://www.instagram.com/p/DV8JXlpEkhK/', summary: '바이브 코딩 생산성을 끌어올려주는 필수 클로드 MCP 서버 4종. Desktop Commander로 로컬 파일 시스템 접근+터미널 명령 실행, Figma MCP로 피그마 디자인을 코드에 정확히 반영, shadcn/ui MCP로 React UI 컴포넌트 활용, Apify MCP로 웹 데이터 크롤링 자동화.', date: '2026-03-31' },
-  { category: 'AI도구',  source: '@sebia.ai',          url: 'https://www.instagram.com/p/DWdWVNZkRsG/', summary: 'CLAUDE.md 400줄 넘기면 규칙 적용률 급락, 글로벌 설정에 다 때려넣으면 토큰 낭비, 모호한 지시는 효과 없음, 컨텍스트 관리 안 하면 토큰 폭탄. 이 5개만 고치면 결과가 확 달라진다.', date: '2026-03-31' },
-  { category: 'AI도구',  source: '@trenddalkak.ai',    url: 'https://www.instagram.com/p/DWRSn6YFN1H/', summary: 'Anthropic이 맥용 Computer Use 기능 공개. 파일 열기, 브라우저 이동, 앱 실행까지 Claude가 대신. 폰으로 지시하면 맥이 혼자 작업. 150장 이미지 반복 편집까지 가능.', date: '2026-03-31' },
-  { category: 'AI도구',  source: '@jay.pm.ai',         url: 'https://www.instagram.com/reel/DWIWgfMjKre/', summary: '클로드 코드로 카드뉴스 자동화 에이전트. Human-in-the-loop 2단계: AI 카피→구글 시트, 피그마 자동 Import. 일은 AI가 하고 결정은 사람이 하는 프로세스.', date: '2026-03-31' },
-  { category: '영상제작', source: '@ai.brief.kr',       url: 'https://www.instagram.com/p/DWOVNt5AXKz/', summary: 'X에서 조회수 53만 찍은 AI 영상 제작 툴 오픈클로. 촬영부터 편집까지 1인 군단으로 전부 가능. 지금은 실무 투입 가능한 수준.', date: '2026-03-31' },
-  { category: '수익화',  source: '@marketerjjj',       url: 'https://www.instagram.com/p/DV46e-Wk_pB/', summary: '카카오 출신 개발자가 유튜브 롱폼 자동화로 하루 90만원. 영상 제작부터 업로드까지 자동화.. 카카오 출신 개발자', date: '2026-03-31' },
-  { category: '수익화',  source: '@edutrend_',         url: 'https://www.instagram.com/reel/DWIWgfMjKre/', summary: 'Y Combinator 주목. AI가 회사 세팅+운영. AI 직원이 이메일, 은행계좌, 법인격 보유. 100% 자동화. usenaive.ai', date: '2026-03-31' },
-  { category: '수익화',  source: '클래스유/Jamez',      url: 'https://www.classu.co.kr/class/classDetail/19402', summary: '승률 90%, 수익률 80~720% 주장하는 비트코인 선물 자동매매. 비트겟+트레이딩뷰 기반. 특정 결과 보장 안 됨.', date: '2026-03-31' },
-  { category: '자산구조', source: '@ogata_marito',      url: 'https://www.instagram.com/p/DVJElQ2gb8J/', summary: '지주회사로 통제, 운영회사로 수익, 자산회사는 따로 보호. 부는 노력보다 구조에서 갈린다.', date: '2026-03-31' },
-  { category: '자산구조', source: '@richesse.club',     url: 'https://www.instagram.com/p/DWQxz_Pj0yV/', summary: 'CEO, COO, CFO, CTO 등 C-Level 직책 총정리. 노트 형식으로 정리. 필요할 때 보기 좋은 레퍼런스.', date: '2026-03-31' },
-  { category: '미래전망', source: '@blahblah.magazine', url: 'https://www.instagram.com/p/DWECTXkEUCH/', summary: 'AI 시대에 자기가 브랜드가 되어야 한다. 툴을 소비가 아닌 생산에 써야 하고 역설적으로 부지런해야 한다.', date: '2026-03-31' },
+  { category: 'AI도구',  source: '@figma_tutor', url: 'https://www.instagram.com/p/DV8JXlpEkhK/', summary: '바이브 코딩 생산성을 끌어올려주는 필수 클로드 MCP 서버 4종. Desktop Commander로 로컬 파일 시스템 접근+터미널 명령 실행.', date: '2026-03-31' },
+  { category: 'AI도구',  source: '@sebia.ai', url: 'https://www.instagram.com/p/DWdWVNZkRsG/', summary: 'CLAUDE.md 400줄 넘기면 규칙 적용률 급락, 글로벌 설정에 다 때려넣으면 토큰 낭비. 이 5개만 고치면 결과가 확 달라진다.', date: '2026-03-31' },
+  { category: '영상제작', source: '@ai.brief.kr', url: 'https://www.instagram.com/p/DWOVNt5AXKz/', summary: 'X에서 조회수 53만 찍은 AI 영상 제작 툴 오픈클로. 촬영부터 편집까지 1인 군단으로 전부 가능.', date: '2026-03-31' },
+  { category: '수익화',  source: '@marketerjjj', url: 'https://www.instagram.com/p/DV46e-Wk_pB/', summary: '카카오 출신 개발자가 유튜브 롱폼 자동화로 하루 90만원. 영상 제작부터 업로드까지 자동화.', date: '2026-03-31' },
+  { category: '자산구조', source: '@ogata_marito', url: 'https://www.instagram.com/p/DVJElQ2gb8J/', summary: '지주회사로 통제, 운영회사로 수익, 자산회사는 따로 보호. 부는 노력보다 구조에서 갈린다.', date: '2026-03-31' },
+  { category: '미래전망', source: '@blahblah.magazine', url: 'https://www.instagram.com/p/DWECTXkEUCH/', summary: 'AI 시대에 자기가 브랜드가 되어야 한다. 툴을 소비가 아닌 생산에 써야 한다.', date: '2026-03-31' },
 ];
 
-// ── State ──────────────────────────────────────────────────
-let currentTab = 'calendar';
-let currentYear, currentMonth;
-let selectedDate;
-let events = [];
-let ideas  = [];
+// ── State ───────────────────────────────────────────────────
+let currentUser   = null;
+let currentUserDoc = null;
+let isAdmin       = false;
+let currentTab    = 'calendar';
+let currentYear, currentMonth, selectedDate;
+let events        = [];
+let ideas         = [];
+let viewScope     = 'all';   // 'personal' | 'team' | 'all'
+let evScope       = 'personal'; // scope for new event modal
 let activeIdeaCat = 'all';
 let editingEventId = null;
 let selectedEventType = 'meeting';
-let selectedIdeaCat = 'AI도구';
-let selectedTodoCat = '피크마케팅';
-let todoStatusFilter = 'all';
-let todoCatFilter = 'all';
+let selectedIdeaCat   = 'AI도구';
+let selectedTodoCat   = '피크마케팅';
+let todoStatusFilter  = 'all';
+let unsubscribeEvents = null;
+let unsubscribeIdeas  = null;
+let unsubscribeChat   = null;
 
-// ── Storage ────────────────────────────────────────────────
-function loadData() {
-  const ev = localStorage.getItem(EVENTS_KEY);
-  events = ev ? JSON.parse(ev) : [];
-  const savedCats = localStorage.getItem(TODO_CATS_KEY);
-  window.todoCats = savedCats ? JSON.parse(savedCats) : [...DEFAULT_TODO_CATS];
-  const id = localStorage.getItem(IDEAS_KEY);
-  if (id) {
-    ideas = JSON.parse(id);
-    // migrate: if all ideas have empty url, reset to new defaults with URLs
-    if (ideas.length > 0 && ideas.every(i => !i.url)) {
-      ideas = DEFAULT_IDEAS.map((d, i) => ({ ...d, id: 'default_' + i, createdAt: Date.now() - i * 1000 }));
-      saveIdeas();
-    }
-  } else {
-    ideas = DEFAULT_IDEAS.map((d, i) => ({ ...d, id: 'default_' + i, createdAt: Date.now() - i * 1000 }));
-    saveIdeas();
+// ── Auth ────────────────────────────────────────────────────
+function signInWithGoogle() {
+  const provider = new firebase.auth.GoogleAuthProvider();
+  auth.signInWithPopup(provider).catch(err => alert('로그인 실패: ' + err.message));
+}
+function doSignOut() {
+  auth.signOut();
+  unsubAll();
+}
+function unsubAll() {
+  if (unsubscribeEvents) { unsubscribeEvents(); unsubscribeEvents = null; }
+  if (unsubscribeIdeas)  { unsubscribeIdeas();  unsubscribeIdeas  = null; }
+  if (unsubscribeChat)   { unsubscribeChat();   unsubscribeChat   = null; }
+}
+
+auth.onAuthStateChanged(async user => {
+  if (!user) { showScreen('login'); events = []; ideas = []; return; }
+  currentUser = user;
+
+  // Check / create user doc
+  const userRef = db.collection('users').doc(user.uid);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) {
+    await userRef.set({ email: user.email, name: user.displayName, photoURL: user.photoURL || '', createdAt: firebase.firestore.FieldValue.serverTimestamp(), approved: false, role: 'member' });
   }
-}
-function saveEvents() { localStorage.setItem(EVENTS_KEY, JSON.stringify(events)); }
-function saveIdeas()  { localStorage.setItem(IDEAS_KEY,  JSON.stringify(ideas));  }
+  currentUserDoc = (await userRef.get()).data();
 
-// ── Utilities ──────────────────────────────────────────────
+  // First ever user → auto-approve as admin
+  const approvedSnap = await db.collection('users').where('approved', '==', true).limit(1).get();
+  if (approvedSnap.empty) {
+    await userRef.update({ approved: true, role: 'admin' });
+    currentUserDoc = (await userRef.get()).data();
+  }
+
+  if (!currentUserDoc.approved) {
+    showScreen('pending');
+    return;
+  }
+
+  isAdmin = currentUserDoc.role === 'admin';
+  showScreen('app');
+  initApp();
+});
+
+function showScreen(screen) {
+  document.getElementById('loginScreen').style.display   = screen === 'login'   ? 'flex' : 'none';
+  document.getElementById('pendingScreen').style.display = screen === 'pending' ? 'flex' : 'none';
+  document.getElementById('appScreen').style.display     = screen === 'app'     ? ''     : 'none';
+  document.getElementById('fab').style.display           = screen === 'app'     ? ''     : 'none';
+  if (screen !== 'app') unsubAll();
+}
+
+// ── Init ────────────────────────────────────────────────────
+function initApp() {
+  // Avatar
+  const av = document.getElementById('userAvatar');
+  if (currentUser.photoURL) av.innerHTML = `<img src="${currentUser.photoURL}" referrerpolicy="no-referrer">`;
+  else av.textContent = (currentUser.displayName||'?')[0];
+  document.getElementById('userMenuName').textContent = currentUser.displayName || currentUser.email;
+  if (isAdmin) document.getElementById('adminMenuItems').style.display = '';
+
+  const now = new Date();
+  currentYear  = now.getFullYear();
+  currentMonth = now.getMonth() + 1;
+  selectedDate = todayStr();
+
+  // Real-time events listener
+  subscribeEvents();
+  // Real-time ideas listener
+  subscribeIdeas();
+
+  renderCalendar();
+  requestNotifPermission();
+}
+
+// ── Firestore subscriptions ─────────────────────────────────
+function subscribeEvents() {
+  if (unsubscribeEvents) unsubscribeEvents();
+  // Load personal + team events
+  unsubscribeEvents = db.collection('events')
+    .where('deleted', '==', false)
+    .onSnapshot(snap => {
+      events = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        .filter(e => e.scope === 'team' || e.ownerId === currentUser.uid);
+      renderCalendar();
+      if (currentTab === 'list') renderList();
+    }, err => console.error('events:', err));
+}
+
+function subscribeIdeas() {
+  if (unsubscribeIdeas) unsubscribeIdeas();
+  unsubscribeIdeas = db.collection('ideas')
+    .orderBy('createdAt', 'desc')
+    .onSnapshot(snap => {
+      ideas = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (ideas.length === 0) seedDefaultIdeas();
+      if (currentTab === 'ideas') renderIdeas();
+    }, err => console.error('ideas:', err));
+}
+
+async function seedDefaultIdeas() {
+  const batch = db.batch();
+  DEFAULT_IDEAS.forEach(d => {
+    const ref = db.collection('ideas').doc();
+    batch.set(ref, { ...d, ownerId: currentUser.uid, ownerName: currentUser.displayName, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+  });
+  await batch.commit();
+}
+
+function subscribeChat() {
+  if (unsubscribeChat) unsubscribeChat();
+  unsubscribeChat = db.collection('chat')
+    .orderBy('createdAt', 'asc')
+    .limitToLast(100)
+    .onSnapshot(snap => {
+      renderChatMessages(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, err => console.error('chat:', err));
+}
+
+// ── Utilities ───────────────────────────────────────────────
 function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
-function toDateStr(y, m, d) {
-  return y + '-' + String(m).padStart(2,'0') + '-' + String(d).padStart(2,'0');
-}
+function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function toDateStr(y, m, d) { return y + '-' + String(m).padStart(2,'0') + '-' + String(d).padStart(2,'0'); }
+function todayStr() { const t = new Date(); return toDateStr(t.getFullYear(), t.getMonth()+1, t.getDate()); }
 function formatDateHeader(dateStr) {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const days = ['일','월','화','수','목','금','토'];
-  const dow = new Date(y, m-1, d).getDay();
-  return `${m}월 ${d}일 (${days[dow]})`;
+  const [y,m,d] = dateStr.split('-').map(Number);
+  const dow = new Date(y,m-1,d).getDay();
+  return `${m}월 ${d}일 (${'일월화수목금토'[dow]})`;
 }
-function todayStr() {
-  const t = new Date();
-  return toDateStr(t.getFullYear(), t.getMonth()+1, t.getDate());
+function formatTime(ts) {
+  if (!ts) return '';
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: true });
 }
 
-// ── Tab switching ──────────────────────────────────────────
+// ── Scope filter ────────────────────────────────────────────
+function setViewScope(s) {
+  viewScope = s;
+  ['personal','team','all'].forEach(v => {
+    const el = document.getElementById('scopePersonalTab');
+    document.getElementById('scope' + v.charAt(0).toUpperCase() + v.slice(1) + 'Tab').classList.toggle('active', v === s);
+  });
+  if (currentTab === 'calendar') renderCalendar();
+  else if (currentTab === 'list') renderList();
+}
+
+function filteredEvents() {
+  if (viewScope === 'personal') return events.filter(e => e.ownerId === currentUser.uid);
+  if (viewScope === 'team')     return events.filter(e => e.scope === 'team');
+  return events;
+}
+
+// ── Tab switching ────────────────────────────────────────────
 function switchTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.tab').forEach((el, i) => {
-    const tabs = ['calendar','list','ideas'];
-    el.classList.toggle('active', tabs[i] === tab);
+    el.classList.toggle('active', ['calendar','list','ideas','chat'][i] === tab);
   });
   document.getElementById('calendarView').style.display = tab === 'calendar' ? '' : 'none';
   document.getElementById('listView').style.display     = tab === 'list'     ? '' : 'none';
   document.getElementById('ideasView').style.display    = tab === 'ideas'    ? '' : 'none';
+  document.getElementById('chatView').style.display     = tab === 'chat'     ? '' : 'none';
   document.getElementById('calNav').style.display       = tab === 'calendar' ? '' : 'none';
+  document.getElementById('scopeBar').style.display     = (tab === 'calendar' || tab === 'list') ? '' : 'none';
+  document.getElementById('fab').style.display          = tab === 'chat' ? 'none' : '';
   if (tab === 'list')   renderList();
   if (tab === 'ideas')  renderIdeas();
+  if (tab === 'chat')   { subscribeChat(); }
 }
 
-// ── Calendar rendering ─────────────────────────────────────
+// ── Calendar ─────────────────────────────────────────────────
 function renderCalendar() {
-  const grid = document.getElementById('calendarGrid');
+  const grid  = document.getElementById('calendarGrid');
   const label = document.getElementById('monthLabel');
-  label.textContent = `${currentYear}년 ${currentMonth}월`;
-
+  label.textContent = `${currentYear}.${String(currentMonth).padStart(2,'0')}`;
   const days = ['일','월','화','수','목','금','토'];
   const firstDay = new Date(currentYear, currentMonth-1, 1).getDay();
   const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
   const prevDays = new Date(currentYear, currentMonth-1, 0).getDate();
   const today = todayStr();
-
   let html = days.map(d => `<div class="weekday-label">${d}</div>`).join('');
-
-  // prev month tail
-  for (let i = firstDay - 1; i >= 0; i--) {
+  for (let i = firstDay-1; i >= 0; i--) {
     const day = prevDays - i;
-    const pm = currentMonth === 1 ? 12 : currentMonth - 1;
-    const py = currentMonth === 1 ? currentYear - 1 : currentYear;
-    const ds = toDateStr(py, pm, day);
-    html += dayCell(day, ds, true, today, 'other-month');
+    const pm = currentMonth === 1 ? 12 : currentMonth-1;
+    const py = currentMonth === 1 ? currentYear-1 : currentYear;
+    html += dayCell(day, toDateStr(py,pm,day), true, today);
   }
-  // current month
   for (let d = 1; d <= daysInMonth; d++) {
-    const ds = toDateStr(currentYear, currentMonth, d);
     const dow = (firstDay + d - 1) % 7;
     const extra = dow === 0 ? 'sun' : dow === 6 ? 'sat' : '';
-    html += dayCell(d, ds, false, today, extra);
+    html += dayCell(d, toDateStr(currentYear, currentMonth, d), false, today, extra);
   }
-  // next month
-  const total = firstDay + daysInMonth;
-  const remaining = 7 - (total % 7);
-  if (remaining < 7) {
-    for (let d = 1; d <= remaining; d++) {
-      const nm = currentMonth === 12 ? 1 : currentMonth + 1;
-      const ny = currentMonth === 12 ? currentYear + 1 : currentYear;
-      const ds = toDateStr(ny, nm, d);
-      html += dayCell(d, ds, true, today, 'other-month');
-    }
+  const remaining = 7 - ((firstDay + daysInMonth) % 7);
+  if (remaining < 7) for (let d = 1; d <= remaining; d++) {
+    const nm = currentMonth === 12 ? 1 : currentMonth+1;
+    const ny = currentMonth === 12 ? currentYear+1 : currentYear;
+    html += dayCell(d, toDateStr(ny,nm,d), true, today);
   }
-
   grid.innerHTML = html;
   renderDayDetail(selectedDate);
 }
 
-function dayCell(day, ds, otherMonth, today, extra) {
-  const isToday = ds === today;
-  const isSelected = ds === selectedDate;
-  const evs = events.filter(e => e.date === ds);
-  const dots = evs.slice(0,3).map(e =>
-    `<div class="event-dot" style="background:${EVENT_TYPES[e.type]?.color || '#888'}"></div>`
-  ).join('');
-  const classes = ['day-cell', extra, isToday ? 'today' : '', isSelected ? 'selected' : ''].filter(Boolean).join(' ');
-  return `<div class="${classes}" onclick="selectDay('${ds}')">
-    <div class="day-num">${day}</div>
-    <div class="event-dots">${dots}</div>
-  </div>`;
+function dayCell(day, ds, otherMonth, today, extra='') {
+  const isToday = ds === today, isSelected = ds === selectedDate;
+  const evs = filteredEvents().filter(e => e.date === ds);
+  const dots = evs.slice(0,3).map(e => `<div class="event-dot" style="background:${EVENT_TYPES[e.type]?.color||'#888'}"></div>`).join('');
+  const cls = ['day-cell', extra, isToday?'today':'', isSelected?'selected':'', otherMonth?'other-month':''].filter(Boolean).join(' ');
+  return `<div class="${cls}" onclick="selectDay('${ds}')"><div class="day-num">${day}</div><div class="event-dots">${dots}</div></div>`;
 }
 
-function selectDay(ds) {
-  selectedDate = ds;
-  renderCalendar();
-}
-
+function selectDay(ds) { selectedDate = ds; renderCalendar(); }
 function changeMonth(delta) {
   currentMonth += delta;
   if (currentMonth > 12) { currentMonth = 1; currentYear++; }
@@ -631,159 +735,126 @@ function renderDayDetail(ds) {
   const list  = document.getElementById('dayEventsList');
   if (!ds) { title.textContent = '날짜를 선택하세요'; list.innerHTML = ''; return; }
   title.textContent = formatDateHeader(ds);
-  let evs = events.filter(e => e.date === ds);
-  evs = evs.sort((a,b) => (a.time||'').localeCompare(b.time||''));
+  let evs = filteredEvents().filter(e => e.date === ds).sort((a,b) => (a.time||'').localeCompare(b.time||''));
   let html = todoFilterBarHTML();
-
-  // Non-todo events
   const nonTodos = evs.filter(e => e.type !== 'todo');
-  const cats = window.todoCats || DEFAULT_TODO_CATS;
-
-  // Non-todo section
-  if (nonTodos.length) {
-    html += nonTodos.map(e => eventItemHTML(e)).join('');
-  }
-
-  // Todo sections grouped by category (todomate style)
-  cats.forEach(cat => {
-    let catTodos = evs.filter(e => e.type === 'todo' && (e.todoCat || e.category || '개인할일') === cat);
-    if (todoStatusFilter !== 'all')
-      catTodos = catTodos.filter(e => todoStatusFilter === '완료' ? e.done : !e.done);
+  if (nonTodos.length) html += nonTodos.map(e => eventItemHTML(e)).join('');
+  DEFAULT_TODO_CATS.forEach(cat => {
+    let catTodos = evs.filter(e => e.type === 'todo' && (e.todoCat||'개인할일') === cat);
+    if (todoStatusFilter === '완료')   catTodos = catTodos.filter(e => e.done);
+    if (todoStatusFilter === '미완료') catTodos = catTodos.filter(e => !e.done);
     const catColor = CAT_COLORS[cat] || '#6B7280';
     html += `<div class="todo-cat-section">
       <div class="todo-cat-header">
-        <span class="todo-cat-name" style="color:${catColor}"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${catColor};margin-right:5px;vertical-align:middle;"></span>${escHtml(cat)}</span>
-        <button class="todo-cat-add-btn" style="color:${catColor};border-color:${catColor};" onclick="addTodoToCategory('${ds}','${escHtml(cat)}')">+</button>
+        <span class="todo-cat-name" style="color:${catColor}"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${catColor};margin-right:5px;vertical-align:middle"></span>${escHtml(cat)}</span>
+        <button class="todo-cat-add-btn" style="color:${catColor}" onclick="addTodoToCategory('${ds}','${escHtml(cat)}')">+</button>
       </div>
-      <div class="todo-cat-items">
-        ${catTodos.length ? catTodos.map(e => todoItemHTML(e)).join('') : ''}
-      </div>
+      <div class="todo-cat-items">${catTodos.map(e => todoItemHTML(e)).join('')}</div>
     </div>`;
   });
-
-  if (!nonTodos.length && cats.every(cat => {
-    let t = evs.filter(e => e.type === 'todo' && (e.todoCat || e.category || '개인할일') === cat);
-    if (todoStatusFilter !== 'all') t = t.filter(e => todoStatusFilter === '완료' ? e.done : !e.done);
-    return !t.length;
-  })) {
-    html = '<div class="no-events">일정 없음</div>' + html;
-  }
-
   list.innerHTML = html;
 }
 
 function todoItemHTML(e) {
   const isDone = e.done;
-  const titleStyle = isDone ? 'text-decoration:line-through;opacity:0.45;' : '';
+  const canEdit = e.ownerId === currentUser.uid;
   return `<div class="todo-item" id="todo-${e.id}">
-    <div class="todo-checkbox ${isDone ? 'done' : ''}" onclick="toggleTodo('${e.id}')"></div>
-    <div class="todo-item-title" style="${titleStyle}" onclick="editTodoInline('${e.id}')">${escHtml(e.title)}</div>
-    <button class="todo-del-btn" onclick="deleteTodo('${e.id}')">×</button>
+    <div class="todo-checkbox ${isDone?'done':''}" onclick="toggleTodo('${e.id}')"></div>
+    <div class="todo-item-title" style="${isDone?'text-decoration:line-through;opacity:0.45;':''}" onclick="${canEdit?`editTodoInline('${e.id}')`:''}">${escHtml(e.title)}${e.scope==='team'?'<span class="team-badge">팀</span>':''}</div>
+    ${canEdit ? `<button class="todo-del-btn" onclick="deleteEvent('${e.id}')">×</button>` : ''}
   </div>`;
-}
-
-function addTodoToCategory(ds, cat) {
-  const title = prompt(cat + '에 할 일 추가:');
-  if (!title || !title.trim()) return;
-  const ev = { id: uid(), type: 'todo', title: title.trim(), date: ds, todoCat: cat, category: cat, done: false, createdAt: Date.now() };
-  events.push(ev);
-  saveEvents(); renderCalendar(); renderDayDetail(ds);
-}
-
-function editTodoInline(id) {
-  const ev = events.find(e => e.id === id);
-  if (!ev) return;
-  const newTitle = prompt('할 일 수정:', ev.title);
-  if (newTitle === null) return;
-  if (!newTitle.trim()) { alert('제목을 입력하세요'); return; }
-  ev.title = newTitle.trim();
-  saveEvents(); renderCalendar(); renderDayDetail(selectedDate);
-}
-
-function deleteTodo(id) {
-  events = events.filter(e => e.id !== id);
-  saveEvents(); renderCalendar(); renderDayDetail(selectedDate);
 }
 
 function eventItemHTML(e) {
   const t = EVENT_TYPES[e.type] || EVENT_TYPES.meeting;
   const isDone = e.done;
-  const checkbox = e.type === 'todo'
-    ? `<div class="todo-checkbox ${isDone ? 'done' : ''}" onclick="toggleTodo('${e.id}')"></div>` : '';
+  const canEdit = e.ownerId === currentUser.uid;
+  const checkbox = e.type === 'todo' ? `<div class="todo-checkbox ${isDone?'done':''}" onclick="toggleTodo('${e.id}')"></div>` : '';
   const titleClass = isDone ? 'event-title done-text' : 'event-title';
+  const teamBadge = e.scope === 'team' ? '<span class="team-badge">팀</span>' : '';
+  const ownerLabel = (e.scope === 'team' && e.ownerName && e.ownerId !== currentUser.uid)
+    ? `<div class="owner-label">👤 ${escHtml(e.ownerName)}</div>` : '';
   const timeStr = e.time ? `<div class="event-time">${e.time}</div>` : '';
-  const urlStr = e.url ? `<a href="${e.url}" target="_blank" class="idea-url">${e.url}</a>` : '';
-  const memoStr = e.memo ? `<div class="event-time">${e.memo}</div>` : '';
-  const catBadge = (e.type === 'todo' && e.category)
-    ? `<span class="todo-cat-badge" style="background:${CAT_COLORS[e.category]||'#888'}">${e.category}</span>` : '';
-  const editBtn = e.type === 'todo'
-    ? `<button class="icon-btn" onclick="event.stopPropagation();editTodoInline('${e.id}')">✏️</button>` : '';
+  const urlStr  = e.url  ? `<a href="${escHtml(e.url)}" target="_blank" rel="noopener" class="event-time" style="color:#3b82f6">🔗 ${escHtml(e.url)}</a>` : '';
+  const memoStr = e.memo ? `<div class="event-time">${escHtml(e.memo)}</div>` : '';
   return `<div class="event-item">
     ${checkbox}
     <div class="event-color-bar" style="background:${t.color}"></div>
-    <div class="event-body" style="cursor:pointer" onclick="editEvent('${e.id}')">
-      <div class="${titleClass}">${t.icon} ${escHtml(e.title)}${catBadge}</div>
-      ${timeStr}${urlStr}${memoStr}
+    <div class="event-body" ${canEdit?`onclick="editEvent('${e.id}')" style="cursor:pointer"`:''}>
+      <div class="${titleClass}">${t.icon} ${escHtml(e.title)}${teamBadge}</div>
+      ${timeStr}${ownerLabel}${urlStr}${memoStr}
     </div>
-    <div class="event-actions">
-      ${editBtn}
-      <button class="icon-btn" onclick="event.stopPropagation();deleteEvent('${e.id}')">🗑</button>
-    </div>
+    ${canEdit ? `<div class="event-actions"><button class="icon-btn" onclick="event.stopPropagation();deleteEvent('${e.id}')">🗑</button></div>` : ''}
   </div>`;
 }
 
-function toggleTodo(id) {
+async function addTodoToCategory(ds, cat) {
+  const title = prompt(cat + '에 할 일 추가:');
+  if (!title || !title.trim()) return;
+  await db.collection('events').add({
+    type: 'todo', title: title.trim(), date: ds, todoCat: cat,
+    scope: viewScope === 'team' ? 'team' : 'personal',
+    ownerId: currentUser.uid, ownerName: currentUser.displayName,
+    done: false, deleted: false, createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
+}
+
+async function editTodoInline(id) {
   const ev = events.find(e => e.id === id);
-  if (ev) { ev.done = !ev.done; saveEvents(); renderCalendar(); if (currentTab === 'list') renderList(); }
+  if (!ev) return;
+  const newTitle = prompt('할 일 수정:', ev.title);
+  if (newTitle === null || !newTitle.trim()) return;
+  await db.collection('events').doc(id).update({ title: newTitle.trim() });
 }
 
-function deleteEvent(id) {
-  events = events.filter(e => e.id !== id);
-  saveEvents(); renderCalendar(); if (currentTab === 'list') renderList();
+async function toggleTodo(id) {
+  const ev = events.find(e => e.id === id);
+  if (!ev) return;
+  await db.collection('events').doc(id).update({ done: !ev.done });
 }
 
-// ── List view ──────────────────────────────────────────────
+async function deleteEvent(id) {
+  if (!confirm('삭제할까요?')) return;
+  await db.collection('events').doc(id).update({ deleted: true });
+}
+
+// ── List view ─────────────────────────────────────────────────
 function renderList() {
   const container = document.getElementById('listView');
-  let filtered = [...events];
-  if (todoStatusFilter !== 'all')
-    filtered = filtered.filter(e => e.type !== 'todo' || (todoStatusFilter === '완료' ? e.done : !e.done));
-  if (todoCatFilter !== 'all')
-    filtered = filtered.filter(e => e.type !== 'todo' || e.category === todoCatFilter);
-  const fb = todoFilterBarHTML();
-  if (!filtered.length) { container.innerHTML = fb + '<div class="no-events" style="padding:40px 0">일정 없음</div>'; return; }
+  let filtered = filteredEvents();
+  if (todoStatusFilter === '완료')   filtered = filtered.filter(e => e.type !== 'todo' || e.done);
+  if (todoStatusFilter === '미완료') filtered = filtered.filter(e => e.type !== 'todo' || !e.done);
+  if (!filtered.length) { container.innerHTML = todoFilterBarHTML() + '<div class="no-events" style="padding:40px 0">일정 없음</div>'; return; }
   const sorted = [...filtered].sort((a,b) => a.date.localeCompare(b.date) || (a.time||'').localeCompare(b.time||''));
   const groups = {};
-  sorted.forEach(e => { (groups[e.date] = groups[e.date] || []).push(e); });
-  container.innerHTML = fb + Object.entries(groups).map(([ds, evs]) =>
-    `<div class="list-date-group">
-      <div class="list-date-header">${formatDateHeader(ds)}</div>
-      ${evs.map(e => eventItemHTML(e)).join('')}
-    </div>`
+  sorted.forEach(e => (groups[e.date] = groups[e.date] || []).push(e));
+  container.innerHTML = todoFilterBarHTML() + Object.entries(groups).map(([ds, evs]) =>
+    `<div class="list-date-group"><div class="list-date-header">${formatDateHeader(ds)}</div>${evs.map(e => eventItemHTML(e)).join('')}</div>`
   ).join('');
 }
 
-// ── Ideas view ─────────────────────────────────────────────
+function todoFilterBarHTML() {
+  return `<div class="todo-filter-bar">${[['all','전체'],['미완료','미완료'],['완료','완료']].map(([v,l]) =>
+    `<button class="todo-filter-btn ${todoStatusFilter===v?'active':''}" onclick="setTodoStatusFilter('${v}')">${l}</button>`
+  ).join('')}</div>`;
+}
+function setTodoStatusFilter(f) {
+  todoStatusFilter = f;
+  if (currentTab === 'calendar') renderCalendar();
+  else if (currentTab === 'list') renderList();
+}
+
+// ── Ideas view ────────────────────────────────────────────────
 function renderIdeasFilters() {
   const container = document.getElementById('ideasFilters');
   const cats = ['all', ...Object.keys(IDEA_CATS)];
   container.innerHTML = cats.map(cat => {
     const color = cat === 'all' ? '#111' : IDEA_CATS[cat].color;
     const isActive = activeIdeaCat === cat;
-    const style = isActive
-      ? `background:${color}; border-color:${color}; color:#fff;`
-      : `border-color:${color}; color:${color};`;
-    return `<div class="filter-chip ${isActive ? 'active' : ''}" style="${style}" onclick="filterIdeas('${cat}')">
-      ${cat === 'all' ? '전체' : cat}
-    </div>`;
+    return `<div class="filter-chip ${isActive?'active':''}" style="${isActive?`background:${color};border-color:${color};color:#fff`:`border-color:${color};color:${color}`}" onclick="filterIdeas('${cat}')">${cat === 'all' ? '전체' : cat}</div>`;
   }).join('');
 }
-
-function filterIdeas(cat) {
-  activeIdeaCat = cat;
-  renderIdeas();
-}
-
+function filterIdeas(cat) { activeIdeaCat = cat; renderIdeas(); }
 function renderIdeas() {
   renderIdeasFilters();
   const filtered = activeIdeaCat === 'all' ? ideas : ideas.filter(i => i.category === activeIdeaCat);
@@ -794,7 +865,7 @@ function renderIdeas() {
     return `<div class="idea-card" onclick="openIdeaDetail('${idea.id}')">
       <div class="idea-card-header">
         <span class="idea-category-badge" style="background:${cat.color}">${escHtml(idea.category)}</span>
-        <span class="idea-source">${escHtml(idea.source)}</span>
+        <span class="idea-source">${escHtml(idea.source||'')}</span>
       </div>
       <div class="idea-card-title">${escHtml(idea.summary)}</div>
       <button class="idea-delete" onclick="event.stopPropagation();deleteIdea('${idea.id}')">✕</button>
@@ -802,53 +873,112 @@ function renderIdeas() {
   }).join('');
 }
 
-function deleteIdea(id) {
-  ideas = ideas.filter(i => i.id !== id);
-  saveIdeas(); renderIdeas();
+async function deleteIdea(id) {
+  if (!confirm('삭제할까요?')) return;
+  await db.collection('ideas').doc(id).delete();
 }
 
-// ── Modal helpers ──────────────────────────────────────────
-function escHtml(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function openIdeaDetail(id) {
+  const idea = ideas.find(i => String(i.id) === String(id));
+  if (!idea) return;
+  const cat = IDEA_CATS[idea.category] || { color: '#999' };
+  const canDel = idea.ownerId === currentUser.uid || isAdmin;
+  let h = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <span style="background:${cat.color};color:#fff;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600">${escHtml(idea.category)}</span>
+    <button onclick="closeIdeaDetail()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#999;padding:4px">✕</button>
+  </div>`;
+  h += `<div style="font-size:13px;color:#888;margin-bottom:12px">${escHtml(idea.source||'')}</div>`;
+  h += `<div style="font-size:15px;line-height:1.8;color:#222;margin-bottom:16px;white-space:pre-wrap">${escHtml(idea.summary||'')}</div>`;
+  if (idea.url) h += `<a href="${escHtml(idea.url)}" target="_blank" rel="noopener" style="display:block;padding:12px 14px;background:#F3F4F6;border-radius:10px;color:#3B82F6;text-decoration:none;font-size:13px;word-break:break-all;margin-bottom:12px">🔗 ${escHtml(idea.url)}</a>`;
+  const dateLabel = idea.date || (idea.createdAt ? (idea.createdAt.toDate ? idea.createdAt.toDate().toLocaleDateString('ko-KR') : '') : '');
+  if (dateLabel) h += `<div style="font-size:12px;color:#bbb;text-align:right">${dateLabel}</div>`;
+  if (canDel) h += `<div style="margin-top:16px;display:flex;gap:8px">
+    <button onclick="deleteIdea('${idea.id}');closeIdeaDetail()" style="flex:1;padding:10px;border-radius:8px;border:1.5px solid #f3f4f6;background:#fff;color:#EF4444;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">삭제</button>
+    <button onclick="closeIdeaDetail()" style="flex:2;padding:10px;border-radius:8px;border:none;background:#111;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">닫기</button>
+  </div>`;
+  document.getElementById('ideaDetailContent').innerHTML = h;
+  document.getElementById('ideaDetailOverlay').style.display = 'flex';
+}
+function closeIdeaDetail() { document.getElementById('ideaDetailOverlay').style.display = 'none'; }
+
+// ── Chat ──────────────────────────────────────────────────────
+async function sendChat() {
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  await db.collection('chat').add({
+    text, uid: currentUser.uid,
+    name: currentUser.displayName || currentUser.email,
+    photoURL: currentUser.photoURL || '',
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
 }
 
-function openAddModal() {
-  document.getElementById('typeChoiceModal').classList.remove('hidden');
+function renderChatMessages(msgs) {
+  const container = document.getElementById('chatMessages');
+  if (!msgs.length) { container.innerHTML = '<div class="chat-empty">팀 채팅을 시작하세요! 💬</div>'; return; }
+  let lastDate = '';
+  container.innerHTML = msgs.map(msg => {
+    const isMine = msg.uid === currentUser.uid;
+    const ts = msg.createdAt ? msg.createdAt.toDate() : new Date();
+    const dateStr = ts.toLocaleDateString('ko-KR');
+    let divider = '';
+    if (dateStr !== lastDate) { divider = `<div class="chat-date-divider">${dateStr}</div>`; lastDate = dateStr; }
+    const avatar = msg.photoURL
+      ? `<img src="${escHtml(msg.photoURL)}" referrerpolicy="no-referrer">`
+      : (msg.name||'?')[0];
+    const timeStr = ts.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', hour12:true });
+    return `${divider}<div class="chat-msg ${isMine?'mine':''}">
+      <div class="chat-avatar">${avatar}</div>
+      <div class="chat-content">
+        ${!isMine ? `<div class="chat-name">${escHtml(msg.name||'')}</div>` : ''}
+        <div class="chat-bubble">${escHtml(msg.text)}</div>
+        <div class="chat-time">${timeStr}</div>
+      </div>
+    </div>`;
+  }).join('');
+  container.scrollTop = container.scrollHeight;
 }
-function closeTypeChoice() {
-  document.getElementById('typeChoiceModal').classList.add('hidden');
-}
+
+// ── Modal helpers ─────────────────────────────────────────────
+function openAddModal() { document.getElementById('typeChoiceModal').classList.remove('hidden'); }
+function closeTypeChoice() { document.getElementById('typeChoiceModal').classList.add('hidden'); }
 
 function openEventModal() {
   closeTypeChoice();
-  editingEventId = null;
-  selectedEventType = 'meeting';
+  editingEventId = null; selectedEventType = 'meeting'; evScope = 'personal';
   document.getElementById('eventModalTitle').textContent = '일정 추가';
   document.getElementById('eventTitle').value = '';
-  document.getElementById('eventDate').value = selectedDate || todayStr();
-  document.getElementById('eventTime').value = '';
-  document.getElementById('eventUrl').value = '';
-  document.getElementById('eventMemo').value = '';
-  document.querySelectorAll('.type-btn[data-type]').forEach(b => b.classList.toggle('active', b.dataset.type === 'meeting'));
-  document.getElementById('eventUrlGroup').style.display = 'none';
-  document.getElementById('reminderGroup').style.display = 'none';
+  document.getElementById('eventDate').value  = selectedDate || todayStr();
+  document.getElementById('eventTime').value  = '';
+  document.getElementById('eventUrl').value   = '';
+  document.getElementById('eventMemo').value  = '';
   document.getElementById('eventReminder').value = '';
-  selectedTodoCat = '개인할일';
-  document.getElementById('todoCatGroup').style.display = 'none';
-  document.querySelectorAll('.type-btn[data-cat]').forEach(b => b.classList.toggle('active', b.dataset.cat === '개인할일'));
+  document.getElementById('eventUrlGroup').style.display  = 'none';
+  document.getElementById('todoCatGroup').style.display   = 'none';
+  document.getElementById('reminderGroup').style.display  = 'none';
+  document.querySelectorAll('.type-btn[data-type]').forEach(b => b.classList.toggle('active', b.dataset.type === 'meeting'));
+  document.querySelectorAll('.type-btn[data-cat]').forEach(b => b.classList.toggle('active', b.dataset.cat === '피크마케팅'));
+  selectEvScope('personal');
   document.getElementById('eventModal').classList.remove('hidden');
 }
 function closeEventModal() { document.getElementById('eventModal').classList.add('hidden'); }
+
+function selectEvScope(s) {
+  evScope = s;
+  document.getElementById('evScopePersonal').classList.toggle('active', s === 'personal');
+  document.getElementById('evScopeTeam').classList.toggle('active', s === 'team');
+}
 
 function selectEventType(btn) {
   selectedEventType = btn.dataset.type;
   document.querySelectorAll('.type-btn[data-type]').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  document.getElementById('eventUrlGroup').style.display = selectedEventType === 'link' ? '' : 'none';
-  document.getElementById('todoCatGroup').style.display = selectedEventType === 'todo' ? '' : 'none';
-  document.getElementById('reminderGroup').style.display = selectedEventType === 'todo' ? '' : 'none';
+  document.getElementById('eventUrlGroup').style.display  = selectedEventType === 'link' ? '' : 'none';
+  document.getElementById('todoCatGroup').style.display   = selectedEventType === 'todo' ? '' : 'none';
+  document.getElementById('reminderGroup').style.display  = selectedEventType === 'todo' ? '' : 'none';
 }
-
 function selectTodoCat(btn) {
   selectedTodoCat = btn.dataset.cat;
   document.querySelectorAll('.type-btn[data-cat]').forEach(b => b.classList.toggle('active', b.dataset.cat === selectedTodoCat));
@@ -857,197 +987,142 @@ function selectTodoCat(btn) {
 function editEvent(id) {
   const ev = events.find(e => e.id === id);
   if (!ev) return;
-  editingEventId = id;
-  selectedEventType = ev.type;
-  selectedTodoCat = ev.category || '개인할일';
+  editingEventId = id; selectedEventType = ev.type;
+  selectedTodoCat = ev.todoCat || '피크마케팅';
   document.getElementById('eventModalTitle').textContent = '일정 수정';
-  document.getElementById('eventTitle').value = ev.title;
-  document.getElementById('eventDate').value = ev.date;
-  document.getElementById('eventTime').value = ev.time || '';
-  document.getElementById('eventUrl').value = ev.url || '';
-  document.getElementById('eventMemo').value = ev.memo || '';
-  document.querySelectorAll('.type-btn[data-type]').forEach(b => b.classList.toggle('active', b.dataset.type === ev.type));
-  document.getElementById('eventUrlGroup').style.display = ev.type === 'link' ? '' : 'none';
-  document.getElementById('todoCatGroup').style.display = ev.type === 'todo' ? '' : 'none';
-  document.getElementById('reminderGroup').style.display = ev.type === 'todo' ? '' : 'none';
+  document.getElementById('eventTitle').value  = ev.title;
+  document.getElementById('eventDate').value   = ev.date;
+  document.getElementById('eventTime').value   = ev.time  || '';
+  document.getElementById('eventUrl').value    = ev.url   || '';
+  document.getElementById('eventMemo').value   = ev.memo  || '';
   document.getElementById('eventReminder').value = ev.reminder || '';
+  document.getElementById('eventUrlGroup').style.display  = ev.type === 'link' ? '' : 'none';
+  document.getElementById('todoCatGroup').style.display   = ev.type === 'todo' ? '' : 'none';
+  document.getElementById('reminderGroup').style.display  = ev.type === 'todo' ? '' : 'none';
+  document.querySelectorAll('.type-btn[data-type]').forEach(b => b.classList.toggle('active', b.dataset.type === ev.type));
   document.querySelectorAll('.type-btn[data-cat]').forEach(b => b.classList.toggle('active', b.dataset.cat === selectedTodoCat));
+  selectEvScope(ev.scope || 'personal');
   document.getElementById('eventModal').classList.remove('hidden');
 }
 
-function todoFilterBarHTML() {
-  const statuses = [['all','전체'], ['미완료','미완료'], ['완료','완료']];
-  const sBtns = statuses.map(([val, label]) => {
-    const active = todoStatusFilter === val;
-    return `<button class="todo-filter-btn ${active?'active':''}" onclick="setTodoStatusFilter('${val}')">${label}</button>`;
-  }).join('');
-  return `<div class="todo-filter-bar">${sBtns}</div>`;
-}
-
-function setTodoStatusFilter(f) {
-  todoStatusFilter = f;
-  if (currentTab === 'calendar') renderCalendar();
-  else if (currentTab === 'list') renderList();
-}
-function setTodoCatFilter(cat) {
-  todoCatFilter = cat;
-  if (currentTab === 'calendar') renderCalendar();
-  else if (currentTab === 'list') renderList();
-}
-
-function saveEvent() {
+async function saveEvent() {
   const title = document.getElementById('eventTitle').value.trim();
   const date  = document.getElementById('eventDate').value;
   if (!title || !date) { alert('제목과 날짜를 입력하세요'); return; }
-  const reminder = selectedEventType === 'todo' ? document.getElementById('eventReminder').value : '';
-  const ev = {
-    id: editingEventId || uid(),
-    type: selectedEventType,
-    title,
-    date,
+  const reminder = selectedEventType === 'todo' ? document.getElementById('eventReminder').value : null;
+  const data = {
+    type: selectedEventType, title, date,
     time: document.getElementById('eventTime').value,
     url:  document.getElementById('eventUrl').value.trim(),
     memo: document.getElementById('eventMemo').value.trim(),
-    category: selectedEventType === 'todo' ? selectedTodoCat : null,
     todoCat: selectedEventType === 'todo' ? selectedTodoCat : null,
     reminder: reminder || null,
-    done: false,
-    createdAt: Date.now(),
+    scope: evScope,
+    ownerId: currentUser.uid,
+    ownerName: currentUser.displayName || currentUser.email,
+    deleted: false,
   };
   if (editingEventId) {
-    const idx = events.findIndex(e => e.id === editingEventId);
-    if (idx !== -1) { ev.done = events[idx].done; events[idx] = ev; }
+    const prev = events.find(e => e.id === editingEventId);
+    await db.collection('events').doc(editingEventId).update({ ...data, done: prev?.done || false });
   } else {
-    events.push(ev);
+    data.done = false;
+    data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+    await db.collection('events').add(data);
   }
-  saveEvents();
-  if (ev.reminder) scheduleReminder(ev);
+  if (reminder) scheduleReminder({ ...data, id: editingEventId || 'new' });
   closeEventModal();
   selectedDate = date;
-  if (currentTab === 'calendar') renderCalendar();
-  else if (currentTab === 'list') renderList();
 }
 
 function openIdeaModal() {
-  closeTypeChoice();
-  selectedIdeaCat = 'AI도구';
-  document.querySelectorAll('#ideaCategorySelector .type-btn').forEach(b =>
-    b.classList.toggle('active', b.dataset.cat === 'AI도구'));
-  document.getElementById('ideaSource').value = '';
-  document.getElementById('ideaUrl').value = '';
+  closeTypeChoice(); selectedIdeaCat = 'AI도구';
+  document.querySelectorAll('#ideaCategorySelector .type-btn').forEach(b => b.classList.toggle('active', b.dataset.cat === 'AI도구'));
+  document.getElementById('ideaSource').value  = '';
+  document.getElementById('ideaUrl').value     = '';
   document.getElementById('ideaSummary').value = '';
   document.getElementById('ideaModal').classList.remove('hidden');
 }
 function closeIdeaModal() { document.getElementById('ideaModal').classList.add('hidden'); }
-
 function selectIdeaCat(btn) {
   selectedIdeaCat = btn.dataset.cat;
   document.querySelectorAll('#ideaCategorySelector .type-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
 }
-
-function saveIdea() {
-  const source  = document.getElementById('ideaSource').value.trim();
+async function saveIdea() {
   const summary = document.getElementById('ideaSummary').value.trim();
   if (!summary) { alert('요약을 입력하세요'); return; }
-  ideas.unshift({
-    id: uid(),
+  await db.collection('ideas').add({
     category: selectedIdeaCat,
-    source,
-    url:  document.getElementById('ideaUrl').value.trim(),
-    summary,
-    createdAt: Date.now(),
+    source:   document.getElementById('ideaSource').value.trim(),
+    url:      document.getElementById('ideaUrl').value.trim(),
+    summary, ownerId: currentUser.uid,
+    ownerName: currentUser.displayName || currentUser.email,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
   });
-  saveIdeas();
   closeIdeaModal();
   if (currentTab === 'ideas') renderIdeas();
 }
 
-// Close modals on overlay click
-['typeChoiceModal','eventModal','ideaModal'].forEach(id => {
-  document.getElementById(id).addEventListener('click', function(e) {
-    if (e.target === this) {
-      this.classList.add('hidden');
-    }
-  });
+// ── Admin panel ───────────────────────────────────────────────
+function toggleUserMenu() {
+  const m = document.getElementById('userMenu');
+  m.style.display = m.style.display === 'none' ? '' : 'none';
+}
+document.addEventListener('click', e => {
+  if (!document.getElementById('userAvatar').contains(e.target) && !document.getElementById('userMenu').contains(e.target))
+    document.getElementById('userMenu').style.display = 'none';
 });
 
-// ── Idea detail ────────────────────────────────────────────
-function openIdeaDetail(id) {
-  const idea = ideas.find(i => String(i.id) === String(id));
-  if (!idea) return;
-  const cat = IDEA_CATS[idea.category] || { color: '#999' };
-  let h = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-    <span style="background:${cat.color};color:#fff;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600">${escHtml(idea.category)}</span>
-    <button onclick="closeIdeaDetail()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#999;padding:4px">✕</button>
-  </div>`;
-  h += `<div style="font-size:13px;color:#888;margin-bottom:12px">${escHtml(idea.source||'')}</div>`;
-  h += `<div style="font-size:15px;line-height:1.8;color:#222;margin-bottom:16px;white-space:pre-wrap">${escHtml(idea.summary||'')}</div>`;
-  if (idea.url) h += `<a href="${escHtml(idea.url)}" target="_blank" rel="noopener" style="display:block;padding:12px 14px;background:#F3F4F6;border-radius:10px;color:#3B82F6;text-decoration:none;font-size:13px;word-break:break-all;margin-bottom:12px">🔗 ${escHtml(idea.url)}</a>`;
-  if (idea.date || idea.createdAt) {
-    const dateLabel = idea.date || new Date(idea.createdAt).toLocaleDateString('ko-KR');
-    h += `<div style="font-size:12px;color:#bbb;text-align:right;margin-top:8px">${dateLabel}</div>`;
-  }
-  h += `<div style="margin-top:16px;display:flex;gap:8px">
-    <button onclick="deleteIdeaFromDetail('${idea.id}')" style="flex:1;padding:10px;border-radius:8px;border:1.5px solid #f3f4f6;background:#fff;color:#EF4444;font-size:13px;font-weight:600;cursor:pointer">삭제</button>
-    <button onclick="closeIdeaDetail()" style="flex:2;padding:10px;border-radius:8px;border:none;background:#111;color:#fff;font-size:13px;font-weight:600;cursor:pointer">닫기</button>
-  </div>`;
-  document.getElementById('ideaDetailContent').innerHTML = h;
-  document.getElementById('ideaDetailOverlay').style.display = 'flex';
+async function openAdminPanel() {
+  document.getElementById('userMenu').style.display = 'none';
+  document.getElementById('adminModal').classList.remove('hidden');
+  // Pending users
+  const pendingSnap = await db.collection('users').where('approved', '==', false).get();
+  const pl = document.getElementById('pendingList');
+  if (pendingSnap.empty) { pl.innerHTML = '<div style="font-size:13px;color:#aaa;padding:12px 0">대기 중인 사용자 없음</div>'; }
+  else pl.innerHTML = pendingSnap.docs.map(d => {
+    const u = d.data();
+    return `<div class="pending-item">
+      <div class="pending-name">${escHtml(u.name||u.email)}<div style="font-size:11px;color:#888">${escHtml(u.email)}</div></div>
+      <button class="approve-btn" onclick="approveUser('${d.id}')">승인</button>
+    </div>`;
+  }).join('');
+  // Approved users
+  const approvedSnap = await db.collection('users').where('approved', '==', true).get();
+  document.getElementById('approvedList').innerHTML = approvedSnap.docs.map(d => {
+    const u = d.data();
+    return `<div class="pending-item">
+      <div class="pending-name">${escHtml(u.name||u.email)}<div style="font-size:11px;color:#888">${escHtml(u.email)} ${u.role==='admin'?'👑':''}</div></div>
+    </div>`;
+  }).join('');
 }
-
-function closeIdeaDetail() {
-  document.getElementById('ideaDetailOverlay').style.display = 'none';
+async function approveUser(uid) {
+  await db.collection('users').doc(uid).update({ approved: true });
+  openAdminPanel();
 }
+function closeAdminPanel() { document.getElementById('adminModal').classList.add('hidden'); }
 
-function deleteIdeaFromDetail(id) {
-  ideas = ideas.filter(i => i.id !== id);
-  saveIdeas();
-  closeIdeaDetail();
-  if (currentTab === 'ideas') renderIdeas();
-}
-
-// ── Reminders ──────────────────────────────────────────────
+// ── Reminders ─────────────────────────────────────────────────
 function requestNotifPermission() {
-  if ('Notification' in window && Notification.permission === 'default') {
-    Notification.requestPermission();
-  }
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
 }
-
 function scheduleReminder(ev) {
   if (!ev.reminder || ev.done) return;
   const ms = new Date(ev.reminder).getTime() - Date.now();
-  if (ms <= 0 || ms > 7 * 24 * 60 * 60 * 1000) return; // skip past / > 7일
+  if (ms <= 0 || ms > 7 * 86400000) return;
   setTimeout(() => {
-    if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification('⏰ 리마인더: ' + ev.title, {
-        body: ev.reminder.replace('T', ' ').slice(0, 16),
-        icon: ''
-      });
-    }
+    if (Notification.permission === 'granted')
+      new Notification('⏰ ' + ev.title, { body: ev.reminder.replace('T',' ').slice(0,16) });
   }, ms);
 }
 
-function scheduleAllReminders() {
-  events.forEach(ev => { if (ev.reminder && !ev.done) scheduleReminder(ev); });
-}
-
-// ── Init ───────────────────────────────────────────────────
-function init() {
-  loadData();
-  const now = new Date();
-  currentYear  = now.getFullYear();
-  currentMonth = now.getMonth() + 1;
-  selectedDate = todayStr();
-  renderCalendar();
-  requestNotifPermission();
-  scheduleAllReminders();
-}
-init();
+// ── Modal overlay click to close ──────────────────────────────
+['typeChoiceModal','eventModal','ideaModal','adminModal'].forEach(id => {
+  document.getElementById(id).addEventListener('click', function(e) {
+    if (e.target === this) this.classList.add('hidden');
+  });
+});
 </script>
-
-<div id="ideaDetailOverlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.45);display:none;align-items:center;justify-content:center;z-index:300;padding:16px;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)" onclick="closeIdeaDetail()">
-  <div id="ideaDetailContent" style="background:#fff;border-radius:20px;padding:24px;max-width:440px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.18);animation:modalIn 0.2s ease" onclick="event.stopPropagation()"></div>
-</div>
 </body>
 </html>
