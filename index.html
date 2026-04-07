@@ -1181,14 +1181,18 @@ async function approveUser(uid) {
 function closeAdminPanel() { document.getElementById('adminModal').classList.add('hidden'); }
 
 async function claimAllIdeas() {
-  if (!confirm('기존 아이디어 전체를 내 소유로 변경할까요?\n(되돌릴 수 없어요)')) return;
+  if (!confirm('기존 아이디어 전체를 내 소유(나만 보기)로 변경할까요?\n(되돌릴 수 없어요)')) return;
   const snap = await db.collection('ideas').get();
   const batch = db.batch();
   snap.docs.forEach(d => {
-    batch.update(d.ref, { ownerId: currentUser.uid, ownerName: currentUser.displayName || currentUser.email });
+    batch.update(d.ref, {
+      ownerId: currentUser.uid,
+      ownerName: currentUser.displayName || currentUser.email,
+      scope: 'personal'
+    });
   });
   await batch.commit();
-  alert('완료! 아이디어 전체가 내 소유로 변경됐어요.');
+  alert('완료! 아이디어 전체가 내 소유(나만 보기)로 변경됐어요.');
 }
 
 // ── Reminders ─────────────────────────────────────────────────
