@@ -396,7 +396,12 @@
         <button class="type-btn active" data-cat="피크마케팅" onclick="selectTodoCat(this)">🔴 피크마케팅</button>
         <button class="type-btn" data-cat="운동" onclick="selectTodoCat(this)">🟠 운동</button>
         <button class="type-btn" data-cat="개인할일" onclick="selectTodoCat(this)">🟢 개인할일</button>
+        <button class="type-btn" data-cat="콘텐츠" onclick="selectTodoCat(this)">🩷 콘텐츠</button>
       </div>
+    </div>
+    <div class="form-group" id="reminderGroup" style="display:none">
+      <label class="form-label">🔔 리마인더 (선택)</label>
+      <input class="form-input" type="datetime-local" id="eventReminder" />
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeEventModal()">취소</button>
@@ -417,6 +422,7 @@
         <button class="type-btn" data-cat="수익화" onclick="selectIdeaCat(this)">수익화</button>
         <button class="type-btn" data-cat="자산구조" onclick="selectIdeaCat(this)">자산구조</button>
         <button class="type-btn" data-cat="미래전망" onclick="selectIdeaCat(this)">미래전망</button>
+        <button class="type-btn" data-cat="콘텐츠" onclick="selectIdeaCat(this)">콘텐츠</button>
       </div>
     </div>
     <div class="form-group">
@@ -438,28 +444,12 @@
   </div>
 </div>
 
-<!-- Idea Detail Modal -->
-<div class="modal-overlay hidden" id="ideaDetailModal">
-  <div class="modal">
-    <div class="idea-detail-cat">
-      <span class="idea-category-badge" id="detailBadge"></span>
-      <span class="idea-detail-source" id="detailSource"></span>
-    </div>
-    <div class="idea-detail-summary" id="detailSummary"></div>
-    <a class="idea-detail-url" id="detailUrl" target="_blank" href="#"></a>
-    <div class="idea-detail-date" id="detailDate"></div>
-    <div class="modal-actions">
-      <button class="btn btn-secondary" onclick="closeIdeaDetail()">닫기</button>
-    </div>
-  </div>
-</div>
-
 <script>
 // ── Constants ──────────────────────────────────────────────
 const EVENTS_KEY = 'jinbong-claude-calendar';
 const IDEAS_KEY  = 'jinbong-claude-ideas';
 const TODO_CATS_KEY = 'jinbong-todo-cats';
-const DEFAULT_TODO_CATS = ['피크마케팅', '운동', '개인할일'];
+const DEFAULT_TODO_CATS = ['피크마케팅', '운동', '개인할일', '콘텐츠'];
 
 const EVENT_TYPES = {
   meeting: { icon: '📅', color: '#3B82F6', label: '미팅' },
@@ -468,12 +458,20 @@ const EVENT_TYPES = {
   memo:    { icon: '📝', color: '#F59E0B', label: '메모' },
 };
 
+const CAT_COLORS = {
+  '피크마케팅': '#3B82F6',
+  '운동':      '#F59E0B',
+  '개인할일':  '#10B981',
+  '콘텐츠':   '#EC4899',
+};
+
 const IDEA_CATS = {
   'AI도구':  { color: '#3B82F6' },
   '영상제작': { color: '#8B5CF6' },
   '수익화':  { color: '#10B981' },
   '자산구조': { color: '#F59E0B' },
   '미래전망': { color: '#6366F1' },
+  '콘텐츠':  { color: '#EC4899' },
 };
 
 const DEFAULT_IDEAS = [
@@ -635,12 +633,11 @@ function renderDayDetail(ds) {
   title.textContent = formatDateHeader(ds);
   let evs = events.filter(e => e.date === ds);
   evs = evs.sort((a,b) => (a.time||'').localeCompare(b.time||''));
+  let html = todoFilterBarHTML();
 
   // Non-todo events
   const nonTodos = evs.filter(e => e.type !== 'todo');
   const cats = window.todoCats || DEFAULT_TODO_CATS;
-
-  let html = '';
 
   // Non-todo section
   if (nonTodos.length) {
@@ -717,7 +714,6 @@ function eventItemHTML(e) {
   const timeStr = e.time ? `<div class="event-time">${e.time}</div>` : '';
   const urlStr = e.url ? `<a href="${e.url}" target="_blank" class="idea-url">${e.url}</a>` : '';
   const memoStr = e.memo ? `<div class="event-time">${e.memo}</div>` : '';
-  const CAT_COLORS = { '피크마케팅': '#3B82F6', '운동': '#F59E0B', '개인할일': '#10B981' };
   const catBadge = (e.type === 'todo' && e.category)
     ? `<span class="todo-cat-badge" style="background:${CAT_COLORS[e.category]||'#888'}">${e.category}</span>` : '';
   const editBtn = e.type === 'todo'
@@ -811,37 +807,6 @@ function deleteIdea(id) {
   saveIdeas(); renderIdeas();
 }
 
-function openIdeaDetail(id) {
-  var idea = ideas.find(function(i){ return String(i.id) === String(id); });
-  if (!idea) return;
-  var cats = {
-    ai:       {name:'AI도구',  color:'#3B82F6'},
-    video:    {name:'영상제작', color:'#8B5CF6'},
-    monetize: {name:'수익화',  color:'#10B981'},
-    asset:    {name:'자산구조', color:'#F59E0B'},
-    future:   {name:'미래전망', color:'#6366F1'},
-    'AI도구':  {name:'AI도구',  color:'#3B82F6'},
-    '영상제작': {name:'영상제작', color:'#8B5CF6'},
-    '수익화':  {name:'수익화',  color:'#10B981'},
-    '자산구조': {name:'자산구조', color:'#F59E0B'},
-    '미래전망': {name:'미래전망', color:'#6366F1'},
-  };
-  var catKey = idea.cat || idea.category || '';
-  var cat = cats[catKey] || {name: catKey || '기타', color: '#999'};
-  var h = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
-  h += '<span style="background:'+cat.color+';color:#fff;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600">'+cat.name+'</span>';
-  h += '<button onclick="document.getElementById(\'ideaDetailOverlay\').style.display=\'none\'" style="background:none;border:none;font-size:22px;cursor:pointer;color:#999;padding:4px">✕</button></div>';
-  h += '<div style="font-size:13px;color:#888;margin-bottom:12px">'+escHtml(idea.source||'')+'</div>';
-  h += '<div style="font-size:15px;line-height:1.7;color:#222;margin-bottom:16px;white-space:pre-wrap">'+escHtml(idea.summary||'')+'</div>';
-  if (idea.url) h += '<a href="'+escHtml(idea.url)+'" target="_blank" rel="noopener" style="display:block;padding:12px 14px;background:#F3F4F6;border-radius:10px;color:#3B82F6;text-decoration:none;font-size:13px;word-break:break-all;margin-bottom:12px">🔗 '+escHtml(idea.url)+'</a>';
-  if (idea.date) h += '<div style="font-size:12px;color:#bbb;text-align:right;margin-top:8px">'+idea.date+'</div>';
-  document.getElementById('ideaDetailContent').innerHTML = h;
-  document.getElementById('ideaDetailOverlay').style.display = 'flex';
-}
-function closeIdeaDetail() {
-  document.getElementById('ideaDetailOverlay').style.display = 'none';
-}
-
 // ── Modal helpers ──────────────────────────────────────────
 function escHtml(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -866,6 +831,8 @@ function openEventModal() {
   document.getElementById('eventMemo').value = '';
   document.querySelectorAll('.type-btn[data-type]').forEach(b => b.classList.toggle('active', b.dataset.type === 'meeting'));
   document.getElementById('eventUrlGroup').style.display = 'none';
+  document.getElementById('reminderGroup').style.display = 'none';
+  document.getElementById('eventReminder').value = '';
   selectedTodoCat = '개인할일';
   document.getElementById('todoCatGroup').style.display = 'none';
   document.querySelectorAll('.type-btn[data-cat]').forEach(b => b.classList.toggle('active', b.dataset.cat === '개인할일'));
@@ -879,6 +846,7 @@ function selectEventType(btn) {
   btn.classList.add('active');
   document.getElementById('eventUrlGroup').style.display = selectedEventType === 'link' ? '' : 'none';
   document.getElementById('todoCatGroup').style.display = selectedEventType === 'todo' ? '' : 'none';
+  document.getElementById('reminderGroup').style.display = selectedEventType === 'todo' ? '' : 'none';
 }
 
 function selectTodoCat(btn) {
@@ -901,6 +869,8 @@ function editEvent(id) {
   document.querySelectorAll('.type-btn[data-type]').forEach(b => b.classList.toggle('active', b.dataset.type === ev.type));
   document.getElementById('eventUrlGroup').style.display = ev.type === 'link' ? '' : 'none';
   document.getElementById('todoCatGroup').style.display = ev.type === 'todo' ? '' : 'none';
+  document.getElementById('reminderGroup').style.display = ev.type === 'todo' ? '' : 'none';
+  document.getElementById('eventReminder').value = ev.reminder || '';
   document.querySelectorAll('.type-btn[data-cat]').forEach(b => b.classList.toggle('active', b.dataset.cat === selectedTodoCat));
   document.getElementById('eventModal').classList.remove('hidden');
 }
@@ -929,6 +899,7 @@ function saveEvent() {
   const title = document.getElementById('eventTitle').value.trim();
   const date  = document.getElementById('eventDate').value;
   if (!title || !date) { alert('제목과 날짜를 입력하세요'); return; }
+  const reminder = selectedEventType === 'todo' ? document.getElementById('eventReminder').value : '';
   const ev = {
     id: editingEventId || uid(),
     type: selectedEventType,
@@ -939,6 +910,7 @@ function saveEvent() {
     memo: document.getElementById('eventMemo').value.trim(),
     category: selectedEventType === 'todo' ? selectedTodoCat : null,
     todoCat: selectedEventType === 'todo' ? selectedTodoCat : null,
+    reminder: reminder || null,
     done: false,
     createdAt: Date.now(),
   };
@@ -949,6 +921,7 @@ function saveEvent() {
     events.push(ev);
   }
   saveEvents();
+  if (ev.reminder) scheduleReminder(ev);
   closeEventModal();
   selectedDate = date;
   if (currentTab === 'calendar') renderCalendar();
@@ -991,7 +964,7 @@ function saveIdea() {
 }
 
 // Close modals on overlay click
-['typeChoiceModal','eventModal','ideaModal','ideaDetailModal'].forEach(id => {
+['typeChoiceModal','eventModal','ideaModal'].forEach(id => {
   document.getElementById(id).addEventListener('click', function(e) {
     if (e.target === this) {
       this.classList.add('hidden');
@@ -999,38 +972,67 @@ function saveIdea() {
   });
 });
 
-// ── Init ───────────────────────────────────────────────────
+// ── Idea detail ────────────────────────────────────────────
 function openIdeaDetail(id) {
-  var idea = ideas.find(function(i){ return String(i.id) === String(id); });
+  const idea = ideas.find(i => String(i.id) === String(id));
   if (!idea) return;
-  var cat = IDEA_CATS[idea.category] || { color: '#999' };
-  var h = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><span style="background:'+cat.color+';color:#fff;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600">'+escHtml(idea.category)+'</span><button onclick="document.getElementById(\'ideaDetailOverlay\').style.display=\'none\'" style="background:none;border:none;font-size:22px;cursor:pointer;color:#999;padding:4px">✕</button></div>';
-  h += '<div style="font-size:13px;color:#888;margin-bottom:12px">'+escHtml(idea.source||'')+'</div>';
-  h += '<div style="font-size:15px;line-height:1.7;color:#222;margin-bottom:16px;white-space:pre-wrap">'+escHtml(idea.summary||'')+'</div>';
-  if (idea.url) h += '<a href="'+escHtml(idea.url)+'" target="_blank" style="display:block;padding:12px 14px;background:#F3F4F6;border-radius:10px;color:#3B82F6;text-decoration:none;font-size:13px;word-break:break-all;margin-bottom:12px">🔗 '+escHtml(idea.url)+'</a>';
-  if (idea.date) h += '<div style="font-size:12px;color:#bbb;text-align:right;margin-top:8px">'+idea.date+'</div>';
+  const cat = IDEA_CATS[idea.category] || { color: '#999' };
+  let h = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <span style="background:${cat.color};color:#fff;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600">${escHtml(idea.category)}</span>
+    <button onclick="closeIdeaDetail()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#999;padding:4px">✕</button>
+  </div>`;
+  h += `<div style="font-size:13px;color:#888;margin-bottom:12px">${escHtml(idea.source||'')}</div>`;
+  h += `<div style="font-size:15px;line-height:1.8;color:#222;margin-bottom:16px;white-space:pre-wrap">${escHtml(idea.summary||'')}</div>`;
+  if (idea.url) h += `<a href="${escHtml(idea.url)}" target="_blank" rel="noopener" style="display:block;padding:12px 14px;background:#F3F4F6;border-radius:10px;color:#3B82F6;text-decoration:none;font-size:13px;word-break:break-all;margin-bottom:12px">🔗 ${escHtml(idea.url)}</a>`;
+  if (idea.date || idea.createdAt) {
+    const dateLabel = idea.date || new Date(idea.createdAt).toLocaleDateString('ko-KR');
+    h += `<div style="font-size:12px;color:#bbb;text-align:right;margin-top:8px">${dateLabel}</div>`;
+  }
+  h += `<div style="margin-top:16px;display:flex;gap:8px">
+    <button onclick="deleteIdeaFromDetail('${idea.id}')" style="flex:1;padding:10px;border-radius:8px;border:1.5px solid #f3f4f6;background:#fff;color:#EF4444;font-size:13px;font-weight:600;cursor:pointer">삭제</button>
+    <button onclick="closeIdeaDetail()" style="flex:2;padding:10px;border-radius:8px;border:none;background:#111;color:#fff;font-size:13px;font-weight:600;cursor:pointer">닫기</button>
+  </div>`;
   document.getElementById('ideaDetailContent').innerHTML = h;
   document.getElementById('ideaDetailOverlay').style.display = 'flex';
 }
 
-function editTodo(id) {
-  var ev = data.events.find(function(e){ return String(e.id) === String(id); });
-  if (!ev) return;
-  
-  var currentCat = ev.todoCat || '개인할일';
-  var catInput = prompt('카테고리 선택 (개인할일 / 회사업무):', currentCat);
-  if (catInput === null) return;
-  
-  var newTitle = prompt('할 일 수정:', ev.title);
-  if (newTitle !== null && newTitle.trim()) {
-    ev.title = newTitle.trim();
-    ev.todoCat = (catInput === '회사업무' ? '회사업무' : '개인할일');
-    saveEvents();
-    render();
+function closeIdeaDetail() {
+  document.getElementById('ideaDetailOverlay').style.display = 'none';
+}
+
+function deleteIdeaFromDetail(id) {
+  ideas = ideas.filter(i => i.id !== id);
+  saveIdeas();
+  closeIdeaDetail();
+  if (currentTab === 'ideas') renderIdeas();
+}
+
+// ── Reminders ──────────────────────────────────────────────
+function requestNotifPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
   }
 }
 
+function scheduleReminder(ev) {
+  if (!ev.reminder || ev.done) return;
+  const ms = new Date(ev.reminder).getTime() - Date.now();
+  if (ms <= 0 || ms > 7 * 24 * 60 * 60 * 1000) return; // skip past / > 7일
+  setTimeout(() => {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('⏰ 리마인더: ' + ev.title, {
+        body: ev.reminder.replace('T', ' ').slice(0, 16),
+        icon: ''
+      });
+    }
+  }, ms);
+}
 
+function scheduleAllReminders() {
+  events.forEach(ev => { if (ev.reminder && !ev.done) scheduleReminder(ev); });
+}
+
+// ── Init ───────────────────────────────────────────────────
 function init() {
   loadData();
   const now = new Date();
@@ -1038,12 +1040,14 @@ function init() {
   currentMonth = now.getMonth() + 1;
   selectedDate = todayStr();
   renderCalendar();
+  requestNotifPermission();
+  scheduleAllReminders();
 }
 init();
 </script>
 
-<div id="ideaDetailOverlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);display:none;align-items:center;justify-content:center;z-index:1000;padding:16px;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)" onclick="this.style.display='none'">
-  <div id="ideaDetailContent" style="background:#fff;border-radius:16px;padding:24px;max-width:420px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.15);animation:modalIn 0.2s ease" onclick="event.stopPropagation()"></div>
+<div id="ideaDetailOverlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.45);display:none;align-items:center;justify-content:center;z-index:300;padding:16px;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)" onclick="closeIdeaDetail()">
+  <div id="ideaDetailContent" style="background:#fff;border-radius:20px;padding:24px;max-width:440px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.18);animation:modalIn 0.2s ease" onclick="event.stopPropagation()"></div>
 </div>
 </body>
 </html>
