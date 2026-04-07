@@ -661,7 +661,6 @@ function subscribeIdeas() {
     unsubscribeIdeas = db.collection('ideas')
       .onSnapshot(snap => {
         ideas = sortIdeas(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-        if (ideas.length === 0) seedDefaultIdeas();
         if (currentTab === 'ideas') renderIdeas();
       }, err => console.error('admin ideas:', err));
     return;
