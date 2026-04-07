@@ -608,15 +608,34 @@ function initApp() {
 // ── Firestore subscriptions ─────────────────────────────────
 function subscribeEvents() {
   if (unsubscribeEvents) unsubscribeEvents();
-  // Load personal + team events
-  unsubscribeEvents = db.collection('events')
-    .where('deleted', '==', false)
+  const uid = currentUser.uid;
+  let personalEvs = [], teamEvs = [];
+
+  const merge = () => {
+    const map = {};
+    [...personalEvs, ...teamEvs].forEach(e => map[e.id] = e);
+    events = Object.values(map).filter(e => !e.deleted);
+    renderCalendar();
+    if (currentTab === 'list') renderList();
+  };
+
+  // 내 일정
+  const unsubP = db.collection('events')
+    .where('ownerId', '==', uid)
     .onSnapshot(snap => {
-      events = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .filter(e => e.scope === 'team' || e.ownerId === currentUser.uid);
-      renderCalendar();
-      if (currentTab === 'list') renderList();
-    }, err => console.error('events:', err));
+      personalEvs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      merge();
+    }, err => console.error('personal events:', err));
+
+  // 팀 일정
+  const unsubT = db.collection('events')
+    .where('scope', '==', 'team')
+    .onSnapshot(snap => {
+      teamEvs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      merge();
+    }, err => console.error('team events:', err));
+
+  unsubscribeEvents = () => { unsubP(); unsubT(); };
 }
 
 function subscribeIdeas() {
