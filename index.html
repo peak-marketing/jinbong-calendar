@@ -398,6 +398,13 @@
   <div class="modal">
     <div class="modal-title">아이디어 추가</div>
     <div class="form-group">
+      <label class="form-label">공개 범위</label>
+      <div class="scope-toggle" style="width:fit-content">
+        <button class="scope-btn active" id="ideaScopePersonal" onclick="selectIdeaScope('personal')">🔒 나만 보기</button>
+        <button class="scope-btn" id="ideaScopeTeam" onclick="selectIdeaScope('team')">👥 팀 공유</button>
+      </div>
+    </div>
+    <div class="form-group">
       <label class="form-label">카테고리</label>
       <div class="type-selector" id="ideaCategorySelector">
         <button class="type-btn active" data-cat="AI도구" onclick="selectIdeaCat(this)">AI도구</button>
@@ -506,6 +513,7 @@ let activeIdeaCat = 'all';
 let editingEventId = null;
 let selectedEventType = 'meeting';
 let selectedIdeaCat   = 'AI도구';
+let selectedIdeaScope = 'personal';
 let selectedTodoCat   = '피크마케팅';
 let todoStatusFilter  = 'all';
 let unsubscribeEvents = null;
@@ -640,20 +648,43 @@ function subscribeEvents() {
 
 function subscribeIdeas() {
   if (unsubscribeIdeas) unsubscribeIdeas();
-  unsubscribeIdeas = db.collection('ideas')
-    .orderBy('createdAt', 'desc')
+  const uid = currentUser.uid;
+  let personalIdeas = [], teamIdeas = [];
+
+  const merge = () => {
+    const map = {};
+    [...personalIdeas, ...teamIdeas].forEach(i => map[i.id] = i);
+    ideas = Object.values(map).sort((a, b) => {
+      const ta = a.createdAt?.toMillis?.() || 0;
+      const tb = b.createdAt?.toMillis?.() || 0;
+      return tb - ta;
+    });
+    if (ideas.length === 0) seedDefaultIdeas();
+    if (currentTab === 'ideas') renderIdeas();
+  };
+
+  const unsubP = db.collection('ideas')
+    .where('ownerId', '==', uid)
     .onSnapshot(snap => {
-      ideas = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      if (ideas.length === 0) seedDefaultIdeas();
-      if (currentTab === 'ideas') renderIdeas();
-    }, err => console.error('ideas:', err));
+      personalIdeas = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      merge();
+    }, err => console.error('personal ideas:', err));
+
+  const unsubT = db.collection('ideas')
+    .where('scope', '==', 'team')
+    .onSnapshot(snap => {
+      teamIdeas = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      merge();
+    }, err => console.error('team ideas:', err));
+
+  unsubscribeIdeas = () => { unsubP(); unsubT(); };
 }
 
 async function seedDefaultIdeas() {
   const batch = db.batch();
   DEFAULT_IDEAS.forEach(d => {
     const ref = db.collection('ideas').doc();
-    batch.set(ref, { ...d, ownerId: currentUser.uid, ownerName: currentUser.displayName, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+    batch.set(ref, { ...d, scope: 'personal', ownerId: currentUser.uid, ownerName: currentUser.displayName, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
   });
   await batch.commit();
 }
@@ -1073,11 +1104,12 @@ async function saveEvent() {
 }
 
 function openIdeaModal() {
-  closeTypeChoice(); selectedIdeaCat = 'AI도구';
+  closeTypeChoice(); selectedIdeaCat = 'AI도구'; selectedIdeaScope = 'personal';
   document.querySelectorAll('#ideaCategorySelector .type-btn').forEach(b => b.classList.toggle('active', b.dataset.cat === 'AI도구'));
   document.getElementById('ideaSource').value  = '';
   document.getElementById('ideaUrl').value     = '';
   document.getElementById('ideaSummary').value = '';
+  selectIdeaScope('personal');
   document.getElementById('ideaModal').classList.remove('hidden');
 }
 function closeIdeaModal() { document.getElementById('ideaModal').classList.add('hidden'); }
@@ -1086,6 +1118,11 @@ function selectIdeaCat(btn) {
   document.querySelectorAll('#ideaCategorySelector .type-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
 }
+function selectIdeaScope(s) {
+  selectedIdeaScope = s;
+  document.getElementById('ideaScopePersonal').classList.toggle('active', s === 'personal');
+  document.getElementById('ideaScopeTeam').classList.toggle('active', s === 'team');
+}
 async function saveIdea() {
   const summary = document.getElementById('ideaSummary').value.trim();
   if (!summary) { alert('요약을 입력하세요'); return; }
@@ -1093,12 +1130,13 @@ async function saveIdea() {
     category: selectedIdeaCat,
     source:   document.getElementById('ideaSource').value.trim(),
     url:      document.getElementById('ideaUrl').value.trim(),
-    summary, ownerId: currentUser.uid,
+    summary,
+    scope: selectedIdeaScope,
+    ownerId: currentUser.uid,
     ownerName: currentUser.displayName || currentUser.email,
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
   });
   closeIdeaModal();
-  if (currentTab === 'ideas') renderIdeas();
 }
 
 // ── Admin panel ───────────────────────────────────────────────
