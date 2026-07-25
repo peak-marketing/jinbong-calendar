@@ -153,6 +153,98 @@ test.describe('project tab', () => {
     await expect(page.getByText(/팀 공유/)).toBeVisible();
   });
 
+  test('previews all-assignee progress and lets an update author edit an entry', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 850 });
+    await setupStubs(page, {
+      events: [],
+      ideas: [],
+      users: [
+        { uid: 'e2e-test-user', name: '나영업', email: 'me@test.local', role: 'admin', approved: true, is_active: true },
+        { uid: 'sales-1', name: '김영업', email: 'sales1@test.local', role: 'member', approved: true, is_active: true },
+        { uid: 'sales-2', name: '이영업', email: 'sales2@test.local', role: 'member', approved: true, is_active: true },
+      ],
+      chatRooms: [],
+      chatMessages: {},
+      chatMembers: {},
+      chatUnreadCounts: {},
+      chatRoomGroups: [],
+      eventChecklist: {},
+      attendance: [],
+      projects: [{
+        id: 'project-preview',
+        name: '영업 공동 프로젝트',
+        description: '모두 담당 업무 완료율을 확인합니다.',
+        status: 'active',
+        deadline: '2026-08-15',
+        owner_id: 'e2e-test-user',
+        owner_name: '나영업',
+        members: [
+          { uid: 'e2e-test-user', name: '나영업', email: 'me@test.local', role: 'manager' },
+          { uid: 'sales-1', name: '김영업', email: 'sales1@test.local', role: 'member' },
+          { uid: 'sales-2', name: '이영업', email: 'sales2@test.local', role: 'member' },
+        ],
+        tasks: [{
+          id: 'task-all-preview',
+          project_id: 'project-preview',
+          title: '이번 주 고객 후속 연락',
+          description: '담당자별로 완료 후 체크해주세요.',
+          status: 'doing',
+          assignment_mode: 'all',
+          assignee_name: '모두',
+          assignee_count: 3,
+          completed_assignee_count: 1,
+          assignees: [
+            { uid: 'e2e-test-user', name: '나영업', completed: false, completedAt: null },
+            { uid: 'sales-1', name: '김영업', completed: true, completedAt: '2026-07-25T01:00:00.000Z' },
+            { uid: 'sales-2', name: '이영업', completed: false, completedAt: null },
+          ],
+          due_date: '2026-07-31',
+        }],
+        updates: [{
+          id: 'update-preview',
+          project_id: 'project-preview',
+          content: '초안 검토 중입니다.',
+          status_snapshot: '1차 진행',
+          author_uid: 'e2e-test-user',
+          author_name: '나영업',
+          created_at: '2026-07-25T01:00:00.000Z',
+          updated_at: '2026-07-25T01:00:00.000Z',
+        }],
+        comments: [],
+        taskComments: [],
+        events: [],
+        canManage: true,
+        deleted: false,
+        created_at: '2026-07-25T00:00:00.000Z',
+        updated_at: '2026-07-25T00:00:00.000Z',
+      }],
+    });
+
+    await page.goto('/');
+    await page.waitForSelector('.cal-grid.month-grid', { timeout: 15_000 });
+    await page.locator('.sidebar-item').filter({ hasText: '프로젝트' }).click();
+    await page.getByText('영업 공동 프로젝트').click();
+
+    await expect(page.getByText('담당 모두 3명').first()).toBeVisible();
+    await expect(page.getByText('1/3명 · 33%').first()).toBeVisible();
+    await page.getByTitle('내 완료 체크').first().click();
+    await expect(page.getByText('2/3명 · 67%').first()).toBeVisible();
+
+    await page.getByRole('button', { name: '업무' }).click();
+    await page.getByRole('button', { name: '+ 업무' }).click();
+    await expect(page.locator('#projectTaskAssignee').locator('option[value="__all__"]')).toHaveText('모두 (프로젝트 참여자 전원)');
+    await page.getByRole('button', { name: '취소' }).click();
+
+    await page.getByRole('button', { name: '진행사항' }).click();
+    await page.locator('#mainBody').getByRole('button', { name: '수정' }).click();
+    await expect(page.locator('#projectUpdateContent')).toHaveValue('초안 검토 중입니다.');
+    await page.locator('#projectUpdateStatus').fill('수정 완료');
+    await page.locator('#projectUpdateContent').fill('영업팀 검토 의견을 반영했습니다.');
+    await page.getByRole('button', { name: '수정 저장' }).click();
+    await expect(page.getByText('영업팀 검토 의견을 반영했습니다.')).toBeVisible();
+    await expect(page.getByText(/수정됨/)).toBeVisible();
+  });
+
   test('switches between project-wide and task conversations', async ({ page }) => {
     await page.setViewportSize({ width: 1366, height: 850 });
     await setupStubs(page, {

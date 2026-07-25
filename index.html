@@ -7558,14 +7558,45 @@ function renderProjectOverview(project, progress) {
   </div>`;
 }
 
+function getProjectTaskCompletion(task) {
+  const assignees = Array.isArray(task?.assignees) ? task.assignees : [];
+  const total = Number(task?.assignee_count ?? assignees.length ?? 0);
+  const completed = Number(
+    task?.completed_assignee_count
+    ?? assignees.filter(assignee => assignee.completed).length
+    ?? 0
+  );
+  return {
+    assignees,
+    total,
+    completed,
+    percent: total ? Math.round((completed / total) * 100) : 0
+  };
+}
+
 function renderProjectTaskRow(task) {
   const selected = String(selectedProjectTaskId || '') === String(task.id);
+  const completion = getProjectTaskCompletion(task);
+  const isAllAssignees = task.assignment_mode === 'all';
+  const myAssignment = completion.assignees.find(
+    assignee => currentUser && String(assignee.uid) === String(currentUser.uid)
+  );
+  const checked = isAllAssignees ? !!myAssignment?.completed : task.status === 'done';
+  const canToggle = !isAllAssignees || !!myAssignment;
+  const toggleAction = isAllAssignees
+    ? `toggleProjectTaskCompletion('${task.id}', ${checked ? 'false' : 'true'})`
+    : `updateProjectTaskStatus('${task.id}', '${task.status === 'done' ? 'doing' : 'done'}')`;
   return `<div onclick="selectProjectTaskConversation('${task.id}')" style="display:flex;align-items:flex-start;gap:10px;padding:10px;border-bottom:1px solid var(--line);border-radius:8px;cursor:pointer;background:${selected ? 'var(--red-bg)' : 'transparent'};border-color:${selected ? 'rgba(255,107,95,0.24)' : 'var(--line)'}">
-    <button onclick="event.stopPropagation();updateProjectTaskStatus('${task.id}', '${task.status === 'done' ? 'doing' : 'done'}')" style="width:24px;height:24px;border-radius:8px;border:1px solid var(--line);background:${task.status==='done'?'var(--green)':'var(--bg3)'};color:#fff;cursor:pointer;flex-shrink:0">${task.status==='done'?'✓':''}</button>
+    <button ${canToggle ? `onclick="event.stopPropagation();${toggleAction}"` : 'disabled'} title="${isAllAssignees ? (canToggle ? '내 완료 체크' : '담당자만 체크할 수 있습니다') : '완료 상태 변경'}" style="width:24px;height:24px;border-radius:8px;border:1px solid var(--line);background:${checked?'var(--green)':'var(--bg3)'};color:#fff;cursor:${canToggle?'pointer':'not-allowed'};opacity:${canToggle?'1':'0.55'};flex-shrink:0">${checked?'✓':''}</button>
     <div style="flex:1;min-width:0">
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px">${projectTaskStatusPill(task.status)}${task.assignee_name ? `<span style="font-size:11px;color:var(--text3)">담당 ${esc(task.assignee_name)}</span>` : ''}${task.due_date ? `<span style="font-size:11px;color:var(--text3)">마감 ${esc(task.due_date)}</span>` : ''}</div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px">${projectTaskStatusPill(task.status)}${isAllAssignees ? `<span style="font-size:11px;color:var(--blue);font-weight:800">담당 모두 ${completion.total}명</span>` : task.assignee_name ? `<span style="font-size:11px;color:var(--text3)">담당 ${esc(task.assignee_name)}</span>` : ''}${task.due_date ? `<span style="font-size:11px;color:var(--text3)">마감 ${esc(task.due_date)}</span>` : ''}</div>
       <div style="font-size:14px;font-weight:750;line-height:1.35">${esc(task.title)}</div>
       ${task.description ? `<div style="font-size:12px;color:var(--text3);white-space:pre-wrap;margin-top:4px;line-height:1.5">${esc(task.description)}</div>` : ''}
+      ${isAllAssignees ? `<div style="margin-top:9px">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;margin-bottom:5px"><span style="color:var(--text3)">개인별 완료 현황</span><b style="color:${completion.percent === 100 ? 'var(--green)' : 'var(--blue)'}">${completion.completed}/${completion.total}명 · ${completion.percent}%</b></div>
+        <div style="height:6px;background:var(--bg4);border-radius:999px;overflow:hidden"><div style="height:100%;width:${completion.percent}%;background:${completion.percent === 100 ? 'var(--green)' : 'var(--blue)'};transition:width .2s ease"></div></div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:7px">${completion.assignees.map(assignee => `<span style="padding:3px 7px;border-radius:999px;font-size:10px;background:${assignee.completed ? 'rgba(74,222,128,0.13)' : 'var(--bg4)'};color:${assignee.completed ? 'var(--green)' : 'var(--text3)'}">${assignee.completed ? '✓ ' : ''}${esc(assignee.name || '사용자')}</span>`).join('')}</div>
+      </div>` : ''}
       ${renderProjectTaskActions(task)}
     </div>
     <button onclick="event.stopPropagation();openProjectTaskModal('${task.id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px">수정</button>
@@ -7573,10 +7604,14 @@ function renderProjectTaskRow(task) {
 }
 
 function renderProjectTaskActions(task) {
-  const isAssignee = task.assignee_uid && currentUser && String(task.assignee_uid) === String(currentUser.uid);
+  const completion = getProjectTaskCompletion(task);
+  const isAssignee = currentUser && (
+    (task.assignee_uid && String(task.assignee_uid) === String(currentUser.uid))
+    || completion.assignees.some(assignee => String(assignee.uid) === String(currentUser.uid))
+  );
   const canManage = !!selectedProject?.canManage;
   const buttons = [];
-  if (isAssignee && !['review', 'done'].includes(task.status)) {
+  if (isAssignee && task.assignment_mode !== 'all' && !['review', 'done'].includes(task.status)) {
     buttons.push(`<button onclick="event.stopPropagation();updateProjectTaskStatus('${task.id}', 'review')" style="border:1px solid rgba(248,214,109,0.45);background:rgba(248,214,109,0.12);color:var(--yellow);border-radius:8px;padding:5px 8px;font-size:11px;font-weight:800;cursor:pointer;font-family:inherit">검토요청</button>`);
   }
   if (canManage && task.status === 'review') {
@@ -7606,10 +7641,21 @@ function renderProjectTasks(project) {
 }
 
 function renderProjectUpdateItem(update) {
+  const canEdit = !!(
+    selectedProject?.canManage
+    || isAdmin
+    || (currentUser && String(update.author_uid) === String(currentUser.uid))
+  );
+  const wasEdited = update.updated_at
+    && update.created_at
+    && Math.abs(new Date(update.updated_at).getTime() - new Date(update.created_at).getTime()) > 1000;
   return `<div style="padding:11px 0;border-bottom:1px solid var(--line)">
     <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:5px;font-size:11px;color:var(--text3)">
       <span>${esc(update.author_name || '')}${update.status_snapshot ? ' · ' + esc(update.status_snapshot) : ''}</span>
-      <span>${formatDateTimeLabel(update.created_at)}</span>
+      <span style="display:flex;align-items:center;gap:7px">
+        ${formatDateTimeLabel(update.created_at)}${wasEdited ? ' · 수정됨' : ''}
+        ${canEdit ? `<button onclick="openProjectUpdateModal('${update.id}')" style="border:1px solid var(--line);background:var(--bg3);color:var(--text2);border-radius:7px;padding:3px 7px;font-size:10px;cursor:pointer;font-family:inherit">수정</button>` : ''}
+      </span>
     </div>
     <div style="font-size:13px;color:var(--text2);white-space:pre-wrap;line-height:1.6">${esc(update.content)}</div>
   </div>`;
@@ -7819,11 +7865,12 @@ async function deleteProject(id) {
 async function openProjectTaskModal(taskId = null) {
   const task = selectedProject?.tasks?.find(t => String(t.id) === String(taskId));
   const members = selectedProject?.members || [];
+  const isAllAssignees = task?.assignment_mode === 'all';
   const h = `<div class="modal-title">${task ? '업무 수정' : '업무 추가'}</div>
     <div class="form-group"><label class="form-label">업무명</label><input class="form-input" id="projectTaskTitle" value="${esc(task?.title || '')}" placeholder="예: 메인 화면 문구 정리"></div>
     <div class="form-group"><label class="form-label">설명</label><textarea class="form-input" id="projectTaskDescription" rows="4">${esc(task?.description || '')}</textarea></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="form-group"><label class="form-label">담당자</label><select class="form-input" id="projectTaskAssignee"><option value="">미지정</option>${members.map(m => `<option value="${esc(m.uid)}" ${task?.assignee_uid===m.uid?'selected':''}>${esc(m.name)}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label">담당자</label><select class="form-input" id="projectTaskAssignee"><option value="">미지정</option><option value="__all__" ${isAllAssignees?'selected':''}>모두 (프로젝트 참여자 전원)</option>${members.map(m => `<option value="${esc(m.uid)}" ${!isAllAssignees && task?.assignee_uid===m.uid?'selected':''}>${esc(m.name)}</option>`).join('')}</select></div>
       <div class="form-group"><label class="form-label">상태</label><select class="form-input" id="projectTaskStatus">${Object.entries(PROJECT_TASK_STATUS).map(([value, meta]) => `<option value="${value}" ${task?.status===value?'selected':''}>${meta.label}</option>`).join('')}</select></div>
     </div>
     <div class="form-group"><label class="form-label">마감일</label><input type="date" class="form-input" id="projectTaskDue" value="${esc(task?.due_date || '')}"></div>
@@ -7837,10 +7884,12 @@ async function openProjectTaskModal(taskId = null) {
 
 async function saveProjectTask(taskId = null) {
   if (!selectedProjectId) return;
+  const assigneeValue = document.getElementById('projectTaskAssignee')?.value || '';
   const body = {
     title: document.getElementById('projectTaskTitle')?.value?.trim(),
     description: document.getElementById('projectTaskDescription')?.value?.trim() || '',
-    assigneeUid: document.getElementById('projectTaskAssignee')?.value || '',
+    assigneeMode: assigneeValue === '__all__' ? 'all' : 'single',
+    assigneeUid: assigneeValue === '__all__' ? '' : assigneeValue,
     status: document.getElementById('projectTaskStatus')?.value || 'todo',
     dueDate: document.getElementById('projectTaskDue')?.value || ''
   };
@@ -7859,6 +7908,16 @@ async function updateProjectTaskStatus(taskId, status) {
   await renderPage(true);
 }
 
+async function toggleProjectTaskCompletion(taskId, completed) {
+  if (!selectedProjectId) return;
+  await api(
+    'PUT',
+    `/projects/${selectedProjectId}/tasks/${taskId}/completion`,
+    { completed }
+  );
+  await renderPage(true);
+}
+
 async function deleteProjectTask(taskId) {
   if (!selectedProjectId || !confirm('이 업무를 삭제할까요?')) return;
   await api('DELETE', `/projects/${selectedProjectId}/tasks/${taskId}`);
@@ -7866,11 +7925,12 @@ async function deleteProjectTask(taskId) {
   renderPage(true);
 }
 
-function openProjectUpdateModal() {
-  const h = `<div class="modal-title">진행사항 추가</div>
-    <div class="form-group"><label class="form-label">상태 메모</label><input class="form-input" id="projectUpdateStatus" placeholder="예: 6월 25일 회의, 디자인 확정"></div>
-    <div class="form-group"><label class="form-label">내용</label><textarea class="form-input" id="projectUpdateContent" rows="7" placeholder="결정사항, 담당자별 다음 작업, 확인일 등을 적어주세요."></textarea></div>
-    <div style="display:flex;gap:8px"><button class="btn btn-dark" onclick="closeModal()" style="flex:1">취소</button><button class="btn btn-red" onclick="createProjectUpdate()" style="flex:1">등록</button></div>`;
+function openProjectUpdateModal(updateId = null) {
+  const update = selectedProject?.updates?.find(item => String(item.id) === String(updateId));
+  const h = `<div class="modal-title">${update ? '진행사항 수정' : '진행사항 추가'}</div>
+    <div class="form-group"><label class="form-label">상태 메모</label><input class="form-input" id="projectUpdateStatus" value="${esc(update?.status_snapshot || '')}" placeholder="예: 6월 25일 회의, 디자인 확정"></div>
+    <div class="form-group"><label class="form-label">내용</label><textarea class="form-input" id="projectUpdateContent" rows="7" placeholder="결정사항, 담당자별 다음 작업, 확인일 등을 적어주세요.">${esc(update?.content || '')}</textarea></div>
+    <div style="display:flex;gap:8px"><button class="btn btn-dark" onclick="closeModal()" style="flex:1">취소</button><button class="btn btn-red" onclick="saveProjectUpdate(${update ? `'${update.id}'` : 'null'})" style="flex:1">${update ? '수정 저장' : '등록'}</button></div>`;
   openModal(h);
 }
 
@@ -7921,12 +7981,18 @@ async function deleteProjectTaskComment(taskId, commentId) {
   renderPage(true);
 }
 
-async function createProjectUpdate() {
+async function saveProjectUpdate(updateId = null) {
   if (!selectedProjectId) return;
   const content = document.getElementById('projectUpdateContent')?.value?.trim();
   const statusSnapshot = document.getElementById('projectUpdateStatus')?.value?.trim() || '';
   if (!content) return alert('진행사항을 입력하세요');
-  await api('POST', `/projects/${selectedProjectId}/updates`, { content, statusSnapshot });
+  await api(
+    updateId ? 'PUT' : 'POST',
+    updateId
+      ? `/projects/${selectedProjectId}/updates/${updateId}`
+      : `/projects/${selectedProjectId}/updates`,
+    { content, statusSnapshot }
+  );
   closeModal();
   projectSubTab = 'updates';
   renderPage(true);

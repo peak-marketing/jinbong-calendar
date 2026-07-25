@@ -535,6 +535,7 @@ async function ensureProjectInfrastructure() {
         description TEXT NOT NULL DEFAULT '',
         assignee_uid TEXT,
         assignee_name TEXT,
+        assignment_mode TEXT NOT NULL DEFAULT 'single',
         status TEXT NOT NULL DEFAULT 'todo',
         due_date TEXT NOT NULL DEFAULT '',
         sort_order INTEGER NOT NULL DEFAULT 0,
@@ -542,6 +543,37 @@ async function ensureProjectInfrastructure() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
+    `);
+    await pool.query(`
+      ALTER TABLE project_tasks
+      ADD COLUMN IF NOT EXISTS assignment_mode TEXT NOT NULL DEFAULT 'single'
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS project_task_assignees (
+        task_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        user_uid TEXT NOT NULL,
+        user_name TEXT NOT NULL DEFAULT '',
+        completed BOOLEAN NOT NULL DEFAULT false,
+        completed_at TIMESTAMPTZ,
+        assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (task_id, user_uid)
+      )
+    `);
+    await pool.query(`
+      INSERT INTO project_task_assignees
+        (task_id, project_id, user_uid, user_name, completed, completed_at)
+      SELECT
+        id,
+        project_id,
+        assignee_uid,
+        COALESCE(assignee_name, ''),
+        status = 'done',
+        CASE WHEN status = 'done' THEN updated_at ELSE NULL END
+      FROM project_tasks
+      WHERE assignee_uid IS NOT NULL
+      ON CONFLICT (task_id, user_uid) DO UPDATE
+      SET user_name = EXCLUDED.user_name
     `);
     await pool.query(`
       CREATE TABLE IF NOT EXISTS project_updates (
@@ -587,6 +619,7 @@ async function ensureProjectInfrastructure() {
     const indexes = [
       'CREATE INDEX IF NOT EXISTS idx_project_details_alive_updated ON project_details (deleted, updated_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_project_tasks_project ON project_tasks (project_id, sort_order, created_at)',
+      'CREATE INDEX IF NOT EXISTS idx_project_task_assignees_project ON project_task_assignees (project_id, task_id)',
       'CREATE INDEX IF NOT EXISTS idx_project_updates_project ON project_updates (project_id, created_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_project_comments_project ON project_comments (project_id, created_at DESC) WHERE deleted = false',
       'CREATE INDEX IF NOT EXISTS idx_project_task_comments_task ON project_task_comments (project_id, task_id, created_at) WHERE deleted = false'
@@ -665,6 +698,63 @@ async function canManageProject(req, projectId) {
     [projectId, req.uid]
   );
   return !!result.rows[0];
+}
+
+async function resolveProjectTaskAssignees(db, projectId, assignmentMode, assigneeUid = '') {
+  if (assignmentMode === 'all') {
+    const members = await db.query(
+      `SELECT u.uid, u.name
+       FROM project_members pm
+       JOIN users u ON u.uid = pm.user_id
+       WHERE pm.project_id = $1
+         AND u.approved = true
+         AND COALESCE(u.is_active, true) = true
+       ORDER BY u.name`,
+      [projectId]
+    );
+    return members.rows;
+  }
+  if (!assigneeUid) return [];
+  const member = await db.query(
+    `SELECT u.uid, u.name
+     FROM project_members pm
+     JOIN users u ON u.uid = pm.user_id
+     WHERE pm.project_id = $1 AND pm.user_id = $2
+       AND u.approved = true
+       AND COALESCE(u.is_active, true) = true`,
+    [projectId, assigneeUid]
+  );
+  if (!member.rows[0]) {
+    throw Object.assign(new Error('담당자는 프로젝트 멤버여야 합니다'), { statusCode: 400 });
+  }
+  return member.rows;
+}
+
+async function syncProjectTaskAssignees(db, projectId, taskId, assignees) {
+  const userIds = assignees.map(assignee => assignee.uid);
+  if (userIds.length) {
+    await db.query(
+      `DELETE FROM project_task_assignees
+       WHERE project_id = $1 AND task_id = $2
+         AND NOT (user_uid = ANY($3::text[]))`,
+      [projectId, taskId, userIds]
+    );
+  } else {
+    await db.query(
+      'DELETE FROM project_task_assignees WHERE project_id = $1 AND task_id = $2',
+      [projectId, taskId]
+    );
+  }
+  for (const assignee of assignees) {
+    await db.query(
+      `INSERT INTO project_task_assignees
+       (task_id, project_id, user_uid, user_name)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (task_id, user_uid) DO UPDATE
+       SET user_name = EXCLUDED.user_name`,
+      [taskId, projectId, assignee.uid, assignee.name || '사용자']
+    );
+  }
 }
 
 async function touchProject(projectId) {
@@ -3408,7 +3498,27 @@ app.get('/api/projects/:id', authMiddleware, async (req, res) => {
     [req.params.id]
   );
   const tasks = await pool.query(
-    'SELECT * FROM project_tasks WHERE project_id = $1 ORDER BY sort_order, created_at',
+    `SELECT
+       pt.*,
+       COALESCE(
+         JSONB_AGG(
+           JSONB_BUILD_OBJECT(
+             'uid', pta.user_uid,
+             'name', pta.user_name,
+             'completed', pta.completed,
+             'completedAt', pta.completed_at
+           )
+           ORDER BY pta.user_name
+         ) FILTER (WHERE pta.user_uid IS NOT NULL),
+         '[]'::jsonb
+       ) AS assignees,
+       COUNT(pta.user_uid)::int AS assignee_count,
+       COUNT(pta.user_uid) FILTER (WHERE pta.completed)::int AS completed_assignee_count
+     FROM project_tasks pt
+     LEFT JOIN project_task_assignees pta ON pta.task_id = pt.id
+     WHERE pt.project_id = $1
+     GROUP BY pt.id
+     ORDER BY pt.sort_order, pt.created_at`,
     [req.params.id]
   );
   const updates = await pool.query(
@@ -3554,27 +3664,54 @@ app.post('/api/projects/:id/tasks', authMiddleware, async (req, res) => {
   const description = String(req.body.description || '').trim().slice(0, 3000);
   const status = normalizeProjectTaskStatus(req.body.status);
   const dueDate = String(req.body.dueDate || req.body.due_date || '').trim().slice(0, 10);
+  const assignmentMode = req.body.assigneeMode === 'all' ? 'all' : 'single';
   const assigneeUid = String(req.body.assigneeUid || req.body.assignee_uid || '').trim();
-  let assignee = null;
-  if (assigneeUid) {
-    const member = await pool.query(
-      `SELECT u.uid, u.name
-       FROM project_members pm JOIN users u ON u.uid = pm.user_id
-       WHERE pm.project_id = $1 AND pm.user_id = $2`,
-      [req.params.id, assigneeUid]
-    );
-    if (!member.rows[0]) return res.status(400).json({ error: '담당자는 프로젝트 멤버여야 합니다' });
-    assignee = member.rows[0];
+  let assignees;
+  try {
+    assignees = await resolveProjectTaskAssignees(pool, req.params.id, assignmentMode, assigneeUid);
+  } catch (err) {
+    return res.status(err.statusCode || 500).json({ error: err.message });
   }
+  const primaryAssignee = assignmentMode === 'single' ? assignees[0] : null;
   const result = await pool.query(
     `INSERT INTO project_tasks
-     (id, project_id, title, description, assignee_uid, assignee_name, status, due_date, sort_order, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,(SELECT COALESCE(MAX(sort_order),0)+1 FROM project_tasks WHERE project_id=$2),$9)
+     (id, project_id, title, description, assignee_uid, assignee_name, assignment_mode, status, due_date, sort_order, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,(SELECT COALESCE(MAX(sort_order),0)+1 FROM project_tasks WHERE project_id=$2),$10)
      RETURNING *`,
-    [crypto.randomUUID(), req.params.id, title, description, assignee?.uid || null, assignee?.name || null, status, dueDate, req.uid]
+    [
+      crypto.randomUUID(),
+      req.params.id,
+      title,
+      description,
+      primaryAssignee?.uid || null,
+      assignmentMode === 'all' ? '모두' : primaryAssignee?.name || null,
+      assignmentMode,
+      status,
+      dueDate,
+      req.uid
+    ]
   );
+  await syncProjectTaskAssignees(pool, req.params.id, result.rows[0].id, assignees);
+  if (status === 'done' && assignees.length) {
+    await pool.query(
+      `UPDATE project_task_assignees
+       SET completed = true, completed_at = NOW()
+       WHERE project_id = $1 AND task_id = $2`,
+      [req.params.id, result.rows[0].id]
+    );
+  }
   await touchProject(req.params.id);
-  res.json(result.rows[0]);
+  res.json({
+    ...result.rows[0],
+    assignees: assignees.map(assignee => ({
+      uid: assignee.uid,
+      name: assignee.name,
+      completed: status === 'done',
+      completedAt: status === 'done' ? new Date().toISOString() : null
+    })),
+    assignee_count: assignees.length,
+    completed_assignee_count: status === 'done' ? assignees.length : 0
+  });
 });
 
 app.put('/api/projects/:id/tasks/:taskId', authMiddleware, async (req, res) => {
@@ -3601,22 +3738,25 @@ app.put('/api/projects/:id/tasks/:taskId', authMiddleware, async (req, res) => {
   if (req.body.description !== undefined) addSet('description', String(req.body.description || '').trim().slice(0, 3000));
   if (req.body.status !== undefined) addSet('status', normalizeProjectTaskStatus(req.body.status));
   if (req.body.dueDate !== undefined || req.body.due_date !== undefined) addSet('due_date', String(req.body.dueDate ?? req.body.due_date ?? '').trim().slice(0, 10));
-  if (req.body.assigneeUid !== undefined || req.body.assignee_uid !== undefined) {
+  let assignmentUpdate = null;
+  if (
+    req.body.assigneeMode !== undefined
+    || req.body.assigneeUid !== undefined
+    || req.body.assignee_uid !== undefined
+  ) {
+    const assignmentMode = req.body.assigneeMode === 'all' ? 'all' : 'single';
     const assigneeUid = String(req.body.assigneeUid ?? req.body.assignee_uid ?? '').trim();
-    if (assigneeUid) {
-      const member = await pool.query(
-        `SELECT u.uid, u.name
-         FROM project_members pm JOIN users u ON u.uid = pm.user_id
-         WHERE pm.project_id = $1 AND pm.user_id = $2`,
-        [req.params.id, assigneeUid]
-      );
-      if (!member.rows[0]) return res.status(400).json({ error: '담당자는 프로젝트 멤버여야 합니다' });
-      addSet('assignee_uid', member.rows[0].uid);
-      addSet('assignee_name', member.rows[0].name);
-    } else {
-      addSet('assignee_uid', null);
-      addSet('assignee_name', null);
+    let assignees;
+    try {
+      assignees = await resolveProjectTaskAssignees(pool, req.params.id, assignmentMode, assigneeUid);
+    } catch (err) {
+      return res.status(err.statusCode || 500).json({ error: err.message });
     }
+    const primaryAssignee = assignmentMode === 'single' ? assignees[0] : null;
+    addSet('assignment_mode', assignmentMode);
+    addSet('assignee_uid', primaryAssignee?.uid || null);
+    addSet('assignee_name', assignmentMode === 'all' ? '모두' : primaryAssignee?.name || null);
+    assignmentUpdate = { assignmentMode, assignees };
   }
   const result = await pool.query(
     `UPDATE project_tasks SET ${sets.join(', ')}
@@ -3625,9 +3765,32 @@ app.put('/api/projects/:id/tasks/:taskId', authMiddleware, async (req, res) => {
     params
   );
   if (!result.rows[0]) return res.status(404).json({ error: 'Task not found' });
-  await touchProject(req.params.id);
+  if (assignmentUpdate) {
+    await syncProjectTaskAssignees(
+      pool,
+      req.params.id,
+      req.params.taskId,
+      assignmentUpdate.assignees
+    );
+  }
   const before = previous.rows[0];
   const after = result.rows[0];
+  if (after.status === 'done') {
+    await pool.query(
+      `UPDATE project_task_assignees
+       SET completed = true, completed_at = COALESCE(completed_at, NOW())
+       WHERE project_id = $1 AND task_id = $2`,
+      [req.params.id, req.params.taskId]
+    );
+  } else if (['review', 'done'].includes(before.status) && after.status === 'doing' && after.assignment_mode === 'all') {
+    await pool.query(
+      `UPDATE project_task_assignees
+       SET completed = false, completed_at = NULL
+       WHERE project_id = $1 AND task_id = $2`,
+      [req.params.id, req.params.taskId]
+    );
+  }
+  await touchProject(req.params.id);
   if (req.body.status !== undefined && before.status !== after.status) {
     const actor = req.userName || req.userEmail || '사용자';
     let title = '업무 상태 변경';
@@ -3653,8 +3816,84 @@ app.put('/api/projects/:id/tasks/:taskId', authMiddleware, async (req, res) => {
   res.json(result.rows[0]);
 });
 
+app.put('/api/projects/:id/tasks/:taskId/completion', authMiddleware, async (req, res) => {
+  if (!await canAccessProject(req, req.params.id)) return res.status(403).json({ error: 'Not authorized' });
+  const task = await pool.query(
+    `SELECT pt.*, p.name AS project_name
+     FROM project_tasks pt
+     JOIN projects p ON p.id = pt.project_id
+     WHERE pt.id = $1 AND pt.project_id = $2`,
+    [req.params.taskId, req.params.id]
+  );
+  if (!task.rows[0]) return res.status(404).json({ error: 'Task not found' });
+  const assigned = await pool.query(
+    `SELECT 1
+     FROM project_task_assignees
+     WHERE project_id = $1 AND task_id = $2 AND user_uid = $3`,
+    [req.params.id, req.params.taskId, req.uid]
+  );
+  if (!assigned.rows[0]) {
+    return res.status(403).json({ error: '이 업무의 담당자만 완료 체크할 수 있습니다' });
+  }
+  const completed = req.body.completed !== false;
+  await pool.query(
+    `UPDATE project_task_assignees
+     SET completed = $4,
+         completed_at = CASE WHEN $4 THEN NOW() ELSE NULL END
+     WHERE project_id = $1 AND task_id = $2 AND user_uid = $3`,
+    [req.params.id, req.params.taskId, req.uid, completed]
+  );
+  const progress = await pool.query(
+    `SELECT
+       COUNT(*)::int AS total,
+       COUNT(*) FILTER (WHERE completed)::int AS completed
+     FROM project_task_assignees
+     WHERE project_id = $1 AND task_id = $2`,
+    [req.params.id, req.params.taskId]
+  );
+  const total = Number(progress.rows[0]?.total || 0);
+  const completedCount = Number(progress.rows[0]?.completed || 0);
+  const beforeStatus = task.rows[0].status;
+  let nextStatus = beforeStatus;
+  if (total > 0 && completedCount === total && !['review', 'done'].includes(beforeStatus)) {
+    nextStatus = 'review';
+  } else if (completedCount < total && ['review', 'done'].includes(beforeStatus)) {
+    nextStatus = 'doing';
+  } else if (completedCount > 0 && beforeStatus === 'todo') {
+    nextStatus = 'doing';
+  }
+  if (nextStatus !== beforeStatus) {
+    await pool.query(
+      'UPDATE project_tasks SET status = $3, updated_at = NOW() WHERE project_id = $1 AND id = $2',
+      [req.params.id, req.params.taskId, nextStatus]
+    );
+  }
+  await touchProject(req.params.id);
+  if (nextStatus === 'review' && beforeStatus !== 'review') {
+    await notifyProjectMembers(
+      req.params.id,
+      req.uid,
+      '업무 전체 완료',
+      `"${task.rows[0].title}" 담당자 ${total}명이 모두 완료해 검토를 요청했습니다.`,
+      { taskId: req.params.taskId, link: `/?page=project&projectId=${req.params.id}&taskId=${req.params.taskId}` }
+    );
+  }
+  res.json({
+    taskId: req.params.taskId,
+    completed,
+    completedCount,
+    total,
+    percent: total ? Math.round((completedCount / total) * 100) : 0,
+    status: nextStatus
+  });
+});
+
 app.delete('/api/projects/:id/tasks/:taskId', authMiddleware, async (req, res) => {
   if (!await canManageProject(req, req.params.id)) return res.status(403).json({ error: 'Not authorized' });
+  await pool.query(
+    'DELETE FROM project_task_assignees WHERE project_id = $1 AND task_id = $2',
+    [req.params.id, req.params.taskId]
+  );
   await pool.query('DELETE FROM project_tasks WHERE id = $1 AND project_id = $2', [req.params.taskId, req.params.id]);
   await touchProject(req.params.id);
   res.json({ ok: true });
@@ -3713,6 +3952,29 @@ app.post('/api/projects/:id/updates', authMiddleware, async (req, res) => {
      VALUES ($1,$2,$3,$4,$5,$6,$7)
      RETURNING *`,
     [crypto.randomUUID(), req.params.id, content, statusSnapshot, req.uid, req.userName || req.userEmail || '사용자', req.userPhoto || '']
+  );
+  await touchProject(req.params.id);
+  res.json(result.rows[0]);
+});
+
+app.put('/api/projects/:id/updates/:updateId', authMiddleware, async (req, res) => {
+  const current = await pool.query(
+    'SELECT * FROM project_updates WHERE id = $1 AND project_id = $2',
+    [req.params.updateId, req.params.id]
+  );
+  if (!current.rows[0]) return res.status(404).json({ error: 'Not found' });
+  if (req.userDoc.role !== 'admin' && current.rows[0].author_uid !== req.uid && !await canManageProject(req, req.params.id)) {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+  const content = String(req.body.content || '').trim().slice(0, 5000);
+  if (!content) return res.status(400).json({ error: '진행사항을 입력하세요' });
+  const statusSnapshot = String(req.body.statusSnapshot || req.body.status_snapshot || '').trim().slice(0, 80);
+  const result = await pool.query(
+    `UPDATE project_updates
+     SET content = $3, status_snapshot = $4, updated_at = NOW()
+     WHERE id = $1 AND project_id = $2
+     RETURNING *`,
+    [req.params.updateId, req.params.id, content, statusSnapshot]
   );
   await touchProject(req.params.id);
   res.json(result.rows[0]);

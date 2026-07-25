@@ -242,6 +242,26 @@ test.describe('source invariants', () => {
     expect(taskUpdateRoute![0]).toContain('업무 완료 처리');
   });
 
+  test('project updates are editable and all-assignee tasks track per-user completion', () => {
+    const SERVER = fs.readFileSync(
+      path.resolve(__dirname, '../../server/index.js'),
+      'utf8'
+    );
+    expect(SERVER).toContain('CREATE TABLE IF NOT EXISTS project_task_assignees');
+    expect(SERVER).toContain("req.body.assigneeMode === 'all'");
+    expect(SERVER).toContain("app.put('/api/projects/:id/tasks/:taskId/completion'");
+    expect(SERVER).toContain('completedCount === total');
+    expect(SERVER).toContain("nextStatus = 'review'");
+    expect(SERVER).toContain("app.put('/api/projects/:id/updates/:updateId'");
+    expect(SERVER).toContain("current.rows[0].author_uid !== req.uid");
+
+    expect(INDEX_HTML).toContain('모두 (프로젝트 참여자 전원)');
+    expect(INDEX_HTML).toContain('개인별 완료 현황');
+    expect(INDEX_HTML).toContain('toggleProjectTaskCompletion');
+    expect(INDEX_HTML).toContain('진행사항 수정');
+    expect(INDEX_HTML).toContain('수정 저장');
+  });
+
   test('/api/events excludes meetings from archived or deleted projects', () => {
     const SERVER = fs.readFileSync(
       path.resolve(__dirname, '../../server/index.js'),
