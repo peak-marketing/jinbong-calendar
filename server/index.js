@@ -15,6 +15,18 @@ const serviceAccount = require('./firebase-service-account.json');
 admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 
 const cron = require('node-cron');
+const backgroundJobsEnabled = process.env.ENABLE_BACKGROUND_JOBS !== 'false';
+const pushNotificationsEnabled = process.env.ENABLE_PUSH_NOTIFICATIONS !== 'false';
+
+function scheduleCron(...args) {
+  if (!backgroundJobsEnabled) return null;
+  return cron.schedule(...args);
+}
+
+async function sendFirebaseMessage(message) {
+  if (!pushNotificationsEnabled) return null;
+  return admin.messaging().send(message);
+}
 
 const app = express();
 app.use(cors());
@@ -127,7 +139,7 @@ async function sendPushToUser(userUid, title, body, data) {
     const message = buildWebPushMessage(title, body, data);
     for (const row of tokens.rows) {
       try {
-        await admin.messaging().send({ ...message, token: row.token });
+        await sendFirebaseMessage({ ...message, token: row.token });
       } catch(e) {
         if (isInvalidFcmTokenError(e)) {
           await pool.query('DELETE FROM fcm_tokens WHERE token = $1', [row.token]);
@@ -153,7 +165,7 @@ async function sendPushToAll(title, body, excludeUid, data = {}) {
     const message = buildWebPushMessage(title, body, data);
     for (const row of tokens.rows) {
       try {
-        await admin.messaging().send({ ...message, token: row.token });
+        await sendFirebaseMessage({ ...message, token: row.token });
       } catch(e) {
         if (isInvalidFcmTokenError(e)) {
           await pool.query('DELETE FROM fcm_tokens WHERE token = $1', [row.token]);
@@ -5438,7 +5450,7 @@ app.delete('/api/timetable/:id', authMiddleware, async (req, res) => {
 });
 
 // ══ 전날까지 미완료 할일 알림 (매일 오전 10시) ═══════════════
-cron.schedule('* * * * *', async () => {
+scheduleCron('* * * * *', async () => {
   try {
     await processEventReminderSweep();
   } catch (e) {
@@ -5446,7 +5458,7 @@ cron.schedule('* * * * *', async () => {
   }
 }, { timezone: 'Asia/Seoul' });
 
-cron.schedule('5 0 * * *', async () => {
+scheduleCron('5 0 * * *', async () => {
   try {
     const result = await syncTodayReportReminders();
     console.log(`[CRON] 보고서 할 일 정리 완료 date=${result.date} created=${result.created} removed=${result.removed}`);
@@ -5456,7 +5468,7 @@ cron.schedule('5 0 * * *', async () => {
 }, { timezone: 'Asia/Seoul' });
 
 // ══ 전날까지 미완료 할일 알림 (매일 오전 10시) ═══════════════
-cron.schedule('0 10 * * *', async () => {
+scheduleCron('0 10 * * *', async () => {
   console.log('[CRON] 미완료 할일 알림 전송 시작');
   try {
     const today = new Date().toISOString().slice(0, 10);
@@ -5491,7 +5503,7 @@ cron.schedule('0 10 * * *', async () => {
 }, { timezone: 'Asia/Seoul' });
 
 // ══ 오늘 미완료 할일 알림 (평일 오후 7시) ═══════════════════
-cron.schedule('0 19 * * 1-5', async () => {
+scheduleCron('0 19 * * 1-5', async () => {
   console.log('[CRON] 오늘 미완료 할일 알림 전송 시작');
   try {
     const today = new Date().toISOString().slice(0, 10);
@@ -5556,7 +5568,7 @@ app.post('/api/fcm/test', authMiddleware, async (req, res) => {
 
     for (const row of tokens.rows) {
       try {
-        await admin.messaging().send({ ...message, token: row.token });
+        await sendFirebaseMessage({ ...message, token: row.token });
         sentCount += 1;
       } catch (e) {
         failedCount += 1;
