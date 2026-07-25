@@ -543,11 +543,26 @@ export async function installApiStub(page: Page, initial: ApiStubState = default
             author_uid: 'e2e-test-user',
             author_name: 'E2E',
             created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
           };
           project.updates = project.updates || [];
           project.updates.unshift(record);
           return record;
         }, { projectId, body });
+        return respond(update || { error: 'Not found' }, update ? 200 : 404);
+      }
+      if (/^\/projects\/[^/]+\/updates\/[^/]+$/.test(pathname) && method === 'PUT') {
+        const [, , projectId, , updateId] = pathname.split('/');
+        const update = await page.evaluate(({ projectId, updateId, body }) => {
+          const state = (window as any).__e2e_api_state || {};
+          const project = (state.projects || []).find((p: any) => String(p.id) === String(projectId));
+          const item = (project?.updates || []).find((entry: any) => String(entry.id) === String(updateId));
+          if (!item) return null;
+          item.content = String(body?.content || '');
+          item.status_snapshot = String(body?.statusSnapshot || '');
+          item.updated_at = new Date(Date.now() + 2000).toISOString();
+          return item;
+        }, { projectId, updateId, body });
         return respond(update || { error: 'Not found' }, update ? 200 : 404);
       }
       if (/^\/projects\/[^/]+\/meetings$/.test(pathname) && method === 'POST') {

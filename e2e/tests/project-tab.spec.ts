@@ -141,6 +141,14 @@ test.describe('project tab', () => {
     await page.locator('#projectUpdateContent').fill('담당자별 업무를 정리했습니다.');
     await page.locator('#modalContent').getByRole('button', { name: '등록' }).click();
     await expect(page.getByText('담당자별 업무를 정리했습니다.')).toBeVisible();
+    await page.locator('#mainBody').getByRole('button', { name: '수정' }).click();
+    await expect(page.locator('#projectUpdateStatus')).toHaveValue('회의 완료');
+    await expect(page.locator('#projectUpdateContent')).toHaveValue('담당자별 업무를 정리했습니다.');
+    await page.locator('#projectUpdateStatus').fill('회의 후속 확인');
+    await page.locator('#projectUpdateContent').fill('담당자별 업무와 확인 일정을 수정했습니다.');
+    await page.getByRole('button', { name: '수정 저장' }).click();
+    await expect(page.getByText('담당자별 업무와 확인 일정을 수정했습니다.')).toBeVisible();
+    await expect(page.getByText(/수정됨/)).toBeVisible();
 
     await page.getByRole('button', { name: '일정' }).click();
     await page.getByRole('button', { name: '+ 회의일정' }).first().click();

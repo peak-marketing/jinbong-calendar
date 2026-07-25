@@ -3706,6 +3706,29 @@ app.post('/api/projects/:id/updates', authMiddleware, async (req, res) => {
   res.json(result.rows[0]);
 });
 
+app.put('/api/projects/:id/updates/:updateId', authMiddleware, async (req, res) => {
+  const current = await pool.query(
+    'SELECT * FROM project_updates WHERE id = $1 AND project_id = $2',
+    [req.params.updateId, req.params.id]
+  );
+  if (!current.rows[0]) return res.status(404).json({ error: 'Not found' });
+  if (req.userDoc.role !== 'admin' && current.rows[0].author_uid !== req.uid && !await canManageProject(req, req.params.id)) {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+  const content = String(req.body.content || '').trim().slice(0, 5000);
+  if (!content) return res.status(400).json({ error: '진행사항을 입력하세요' });
+  const statusSnapshot = String(req.body.statusSnapshot || req.body.status_snapshot || '').trim().slice(0, 80);
+  const result = await pool.query(
+    `UPDATE project_updates
+     SET content = $3, status_snapshot = $4, updated_at = NOW()
+     WHERE id = $1 AND project_id = $2
+     RETURNING *`,
+    [req.params.updateId, req.params.id, content, statusSnapshot]
+  );
+  await touchProject(req.params.id);
+  res.json(result.rows[0]);
+});
+
 app.delete('/api/projects/:id/updates/:updateId', authMiddleware, async (req, res) => {
   const update = await pool.query('SELECT * FROM project_updates WHERE id = $1 AND project_id = $2', [req.params.updateId, req.params.id]);
   if (!update.rows[0]) return res.status(404).json({ error: 'Not found' });
