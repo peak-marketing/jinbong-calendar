@@ -290,7 +290,7 @@ test.describe('project tab', () => {
     await expect(page.getByText('전체 프로젝트 공유사항입니다.')).toBeVisible();
   });
 
-  test('lets an assignee request review directly from a task card', async ({ page }) => {
+  test('routes an assignee completion check through review before final completion', async ({ page }) => {
     await page.setViewportSize({ width: 1366, height: 850 });
     await setupStubs(page, {
       events: [],
@@ -332,8 +332,9 @@ test.describe('project tab', () => {
     await page.getByText('검토 요청 프로젝트').click();
     await page.getByRole('button', { name: '업무' }).click();
 
-    await page.locator('#mainBody').getByRole('button', { name: '검토요청' }).click();
+    await page.locator('#mainBody').getByTitle('검토요청 상태 변경').click();
     await expect(page.locator('#mainBody').getByText('검토요청').first()).toBeVisible();
+    await expect(page.locator('#mainBody').getByTitle('검토요청 상태 변경')).toHaveText('✓');
   });
 
   test('lets a project manager complete or reopen a review-requested task', async ({ page }) => {
