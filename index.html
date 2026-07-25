@@ -7606,10 +7606,21 @@ function renderProjectTasks(project) {
 }
 
 function renderProjectUpdateItem(update) {
+  const canEdit = !!(
+    selectedProject?.canManage
+    || isAdmin
+    || (currentUser && String(update.author_uid) === String(currentUser.uid))
+  );
+  const wasEdited = update.updated_at
+    && update.created_at
+    && Math.abs(new Date(update.updated_at).getTime() - new Date(update.created_at).getTime()) > 1000;
   return `<div style="padding:11px 0;border-bottom:1px solid var(--line)">
     <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:5px;font-size:11px;color:var(--text3)">
       <span>${esc(update.author_name || '')}${update.status_snapshot ? ' · ' + esc(update.status_snapshot) : ''}</span>
-      <span>${formatDateTimeLabel(update.created_at)}</span>
+      <span style="display:flex;align-items:center;gap:7px">
+        ${formatDateTimeLabel(update.created_at)}${wasEdited ? ' · 수정됨' : ''}
+        ${canEdit ? `<button onclick="openProjectUpdateModal('${update.id}')" style="border:1px solid var(--line);background:var(--bg3);color:var(--text2);border-radius:7px;padding:3px 7px;font-size:10px;cursor:pointer;font-family:inherit">수정</button>` : ''}
+      </span>
     </div>
     <div style="font-size:13px;color:var(--text2);white-space:pre-wrap;line-height:1.6">${esc(update.content)}</div>
   </div>`;
@@ -7866,11 +7877,12 @@ async function deleteProjectTask(taskId) {
   renderPage(true);
 }
 
-function openProjectUpdateModal() {
-  const h = `<div class="modal-title">진행사항 추가</div>
-    <div class="form-group"><label class="form-label">상태 메모</label><input class="form-input" id="projectUpdateStatus" placeholder="예: 6월 25일 회의, 디자인 확정"></div>
-    <div class="form-group"><label class="form-label">내용</label><textarea class="form-input" id="projectUpdateContent" rows="7" placeholder="결정사항, 담당자별 다음 작업, 확인일 등을 적어주세요."></textarea></div>
-    <div style="display:flex;gap:8px"><button class="btn btn-dark" onclick="closeModal()" style="flex:1">취소</button><button class="btn btn-red" onclick="createProjectUpdate()" style="flex:1">등록</button></div>`;
+function openProjectUpdateModal(updateId = null) {
+  const update = selectedProject?.updates?.find(item => String(item.id) === String(updateId));
+  const h = `<div class="modal-title">${update ? '진행사항 수정' : '진행사항 추가'}</div>
+    <div class="form-group"><label class="form-label">상태 메모</label><input class="form-input" id="projectUpdateStatus" value="${esc(update?.status_snapshot || '')}" placeholder="예: 6월 25일 회의, 디자인 확정"></div>
+    <div class="form-group"><label class="form-label">내용</label><textarea class="form-input" id="projectUpdateContent" rows="7" placeholder="결정사항, 담당자별 다음 작업, 확인일 등을 적어주세요.">${esc(update?.content || '')}</textarea></div>
+    <div style="display:flex;gap:8px"><button class="btn btn-dark" onclick="closeModal()" style="flex:1">취소</button><button class="btn btn-red" onclick="saveProjectUpdate(${update ? `'${update.id}'` : 'null'})" style="flex:1">${update ? '수정 저장' : '등록'}</button></div>`;
   openModal(h);
 }
 
@@ -7921,12 +7933,18 @@ async function deleteProjectTaskComment(taskId, commentId) {
   renderPage(true);
 }
 
-async function createProjectUpdate() {
+async function saveProjectUpdate(updateId = null) {
   if (!selectedProjectId) return;
   const content = document.getElementById('projectUpdateContent')?.value?.trim();
   const statusSnapshot = document.getElementById('projectUpdateStatus')?.value?.trim() || '';
   if (!content) return alert('진행사항을 입력하세요');
-  await api('POST', `/projects/${selectedProjectId}/updates`, { content, statusSnapshot });
+  await api(
+    updateId ? 'PUT' : 'POST',
+    updateId
+      ? `/projects/${selectedProjectId}/updates/${updateId}`
+      : `/projects/${selectedProjectId}/updates`,
+    { content, statusSnapshot }
+  );
   closeModal();
   projectSubTab = 'updates';
   renderPage(true);
