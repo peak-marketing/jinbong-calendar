@@ -1,1 +1,18 @@
 .claude/
+
+# Dependencies and generated test output
+node_modules/
+e2e/node_modules/
+test-results/
+e2e/test-results/
+
+# Runtime data and credentials
+uploads/
+server/*
+!server/index.js
+!server/package.json
+!server/package-lock.json
+!server/.env.example
+
+# Local backups
+index.old.html
