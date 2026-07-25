@@ -7581,13 +7581,13 @@ function renderProjectTaskRow(task) {
   const myAssignment = completion.assignees.find(
     assignee => currentUser && String(assignee.uid) === String(currentUser.uid)
   );
-  const checked = isAllAssignees ? !!myAssignment?.completed : task.status === 'done';
+  const checked = isAllAssignees ? !!myAssignment?.completed : ['review', 'done'].includes(task.status);
   const canToggle = !isAllAssignees || !!myAssignment;
   const toggleAction = isAllAssignees
     ? `toggleProjectTaskCompletion('${task.id}', ${checked ? 'false' : 'true'})`
-    : `updateProjectTaskStatus('${task.id}', '${task.status === 'done' ? 'doing' : 'done'}')`;
+    : `updateProjectTaskStatus('${task.id}', '${checked ? 'doing' : 'review'}')`;
   return `<div onclick="selectProjectTaskConversation('${task.id}')" style="display:flex;align-items:flex-start;gap:10px;padding:10px;border-bottom:1px solid var(--line);border-radius:8px;cursor:pointer;background:${selected ? 'var(--red-bg)' : 'transparent'};border-color:${selected ? 'rgba(255,107,95,0.24)' : 'var(--line)'}">
-    <button ${canToggle ? `onclick="event.stopPropagation();${toggleAction}"` : 'disabled'} title="${isAllAssignees ? (canToggle ? '내 완료 체크' : '담당자만 체크할 수 있습니다') : '완료 상태 변경'}" style="width:24px;height:24px;border-radius:8px;border:1px solid var(--line);background:${checked?'var(--green)':'var(--bg3)'};color:#fff;cursor:${canToggle?'pointer':'not-allowed'};opacity:${canToggle?'1':'0.55'};flex-shrink:0">${checked?'✓':''}</button>
+    <button ${canToggle ? `onclick="event.stopPropagation();${toggleAction}"` : 'disabled'} title="${isAllAssignees ? (canToggle ? '내 완료 체크' : '담당자만 체크할 수 있습니다') : '검토요청 상태 변경'}" style="width:24px;height:24px;border-radius:8px;border:1px solid var(--line);background:${checked?'var(--green)':'var(--bg3)'};color:#fff;cursor:${canToggle?'pointer':'not-allowed'};opacity:${canToggle?'1':'0.55'};flex-shrink:0">${checked?'✓':''}</button>
     <div style="flex:1;min-width:0">
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px">${projectTaskStatusPill(task.status)}${isAllAssignees ? `<span style="font-size:11px;color:var(--blue);font-weight:800">담당 모두 ${completion.total}명</span>` : task.assignee_name ? `<span style="font-size:11px;color:var(--text3)">담당 ${esc(task.assignee_name)}</span>` : ''}${task.due_date ? `<span style="font-size:11px;color:var(--text3)">마감 ${esc(task.due_date)}</span>` : ''}</div>
       <div style="font-size:14px;font-weight:750;line-height:1.35">${esc(task.title)}</div>

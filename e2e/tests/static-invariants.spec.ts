@@ -258,6 +258,12 @@ test.describe('source invariants', () => {
     expect(INDEX_HTML).toContain('toggleProjectTaskCompletion');
   });
 
+  test('single-assignee completion requests review before final completion', () => {
+    expect(INDEX_HTML).toContain("['review', 'done'].includes(task.status)");
+    expect(INDEX_HTML).toContain("checked ? 'doing' : 'review'");
+    expect(INDEX_HTML).toContain('검토요청 상태 변경');
+  });
+
   test('/api/events excludes meetings from archived or deleted projects', () => {
     const SERVER = fs.readFileSync(
       path.resolve(__dirname, '../../server/index.js'),
