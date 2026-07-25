@@ -478,13 +478,27 @@ export async function installApiStub(page: Page, initial: ApiStubState = default
           const project = (state.projects || []).find((p: any) => String(p.id) === String(projectId));
           if (!project) return null;
           const assignee = (project.members || []).find((m: any) => String(m.uid) === String(body?.assigneeUid || ''));
+          const allAssignees = body?.assigneeMode === 'all';
+          const assignees = (allAssignees
+            ? (project.members || [])
+            : assignee ? [assignee] : []
+          ).map((member: any) => ({
+            uid: member.uid,
+            name: member.name,
+            completed: false,
+            completedAt: null,
+          }));
           const record = {
             id: 'task-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
             project_id: projectId,
             title: String(body?.title || ''),
             description: String(body?.description || ''),
-            assignee_uid: assignee?.uid || '',
-            assignee_name: assignee?.name || '',
+            assignee_uid: allAssignees ? '' : assignee?.uid || '',
+            assignee_name: allAssignees ? '모두' : assignee?.name || '',
+            assignment_mode: allAssignees ? 'all' : 'single',
+            assignees,
+            assignee_count: assignees.length,
+            completed_assignee_count: 0,
             status: String(body?.status || 'todo'),
             due_date: String(body?.dueDate || ''),
             created_at: new Date().toISOString(),
@@ -507,6 +521,32 @@ export async function installApiStub(page: Page, initial: ApiStubState = default
           return tasks[index];
         }, { projectId, taskId, body });
         return respond(task || { error: 'Not found' }, task ? 200 : 404);
+      }
+      if (/^\/projects\/[^/]+\/tasks\/[^/]+\/completion$/.test(pathname) && method === 'PUT') {
+        const [, , projectId, , taskId] = pathname.split('/');
+        const result = await page.evaluate(({ projectId, taskId, body }) => {
+          const state = (window as any).__e2e_api_state || {};
+          const project = (state.projects || []).find((p: any) => String(p.id) === String(projectId));
+          const task = (project?.tasks || []).find((item: any) => String(item.id) === String(taskId));
+          if (!task) return null;
+          const assignee = (task.assignees || []).find((item: any) => item.uid === 'e2e-test-user');
+          if (!assignee) return null;
+          assignee.completed = body?.completed !== false;
+          assignee.completedAt = assignee.completed ? new Date().toISOString() : null;
+          task.assignee_count = task.assignees.length;
+          task.completed_assignee_count = task.assignees.filter((item: any) => item.completed).length;
+          if (task.completed_assignee_count === task.assignee_count) task.status = 'review';
+          else if (task.completed_assignee_count > 0 || ['review', 'done'].includes(task.status)) task.status = 'doing';
+          return {
+            taskId,
+            completed: assignee.completed,
+            completedCount: task.completed_assignee_count,
+            total: task.assignee_count,
+            percent: Math.round((task.completed_assignee_count / task.assignee_count) * 100),
+            status: task.status,
+          };
+        }, { projectId, taskId, body });
+        return respond(result || { error: 'Not found' }, result ? 200 : 404);
       }
       if (/^\/projects\/[^/]+\/tasks\/[^/]+\/comments$/.test(pathname) && method === 'POST') {
         const [, , projectId, , taskId] = pathname.split('/');
