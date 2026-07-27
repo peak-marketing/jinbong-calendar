@@ -153,6 +153,17 @@
 
     .search-button:focus-within { border-color: var(--blue); background: #fff; box-shadow: 0 0 0 3px rgba(52, 142, 205, .09); }
     .search-button label { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; cursor: text; }
+    .sidebar-search-icon {
+      display: block;
+      flex: 0 0 auto;
+      width: 13px;
+      height: 13px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
     .search-button input {
       width: 100%;
       min-width: 0;
@@ -168,18 +179,18 @@
     .sidebar-tab-search-submit {
       display: grid;
       flex: 0 0 auto;
-      width: 27px;
-      height: 27px;
+      width: 30px;
+      height: 30px;
       margin-left: 5px;
       padding: 0;
       place-items: center;
       border: 1px solid #c8e0f0;
-      border-radius: 7px;
+      border-radius: 8px;
       background: var(--blue-soft);
       color: var(--blue-dark);
-      font-size: 13px;
-      font-weight: 900;
+      line-height: 0;
     }
+    .sidebar-tab-search-submit .sidebar-search-icon { width: 15px; height: 15px; }
     .sidebar-tab-search-submit:hover { border-color: var(--blue); background: var(--blue); color: #fff; }
     .tab-search-empty {
       margin: 14px 8px 5px;
@@ -2044,8 +2055,13 @@
       </div>
 
       <div class="search-button">
-        <label for="sidebarTabSearch"><b>⌕</b><input id="sidebarTabSearch" type="search" placeholder="빠른 검색" autocomplete="off" aria-label="탭 검색"></label>
-        <button class="sidebar-tab-search-submit" id="sidebarTabSearchSubmit" type="button" aria-label="검색한 탭 열기" title="검색">⌕</button>
+        <label for="sidebarTabSearch">
+          <svg class="sidebar-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5"></circle><path d="m15 15 4 4"></path></svg>
+          <input id="sidebarTabSearch" type="search" placeholder="빠른 검색" autocomplete="off" aria-label="탭 검색">
+        </label>
+        <button class="sidebar-tab-search-submit" id="sidebarTabSearchSubmit" type="button" aria-label="검색한 탭 열기" title="검색">
+          <svg class="sidebar-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5"></circle><path d="m15 15 4 4"></path></svg>
+        </button>
       </div>
 
       <nav aria-label="워크스페이스 바로가기">
