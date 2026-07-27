@@ -481,7 +481,7 @@
 
     todoView.innerHTML = `
       <header class="todo-page-toolbar">
-        <div class="todo-date-copy"><strong>${formatDate(today, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</strong><span>현재 계정에 허용된 오늘 업무를 조회합니다</span></div>
+        <div class="todo-date-copy"><strong>${formatDate(today, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</strong></div>
         <span class="todo-readonly-note">읽기 전용</span>
       </header>
       <nav class="todo-scope-tabs" aria-label="오늘 할 일 범위">
@@ -534,10 +534,6 @@
     }).join('');
 
     reviewView.innerHTML = `
-      <header class="review-page-toolbar">
-        <div class="review-page-copy"><strong>프로젝트</strong><span>현재 계정에 허용된 프로젝트와 진행 현황을 조회합니다</span></div>
-        <span class="todo-readonly-note">읽기 전용</span>
-      </header>
       <section class="review-summary" aria-label="프로젝트 요약">
         <article class="review-summary-card primary"><span>전체</span><strong>${counts.all}</strong></article>
         <article class="review-summary-card"><span>진행 중</span><strong>${counts.active}</strong></article>

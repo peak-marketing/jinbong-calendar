@@ -95,6 +95,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('.nav-item[data-view="todo"]').click();
     await expect(page.locator('#todoView')).toContainText('오늘 운영 업무');
     await expect(page.locator('#todoView .todo-task-check')).toBeDisabled();
+    await expect(page.locator('#todoView')).not.toContainText('현재 계정에 허용된 오늘 업무를 조회합니다');
 
     await page.locator('.nav-item[data-view="calendar"]').click();
     await expect(page.locator('#calendarView')).toContainText('오늘 운영 업무');
@@ -105,6 +106,7 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#chatMessageInput')).toBeDisabled();
 
     await page.locator('.nav-item[data-view="review"]').click();
+    await expect(page.locator('#reviewView .review-page-toolbar')).toHaveCount(0);
     await expect(page.locator('#reviewSearchInput')).toHaveCount(0);
     await page.locator('[data-project-id="project-live-1"]').click();
     await expect(page.locator('#readonlyDetailModal')).toContainText('읽기 전용 업무 확인');
