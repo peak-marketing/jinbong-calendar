@@ -181,17 +181,6 @@
       font-weight: 900;
     }
     .sidebar-tab-search-submit:hover { border-color: var(--blue); background: var(--blue); color: #fff; }
-    .search-button kbd {
-      flex: 0 0 auto;
-      margin-left: 5px;
-      padding: 2px 5px;
-      border: 1px solid var(--line-strong);
-      border-radius: 5px;
-      background: #fff;
-      color: var(--muted-2);
-      font-family: inherit;
-      font-size: 9px;
-    }
     .tab-search-empty {
       margin: 14px 8px 5px;
       color: var(--muted-2);
@@ -2057,7 +2046,6 @@
       <div class="search-button">
         <label for="sidebarTabSearch"><b>⌕</b><input id="sidebarTabSearch" type="search" placeholder="빠른 검색" autocomplete="off" aria-label="탭 검색"></label>
         <button class="sidebar-tab-search-submit" id="sidebarTabSearchSubmit" type="button" aria-label="검색한 탭 열기" title="검색">⌕</button>
-        <kbd>⌘ K</kbd>
       </div>
 
       <nav aria-label="워크스페이스 바로가기">
@@ -3110,15 +3098,6 @@
         sidebarTabSearch.blur();
       }
     });
-    document.addEventListener('keydown', (event) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault();
-        body.classList.add('menu-open');
-        sidebarTabSearch.focus();
-        sidebarTabSearch.select();
-      }
-    });
-
     const homeCalendarEvents = [
       { date: '2026-07-01', time: '09:30', title: '7월 목표 및 운영계획 공유', group: '전체', scope: 'team', type: 'meeting' },
       { date: '2026-07-03', time: '14:00', title: '신규 교육자료 검토', group: '경영지원팀', scope: 'personal', type: 'todo' },
