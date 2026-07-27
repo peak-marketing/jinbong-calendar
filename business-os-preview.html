@@ -2027,7 +2027,7 @@
           <button class="nav-item" type="button" data-view="calendar"><span class="nav-icon">◫</span>CALENDAR</button>
           <button class="nav-item" type="button" data-view="chat"><span class="nav-icon">◌</span>CHAT<span class="nav-badge">5</span></button>
           <button class="nav-item" type="button" data-view="todo"><span class="nav-icon">▦</span>TO DO LIST<span class="nav-badge">6</span></button>
-          <button class="nav-item" type="button" data-view="review"><span class="nav-icon">✓</span>검토 요청<span class="nav-badge">3</span></button>
+          <button class="nav-item" type="button" data-view="review"><span class="nav-icon">▣</span>PROJECTS<span class="nav-badge">3</span></button>
         </section>
 
         <div class="sidebar-tree-heading">
@@ -3393,7 +3393,7 @@
       todoView.hidden = view !== 'todo';
       reviewView.hidden = view !== 'review';
       permissionsView.hidden = view !== 'permissions';
-      pageCrumb.textContent = view === 'permissions' ? '조직 및 권한' : (view === 'calendar' ? 'CALENDAR' : (view === 'chat' ? 'CHAT' : (view === 'todo' ? 'TO DO LIST' : (view === 'review' ? '검토 요청' : 'PEAKMARKETING'))));
+      pageCrumb.textContent = view === 'permissions' ? '조직 및 권한' : (view === 'calendar' ? 'CALENDAR' : (view === 'chat' ? 'CHAT' : (view === 'todo' ? 'TO DO LIST' : (view === 'review' ? 'PROJECTS' : 'PEAKMARKETING'))));
       body.classList.remove('menu-open');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -3548,7 +3548,7 @@
           if (button.dataset.scroll) {
             setTimeout(() => document.getElementById(button.dataset.scroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
           }
-          const viewNames = { dashboard: 'PEAKMARKETING', calendar: 'CALENDAR', chat: 'CHAT', todo: 'TO DO LIST', review: '검토 요청' };
+          const viewNames = { dashboard: 'PEAKMARKETING', calendar: 'CALENDAR', chat: 'CHAT', todo: 'TO DO LIST', review: 'PROJECTS' };
           showToast((viewNames[button.dataset.view] || '해당') + ' 화면을 열었습니다.');
           return;
         }
