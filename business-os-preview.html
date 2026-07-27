@@ -75,7 +75,7 @@
 
     .app {
       display: grid;
-      grid-template-columns: 246px minmax(0, 1fr);
+      grid-template-columns: 278px minmax(0, 1fr);
       min-height: calc(100vh - 34px);
     }
 
@@ -86,11 +86,15 @@
       display: flex;
       flex-direction: column;
       height: calc(100vh - 34px);
-      padding: 15px 11px 12px;
-      border-right: 1px solid var(--line);
-      background: rgba(255, 255, 255, .96);
+      padding: 15px 12px 12px;
+      border-right: 1px solid #dbe4eb;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, .48), transparent 190px),
+        #eef3f7;
       overflow-y: auto;
       backdrop-filter: blur(16px);
+      scrollbar-width: thin;
+      scrollbar-color: #ccd8e1 transparent;
     }
 
     .workspace {
@@ -138,9 +142,9 @@
       min-height: 38px;
       margin: 3px 0 16px;
       padding: 0 11px;
-      border: 1px solid var(--line);
+      border: 1px solid #d7e1e9;
       border-radius: 9px;
-      background: #f8fafc;
+      background: rgba(255, 255, 255, .72);
       color: var(--muted);
       font-size: 11px;
       font-weight: 650;
@@ -157,7 +161,7 @@
       font-size: 9px;
     }
 
-    .nav-section { margin-bottom: 15px; }
+    .nav-section { margin-bottom: 13px; }
     .nav-label {
       margin: 0 9px 6px;
       color: var(--muted-2);
@@ -185,8 +189,14 @@
       transition: .18s ease;
     }
 
-    .nav-item:hover { background: #f5f8fa; color: var(--ink); }
-    .nav-item.active { background: var(--blue-soft); color: var(--blue-dark); font-weight: 800; }
+    .nav-item:hover { background: rgba(255, 255, 255, .62); color: var(--ink); }
+    .nav-item.active {
+      border: 1px solid rgba(52, 142, 205, .14);
+      background: #fff;
+      color: var(--blue-dark);
+      font-weight: 800;
+      box-shadow: 0 3px 10px rgba(41, 72, 97, .06);
+    }
     .nav-icon { width: 18px; color: var(--muted-2); font-size: 14px; text-align: center; }
     .nav-item.active .nav-icon { color: var(--blue); }
     .nav-badge {
@@ -200,6 +210,28 @@
       text-align: center;
     }
     .nav-item.active .nav-badge { background: #fff; color: var(--blue); }
+
+    .sidebar-tree-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 2px 8px 5px;
+      color: #8a9aa8;
+      font-size: 9px;
+      font-weight: 850;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .sidebar-tree-heading button {
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: #8a9aa8;
+    }
+    .sidebar-tree-heading button:hover { background: rgba(255, 255, 255, .7); color: var(--blue); }
 
     .sidebar-spacer { flex: 1; min-height: 18px; }
     .sidebar-card {
@@ -363,7 +395,7 @@
 
     .dashboard-grid {
       display: grid;
-      grid-template-columns: 292px minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr);
       gap: 16px;
       align-items: start;
     }
@@ -392,7 +424,7 @@
       font-size: 16px;
     }
 
-    .map-panel { position: sticky; top: 108px; overflow: hidden; }
+    .map-panel { display: none; }
     .map-brand {
       display: flex;
       align-items: center;
@@ -453,6 +485,41 @@
     .tree-item:hover, .tree-item.active { background: #f3f8fc; color: var(--blue-dark); }
     .tree-icon { width: 13px; color: #9ba9b5; text-align: center; }
     .tree-item.active .tree-icon { color: var(--blue); }
+    .app-sidebar .tree { padding: 0 1px 8px; }
+    .app-sidebar .tree-group { padding: 5px 0; border-color: rgba(169, 185, 198, .22); }
+    .app-sidebar .tree-trigger {
+      min-height: 31px;
+      padding: 0 8px;
+      border-radius: 7px;
+      color: #344553;
+      font-size: 11px;
+    }
+    .app-sidebar .tree-trigger:hover { background: rgba(255, 255, 255, .54); }
+    .app-sidebar .tree-children { padding: 1px 0 3px 23px; }
+    .app-sidebar .tree-item {
+      min-height: 27px;
+      padding: 0 7px;
+      color: #697987;
+      font-size: 9.5px;
+    }
+    .app-sidebar .tree-item:hover { background: rgba(255, 255, 255, .58); color: var(--ink); }
+    .app-sidebar .tree-item.active {
+      background: #fff;
+      color: var(--blue-dark);
+      box-shadow: 0 2px 8px rgba(41, 72, 97, .06);
+    }
+    .side-count {
+      margin-left: auto;
+      min-width: 18px;
+      padding: 2px 5px;
+      border-radius: 8px;
+      background: rgba(156, 174, 188, .17);
+      color: #81919e;
+      font-size: 8px;
+      font-weight: 800;
+      text-align: center;
+    }
+    .tree-item.active .side-count { background: var(--blue-soft); color: var(--blue); }
 
     .content-stack { display: grid; gap: 16px; min-width: 0; }
     .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
@@ -615,9 +682,8 @@
     .mobile-overlay { display: none; }
 
     @media (max-width: 1080px) {
-      .app { grid-template-columns: 220px minmax(0, 1fr); }
+      .app { grid-template-columns: 248px minmax(0, 1fr); }
       .page { width: min(100% - 32px, 1040px); padding-top: 34px; }
-      .dashboard-grid { grid-template-columns: 260px minmax(0, 1fr); }
       .metric-grid { grid-template-columns: repeat(2, 1fr); }
       .goal-grid { grid-template-columns: 1fr; }
       .goal-card h3 { min-height: auto; }
@@ -632,7 +698,7 @@
         top: 38px;
         left: 0;
         z-index: 70;
-        width: 260px;
+        width: 280px;
         height: calc(100vh - 38px);
         box-shadow: 18px 0 40px rgba(23, 33, 43, .13);
         transform: translateX(-105%);
@@ -658,7 +724,6 @@
       .heading-copy p { margin-top: 7px; font-size: 11px; }
       .heading-meta { margin-top: 14px; padding-left: 54px; overflow-x: auto; }
       .dashboard-grid { display: block; }
-      .map-panel { position: static; margin-bottom: 12px; }
       .content-stack { width: 100%; grid-template-columns: minmax(0, 1fr); gap: 12px; }
       .content-stack > *,
       .panel { min-width: 0; max-width: 100%; }
@@ -707,36 +772,76 @@
         <kbd>⌘ K</kbd>
       </button>
 
-      <nav>
+      <nav aria-label="워크스페이스 바로가기">
         <section class="nav-section">
-          <p class="nav-label">Workspace</p>
-          <button class="nav-item active" type="button"><span class="nav-icon">⌂</span>Business OS</button>
-          <button class="nav-item" type="button"><span class="nav-icon">▦</span>오늘의 업무<span class="nav-badge">8</span></button>
-          <button class="nav-item" type="button"><span class="nav-icon">◫</span>캘린더</button>
+          <p class="nav-label">Quick access</p>
+          <button class="nav-item active" type="button"><span class="nav-icon">⌂</span>회사 홈</button>
+          <button class="nav-item" type="button"><span class="nav-icon">▦</span>오늘 할 일<span class="nav-badge">8</span></button>
           <button class="nav-item" type="button"><span class="nav-icon">✓</span>검토 요청<span class="nav-badge">3</span></button>
         </section>
-        <section class="nav-section">
-          <p class="nav-label">Company</p>
-          <button class="nav-item" type="button"><span class="nav-icon">◇</span>목표 &amp; KPI</button>
-          <button class="nav-item" type="button"><span class="nav-icon">▣</span>프로젝트</button>
-          <button class="nav-item" type="button"><span class="nav-icon">◉</span>영업 관리</button>
-          <button class="nav-item" type="button"><span class="nav-icon">▤</span>보고서</button>
-          <button class="nav-item" type="button"><span class="nav-icon">◎</span>회의 기록</button>
-        </section>
-        <section class="nav-section">
-          <p class="nav-label">Communication</p>
-          <button class="nav-item" type="button"><span class="nav-icon">◌</span>채팅<span class="nav-badge">5</span></button>
-          <button class="nav-item" type="button"><span class="nav-icon">♢</span>공지사항</button>
-          <button class="nav-item" type="button"><span class="nav-icon">＋</span>아이디어</button>
-        </section>
+
+        <div class="sidebar-tree-heading">
+          <span>Company map</span>
+          <button class="preview-action" type="button" aria-label="새 페이지 추가">＋</button>
+        </div>
+        <div class="tree" aria-label="회사 업무 구조">
+          <section class="tree-group">
+            <button class="tree-trigger" type="button"><span class="caret">▼</span>◇ 브랜드</button>
+            <div class="tree-children">
+              <button class="tree-item" type="button"><span class="tree-icon">◉</span>MVC</button>
+              <button class="tree-item" type="button"><span class="tree-icon">⌘</span>브랜드 디자인 시스템</button>
+              <button class="tree-item" type="button"><span class="tree-icon">☰</span>브랜드 로고</button>
+              <button class="tree-item" type="button"><span class="tree-icon">▱</span>회사 소개서</button>
+            </div>
+          </section>
+          <section class="tree-group">
+            <button class="tree-trigger" type="button"><span class="caret">▼</span>♧ 제품 &amp; 서비스</button>
+            <div class="tree-children">
+              <button class="tree-item" type="button"><span class="tree-icon">♙</span>제품 &amp; 서비스</button>
+              <button class="tree-item" type="button"><span class="tree-icon">▧</span>상품 자료</button>
+              <button class="tree-item" type="button"><span class="tree-icon">▤</span>매뉴얼</button>
+            </div>
+          </section>
+          <section class="tree-group">
+            <button class="tree-trigger" type="button"><span class="caret">▼</span>▦ 운영</button>
+            <div class="tree-children">
+              <button class="tree-item" type="button"><span class="tree-icon">⌑</span>목표 &amp; KPI</button>
+              <button class="tree-item active" type="button"><span class="tree-icon">▣</span>프로젝트 &amp; 태스크<span class="side-count">12</span></button>
+              <button class="tree-item" type="button"><span class="tree-icon">◷</span>루틴</button>
+              <button class="tree-item" type="button"><span class="tree-icon">◩</span>공지사항</button>
+              <button class="tree-item" type="button"><span class="tree-icon">♟</span>회의 로그</button>
+              <button class="tree-item" type="button"><span class="tree-icon">▱</span>팀 문서</button>
+              <button class="tree-item" type="button"><span class="tree-icon">↗</span>결정 로그</button>
+            </div>
+          </section>
+          <section class="tree-group">
+            <button class="tree-trigger" type="button"><span class="caret">▼</span>◒ 마케팅</button>
+            <div class="tree-children">
+              <button class="tree-item" type="button"><span class="tree-icon">◆</span>마케팅 대시보드</button>
+              <button class="tree-item" type="button"><span class="tree-icon">◇</span>마케팅 전략 &amp; 리소스</button>
+              <button class="tree-item" type="button"><span class="tree-icon">◫</span>콘텐츠 캘린더</button>
+            </div>
+          </section>
+          <section class="tree-group">
+            <button class="tree-trigger" type="button"><span class="caret">▼</span>◈ 세일즈</button>
+            <div class="tree-children">
+              <button class="tree-item" type="button"><span class="tree-icon">◉</span>영업 파이프라인</button>
+              <button class="tree-item" type="button"><span class="tree-icon">♙</span>고객 관리</button>
+              <button class="tree-item" type="button"><span class="tree-icon">▤</span>견적 / 계약<span class="side-count">4</span></button>
+            </div>
+          </section>
+          <section class="tree-group">
+            <button class="tree-trigger" type="button"><span class="caret">▼</span>▤ 재무</button>
+            <div class="tree-children">
+              <button class="tree-item" type="button"><span class="tree-icon">▥</span>월별 매출 보고서</button>
+              <button class="tree-item" type="button"><span class="tree-icon">◉</span>비용</button>
+              <button class="tree-item" type="button"><span class="tree-icon">●</span>정산</button>
+              <button class="tree-item" type="button"><span class="tree-icon">▦</span>재무 월간 결산</button>
+            </div>
+          </section>
+        </div>
       </nav>
 
-      <div class="sidebar-spacer"></div>
-      <div class="sidebar-card">
-        <strong>이번 주 팀 진행률 72%</strong>
-        <p>완료 처리 전 검토가 필요한 업무가 3건 있습니다.</p>
-        <span>검토함 열기 →</span>
-      </div>
       <div class="member">
         <div class="avatar">대호</div>
         <div class="member-copy"><strong>김대호</strong><small>관리자</small></div>
