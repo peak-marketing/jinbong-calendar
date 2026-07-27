@@ -659,6 +659,270 @@
     .row-progress { display: flex; align-items: center; gap: 7px; }
     .row-progress .progress-track { flex: 1; min-width: 48px; }
 
+    [hidden] { display: none !important; }
+    .permissions-view { min-width: 0; }
+    .permissions-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 22px;
+      margin-bottom: 24px;
+    }
+    .permissions-heading-main { display: flex; align-items: flex-start; gap: 14px; }
+    .permission-icon {
+      display: grid;
+      flex: 0 0 auto;
+      width: 48px;
+      height: 48px;
+      place-items: center;
+      border-radius: 13px;
+      background: var(--blue);
+      color: #fff;
+      box-shadow: 0 6px 16px rgba(52, 142, 205, .22);
+      font-size: 20px;
+    }
+    .admin-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 7px;
+      color: var(--blue);
+      font-size: 9px;
+      font-weight: 850;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .admin-label i { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); }
+    .permissions-heading h1 { margin: 0; font-size: clamp(25px, 3vw, 34px); }
+    .permissions-heading p { max-width: 650px; margin: 9px 0 0; color: var(--muted); font-size: 11px; line-height: 1.65; }
+    .permission-actions { display: flex; gap: 7px; padding-top: 3px; }
+    .ghost-button {
+      min-height: 34px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--text);
+      font-size: 10px;
+      font-weight: 780;
+      white-space: nowrap;
+    }
+
+    .permission-stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .permission-stat {
+      padding: 15px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      box-shadow: var(--shadow-soft);
+    }
+    .permission-stat-top { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 9px; font-weight: 750; }
+    .permission-stat-top i {
+      display: grid;
+      width: 25px;
+      height: 25px;
+      place-items: center;
+      border-radius: 7px;
+      background: var(--blue-soft);
+      color: var(--blue);
+      font-style: normal;
+      font-size: 11px;
+    }
+    .permission-stat strong { display: block; margin-top: 10px; color: var(--ink); font-size: 20px; }
+    .permission-stat small { display: block; margin-top: 4px; color: var(--muted-2); font-size: 8px; }
+
+    .permission-layout {
+      display: grid;
+      grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr);
+      gap: 16px;
+      margin-bottom: 16px;
+      align-items: stretch;
+    }
+    .org-body { padding: 16px; }
+    .master-node {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 13px;
+      border: 1px solid #cce3f3;
+      border-radius: 11px;
+      background: var(--blue-pale);
+    }
+    .org-avatar {
+      display: grid;
+      flex: 0 0 auto;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      border-radius: 10px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 900;
+    }
+    .org-node-copy { min-width: 0; }
+    .org-node-copy strong, .org-node-copy small { display: block; }
+    .org-node-copy strong { color: var(--ink); font-size: 11px; }
+    .org-node-copy small { margin-top: 4px; color: var(--muted); font-size: 8px; }
+    .master-badge {
+      margin-left: auto;
+      padding: 5px 8px;
+      border-radius: 7px;
+      background: #fff;
+      color: var(--blue-dark);
+      font-size: 8px;
+      font-weight: 850;
+      box-shadow: var(--shadow-soft);
+    }
+    .org-line { width: 1px; height: 16px; margin-left: 30px; background: #cdd9e2; }
+    .division-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .division-card { padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: #fcfdfe; }
+    .division-head { display: flex; align-items: center; gap: 9px; margin-bottom: 11px; }
+    .division-icon {
+      display: grid;
+      width: 29px;
+      height: 29px;
+      place-items: center;
+      border-radius: 8px;
+      background: var(--violet-soft);
+      color: var(--violet);
+      font-size: 12px;
+    }
+    .division-icon.sales { background: var(--blue-soft); color: var(--blue); }
+    .division-head strong, .division-head small { display: block; }
+    .division-head strong { color: var(--ink); font-size: 10px; }
+    .division-head small { margin-top: 3px; color: var(--muted-2); font-size: 8px; }
+    .subteam-list { display: grid; gap: 6px; }
+    .subteam {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 31px;
+      padding: 0 8px;
+      border: 1px solid #edf1f4;
+      border-radius: 7px;
+      background: #fff;
+      color: var(--text);
+      font-size: 9px;
+      font-weight: 720;
+    }
+    .subteam i { width: 7px; height: 7px; border-radius: 2px; background: var(--violet); }
+    .subteam.sales i { background: var(--blue); }
+    .subteam span { margin-left: auto; color: var(--muted-2); font-size: 8px; font-weight: 650; }
+
+    .rule-list { padding: 5px 16px 10px; }
+    .rule-row {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      min-height: 57px;
+      border-bottom: 1px solid #f0f3f5;
+    }
+    .rule-row:last-child { border-bottom: 0; }
+    .rule-icon {
+      display: grid;
+      width: 30px;
+      height: 30px;
+      place-items: center;
+      border-radius: 8px;
+      background: #f1f5f8;
+      color: #6e8190;
+      font-size: 12px;
+    }
+    .rule-copy strong, .rule-copy small { display: block; }
+    .rule-copy strong { color: var(--ink); font-size: 9px; }
+    .rule-copy small { margin-top: 4px; color: var(--muted); font-size: 8px; line-height: 1.45; }
+    .rule-value { color: var(--blue-dark); font-size: 8px; font-weight: 820; text-align: right; }
+
+    .matrix-panel { margin-bottom: 16px; overflow: hidden; }
+    .matrix-toolbar { display: flex; align-items: center; gap: 6px; }
+    .legend-chip { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 8px; white-space: nowrap; }
+    .legend-chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); }
+    .legend-chip:nth-child(2) i { background: var(--green); }
+    .legend-chip:nth-child(3) i { background: var(--orange); }
+    .matrix-scroll { padding: 0 16px 12px; overflow-x: auto; }
+    .permission-matrix {
+      width: 100%;
+      min-width: 1040px;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    .permission-matrix th,
+    .permission-matrix td {
+      padding: 10px 7px;
+      border-bottom: 1px solid #edf1f4;
+      color: var(--muted);
+      font-size: 8px;
+      text-align: center;
+      vertical-align: middle;
+    }
+    .permission-matrix th { color: var(--muted-2); font-weight: 820; }
+    .permission-matrix th:first-child,
+    .permission-matrix td:first-child { width: 165px; text-align: left; }
+    .permission-matrix th:last-child,
+    .permission-matrix td:last-child { width: 90px; }
+    .team-cell { display: flex; align-items: center; gap: 8px; }
+    .team-dot { width: 8px; height: 8px; border-radius: 2px; background: var(--violet); }
+    .team-dot.blue { background: var(--blue); }
+    .team-dot.master { background: var(--ink); }
+    .team-cell strong, .team-cell small { display: block; }
+    .team-cell strong { color: var(--ink); font-size: 9px; }
+    .team-cell small { margin-top: 3px; color: var(--muted-2); font-size: 7px; }
+    .perm-chip {
+      min-width: 45px;
+      min-height: 24px;
+      padding: 0 7px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      font-size: 8px;
+      font-weight: 820;
+      white-space: nowrap;
+    }
+    .perm-chip.master, .perm-chip.manage { background: var(--blue-soft); color: var(--blue-dark); }
+    .perm-chip.edit { background: var(--green-soft); color: #27875b; }
+    .perm-chip.view, .perm-chip.own { background: var(--orange-soft); color: #b87530; }
+    .perm-chip.none { background: #f1f3f5; color: #a1abb4; }
+    .scope-badge {
+      display: inline-flex;
+      min-height: 23px;
+      align-items: center;
+      padding: 0 7px;
+      border-radius: 7px;
+      background: #f1f5f8;
+      color: #697987;
+      font-size: 8px;
+      font-weight: 780;
+    }
+
+    .security-note {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 15px;
+      border: 1px solid #d5e8f6;
+      border-radius: 12px;
+      background: var(--blue-pale);
+    }
+    .security-note-icon {
+      display: grid;
+      flex: 0 0 auto;
+      width: 31px;
+      height: 31px;
+      place-items: center;
+      border-radius: 9px;
+      background: #fff;
+      color: var(--blue);
+      box-shadow: var(--shadow-soft);
+    }
+    .security-note strong { display: block; color: var(--ink); font-size: 10px; }
+    .security-note p { margin: 5px 0 0; color: var(--muted); font-size: 8px; line-height: 1.6; }
+
     .toast {
       position: fixed;
       right: 22px;
@@ -688,6 +952,7 @@
       .goal-grid { grid-template-columns: 1fr; }
       .goal-card h3 { min-height: auto; }
       .split-grid { grid-template-columns: 1fr; }
+      .permission-layout { grid-template-columns: minmax(0, 1fr); }
     }
 
     @media (max-width: 760px) {
@@ -739,6 +1004,17 @@
       .notice-row { grid-template-columns: 50px minmax(0, 1fr); }
       .notice-date { display: none; }
       .project-table { padding-inline: 12px; }
+      .permissions-heading { display: block; }
+      .permissions-heading-main { gap: 11px; }
+      .permission-icon { width: 43px; height: 43px; border-radius: 11px; }
+      .permissions-heading h1 { font-size: 23px; }
+      .permission-actions { margin-top: 14px; padding-left: 54px; overflow-x: auto; }
+      .permission-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+      .permission-stat { padding: 12px; }
+      .division-grid { grid-template-columns: minmax(0, 1fr); }
+      .matrix-toolbar { display: none; }
+      .matrix-scroll { padding-inline: 10px; }
+      .security-note { padding: 13px; }
       .toast { right: 12px; bottom: 12px; max-width: calc(100vw - 24px); }
     }
 
@@ -748,6 +1024,7 @@
       .metric-label { display: block; }
       .metric-icon { margin-bottom: 8px; }
       .metric-value { margin-top: 0; }
+      .permission-actions { padding-left: 0; }
     }
   </style>
 </head>
@@ -775,7 +1052,7 @@
       <nav aria-label="워크스페이스 바로가기">
         <section class="nav-section">
           <p class="nav-label">Quick access</p>
-          <button class="nav-item active" type="button"><span class="nav-icon">⌂</span>회사 홈</button>
+          <button class="nav-item active" type="button" data-view="dashboard"><span class="nav-icon">⌂</span>회사 홈</button>
           <button class="nav-item" type="button"><span class="nav-icon">▦</span>오늘 할 일<span class="nav-badge">8</span></button>
           <button class="nav-item" type="button"><span class="nav-icon">✓</span>검토 요청<span class="nav-badge">3</span></button>
         </section>
@@ -806,7 +1083,8 @@
             <button class="tree-trigger" type="button"><span class="caret">▼</span>▦ 운영</button>
             <div class="tree-children">
               <button class="tree-item" type="button"><span class="tree-icon">⌑</span>목표 &amp; KPI</button>
-              <button class="tree-item active" type="button"><span class="tree-icon">▣</span>프로젝트 &amp; 태스크<span class="side-count">12</span></button>
+              <button class="tree-item active" type="button" data-view="dashboard"><span class="tree-icon">▣</span>프로젝트 &amp; 태스크<span class="side-count">12</span></button>
+              <button class="tree-item" type="button" data-view="permissions"><span class="tree-icon">♙</span>조직 &amp; 권한<span class="side-count">M</span></button>
               <button class="tree-item" type="button"><span class="tree-icon">◷</span>루틴</button>
               <button class="tree-item" type="button"><span class="tree-icon">◩</span>공지사항</button>
               <button class="tree-item" type="button"><span class="tree-icon">♟</span>회의 로그</button>
@@ -853,7 +1131,7 @@
       <header class="topbar">
         <div class="breadcrumbs">
           <button class="icon-button mobile-menu" type="button" aria-label="메뉴 열기">☰</button>
-          <span>PEAK OS</span><span class="slash">/</span><strong>Business OS</strong>
+          <span>PEAK OS</span><span class="slash">/</span><strong id="pageCrumb">Business OS</strong>
         </div>
         <div class="top-actions">
           <button class="icon-button preview-action" type="button">공유</button>
@@ -863,6 +1141,7 @@
       </header>
 
       <div class="page">
+        <div id="dashboardView">
         <section class="page-heading">
           <div class="heading-main">
             <div class="page-icon">P</div>
@@ -1091,6 +1370,210 @@
           </div>
         </div>
       </div>
+
+        <section class="permissions-view" id="permissionsView" hidden>
+          <header class="permissions-heading">
+            <div class="permissions-heading-main">
+              <div class="permission-icon">♙</div>
+              <div>
+                <div class="admin-label"><i></i> Master administration</div>
+                <h1>조직 &amp; 권한 관리</h1>
+                <p>직급·지사·팀을 기준으로 자료와 업무의 조회, 편집, 관리 범위를 설정합니다. 아래 내용은 현재 조직을 반영한 MVP 초기 권한안입니다.</p>
+              </div>
+            </div>
+            <div class="permission-actions">
+              <button class="ghost-button preview-action" type="button">전체 지사⌄</button>
+              <button class="primary-button preview-action" type="button">＋ 팀원 초대</button>
+            </div>
+          </header>
+
+          <section class="permission-stats" aria-label="권한 구성 요약">
+            <article class="permission-stat">
+              <div class="permission-stat-top"><span>상위 조직</span><i>◇</i></div>
+              <strong>2</strong><small>경영지원 · 플랫폼운영</small>
+            </article>
+            <article class="permission-stat">
+              <div class="permission-stat-top"><span>기능 조직</span><i>▦</i></div>
+              <strong>4</strong><small>개발 · 인사 · 세무/재무 · 영업</small>
+            </article>
+            <article class="permission-stat">
+              <div class="permission-stat-top"><span>관리 업무</span><i>▤</i></div>
+              <strong>13</strong><small>자료부터 정산·보고서까지</small>
+            </article>
+            <article class="permission-stat">
+              <div class="permission-stat-top"><span>최종 마스터</span><i>♛</i></div>
+              <strong>1</strong><small>대표 · 전체 지사 및 권한 관리</small>
+            </article>
+          </section>
+
+          <div class="permission-layout">
+            <section class="panel">
+              <div class="panel-head">
+                <div><div class="panel-title">피크마케팅 조직 구조</div><div class="panel-subtitle">상위 팀과 실제 업무 담당 구분</div></div>
+                <button class="more-button preview-action" type="button">편집</button>
+              </div>
+              <div class="org-body">
+                <div class="master-node">
+                  <div class="org-avatar">대표</div>
+                  <div class="org-node-copy"><strong>대표 · 최고 관리자</strong><small>모든 지사, 팀, 민감자료 및 권한 설정</small></div>
+                  <span class="master-badge">MASTER</span>
+                </div>
+                <div class="org-line"></div>
+                <div class="division-grid">
+                  <article class="division-card">
+                    <div class="division-head">
+                      <span class="division-icon">◆</span>
+                      <span><strong>경영지원팀</strong><small>회사 운영 및 관리</small></span>
+                    </div>
+                    <div class="subteam-list">
+                      <div class="subteam"><i></i>개발팀<span>멤버 설정</span></div>
+                      <div class="subteam"><i></i>인사담당<span>멤버 설정</span></div>
+                      <div class="subteam"><i></i>세무 · 재무<span>멤버 설정</span></div>
+                    </div>
+                  </article>
+                  <article class="division-card">
+                    <div class="division-head">
+                      <span class="division-icon sales">◈</span>
+                      <span><strong>플랫폼운영팀</strong><small>접수·영업 및 현장 운영</small></span>
+                    </div>
+                    <div class="subteam-list">
+                      <div class="subteam sales"><i></i>영업팀<span>멤버 설정</span></div>
+                    </div>
+                  </article>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <div><div class="panel-title">권한 적용 우선순위</div><div class="panel-subtitle">사용자에게 최종적으로 적용되는 범위</div></div>
+                <button class="more-button preview-action" type="button">정책 보기</button>
+              </div>
+              <div class="rule-list">
+                <div class="rule-row">
+                  <span class="rule-icon">♛</span>
+                  <span class="rule-copy"><strong>1. 대표 마스터 권한</strong><small>전체 지사와 모든 업무, 권한 변경 이력까지 접근</small></span>
+                  <span class="rule-value">전체 허용</span>
+                </div>
+                <div class="rule-row">
+                  <span class="rule-icon">⌂</span>
+                  <span class="rule-copy"><strong>2. 지사 범위</strong><small>소속 지사 또는 대표가 추가로 허용한 지사만 표시</small></span>
+                  <span class="rule-value">지사 필터</span>
+                </div>
+                <div class="rule-row">
+                  <span class="rule-icon">▦</span>
+                  <span class="rule-copy"><strong>3. 팀별 업무 권한</strong><small>경영지원·플랫폼운영 및 기능 조직별 기본 권한 적용</small></span>
+                  <span class="rule-value">팀 정책</span>
+                </div>
+                <div class="rule-row">
+                  <span class="rule-icon">♙</span>
+                  <span class="rule-copy"><strong>4. 개인 예외 권한</strong><small>담당 업무, 본인 정산, 임시 승인 권한을 마지막에 적용</small></span>
+                  <span class="rule-value">개인 범위</span>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <section class="panel matrix-panel">
+            <div class="panel-head">
+              <div><div class="panel-title">팀별 기본 권한표</div><div class="panel-subtitle">각 버튼을 눌러 시안에서 권한 단계를 바꿔볼 수 있습니다</div></div>
+              <div class="matrix-toolbar">
+                <span class="legend-chip"><i></i>관리</span>
+                <span class="legend-chip"><i></i>편집</span>
+                <span class="legend-chip"><i></i>조회/본인</span>
+              </div>
+            </div>
+            <div class="matrix-scroll">
+              <table class="permission-matrix">
+                <thead>
+                  <tr>
+                    <th>조직</th>
+                    <th>교육자료</th>
+                    <th>회사자료·Drive</th>
+                    <th>사업자정보</th>
+                    <th>접수</th>
+                    <th>정산·계산서·결산</th>
+                    <th>월급·세금</th>
+                    <th>캘린더</th>
+                    <th>보고서</th>
+                    <th>적용 범위</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><span class="team-cell"><i class="team-dot master"></i><span><strong>대표</strong><small>최종 마스터</small></span></span></td>
+                    <td><button class="perm-chip master" type="button" data-level="master">전체</button></td>
+                    <td><button class="perm-chip master" type="button" data-level="master">전체</button></td>
+                    <td><button class="perm-chip master" type="button" data-level="master">전체</button></td>
+                    <td><button class="perm-chip master" type="button" data-level="master">전체</button></td>
+                    <td><button class="perm-chip master" type="button" data-level="master">전체</button></td>
+                    <td><button class="perm-chip master" type="button" data-level="master">전체</button></td>
+                    <td><button class="perm-chip master" type="button" data-level="master">전체</button></td>
+                    <td><button class="perm-chip master" type="button" data-level="master">전체</button></td>
+                    <td><span class="scope-badge">모든 지사</span></td>
+                  </tr>
+                  <tr>
+                    <td><span class="team-cell"><i class="team-dot"></i><span><strong>개발팀</strong><small>경영지원팀</small></span></span></td>
+                    <td><button class="perm-chip edit" type="button" data-level="edit">편집</button></td>
+                    <td><button class="perm-chip manage" type="button" data-level="manage">관리</button></td>
+                    <td><button class="perm-chip none" type="button" data-level="none">없음</button></td>
+                    <td><button class="perm-chip view" type="button" data-level="view">조회</button></td>
+                    <td><button class="perm-chip none" type="button" data-level="none">없음</button></td>
+                    <td><button class="perm-chip none" type="button" data-level="none">없음</button></td>
+                    <td><button class="perm-chip edit" type="button" data-level="edit">편집</button></td>
+                    <td><button class="perm-chip view" type="button" data-level="view">조회</button></td>
+                    <td><span class="scope-badge">담당 지사</span></td>
+                  </tr>
+                  <tr>
+                    <td><span class="team-cell"><i class="team-dot"></i><span><strong>인사담당</strong><small>경영지원팀</small></span></span></td>
+                    <td><button class="perm-chip edit" type="button" data-level="edit">편집</button></td>
+                    <td><button class="perm-chip edit" type="button" data-level="edit">편집</button></td>
+                    <td><button class="perm-chip view" type="button" data-level="view">조회</button></td>
+                    <td><button class="perm-chip none" type="button" data-level="none">없음</button></td>
+                    <td><button class="perm-chip view" type="button" data-level="view">조회</button></td>
+                    <td><button class="perm-chip manage" type="button" data-level="manage">관리</button></td>
+                    <td><button class="perm-chip edit" type="button" data-level="edit">편집</button></td>
+                    <td><button class="perm-chip edit" type="button" data-level="edit">편집</button></td>
+                    <td><span class="scope-badge">허용 지사</span></td>
+                  </tr>
+                  <tr>
+                    <td><span class="team-cell"><i class="team-dot"></i><span><strong>세무 · 재무</strong><small>경영지원팀</small></span></span></td>
+                    <td><button class="perm-chip view" type="button" data-level="view">조회</button></td>
+                    <td><button class="perm-chip view" type="button" data-level="view">조회</button></td>
+                    <td><button class="perm-chip manage" type="button" data-level="manage">관리</button></td>
+                    <td><button class="perm-chip view" type="button" data-level="view">조회</button></td>
+                    <td><button class="perm-chip manage" type="button" data-level="manage">관리</button></td>
+                    <td><button class="perm-chip manage" type="button" data-level="manage">관리</button></td>
+                    <td><button class="perm-chip view" type="button" data-level="view">조회</button></td>
+                    <td><button class="perm-chip edit" type="button" data-level="edit">편집</button></td>
+                    <td><span class="scope-badge">허용 지사</span></td>
+                  </tr>
+                  <tr>
+                    <td><span class="team-cell"><i class="team-dot blue"></i><span><strong>영업팀</strong><small>플랫폼운영팀</small></span></span></td>
+                    <td><button class="perm-chip view" type="button" data-level="view">조회</button></td>
+                    <td><button class="perm-chip view" type="button" data-level="view">조회</button></td>
+                    <td><button class="perm-chip none" type="button" data-level="none">없음</button></td>
+                    <td><button class="perm-chip manage" type="button" data-level="manage">관리</button></td>
+                    <td><button class="perm-chip own" type="button" data-level="own">본인</button></td>
+                    <td><button class="perm-chip own" type="button" data-level="own">본인</button></td>
+                    <td><button class="perm-chip edit" type="button" data-level="edit">편집</button></td>
+                    <td><button class="perm-chip edit" type="button" data-level="edit">편집</button></td>
+                    <td><span class="scope-badge">소속 지사</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <aside class="security-note">
+            <span class="security-note-icon">▣</span>
+            <div>
+              <strong>민감정보는 메뉴 숨김만으로 처리하지 않습니다</strong>
+              <p>월급, 세금, 사업자정보, 최종정산은 서버 권한과 자료 단위 접근제어를 함께 적용하고 열람·수정·승인 기록을 별도로 남기는 구조로 설계합니다.</p>
+            </div>
+          </aside>
+        </section>
+      </div>
     </main>
   </div>
 
@@ -1099,6 +1582,9 @@
   <script>
     const body = document.body;
     const toast = document.querySelector('.toast');
+    const dashboardView = document.getElementById('dashboardView');
+    const permissionsView = document.getElementById('permissionsView');
+    const pageCrumb = document.getElementById('pageCrumb');
     let toastTimer;
 
     function showToast(message) {
@@ -1106,6 +1592,15 @@
       toast.classList.add('show');
       clearTimeout(toastTimer);
       toastTimer = setTimeout(() => toast.classList.remove('show'), 2200);
+    }
+
+    function showWorkspaceView(view) {
+      const isPermissions = view === 'permissions';
+      dashboardView.hidden = isPermissions;
+      permissionsView.hidden = !isPermissions;
+      pageCrumb.textContent = isPermissions ? '조직 & 권한' : 'Business OS';
+      body.classList.remove('menu-open');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     document.querySelector('.mobile-menu').addEventListener('click', () => body.classList.add('menu-open'));
@@ -1119,6 +1614,12 @@
       button.addEventListener('click', () => {
         document.querySelectorAll('.tree-item').forEach((item) => item.classList.remove('active'));
         button.classList.add('active');
+        if (button.dataset.view) {
+          document.querySelectorAll('.nav-item').forEach((item) => item.classList.remove('active'));
+          showWorkspaceView(button.dataset.view);
+          showToast(button.dataset.view === 'permissions' ? '조직과 팀별 권한 시안을 열었습니다.' : 'Business OS 대시보드로 돌아왔습니다.');
+          return;
+        }
         showToast(button.textContent.trim() + ' 화면은 다음 단계에서 연결할 수 있어요.');
       });
     });
@@ -1136,7 +1637,36 @@
         document.querySelectorAll('.nav-item').forEach((item) => item.classList.remove('active'));
         button.classList.add('active');
         body.classList.remove('menu-open');
+        if (button.dataset.view) {
+          document.querySelectorAll('.tree-item').forEach((item) => item.classList.remove('active'));
+          showWorkspaceView(button.dataset.view);
+          showToast('회사 홈 대시보드로 돌아왔습니다.');
+          return;
+        }
         showToast(button.textContent.trim() + ' 메뉴는 디자인 확인용입니다.');
+      });
+    });
+
+    const permissionLevels = [
+      { key: 'none', label: '없음' },
+      { key: 'view', label: '조회' },
+      { key: 'edit', label: '편집' },
+      { key: 'manage', label: '관리' }
+    ];
+
+    document.querySelectorAll('.perm-chip').forEach((button) => {
+      button.addEventListener('click', () => {
+        if (button.dataset.level === 'master') {
+          showToast('대표 마스터 권한은 이 화면에서 제한할 수 없습니다.');
+          return;
+        }
+        const current = permissionLevels.findIndex((level) => level.key === button.dataset.level);
+        const next = permissionLevels[(current + 1 + permissionLevels.length) % permissionLevels.length];
+        button.classList.remove('none', 'view', 'own', 'edit', 'manage');
+        button.classList.add(next.key);
+        button.dataset.level = next.key;
+        button.textContent = next.label;
+        showToast('권한을 ' + next.label + ' 단계로 변경했습니다. 디자인 시안에는 저장되지 않습니다.');
       });
     });
 
