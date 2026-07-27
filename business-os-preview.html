@@ -725,6 +725,333 @@
       font-weight: 820;
     }
 
+    .chat-view { min-width: 0; }
+    .chat-page-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+    .chat-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .chat-heading-icon {
+      display: grid;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      border-radius: 10px;
+      background: var(--blue-soft);
+      color: var(--blue);
+      font-size: 15px;
+    }
+    .chat-heading h2 { margin: 0; color: var(--ink); font-size: 18px; letter-spacing: -.035em; }
+    .chat-heading-copy span { display: block; margin-top: 3px; color: var(--muted); font-size: 8px; }
+    .chat-page-actions { display: flex; gap: 6px; }
+    .chat-action-button {
+      min-height: 33px;
+      padding: 0 11px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .chat-action-button.meeting { border-color: #bedced; color: var(--blue-dark); }
+    .chat-action-button.primary { border-color: var(--blue); background: var(--blue); color: #fff; box-shadow: 0 5px 12px rgba(52, 142, 205, .17); }
+
+    .chat-search-wrap { position: relative; margin-bottom: 10px; }
+    .chat-search-icon {
+      position: absolute;
+      top: 50%;
+      left: 14px;
+      color: var(--muted-2);
+      font-size: 13px;
+      transform: translateY(-50%);
+      pointer-events: none;
+    }
+    .chat-search-input {
+      width: 100%;
+      min-height: 43px;
+      padding: 0 42px 0 39px;
+      border: 1px solid var(--line-strong);
+      border-radius: 10px;
+      outline: 0;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+      font-size: 10px;
+      transition: border-color .16s, box-shadow .16s;
+    }
+    .chat-search-input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(52, 142, 205, .09); }
+    .chat-search-count {
+      position: absolute;
+      top: 50%;
+      right: 13px;
+      color: var(--muted-2);
+      font-size: 8px;
+      font-weight: 750;
+      transform: translateY(-50%);
+    }
+    .chat-bulk-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 35px;
+      margin-bottom: 7px;
+    }
+    .chat-bulk-button {
+      min-height: 30px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 8px;
+      font-weight: 800;
+    }
+    .chat-bulk-button.active { border-color: #c2deef; background: var(--blue-soft); color: var(--blue-dark); }
+    .chat-bulk-actions { display: none; align-items: center; gap: 6px; }
+    .chat-bulk-actions.show { display: flex; }
+    .chat-selected-count { color: var(--muted); font-size: 8px; font-weight: 750; }
+    .chat-filter-tabs {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 10px;
+      padding-bottom: 2px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .chat-filter-tabs::-webkit-scrollbar { display: none; }
+    .chat-filter {
+      flex: 0 0 auto;
+      min-height: 32px;
+      padding: 0 11px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: #edf2f6;
+      color: #70808f;
+      font-size: 8px;
+      font-weight: 820;
+    }
+    .chat-filter.active { border-color: #c5e0f1; background: var(--blue); color: #fff; }
+    .chat-list-panel {
+      min-height: 480px;
+      padding: 5px 12px 10px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: #fff;
+      box-shadow: var(--shadow-soft);
+    }
+    .chat-room-row {
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 11px;
+      min-height: 71px;
+      padding: 9px 8px;
+      border: 0;
+      border-bottom: 1px solid #eff2f4;
+      background: transparent;
+      color: inherit;
+      text-align: left;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .chat-room-row:last-child { border-bottom: 0; }
+    .chat-room-row:hover { background: #f8fbfd; }
+    .chat-room-row.selected { border-radius: 9px; background: var(--blue-pale); outline: 1px solid #c9e2f2; }
+    .chat-room-select {
+      display: none;
+      width: 16px;
+      height: 16px;
+      accent-color: var(--blue);
+    }
+    .bulk-mode .chat-room-row { grid-template-columns: 17px 38px minmax(0, 1fr) auto; }
+    .bulk-mode .chat-room-select { display: block; }
+    .chat-room-avatar {
+      display: grid;
+      width: 36px;
+      height: 36px;
+      place-items: center;
+      border: 1px solid #dbe7ef;
+      border-radius: 50%;
+      background: #eef5fa;
+      color: var(--blue);
+      font-size: 14px;
+    }
+    .chat-room-avatar.meeting { border-radius: 10px; background: var(--blue-soft); }
+    .chat-room-main { min-width: 0; }
+    .chat-room-title-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .chat-room-title {
+      overflow: hidden;
+      color: var(--ink);
+      font-size: 10px;
+      font-weight: 820;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .chat-badge {
+      flex: 0 0 auto;
+      padding: 3px 6px;
+      border-radius: 7px;
+      background: var(--blue-soft);
+      color: var(--blue-dark);
+      font-size: 7px;
+      font-weight: 850;
+    }
+    .chat-badge.green { background: var(--green-soft); color: #27875b; }
+    .chat-badge.orange { background: var(--orange-soft); color: #b87530; }
+    .chat-badge.gray { background: #f0f2f4; color: #7c8995; }
+    .chat-room-preview {
+      margin-top: 5px;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 8px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .chat-room-side { display: flex; align-items: center; gap: 8px; }
+    .chat-room-meta { min-width: 50px; text-align: right; }
+    .chat-room-time, .chat-room-members { display: block; color: var(--muted-2); font-size: 7px; }
+    .chat-room-members { margin-top: 4px; }
+    .chat-unread {
+      display: inline-grid;
+      min-width: 17px;
+      height: 17px;
+      margin-top: 3px;
+      padding: 0 5px;
+      place-items: center;
+      border-radius: 9px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 7px;
+      font-weight: 850;
+    }
+    .chat-row-icon {
+      display: grid;
+      width: 28px;
+      height: 28px;
+      place-items: center;
+      border: 0;
+      border-radius: 50%;
+      background: #edf3f7;
+      color: #708290;
+      font-size: 10px;
+    }
+    .chat-empty { padding: 70px 20px; color: var(--muted); font-size: 10px; text-align: center; }
+
+    .chat-room-pane {
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 150px);
+      min-height: 560px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: #fff;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .chat-thread-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 58px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--line);
+    }
+    .chat-thread-back {
+      width: 31px;
+      height: 31px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--muted);
+    }
+    .chat-thread-heading { min-width: 0; flex: 1; }
+    .chat-thread-heading strong, .chat-thread-heading small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chat-thread-heading strong { color: var(--ink); font-size: 11px; }
+    .chat-thread-heading small { margin-top: 3px; color: var(--muted-2); font-size: 8px; }
+    .chat-thread-actions { display: flex; gap: 5px; }
+    .chat-thread-messages {
+      flex: 1;
+      min-height: 0;
+      padding: 18px;
+      background: #f8fafc;
+      overflow-y: auto;
+    }
+    .chat-date-separator { margin: 3px 0 18px; color: var(--muted-2); font-size: 8px; text-align: center; }
+    .chat-message { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 13px; }
+    .chat-message.mine { justify-content: flex-end; }
+    .chat-message-avatar {
+      display: grid;
+      width: 27px;
+      height: 27px;
+      place-items: center;
+      border-radius: 50%;
+      background: #dff0fa;
+      color: var(--blue-dark);
+      font-size: 7px;
+      font-weight: 850;
+    }
+    .chat-message-content { max-width: min(68%, 520px); }
+    .chat-message-name { margin: 0 0 4px 2px; color: var(--muted); font-size: 7px; }
+    .chat-message-bubble {
+      padding: 9px 11px;
+      border: 1px solid #e0e7ed;
+      border-radius: 4px 11px 11px;
+      background: #fff;
+      color: var(--text);
+      font-size: 9px;
+      line-height: 1.55;
+      box-shadow: var(--shadow-soft);
+    }
+    .chat-message.mine .chat-message-bubble { border-color: #cae4f4; border-radius: 11px 4px 11px 11px; background: var(--blue-soft); color: var(--blue-dark); }
+    .chat-message-time { margin: 4px 2px 0; color: var(--muted-2); font-size: 7px; }
+    .chat-message.mine .chat-message-time { text-align: right; }
+    .chat-composer {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      padding: 11px 13px;
+      border-top: 1px solid var(--line);
+      background: #fff;
+    }
+    .chat-attach {
+      width: 32px;
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      background: #f6f8fa;
+      color: var(--muted);
+    }
+    .chat-message-input {
+      flex: 1;
+      min-height: 36px;
+      max-height: 100px;
+      padding: 10px 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: 10px;
+      outline: 0;
+      resize: none;
+      color: var(--ink);
+      font: inherit;
+      font-size: 9px;
+    }
+    .chat-message-input:focus { border-color: var(--blue); }
+    .chat-send-button {
+      width: 34px;
+      height: 34px;
+      border: 0;
+      border-radius: 50%;
+      background: var(--blue);
+      color: #fff;
+      font-size: 14px;
+    }
+
     .chart-wrap { padding: 17px 18px 13px; }
     .chart-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
     .legend { display: flex; align-items: center; gap: 13px; color: var(--muted); font-size: 8px; font-weight: 700; }
@@ -1209,6 +1536,23 @@
       .calendar-page .home-calendar-layout { grid-template-columns: minmax(0, 1fr); }
       .calendar-page .home-calendar-main { padding: 8px; }
       .calendar-page .home-calendar-cell { min-height: 68px; }
+      .chat-page-toolbar { display: block; }
+      .chat-page-actions { max-width: 100%; margin-top: 11px; overflow-x: auto; scrollbar-width: none; }
+      .chat-page-actions::-webkit-scrollbar { display: none; }
+      .chat-action-button { min-height: 31px; padding-inline: 9px; }
+      .chat-bulk-toolbar { align-items: flex-start; }
+      .chat-bulk-actions { max-width: 70%; overflow-x: auto; }
+      .chat-list-panel { min-height: 420px; padding-inline: 7px; }
+      .chat-room-row { grid-template-columns: 34px minmax(0, 1fr) auto; min-height: 65px; gap: 8px; padding-inline: 5px; }
+      .bulk-mode .chat-room-row { grid-template-columns: 16px 34px minmax(0, 1fr) auto; }
+      .chat-room-avatar { width: 32px; height: 32px; }
+      .chat-room-side { gap: 4px; }
+      .chat-row-icon { display: none; }
+      .chat-room-meta { min-width: 39px; }
+      .chat-room-pane { height: calc(100vh - 136px); min-height: 520px; }
+      .chat-thread-actions .chat-action-button:first-child { display: none; }
+      .chat-thread-messages { padding: 13px 10px; }
+      .chat-message-content { max-width: 78%; }
       .goal-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
       .split-grid { grid-template-columns: minmax(0, 1fr); }
       .notice-list, .task-list { padding-inline: 12px; }
@@ -1265,6 +1609,7 @@
           <p class="nav-label">Quick access</p>
           <button class="nav-item active" type="button" data-view="dashboard"><span class="nav-icon">⌂</span>PEAKMARKETING</button>
           <button class="nav-item" type="button" data-view="calendar"><span class="nav-icon">◫</span>CALENDAR</button>
+          <button class="nav-item" type="button" data-view="chat"><span class="nav-icon">◌</span>CHAT<span class="nav-badge">5</span></button>
           <button class="nav-item" type="button"><span class="nav-icon">▦</span>오늘 할 일<span class="nav-badge">8</span></button>
           <button class="nav-item" type="button"><span class="nav-icon">✓</span>검토 요청<span class="nav-badge">3</span></button>
         </section>
@@ -1632,6 +1977,68 @@
           </section>
         </section>
 
+        <section class="chat-view" id="chatView" hidden>
+          <header class="chat-page-toolbar">
+            <div class="chat-heading">
+              <span class="chat-heading-icon">◌</span>
+              <div class="chat-heading-copy"><h2>CHAT</h2><span>팀 대화와 회의방을 한곳에서 관리합니다</span></div>
+            </div>
+            <div class="chat-page-actions">
+              <button class="chat-action-button chat-preview-action" type="button">GROUPS</button>
+              <button class="chat-action-button meeting chat-preview-action" type="button">◫ MEETING ROOM</button>
+              <button class="chat-action-button primary chat-preview-action" type="button">＋ NEW ROOM</button>
+            </div>
+          </header>
+
+          <div id="chatListPane">
+            <div class="chat-search-wrap">
+              <span class="chat-search-icon">⌕</span>
+              <input class="chat-search-input" id="chatSearchInput" type="search" placeholder="Search rooms and recent messages">
+              <span class="chat-search-count" id="chatSearchCount">9 rooms</span>
+            </div>
+
+            <div class="chat-bulk-toolbar">
+              <button class="chat-bulk-button" id="chatBulkToggle" type="button">BULK SELECT</button>
+              <div class="chat-bulk-actions" id="chatBulkActions">
+                <span class="chat-selected-count" id="chatSelectedCount">0 selected</span>
+                <button class="chat-bulk-button chat-preview-action" type="button">MOVE GROUP</button>
+                <button class="chat-bulk-button chat-preview-action" type="button">DELETE REQUEST</button>
+              </div>
+            </div>
+
+            <nav class="chat-filter-tabs" aria-label="채팅방 그룹">
+              <button class="chat-filter active" type="button" data-filter="all">ALL 9</button>
+              <button class="chat-filter" type="button" data-filter="product">PRODUCT DETAILS 2</button>
+              <button class="chat-filter" type="button" data-filter="report">REPORTS &amp; CHECKLISTS 3</button>
+              <button class="chat-filter" type="button" data-filter="done">DONE 1</button>
+              <button class="chat-filter" type="button" data-filter="archive">ARCHIVE 2</button>
+              <button class="chat-filter" type="button" data-filter="active">ACTIVE 2</button>
+              <button class="chat-filter" type="button" data-filter="uncategorized">UNCATEGORIZED 1</button>
+              <button class="chat-filter chat-preview-action" type="button" data-filter="manager">GROUP MANAGER</button>
+            </nav>
+
+            <section class="chat-list-panel" id="chatRoomList" aria-label="채팅방 목록"></section>
+          </div>
+
+          <section class="chat-room-pane" id="chatRoomPane" hidden aria-label="채팅방">
+            <header class="chat-thread-head">
+              <button class="chat-thread-back" id="chatBackButton" type="button" aria-label="목록으로">←</button>
+              <div class="chat-thread-heading"><strong id="chatThreadTitle">Room</strong><small id="chatThreadMeta">0 members</small></div>
+              <div class="chat-thread-actions">
+                <button class="chat-action-button chat-preview-action" type="button">SEARCH</button>
+                <button class="chat-action-button chat-preview-action" type="button">↗</button>
+                <button class="chat-action-button chat-preview-action" type="button">•••</button>
+              </div>
+            </header>
+            <div class="chat-thread-messages" id="chatThreadMessages"></div>
+            <form class="chat-composer" id="chatComposer">
+              <button class="chat-attach chat-preview-action" type="button">＋</button>
+              <textarea class="chat-message-input" id="chatMessageInput" rows="1" placeholder="Write a message… (@ to mention)"></textarea>
+              <button class="chat-send-button" type="submit">↑</button>
+            </form>
+          </section>
+        </section>
+
         <section class="permissions-view" id="permissionsView" hidden>
           <header class="permissions-heading">
             <div class="permissions-heading-main">
@@ -1845,6 +2252,7 @@
     const toast = document.querySelector('.toast');
     const dashboardView = document.getElementById('dashboardView');
     const calendarView = document.getElementById('calendarView');
+    const chatView = document.getElementById('chatView');
     const permissionsView = document.getElementById('permissionsView');
     const pageCrumb = document.getElementById('pageCrumb');
     let toastTimer;
@@ -2022,11 +2430,141 @@
       document.querySelectorAll('.role-button').forEach((button) => button.classList.toggle('active', button.dataset.role === role));
     }
 
+    const chatRoomsPreview = [
+      { id: 1, name: '스페이스/파라곤 배포 운영', icon: '◫', meeting: true, groups: ['report'], badges: [['REPORTS & CHECKLISTS', '']], preview: '이동희: 실제 진행상황 보고드립니다. 현재 배포와 노출을 확인하고 있습니다.', time: '12:04', members: 5, unread: 5 },
+      { id: 2, name: '당근', icon: '◌', groups: ['active'], badges: [['ACTIVE', 'green']], preview: '전현우: 한국표준금거래소 서귀포점 당근마켓 운영 완료했습니다.', time: '10:52', members: 8, unread: 0 },
+      { id: 3, name: '플랫폼 충전요청 승인', icon: '◌', groups: ['report'], badges: [['REPORTS & CHECKLISTS', '']], preview: '박종원: 리퍼플로우 환급 요청했습니다. 확인 부탁드립니다.', time: '07.24', members: 8, unread: 0 },
+      { id: 4, name: '경영지원팀', icon: '◌', groups: ['report'], badges: [['REPORTS & CHECKLISTS', '']], preview: '김대호: 넵 맞습니다. 회의 토스 관련 내용 전달드렸습니다.', time: '07.23', members: 6, unread: 0 },
+      { id: 5, name: '리워드스페이스', icon: '◫', meeting: true, groups: ['product'], badges: [['PRODUCT DETAILS', 'orange'], ['MEETING', '']], preview: '김대호: 리워드스페이스 개발 보고 및 연동 미션을 공유합니다.', time: '07.22', members: 4, unread: 0 },
+      { id: 6, name: '시스템 개선 회의방', icon: '◫', meeting: true, groups: ['active'], badges: [['ACTIVE', 'green'], ['MEETING', '']], preview: '김지호: 대표님 확인했습니다. 개선 항목을 정리해 공유드릴게요.', time: '07.21', members: 5, unread: 0 },
+      { id: 7, name: '6/10 근태 관련 공지사항', icon: '◫', meeting: true, groups: ['archive'], badges: [['ARCHIVE', 'gray'], ['MEETING', '']], preview: '김주환: 확인했습니다!', time: '07.13', members: 11, unread: 0 },
+      { id: 8, name: '비품관리대장', icon: '◌', groups: ['done'], badges: [['DONE', 'green']], preview: '박종원: 넵!', time: '07.06', members: 6, unread: 0 },
+      { id: 9, name: '경영지원팀 업무보고 및 소통방', icon: '◌', groups: ['uncategorized'], badges: [], preview: '김대호: 감사합니다. 고생 많으셨습니다!', time: '06.30', members: 4, unread: 0 }
+    ];
+    let chatRoomFilter = 'all';
+    let chatBulkMode = false;
+    const selectedChatRooms = new Set();
+
+    function chatBadgeHtml(badge) {
+      return `<span class="chat-badge ${badge[1]}">${badge[0]}</span>`;
+    }
+
+    function getVisibleChatRooms() {
+      const query = document.getElementById('chatSearchInput').value.trim().toLowerCase();
+      return chatRoomsPreview.filter((room) => {
+        if (chatRoomFilter !== 'all' && !room.groups.includes(chatRoomFilter)) return false;
+        if (!query) return true;
+        return (room.name + ' ' + room.preview).toLowerCase().includes(query);
+      });
+    }
+
+    function updateChatSelectionUi() {
+      document.getElementById('chatSelectedCount').textContent = selectedChatRooms.size + ' selected';
+      document.getElementById('chatBulkActions').classList.toggle('show', chatBulkMode);
+      document.getElementById('chatBulkToggle').classList.toggle('active', chatBulkMode);
+      document.getElementById('chatBulkToggle').textContent = chatBulkMode ? 'EXIT SELECT' : 'BULK SELECT';
+    }
+
+    function renderChatRoomList() {
+      const list = document.getElementById('chatRoomList');
+      const rooms = getVisibleChatRooms();
+      list.classList.toggle('bulk-mode', chatBulkMode);
+      document.getElementById('chatSearchCount').textContent = rooms.length + ' rooms';
+      if (!rooms.length) {
+        list.innerHTML = '<div class="chat-empty">No chat rooms found.</div>';
+        updateChatSelectionUi();
+        return;
+      }
+      list.innerHTML = rooms.map((room) => `
+        <div class="chat-room-row ${selectedChatRooms.has(room.id) ? 'selected' : ''}" role="button" tabindex="0" data-room-id="${room.id}">
+          <input class="chat-room-select" type="checkbox" ${selectedChatRooms.has(room.id) ? 'checked' : ''} aria-label="${room.name} 선택">
+          <span class="chat-room-avatar ${room.meeting ? 'meeting' : ''}">${room.icon}</span>
+          <span class="chat-room-main">
+            <span class="chat-room-title-line"><span class="chat-room-title">${room.name}</span>${room.badges.map(chatBadgeHtml).join('')}</span>
+            <span class="chat-room-preview">${room.preview}</span>
+          </span>
+          <span class="chat-room-side">
+            <span class="chat-room-meta"><span class="chat-room-time">${room.time}</span>${room.unread ? `<span class="chat-unread">${room.unread}</span>` : `<span class="chat-room-members">${room.members}명</span>`}</span>
+            <button class="chat-row-icon chat-preview-action" type="button" title="새 창">↗</button>
+            <button class="chat-row-icon chat-preview-action" type="button" title="방 정보">•••</button>
+          </span>
+        </div>`).join('');
+
+      list.querySelectorAll('.chat-room-row').forEach((row) => {
+        const roomId = Number(row.dataset.roomId);
+        row.addEventListener('click', (event) => {
+          if (event.target.closest('.chat-row-icon')) return;
+          if (chatBulkMode) {
+            if (selectedChatRooms.has(roomId)) selectedChatRooms.delete(roomId);
+            else selectedChatRooms.add(roomId);
+            renderChatRoomList();
+            return;
+          }
+          openPreviewChatRoom(roomId);
+        });
+        row.querySelector('.chat-room-select').addEventListener('click', (event) => {
+          event.stopPropagation();
+          if (selectedChatRooms.has(roomId)) selectedChatRooms.delete(roomId);
+          else selectedChatRooms.add(roomId);
+          renderChatRoomList();
+        });
+      });
+      list.querySelectorAll('.chat-preview-action').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.stopPropagation();
+          showToast('운영 채팅에서는 새 창과 채팅방 정보 기능으로 연결됩니다.');
+        });
+      });
+      updateChatSelectionUi();
+    }
+
+    function openPreviewChatRoom(roomId) {
+      const room = chatRoomsPreview.find((item) => item.id === roomId);
+      if (!room) return;
+      document.getElementById('chatListPane').hidden = true;
+      document.getElementById('chatRoomPane').hidden = false;
+      document.getElementById('chatThreadTitle').textContent = room.name;
+      document.getElementById('chatThreadMeta').textContent = room.members + ' members · ' + (room.meeting ? 'Meeting room' : 'Chat room');
+      document.getElementById('chatThreadMessages').innerHTML = `
+        <div class="chat-date-separator">2026년 7월 27일</div>
+        <div class="chat-message">
+          <span class="chat-message-avatar">김</span>
+          <span class="chat-message-content"><span class="chat-message-name">김대호</span><span class="chat-message-bubble">${room.preview.split(':').slice(1).join(':').trim() || '내용 확인 부탁드립니다.'}</span><span class="chat-message-time">오전 10:42</span></span>
+        </div>
+        <div class="chat-message mine">
+          <span class="chat-message-content"><span class="chat-message-bubble">확인했습니다. 진행사항 정리해서 공유드리겠습니다.</span><span class="chat-message-time">오전 10:45</span></span>
+        </div>
+        <div class="chat-message">
+          <span class="chat-message-avatar">박</span>
+          <span class="chat-message-content"><span class="chat-message-name">박종원</span><span class="chat-message-bubble">관련 일정도 캘린더에 등록해두었습니다.</span><span class="chat-message-time">오전 10:48</span></span>
+        </div>`;
+      document.getElementById('chatMessageInput').focus();
+    }
+
+    function appendPreviewChatMessage(text) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'chat-message mine';
+      const content = document.createElement('span');
+      content.className = 'chat-message-content';
+      const bubble = document.createElement('span');
+      bubble.className = 'chat-message-bubble';
+      bubble.textContent = text;
+      const time = document.createElement('span');
+      time.className = 'chat-message-time';
+      time.textContent = '방금';
+      content.append(bubble, time);
+      wrapper.append(content);
+      const messages = document.getElementById('chatThreadMessages');
+      messages.append(wrapper);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
     function showWorkspaceView(view) {
       dashboardView.hidden = view !== 'dashboard';
       calendarView.hidden = view !== 'calendar';
+      chatView.hidden = view !== 'chat';
       permissionsView.hidden = view !== 'permissions';
-      pageCrumb.textContent = view === 'permissions' ? '조직 & 권한' : (view === 'calendar' ? 'CALENDAR' : 'PEAKMARKETING');
+      pageCrumb.textContent = view === 'permissions' ? '조직 & 권한' : (view === 'calendar' ? 'CALENDAR' : (view === 'chat' ? 'CHAT' : 'PEAKMARKETING'));
       body.classList.remove('menu-open');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -2060,6 +2598,43 @@
       });
     });
     renderSalesRole('leader');
+    document.querySelectorAll('.chat-preview-action').forEach((button) => {
+      button.addEventListener('click', () => showToast('운영 채팅 기능과 연결될 디자인 시안입니다.'));
+    });
+    document.getElementById('chatSearchInput').addEventListener('input', renderChatRoomList);
+    document.getElementById('chatBulkToggle').addEventListener('click', () => {
+      chatBulkMode = !chatBulkMode;
+      if (!chatBulkMode) selectedChatRooms.clear();
+      renderChatRoomList();
+    });
+    document.querySelectorAll('.chat-filter').forEach((button) => {
+      button.addEventListener('click', () => {
+        if (button.dataset.filter === 'manager') return;
+        chatRoomFilter = button.dataset.filter;
+        document.querySelectorAll('.chat-filter').forEach((item) => item.classList.toggle('active', item === button));
+        renderChatRoomList();
+      });
+    });
+    document.getElementById('chatBackButton').addEventListener('click', () => {
+      document.getElementById('chatRoomPane').hidden = true;
+      document.getElementById('chatListPane').hidden = false;
+    });
+    document.getElementById('chatComposer').addEventListener('submit', (event) => {
+      event.preventDefault();
+      const input = document.getElementById('chatMessageInput');
+      const message = input.value.trim();
+      if (!message) return;
+      appendPreviewChatMessage(message);
+      input.value = '';
+      showToast('프리뷰 화면에만 메시지를 표시했습니다.');
+    });
+    document.getElementById('chatMessageInput').addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        document.getElementById('chatComposer').requestSubmit();
+      }
+    });
+    renderChatRoomList();
 
     document.querySelectorAll('.tree-trigger').forEach((button) => {
       button.addEventListener('click', () => button.closest('.tree-group').classList.toggle('closed'));
@@ -2098,7 +2673,8 @@
           if (button.dataset.scroll) {
             setTimeout(() => document.getElementById(button.dataset.scroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
           }
-          showToast(button.dataset.view === 'calendar' ? 'CALENDAR 화면을 열었습니다.' : 'PEAKMARKETING 대시보드로 돌아왔습니다.');
+          const viewNames = { dashboard: 'PEAKMARKETING', calendar: 'CALENDAR', chat: 'CHAT' };
+          showToast((viewNames[button.dataset.view] || '해당') + ' 화면을 열었습니다.');
           return;
         }
         showToast(button.textContent.trim() + ' 메뉴는 디자인 확인용입니다.');
