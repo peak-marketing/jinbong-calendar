@@ -1252,6 +1252,193 @@
       text-align: center;
     }
 
+    .review-view { min-width: 0; }
+    .review-page-toolbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+    .review-page-copy strong,
+    .review-page-copy span { display: block; }
+    .review-page-copy strong { color: var(--ink); font-size: 18px; letter-spacing: -.035em; }
+    .review-page-copy span { margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.55; }
+    .review-create-button {
+      flex: 0 0 auto;
+      min-height: 34px;
+      padding: 0 13px;
+      border: 1px solid var(--blue);
+      border-radius: 8px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 9px;
+      font-weight: 820;
+      box-shadow: 0 5px 12px rgba(52, 142, 205, .17);
+    }
+    .review-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .review-summary-card {
+      min-width: 0;
+      padding: 13px 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: var(--shadow-soft);
+    }
+    .review-summary-card span { display: block; color: var(--muted); font-size: 8px; font-weight: 750; }
+    .review-summary-card strong { display: block; margin-top: 7px; color: var(--ink); font-size: 19px; letter-spacing: -.025em; }
+    .review-summary-card.primary { border-color: #f0d9ad; background: #fff9ec; }
+    .review-summary-card.primary strong { color: #b47719; }
+    .review-controls {
+      margin-bottom: 12px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: #fff;
+      box-shadow: var(--shadow-soft);
+    }
+    .review-search-row { display: flex; gap: 8px; }
+    .review-search-wrap { position: relative; flex: 1; min-width: 0; }
+    .review-search-icon {
+      position: absolute;
+      top: 50%;
+      left: 12px;
+      color: var(--muted-2);
+      font-size: 11px;
+      transform: translateY(-50%);
+      pointer-events: none;
+    }
+    .review-search-input {
+      width: 100%;
+      min-height: 38px;
+      padding: 0 13px 0 34px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      outline: 0;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+      font-size: 10px;
+    }
+    .review-search-input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(52, 142, 205, .09); }
+    .review-filter-tabs {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 9px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .review-filter-tabs::-webkit-scrollbar { display: none; }
+    .review-filter {
+      flex: 0 0 auto;
+      min-height: 32px;
+      padding: 0 11px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: #edf2f6;
+      color: #70808f;
+      font-size: 8px;
+      font-weight: 820;
+    }
+    .review-filter.active { border-color: #c5e0f1; background: var(--blue); color: #fff; }
+    .review-result-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 0 2px 9px;
+      color: var(--muted);
+      font-size: 8px;
+    }
+    .review-result-meta strong { color: var(--ink); font-weight: 800; }
+    .review-project-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(235px, 1fr));
+      gap: 11px;
+    }
+    .review-project-card {
+      display: flex;
+      min-width: 0;
+      min-height: 218px;
+      padding: 14px;
+      flex-direction: column;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: #fff;
+      box-shadow: var(--shadow-soft);
+      transition: border-color .16s, transform .16s, box-shadow .16s;
+    }
+    .review-project-card:hover { border-color: #bfdbea; box-shadow: var(--shadow); transform: translateY(-1px); }
+    .review-project-card[hidden] { display: none; }
+    .review-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .review-card-status,
+    .review-waiting-badge {
+      display: inline-flex;
+      min-height: 20px;
+      padding: 0 7px;
+      align-items: center;
+      border-radius: 7px;
+      font-size: 8px;
+      font-weight: 850;
+    }
+    .review-card-status.active { background: var(--blue-soft); color: var(--blue-dark); }
+    .review-card-status.planning { background: #eee8fc; color: #7758b7; }
+    .review-card-status.done { background: var(--green-soft); color: #27875b; }
+    .review-card-status.hold { background: #f0f2f4; color: #7b8791; }
+    .review-waiting-badge { background: #fff3db; color: #a96f16; }
+    .review-card-title { margin: 13px 0 0; color: var(--ink); font-size: 12px; line-height: 1.45; letter-spacing: -.02em; }
+    .review-card-description {
+      min-height: 34px;
+      margin: 6px 0 13px;
+      color: var(--muted);
+      font-size: 9px;
+      line-height: 1.6;
+    }
+    .review-card-progress { margin-top: auto; }
+    .review-card-progress-label { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 8px; }
+    .review-card-progress-label strong { color: var(--blue-dark); }
+    .review-card-progress .progress-track { margin-top: 6px; }
+    .review-card-meta {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid #edf1f4;
+      color: var(--muted-2);
+      font-size: 8px;
+    }
+    .review-card-members { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .review-card-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 11px; }
+    .review-card-count { color: var(--muted); font-size: 8px; font-weight: 750; }
+    .review-open-button {
+      min-height: 29px;
+      padding: 0 10px;
+      border: 1px solid #c6dfef;
+      border-radius: 7px;
+      background: var(--blue-pale);
+      color: var(--blue-dark);
+      font-size: 8px;
+      font-weight: 850;
+    }
+    .review-open-button.primary { border-color: var(--blue); background: var(--blue); color: #fff; }
+    .review-empty {
+      grid-column: 1 / -1;
+      padding: 58px 20px;
+      border: 1px dashed #cfdce5;
+      border-radius: 11px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 10px;
+      text-align: center;
+    }
+
     .chart-wrap { padding: 17px 18px 13px; }
     .chart-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
     .legend { display: flex; align-items: center; gap: 13px; color: var(--muted); font-size: 8px; font-weight: 700; }
@@ -1775,6 +1962,13 @@
       .todo-task-progress { width: 72px; margin: 0; }
       .todo-checklist-count { margin-top: 0; }
       .todo-add-row { padding-left: 48px; }
+      .review-page-toolbar { align-items: flex-start; }
+      .review-page-copy strong { font-size: 16px; }
+      .review-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+      .review-summary-card { padding: 11px 12px; }
+      .review-controls { padding: 9px; }
+      .review-project-grid { grid-template-columns: minmax(0, 1fr); }
+      .review-project-card { min-height: 205px; }
       .goal-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
       .split-grid { grid-template-columns: minmax(0, 1fr); }
       .notice-list, .task-list { padding-inline: 12px; }
@@ -1833,7 +2027,7 @@
           <button class="nav-item" type="button" data-view="calendar"><span class="nav-icon">◫</span>CALENDAR</button>
           <button class="nav-item" type="button" data-view="chat"><span class="nav-icon">◌</span>CHAT<span class="nav-badge">5</span></button>
           <button class="nav-item" type="button" data-view="todo"><span class="nav-icon">▦</span>TO DO LIST<span class="nav-badge">6</span></button>
-          <button class="nav-item" type="button"><span class="nav-icon">✓</span>검토 요청<span class="nav-badge">3</span></button>
+          <button class="nav-item" type="button" data-view="review"><span class="nav-icon">✓</span>검토 요청<span class="nav-badge">3</span></button>
         </section>
 
         <div class="sidebar-tree-heading">
@@ -2431,6 +2625,169 @@
           </section>
         </section>
 
+        <section class="review-view" id="reviewView" hidden>
+          <header class="review-page-toolbar">
+            <div class="review-page-copy">
+              <strong>프로젝트 검토 요청</strong>
+              <span>검토가 필요한 프로젝트와 진행 상황을 한곳에서 확인하고 승인할 수 있습니다</span>
+            </div>
+            <button class="review-create-button review-preview-action" type="button">＋ 새 프로젝트</button>
+          </header>
+
+          <section class="review-summary" aria-label="프로젝트 검토 요약">
+            <article class="review-summary-card primary"><span>검토 대기 프로젝트</span><strong>3건</strong></article>
+            <article class="review-summary-card"><span>오늘 마감</span><strong>2건</strong></article>
+            <article class="review-summary-card"><span>내가 검토할 프로젝트</span><strong>2건</strong></article>
+            <article class="review-summary-card"><span>전체 프로젝트</span><strong>8건</strong></article>
+          </section>
+
+          <section class="review-controls" aria-label="프로젝트 검색 및 필터">
+            <div class="review-search-row">
+              <label class="review-search-wrap">
+                <span class="review-search-icon">⌕</span>
+                <input class="review-search-input" id="reviewSearchInput" type="search" placeholder="프로젝트명, 설명, 담당자 검색">
+              </label>
+            </div>
+            <nav class="review-filter-tabs" aria-label="프로젝트 상태 필터">
+              <button class="review-filter active" type="button" data-review-filter="review">검토 대기 3</button>
+              <button class="review-filter" type="button" data-review-filter="all">전체 8</button>
+              <button class="review-filter" type="button" data-review-filter="active">진행 중 5</button>
+              <button class="review-filter" type="button" data-review-filter="planning">기획 중 1</button>
+              <button class="review-filter" type="button" data-review-filter="done">완료 1</button>
+              <button class="review-filter" type="button" data-review-filter="hold">보류 1</button>
+            </nav>
+          </section>
+
+          <div class="review-result-meta">
+            <span><strong id="reviewVisibleCount">3개</strong> 프로젝트 표시</span>
+            <span>마감일 임박 순</span>
+          </div>
+
+          <section class="review-project-grid" id="reviewProjectGrid" aria-label="프로젝트 목록">
+            <article class="review-project-card" data-review-card data-status="active" data-review="true">
+              <div class="review-card-head">
+                <span class="review-card-status active">진행 중</span>
+                <span class="review-waiting-badge">검토 대기</span>
+              </div>
+              <h2 class="review-card-title">7월 주간 보고서 자동화</h2>
+              <p class="review-card-description">팀별 매출과 접수 현황을 자동으로 취합하는 보고서 개선 프로젝트</p>
+              <div class="review-card-progress">
+                <div class="review-card-progress-label"><span>진행률</span><strong>75%</strong></div>
+                <div class="progress-track"><i style="width:75%"></i></div>
+              </div>
+              <div class="review-card-meta"><span class="review-card-members">담당 김대호 · 경영지원팀</span><span>오늘 18:00</span></div>
+              <div class="review-card-actions"><span class="review-card-count">체크리스트 3/4</span><button class="review-open-button primary" type="button">검토하기</button></div>
+            </article>
+
+            <article class="review-project-card" data-review-card data-status="active" data-review="true">
+              <div class="review-card-head">
+                <span class="review-card-status active">진행 중</span>
+                <span class="review-waiting-badge">검토 대기</span>
+              </div>
+              <h2 class="review-card-title">영업 주간회의 회의록</h2>
+              <p class="review-card-description">이번 주 영업 회의 결과와 다음 주 실행 안건을 공유하는 프로젝트</p>
+              <div class="review-card-progress">
+                <div class="review-card-progress-label"><span>진행률</span><strong>80%</strong></div>
+                <div class="progress-track"><i style="width:80%"></i></div>
+              </div>
+              <div class="review-card-meta"><span class="review-card-members">담당 박종원 · 플랫폼운영팀</span><span>오늘 17:00</span></div>
+              <div class="review-card-actions"><span class="review-card-count">진행사항 4건</span><button class="review-open-button primary" type="button">검토하기</button></div>
+            </article>
+
+            <article class="review-project-card" data-review-card data-status="active" data-review="true">
+              <div class="review-card-head">
+                <span class="review-card-status active">진행 중</span>
+                <span class="review-waiting-badge">검토 대기</span>
+              </div>
+              <h2 class="review-card-title">크몽 신규 상품 등록</h2>
+              <p class="review-card-description">신규 상품 상세페이지, 가격 정책과 등록 자료를 최종 검수합니다</p>
+              <div class="review-card-progress">
+                <div class="review-card-progress-label"><span>진행률</span><strong>71%</strong></div>
+                <div class="progress-track"><i style="width:71%"></i></div>
+              </div>
+              <div class="review-card-meta"><span class="review-card-members">담당 김지호 외 2명</span><span>7월 28일</span></div>
+              <div class="review-card-actions"><span class="review-card-count">체크리스트 5/7</span><button class="review-open-button primary" type="button">검토하기</button></div>
+            </article>
+
+            <article class="review-project-card" data-review-card data-status="active" data-review="false">
+              <div class="review-card-head">
+                <span class="review-card-status active">진행 중</span>
+                <span aria-hidden="true"></span>
+              </div>
+              <h2 class="review-card-title">브랜드블로그 운영</h2>
+              <p class="review-card-description">병원별 콘텐츠 제작과 발행 일정을 통합 관리하는 운영 프로젝트</p>
+              <div class="review-card-progress">
+                <div class="review-card-progress-label"><span>진행률</span><strong>62%</strong></div>
+                <div class="progress-track"><i style="width:62%"></i></div>
+              </div>
+              <div class="review-card-meta"><span class="review-card-members">담당 박우진 · 김대호</span><span>7월 31일</span></div>
+              <div class="review-card-actions"><span class="review-card-count">업무 8/13</span><button class="review-open-button" type="button">상세보기</button></div>
+            </article>
+
+            <article class="review-project-card" data-review-card data-status="active" data-review="false">
+              <div class="review-card-head">
+                <span class="review-card-status active">진행 중</span>
+                <span aria-hidden="true"></span>
+              </div>
+              <h2 class="review-card-title">8월 영업 캠페인 준비</h2>
+              <p class="review-card-description">지사별 영업 목표와 광고 소재, 담당자 실행 일정을 준비합니다</p>
+              <div class="review-card-progress">
+                <div class="review-card-progress-label"><span>진행률</span><strong>45%</strong></div>
+                <div class="progress-track"><i style="width:45%"></i></div>
+              </div>
+              <div class="review-card-meta"><span class="review-card-members">담당 플랫폼운영팀</span><span>8월 3일</span></div>
+              <div class="review-card-actions"><span class="review-card-count">업무 5/11</span><button class="review-open-button" type="button">상세보기</button></div>
+            </article>
+
+            <article class="review-project-card" data-review-card data-status="planning" data-review="false">
+              <div class="review-card-head">
+                <span class="review-card-status planning">기획 중</span>
+                <span aria-hidden="true"></span>
+              </div>
+              <h2 class="review-card-title">신규 영업자 구인 1기</h2>
+              <p class="review-card-description">신규 영업자 채용 공고와 교육, 온보딩 절차를 설계합니다</p>
+              <div class="review-card-progress">
+                <div class="review-card-progress-label"><span>진행률</span><strong>20%</strong></div>
+                <div class="progress-track"><i style="width:20%"></i></div>
+              </div>
+              <div class="review-card-meta"><span class="review-card-members">담당 인사담당 · 영업팀</span><span>8월 10일</span></div>
+              <div class="review-card-actions"><span class="review-card-count">업무 2/10</span><button class="review-open-button" type="button">상세보기</button></div>
+            </article>
+
+            <article class="review-project-card" data-review-card data-status="hold" data-review="false">
+              <div class="review-card-head">
+                <span class="review-card-status hold">보류</span>
+                <span aria-hidden="true"></span>
+              </div>
+              <h2 class="review-card-title">지사 정산 자료 통합</h2>
+              <p class="review-card-description">지사별 정산서와 세금계산서 자료 형식을 하나로 통합합니다</p>
+              <div class="review-card-progress">
+                <div class="review-card-progress-label"><span>진행률</span><strong>35%</strong></div>
+                <div class="progress-track"><i style="width:35%"></i></div>
+              </div>
+              <div class="review-card-meta"><span class="review-card-members">담당 세무·재무</span><span>일정 미정</span></div>
+              <div class="review-card-actions"><span class="review-card-count">업무 3/9</span><button class="review-open-button" type="button">상세보기</button></div>
+            </article>
+
+            <article class="review-project-card" data-review-card data-status="done" data-review="false">
+              <div class="review-card-head">
+                <span class="review-card-status done">완료</span>
+                <span aria-hidden="true"></span>
+              </div>
+              <h2 class="review-card-title">리워드스페이스 배포</h2>
+              <p class="review-card-description">파라곤 서비스 배포와 운영 환경 점검을 완료했습니다</p>
+              <div class="review-card-progress">
+                <div class="review-card-progress-label"><span>진행률</span><strong>100%</strong></div>
+                <div class="progress-track"><i style="width:100%"></i></div>
+              </div>
+              <div class="review-card-meta"><span class="review-card-members">담당 개발팀 · 플랫폼운영팀</span><span>7월 24일</span></div>
+              <div class="review-card-actions"><span class="review-card-count">체크리스트 6/6</span><button class="review-open-button" type="button">상세보기</button></div>
+            </article>
+
+            <div class="review-empty" id="reviewEmpty" hidden>조건에 맞는 프로젝트가 없습니다.</div>
+          </section>
+        </section>
+
         <section class="permissions-view" id="permissionsView" hidden>
           <header class="permissions-heading">
             <div class="permissions-heading-main">
@@ -2646,6 +3003,7 @@
     const calendarView = document.getElementById('calendarView');
     const chatView = document.getElementById('chatView');
     const todoView = document.getElementById('todoView');
+    const reviewView = document.getElementById('reviewView');
     const permissionsView = document.getElementById('permissionsView');
     const pageCrumb = document.getElementById('pageCrumb');
     let toastTimer;
@@ -3001,14 +3359,41 @@
       updateTodoUi();
     }
 
+    let reviewProjectFilter = 'review';
+
+    function renderReviewProjects() {
+      const query = document.getElementById('reviewSearchInput').value.trim().toLowerCase();
+      let visibleCount = 0;
+      reviewView.querySelectorAll('[data-review-card]').forEach((card) => {
+        const matchesFilter = reviewProjectFilter === 'all'
+          || (reviewProjectFilter === 'review' && card.dataset.review === 'true')
+          || card.dataset.status === reviewProjectFilter;
+        const matchesQuery = !query || card.textContent.toLowerCase().includes(query);
+        const visible = matchesFilter && matchesQuery;
+        card.hidden = !visible;
+        if (visible) visibleCount += 1;
+      });
+      document.getElementById('reviewVisibleCount').textContent = visibleCount + '개';
+      document.getElementById('reviewEmpty').hidden = visibleCount !== 0;
+    }
+
+    function setReviewProjectFilter(filter) {
+      reviewProjectFilter = filter;
+      reviewView.querySelectorAll('.review-filter').forEach((button) => {
+        button.classList.toggle('active', button.dataset.reviewFilter === reviewProjectFilter);
+      });
+      renderReviewProjects();
+    }
+
     function showWorkspaceView(view) {
       if (view !== 'chat') closePreviewChatRoom();
       dashboardView.hidden = view !== 'dashboard';
       calendarView.hidden = view !== 'calendar';
       chatView.hidden = view !== 'chat';
       todoView.hidden = view !== 'todo';
+      reviewView.hidden = view !== 'review';
       permissionsView.hidden = view !== 'permissions';
-      pageCrumb.textContent = view === 'permissions' ? '조직 및 권한' : (view === 'calendar' ? 'CALENDAR' : (view === 'chat' ? 'CHAT' : (view === 'todo' ? 'TO DO LIST' : 'PEAKMARKETING')));
+      pageCrumb.textContent = view === 'permissions' ? '조직 및 권한' : (view === 'calendar' ? 'CALENDAR' : (view === 'chat' ? 'CHAT' : (view === 'todo' ? 'TO DO LIST' : (view === 'review' ? '검토 요청' : 'PEAKMARKETING'))));
       body.classList.remove('menu-open');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -3111,6 +3496,21 @@
     });
     setTodoScope('all');
 
+    document.getElementById('reviewSearchInput').addEventListener('input', renderReviewProjects);
+    document.querySelectorAll('.review-filter').forEach((button) => {
+      button.addEventListener('click', () => setReviewProjectFilter(button.dataset.reviewFilter));
+    });
+    document.querySelectorAll('.review-open-button').forEach((button) => {
+      button.addEventListener('click', () => {
+        const projectName = button.closest('.review-project-card').querySelector('.review-card-title').textContent;
+        showToast(button.classList.contains('primary') ? projectName + ' 검토 상세 화면을 열었습니다.' : projectName + ' 프로젝트 상세 화면을 열었습니다.');
+      });
+    });
+    document.querySelectorAll('.review-preview-action').forEach((button) => {
+      button.addEventListener('click', () => showToast('새 프로젝트 등록 화면은 다음 단계에서 실제 데이터와 연결됩니다.'));
+    });
+    setReviewProjectFilter('review');
+
     document.querySelectorAll('.tree-trigger').forEach((button) => {
       button.addEventListener('click', () => button.closest('.tree-group').classList.toggle('closed'));
     });
@@ -3148,7 +3548,7 @@
           if (button.dataset.scroll) {
             setTimeout(() => document.getElementById(button.dataset.scroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
           }
-          const viewNames = { dashboard: 'PEAKMARKETING', calendar: 'CALENDAR', chat: 'CHAT', todo: 'TO DO LIST' };
+          const viewNames = { dashboard: 'PEAKMARKETING', calendar: 'CALENDAR', chat: 'CHAT', todo: 'TO DO LIST', review: '검토 요청' };
           showToast((viewNames[button.dataset.view] || '해당') + ' 화면을 열었습니다.');
           return;
         }
