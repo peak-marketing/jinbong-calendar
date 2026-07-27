@@ -508,7 +508,6 @@
   }
 
   function renderProjects() {
-    const query = (document.getElementById('reviewSearchInput')?.value || '').trim().toLowerCase();
     const counts = {
       all: liveProjects.length,
       review: liveProjects.filter(project => project.status === 'review').length,
@@ -518,9 +517,7 @@
       hold: liveProjects.filter(project => project.status === 'hold').length
     };
     const filtered = liveProjects.filter(project => {
-      const statusMatches = projectFilter === 'all' || project.status === projectFilter;
-      const text = [project.name, project.description, project.owner_name, project.member_names].join(' ').toLowerCase();
-      return statusMatches && (!query || text.includes(query));
+      return projectFilter === 'all' || project.status === projectFilter;
     });
     const cards = filtered.map(project => {
       const status = PROJECT_STATUS[project.status] || PROJECT_STATUS.active;
@@ -548,7 +545,6 @@
         <article class="review-summary-card"><span>완료</span><strong>${counts.done}</strong></article>
       </section>
       <section class="review-controls">
-        <div class="review-search"><span>⌕</span><input id="reviewSearchInput" type="search" value="${esc(query)}" placeholder="프로젝트명, 담당자, 설명 검색"></div>
         <nav class="review-filter-tabs" aria-label="프로젝트 상태">
           ${[['all','전체'],['active','진행 중'],['review','확인 대기'],['planning','기획 중'],['done','완료'],['hold','보류']].map(([key, label]) => `<button class="review-filter ${projectFilter === key ? 'active' : ''}" type="button" data-project-filter="${key}">${label} ${counts[key]}</button>`).join('')}
         </nav>
@@ -556,7 +552,6 @@
       </section>
       <section class="review-project-grid" aria-label="프로젝트 목록">${cards || '<div class="review-empty">조건에 맞는 프로젝트가 없습니다.</div>'}</section>`;
 
-    reviewView.querySelector('#reviewSearchInput').addEventListener('input', renderProjects);
     reviewView.querySelectorAll('[data-project-filter]').forEach(button => button.addEventListener('click', () => {
       projectFilter = button.dataset.projectFilter;
       renderProjects();

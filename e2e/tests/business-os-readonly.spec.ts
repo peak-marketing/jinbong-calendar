@@ -105,6 +105,7 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#chatMessageInput')).toBeDisabled();
 
     await page.locator('.nav-item[data-view="review"]').click();
+    await expect(page.locator('#reviewSearchInput')).toHaveCount(0);
     await page.locator('[data-project-id="project-live-1"]').click();
     await expect(page.locator('#readonlyDetailModal')).toContainText('읽기 전용 업무 확인');
     await expect(page.locator('#readonlyDetailModal')).toContainText('진행사항 원문');
