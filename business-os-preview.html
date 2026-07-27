@@ -3140,7 +3140,7 @@
     <section class="quick-search-dialog">
       <div class="quick-search-head">
         <span class="quick-search-head-icon">⌕</span>
-        <input class="quick-search-input" id="quickSearchInput" type="search" placeholder="메뉴, 프로젝트, 할 일, 채팅방 검색" autocomplete="off">
+        <input class="quick-search-input" id="quickSearchInput" type="search" placeholder="찾고 싶은 이름이나 단어를 입력하세요" autocomplete="off">
         <button class="quick-search-close" id="quickSearchClose" type="button">ESC</button>
       </div>
       <div class="quick-search-label" id="quickSearchLabel">바로가기</div>
@@ -3177,11 +3177,11 @@
     const quickSearchInput = document.getElementById('quickSearchInput');
     const quickSearchResults = document.getElementById('quickSearchResults');
     const quickSearchIndex = [
-      { title: 'PEAKMARKETING', description: '회사 매출과 주요 현황 대시보드', type: '메뉴', icon: '⌂', view: 'dashboard', featured: true },
-      { title: 'CALENDAR', description: '개인·팀·전체 월간 일정', type: '메뉴', icon: '◫', view: 'calendar', featured: true },
-      { title: 'CHAT', description: '채팅방과 최근 메시지', type: '메뉴', icon: '◌', view: 'chat', featured: true },
-      { title: 'TO DO LIST', description: '오늘 해야 할 업무와 체크리스트', type: '메뉴', icon: '▦', view: 'todo', featured: true },
-      { title: 'PROJECTS', description: '프로젝트 진행 현황과 검토 요청', type: '메뉴', icon: '▣', view: 'review', featured: true },
+      { title: 'PEAKMARKETING', description: '회사 매출과 주요 현황 대시보드', keywords: '회사 홈 매출 실적', type: '메뉴', icon: '⌂', view: 'dashboard', featured: true },
+      { title: 'CALENDAR', description: '개인·팀·전체 월간 일정', keywords: '캘린더 일정 스케줄', type: '메뉴', icon: '◫', view: 'calendar', featured: true },
+      { title: 'CHAT', description: '채팅방과 최근 메시지', keywords: '채팅 대화 메신저', type: '메뉴', icon: '◌', view: 'chat', featured: true },
+      { title: 'TO DO LIST', description: '오늘 해야 할 업무와 체크리스트', keywords: '오늘 할 일 업무 할일', type: '메뉴', icon: '▦', view: 'todo', featured: true },
+      { title: 'PROJECTS', description: '프로젝트 진행 현황과 검토 요청', keywords: '프로젝트 검토 승인', type: '메뉴', icon: '▣', view: 'review', featured: true },
       { title: '조직 및 권한', description: '팀·직급·지사별 접근 권한', type: '회사 메뉴', icon: '♙', view: 'permissions' },
       { title: '7월 주간 보고서 자동화', description: '프로젝트 · 검토 대기 · 김대호', type: '프로젝트', icon: '▣', view: 'review', term: '7월 주간 보고서 자동화' },
       { title: '영업 주간회의 회의록', description: '프로젝트 · 검토 대기 · 박종원', type: '프로젝트', icon: '▣', view: 'review', term: '영업 주간회의 회의록' },
@@ -3216,6 +3216,33 @@
       return value.normalize('NFKC').toLowerCase().replace(/\s+/g, '');
     }
 
+    function scoreQuickSearchItem(item, rawQuery) {
+      const query = normalizeQuickSearch(rawQuery);
+      const title = normalizeQuickSearch(item.title);
+      const description = normalizeQuickSearch(item.description);
+      const type = normalizeQuickSearch(item.type);
+      const keywords = normalizeQuickSearch(item.keywords || '');
+      const haystack = title + description + type + keywords;
+      const tokens = rawQuery.trim().split(/\s+/).map(normalizeQuickSearch).filter(Boolean);
+      if (!tokens.every((token) => haystack.includes(token))) return -1;
+
+      let score = 0;
+      if (title === query) score += 1000;
+      else if (title.startsWith(query)) score += 800;
+      else if (title.includes(query)) score += 600 - title.indexOf(query);
+      if (description.includes(query)) score += 320;
+      if (keywords.includes(query)) score += 280;
+      if (type === query) score += 220;
+      else if (type.includes(query)) score += 160;
+      tokens.forEach((token) => {
+        if (title.includes(token)) score += 90;
+        else if (description.includes(token)) score += 55;
+        else if (keywords.includes(token)) score += 45;
+        else score += 25;
+      });
+      return score + (item.featured ? 2 : 0);
+    }
+
     function syncQuickSearchActiveResult() {
       const rows = Array.from(quickSearchResults.querySelectorAll('.quick-search-result'));
       rows.forEach((row, index) => {
@@ -3227,15 +3254,15 @@
     }
 
     function renderQuickSearchResults() {
-      const query = normalizeQuickSearch(quickSearchInput.value.trim());
+      const rawQuery = quickSearchInput.value.trim();
       quickSearchVisibleItems = quickSearchIndex
-        .filter((item) => {
-          if (!query) return item.featured;
-          return normalizeQuickSearch(item.title + item.description + item.type).includes(query);
-        })
+        .map((item, index) => ({ item, index, score: rawQuery ? scoreQuickSearchItem(item, rawQuery) : (item.featured ? 1 : -1) }))
+        .filter((entry) => entry.score >= 0)
+        .sort((a, b) => b.score - a.score || a.index - b.index)
+        .map((entry) => entry.item)
         .slice(0, 10);
       quickSearchActiveIndex = Math.min(quickSearchActiveIndex, Math.max(quickSearchVisibleItems.length - 1, 0));
-      document.getElementById('quickSearchLabel').textContent = query ? '검색 결과 ' + quickSearchVisibleItems.length + '개' : '바로가기';
+      document.getElementById('quickSearchLabel').textContent = rawQuery ? '관련 결과 ' + quickSearchVisibleItems.length + '개' : '바로가기';
       if (!quickSearchVisibleItems.length) {
         quickSearchResults.innerHTML = '<div class="quick-search-empty">검색 결과가 없습니다.</div>';
         return;
