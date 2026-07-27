@@ -537,6 +537,150 @@
     .metric-change { margin-top: 5px; color: var(--green); font-size: 8px; font-weight: 800; }
     .metric-change.neutral { color: var(--muted); }
 
+    .home-calendar-panel { overflow: hidden; scroll-margin-top: 110px; }
+    .calendar-panel-head { align-items: center; }
+    .calendar-head-actions { display: flex; align-items: center; gap: 7px; }
+    .calendar-nav {
+      display: grid;
+      width: 29px;
+      height: 29px;
+      padding: 0;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 15px;
+    }
+    .calendar-month {
+      min-width: 86px;
+      color: var(--ink);
+      font-size: 10px;
+      font-weight: 850;
+      text-align: center;
+    }
+    .calendar-scope {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 10px 16px;
+      border-bottom: 1px solid #edf1f4;
+      background: #fcfdfe;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .calendar-scope::-webkit-scrollbar { display: none; }
+    .calendar-scope-button {
+      flex: 0 0 auto;
+      min-height: 28px;
+      padding: 0 10px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 8px;
+      font-weight: 800;
+    }
+    .calendar-scope-button.active { border-color: #cce3f3; background: var(--blue-soft); color: var(--blue-dark); }
+    .calendar-scope-spacer { flex: 1; }
+    .calendar-hint { flex: 0 0 auto; color: var(--muted-2); font-size: 8px; }
+    .home-calendar-layout { display: grid; grid-template-columns: minmax(0, 1fr) 268px; min-width: 0; }
+    .home-calendar-main { min-width: 0; padding: 13px; }
+    .home-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
+    .home-calendar-weekday {
+      padding: 4px 0 8px;
+      color: var(--muted-2);
+      font-size: 8px;
+      font-weight: 850;
+      text-align: center;
+    }
+    .home-calendar-weekday:first-child { color: var(--red); }
+    .home-calendar-weekday:nth-child(7) { color: var(--blue); }
+    .home-calendar-cell {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 94px;
+      padding: 7px;
+      border: 1px solid #e8edf1;
+      border-radius: 9px;
+      background: #fff;
+      color: var(--text);
+      text-align: left;
+      transition: .15s ease;
+      overflow: hidden;
+    }
+    .home-calendar-cell:hover { border-color: #bddced; background: #fbfdff; transform: translateY(-1px); }
+    .home-calendar-cell.other { background: #fafbfc; color: #b7c0c8; }
+    .home-calendar-cell.selected { border-color: var(--blue); box-shadow: inset 0 0 0 1px rgba(52, 142, 205, .18); }
+    .home-calendar-cell.has-events { background: #fcfeff; }
+    .calendar-date-line { display: flex; align-items: center; justify-content: space-between; min-height: 22px; margin-bottom: 4px; }
+    .calendar-date {
+      display: grid;
+      width: 22px;
+      height: 22px;
+      place-items: center;
+      border-radius: 50%;
+      font-size: 8px;
+      font-weight: 850;
+    }
+    .home-calendar-cell.sun .calendar-date { color: var(--red); }
+    .home-calendar-cell.sat .calendar-date { color: var(--blue); }
+    .home-calendar-cell.today .calendar-date { background: var(--blue); color: #fff; box-shadow: 0 3px 8px rgba(52, 142, 205, .2); }
+    .calendar-count { color: var(--muted-2); font-size: 7px; font-weight: 750; }
+    .calendar-events { display: grid; gap: 3px; min-width: 0; }
+    .calendar-event {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      min-width: 0;
+      padding: 4px 5px;
+      border-radius: 5px;
+      background: var(--blue-soft);
+      color: var(--blue-dark);
+      font-size: 7px;
+      font-weight: 760;
+      line-height: 1.2;
+    }
+    .calendar-event.meeting { background: var(--violet-soft); color: var(--violet); }
+    .calendar-event.todo { background: var(--orange-soft); color: #ad702e; }
+    .calendar-event.finance { background: var(--green-soft); color: #26875a; }
+    .calendar-event i { flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+    .calendar-event span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .calendar-more { margin: 2px 2px 0; color: var(--muted-2); font-size: 7px; font-weight: 750; }
+    .calendar-agenda { min-width: 0; padding: 17px; border-left: 1px solid #edf1f4; background: #fafcfd; }
+    .agenda-date { color: var(--blue); font-size: 9px; font-weight: 850; letter-spacing: .02em; }
+    .calendar-agenda h3 { margin: 6px 0 4px; color: var(--ink); font-size: 15px; }
+    .agenda-summary { margin: 0 0 15px; color: var(--muted); font-size: 8px; }
+    .agenda-list { display: grid; gap: 7px; }
+    .agenda-item {
+      display: grid;
+      grid-template-columns: 31px minmax(0, 1fr);
+      gap: 9px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #fff;
+      box-shadow: var(--shadow-soft);
+    }
+    .agenda-time { color: var(--blue); font-size: 8px; font-weight: 850; }
+    .agenda-copy strong, .agenda-copy small { display: block; }
+    .agenda-copy strong { color: var(--ink); font-size: 9px; line-height: 1.35; }
+    .agenda-copy small { margin-top: 4px; color: var(--muted-2); font-size: 7px; }
+    .agenda-empty { padding: 24px 10px; color: var(--muted-2); font-size: 9px; text-align: center; }
+    .agenda-add {
+      width: 100%;
+      min-height: 34px;
+      margin-top: 11px;
+      border: 1px dashed #c8dce9;
+      border-radius: 8px;
+      background: var(--blue-pale);
+      color: var(--blue-dark);
+      font-size: 8px;
+      font-weight: 820;
+    }
+
     .chart-wrap { padding: 17px 18px 13px; }
     .chart-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
     .legend { display: flex; align-items: center; gap: 13px; color: var(--muted); font-size: 8px; font-weight: 700; }
@@ -952,6 +1096,8 @@
       .goal-grid { grid-template-columns: 1fr; }
       .goal-card h3 { min-height: auto; }
       .split-grid { grid-template-columns: 1fr; }
+      .home-calendar-layout { grid-template-columns: minmax(0, 1fr) 230px; }
+      .home-calendar-cell { min-height: 84px; padding: 5px; }
       .permission-layout { grid-template-columns: minmax(0, 1fr); }
     }
 
@@ -998,6 +1144,21 @@
       .panel-head { padding: 14px; }
       .chart-wrap { padding: 13px 10px 10px; overflow-x: auto; }
       .chart { width: 600px; max-width: none; }
+      .calendar-panel-head { align-items: flex-start; }
+      .calendar-head-actions { margin-top: 1px; }
+      .home-calendar-layout { grid-template-columns: minmax(0, 1fr); }
+      .home-calendar-main { padding: 8px; }
+      .home-calendar-grid { gap: 3px; }
+      .home-calendar-weekday { padding-bottom: 5px; }
+      .home-calendar-cell { min-height: 61px; padding: 4px; border-radius: 7px; }
+      .calendar-date-line { min-height: 18px; margin: 0; }
+      .calendar-date { width: 18px; height: 18px; font-size: 7px; }
+      .calendar-count { display: none; }
+      .calendar-events { display: flex; gap: 3px; margin-top: auto; padding: 0 2px 3px; }
+      .calendar-event { width: 6px; height: 6px; padding: 0; border-radius: 50%; font-size: 0; }
+      .calendar-event i { width: 100%; height: 100%; }
+      .calendar-more { display: none; }
+      .calendar-agenda { padding: 14px; border-top: 1px solid #edf1f4; border-left: 0; }
       .goal-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
       .split-grid { grid-template-columns: minmax(0, 1fr); }
       .notice-list, .task-list { padding-inline: 12px; }
@@ -1053,6 +1214,7 @@
         <section class="nav-section">
           <p class="nav-label">Quick access</p>
           <button class="nav-item active" type="button" data-view="dashboard"><span class="nav-icon">⌂</span>회사 홈</button>
+          <button class="nav-item" type="button" data-view="dashboard" data-scroll="companyCalendar"><span class="nav-icon">◫</span>캘린더</button>
           <button class="nav-item" type="button"><span class="nav-icon">▦</span>오늘 할 일<span class="nav-badge">8</span></button>
           <button class="nav-item" type="button"><span class="nav-icon">✓</span>검토 요청<span class="nav-badge">3</span></button>
         </section>
@@ -1146,9 +1308,9 @@
           <div class="heading-main">
             <div class="page-icon">P</div>
             <div class="heading-copy">
-              <div class="eyebrow"><span>●</span> Company Home</div>
-              <h1>BUSINESS OS | PEAK MARKETING</h1>
-              <p>목표부터 프로젝트, 영업과 기록까지 회사의 모든 흐름을 한 페이지에서 연결합니다.</p>
+              <div class="eyebrow"><span>●</span> BUSINESS OS | PEAK MARKETING</div>
+              <h1>회사 홈</h1>
+              <p>오늘의 일정과 업무부터 프로젝트, 영업과 기록까지 회사의 모든 흐름을 한 페이지에서 연결합니다.</p>
             </div>
           </div>
           <div class="heading-meta">
@@ -1249,6 +1411,33 @@
                 <div class="metric-value">3</div>
                 <div class="metric-change neutral">오늘 처리 예정 2건</div>
               </article>
+            </section>
+
+            <section class="panel home-calendar-panel" id="companyCalendar">
+              <div class="panel-head calendar-panel-head">
+                <div>
+                  <div class="panel-title">회사 캘린더</div>
+                  <div class="panel-subtitle">기존 Paragon 일정과 팀 업무를 회사 홈에서 함께 확인합니다</div>
+                </div>
+                <div class="calendar-head-actions">
+                  <button class="calendar-nav" id="calendarPrev" type="button" aria-label="이전 달">‹</button>
+                  <span class="calendar-month" id="calendarMonthLabel">2026년 7월</span>
+                  <button class="calendar-nav" id="calendarNext" type="button" aria-label="다음 달">›</button>
+                </div>
+              </div>
+              <div class="calendar-scope">
+                <button class="calendar-scope-button" type="button" data-scope="personal">내 일정</button>
+                <button class="calendar-scope-button" type="button" data-scope="team">팀 일정</button>
+                <button class="calendar-scope-button active" type="button" data-scope="all">전체</button>
+                <span class="calendar-scope-spacer"></span>
+                <span class="calendar-hint" id="calendarMonthCount">이번 달 일정 10건</span>
+              </div>
+              <div class="home-calendar-layout">
+                <div class="home-calendar-main">
+                  <div class="home-calendar-grid" id="homeCalendarGrid" aria-label="월간 캘린더"></div>
+                </div>
+                <aside class="calendar-agenda" id="homeCalendarAgenda" aria-label="선택 날짜 일정"></aside>
+              </div>
             </section>
 
             <section class="panel">
@@ -1594,6 +1783,106 @@
       toastTimer = setTimeout(() => toast.classList.remove('show'), 2200);
     }
 
+    const homeCalendarEvents = [
+      { date: '2026-07-01', time: '09:30', title: '7월 목표 및 운영계획 공유', group: '전체', scope: 'team', type: 'meeting' },
+      { date: '2026-07-03', time: '14:00', title: '신규 교육자료 검토', group: '경영지원팀', scope: 'personal', type: 'todo' },
+      { date: '2026-07-06', time: '10:00', title: '하반기 캠페인 킥오프', group: '플랫폼운영팀', scope: 'team', type: 'meeting' },
+      { date: '2026-07-09', time: '종일', title: '세금계산서 발행 마감', group: '세무·재무', scope: 'team', type: 'finance' },
+      { date: '2026-07-13', time: '11:00', title: '신규 접수 현황 확인', group: '영업팀', scope: 'team', type: 'todo' },
+      { date: '2026-07-16', time: '17:00', title: '영업자 정산자료 제출', group: '플랫폼운영팀', scope: 'team', type: 'finance' },
+      { date: '2026-07-20', time: '15:00', title: '지사 운영 정기회의', group: '전체 지사', scope: 'team', type: 'meeting' },
+      { date: '2026-07-23', time: '18:00', title: '주간 보고서 작성', group: '내 업무', scope: 'personal', type: 'todo' },
+      { date: '2026-07-27', time: '10:30', title: '영업 주간회의', group: '영업팀', scope: 'team', type: 'meeting' },
+      { date: '2026-07-27', time: '16:00', title: 'Business OS 화면 검토', group: '개발팀', scope: 'personal', type: 'todo' },
+      { date: '2026-07-28', time: '14:00', title: '영업자 정산 검토', group: '세무·재무', scope: 'team', type: 'finance' },
+      { date: '2026-07-30', time: '종일', title: '월급 및 원천세 자료 마감', group: '인사·세무', scope: 'team', type: 'finance' },
+      { date: '2026-07-31', time: '17:30', title: '7월 결산 및 최종보고', group: '경영지원팀', scope: 'team', type: 'finance' },
+      { date: '2026-08-03', time: '10:00', title: '8월 전사 목표 공유', group: '전체', scope: 'team', type: 'meeting' },
+      { date: '2026-08-06', time: '15:00', title: '플랫폼 영업 교육', group: '영업팀', scope: 'team', type: 'meeting' }
+    ];
+    const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+    let homeCalendarYear = 2026;
+    let homeCalendarMonth = 7;
+    let homeCalendarScope = 'all';
+    let homeCalendarSelected = '2026-07-27';
+
+    function dateKey(year, month, day) {
+      return year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+    }
+
+    function visibleCalendarEvents() {
+      return homeCalendarEvents.filter((event) => homeCalendarScope === 'all' || event.scope === homeCalendarScope);
+    }
+
+    function renderHomeCalendarAgenda() {
+      const agenda = document.getElementById('homeCalendarAgenda');
+      const selected = new Date(homeCalendarSelected + 'T00:00:00');
+      const selectedEvents = visibleCalendarEvents().filter((event) => event.date === homeCalendarSelected);
+      const dateLabel = (selected.getMonth() + 1) + '월 ' + selected.getDate() + '일 ' + weekdays[selected.getDay()] + '요일';
+      const items = selectedEvents.length
+        ? selectedEvents.map((event) => `
+          <button class="agenda-item calendar-event-action" type="button">
+            <span class="agenda-time">${event.time}</span>
+            <span class="agenda-copy"><strong>${event.title}</strong><small>${event.group} · ${event.scope === 'team' ? '팀 일정' : '내 일정'}</small></span>
+          </button>`).join('')
+        : '<div class="agenda-empty">등록된 일정이 없습니다.</div>';
+      agenda.innerHTML = `
+        <div class="agenda-date">SELECTED DAY</div>
+        <h3>${dateLabel}</h3>
+        <p class="agenda-summary">${selectedEvents.length ? '일정 ' + selectedEvents.length + '건' : '여유 있는 하루예요'}</p>
+        <div class="agenda-list">${items}</div>
+        <button class="agenda-add" type="button">＋ 이 날짜에 일정 추가</button>`;
+      agenda.querySelectorAll('.calendar-event-action, .agenda-add').forEach((button) => {
+        button.addEventListener('click', () => showToast('캘린더 기능 디자인 시안입니다. 실제 일정에는 반영되지 않아요.'));
+      });
+    }
+
+    function renderHomeCalendar() {
+      const grid = document.getElementById('homeCalendarGrid');
+      const visibleEvents = visibleCalendarEvents();
+      const firstDay = new Date(homeCalendarYear, homeCalendarMonth - 1, 1).getDay();
+      const daysInMonth = new Date(homeCalendarYear, homeCalendarMonth, 0).getDate();
+      const previousMonthDays = new Date(homeCalendarYear, homeCalendarMonth - 1, 0).getDate();
+      const today = '2026-07-27';
+      const cells = weekdays.map((day) => `<div class="home-calendar-weekday">${day}</div>`);
+
+      for (let index = firstDay - 1; index >= 0; index -= 1) {
+        cells.push(`<button class="home-calendar-cell other" type="button" disabled><span class="calendar-date-line"><span class="calendar-date">${previousMonthDays - index}</span></span></button>`);
+      }
+
+      for (let day = 1; day <= daysInMonth; day += 1) {
+        const key = dateKey(homeCalendarYear, homeCalendarMonth, day);
+        const dayOfWeek = new Date(homeCalendarYear, homeCalendarMonth - 1, day).getDay();
+        const events = visibleEvents.filter((event) => event.date === key);
+        const eventMarkup = events.slice(0, 2).map((event) => `
+          <span class="calendar-event ${event.type}"><i></i><span>${event.title}</span></span>`).join('');
+        const moreMarkup = events.length > 2 ? `<span class="calendar-more">+${events.length - 2}개 더보기</span>` : '';
+        cells.push(`
+          <button class="home-calendar-cell ${events.length ? 'has-events' : ''} ${key === today ? 'today' : ''} ${key === homeCalendarSelected ? 'selected' : ''} ${dayOfWeek === 0 ? 'sun' : ''} ${dayOfWeek === 6 ? 'sat' : ''}" type="button" data-date="${key}">
+            <span class="calendar-date-line"><span class="calendar-date">${day}</span>${events.length ? `<span class="calendar-count">${events.length}</span>` : ''}</span>
+            <span class="calendar-events">${eventMarkup}</span>${moreMarkup}
+          </button>`);
+      }
+
+      const usedCells = firstDay + daysInMonth;
+      for (let day = 1; day <= 42 - usedCells; day += 1) {
+        cells.push(`<button class="home-calendar-cell other" type="button" disabled><span class="calendar-date-line"><span class="calendar-date">${day}</span></span></button>`);
+      }
+
+      grid.innerHTML = cells.join('');
+      document.getElementById('calendarMonthLabel').textContent = homeCalendarYear + '년 ' + homeCalendarMonth + '월';
+      const monthPrefix = dateKey(homeCalendarYear, homeCalendarMonth, 1).slice(0, 7);
+      const monthCount = visibleEvents.filter((event) => event.date.startsWith(monthPrefix)).length;
+      document.getElementById('calendarMonthCount').textContent = '이번 달 일정 ' + monthCount + '건';
+      grid.querySelectorAll('.home-calendar-cell[data-date]').forEach((cell) => {
+        cell.addEventListener('click', () => {
+          homeCalendarSelected = cell.dataset.date;
+          renderHomeCalendar();
+        });
+      });
+      renderHomeCalendarAgenda();
+    }
+
     function showWorkspaceView(view) {
       const isPermissions = view === 'permissions';
       dashboardView.hidden = isPermissions;
@@ -1605,6 +1894,26 @@
 
     document.querySelector('.mobile-menu').addEventListener('click', () => body.classList.add('menu-open'));
     document.querySelector('.mobile-overlay').addEventListener('click', () => body.classList.remove('menu-open'));
+    document.getElementById('calendarPrev').addEventListener('click', () => {
+      homeCalendarMonth -= 1;
+      if (homeCalendarMonth === 0) { homeCalendarMonth = 12; homeCalendarYear -= 1; }
+      homeCalendarSelected = dateKey(homeCalendarYear, homeCalendarMonth, 1);
+      renderHomeCalendar();
+    });
+    document.getElementById('calendarNext').addEventListener('click', () => {
+      homeCalendarMonth += 1;
+      if (homeCalendarMonth === 13) { homeCalendarMonth = 1; homeCalendarYear += 1; }
+      homeCalendarSelected = dateKey(homeCalendarYear, homeCalendarMonth, 1);
+      renderHomeCalendar();
+    });
+    document.querySelectorAll('.calendar-scope-button').forEach((button) => {
+      button.addEventListener('click', () => {
+        homeCalendarScope = button.dataset.scope;
+        document.querySelectorAll('.calendar-scope-button').forEach((item) => item.classList.toggle('active', item === button));
+        renderHomeCalendar();
+      });
+    });
+    renderHomeCalendar();
 
     document.querySelectorAll('.tree-trigger').forEach((button) => {
       button.addEventListener('click', () => button.closest('.tree-group').classList.toggle('closed'));
@@ -1640,6 +1949,9 @@
         if (button.dataset.view) {
           document.querySelectorAll('.tree-item').forEach((item) => item.classList.remove('active'));
           showWorkspaceView(button.dataset.view);
+          if (button.dataset.scroll) {
+            setTimeout(() => document.getElementById(button.dataset.scroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+          }
           showToast('회사 홈 대시보드로 돌아왔습니다.');
           return;
         }
