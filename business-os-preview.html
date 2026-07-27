@@ -141,7 +141,7 @@
       width: 100%;
       min-height: 38px;
       margin: 3px 0 16px;
-      padding: 0 11px;
+      padding: 0 6px 0 11px;
       border: 1px solid #d7e1e9;
       border-radius: 9px;
       background: rgba(255, 255, 255, .72);
@@ -152,7 +152,7 @@
     }
 
     .search-button:focus-within { border-color: var(--blue); background: #fff; box-shadow: 0 0 0 3px rgba(52, 142, 205, .09); }
-    .search-button span:first-child { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; }
+    .search-button label { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; cursor: text; }
     .search-button input {
       width: 100%;
       min-width: 0;
@@ -165,8 +165,25 @@
       font-size: 11px;
     }
     .search-button input::placeholder { color: var(--muted); opacity: 1; }
+    .sidebar-tab-search-submit {
+      display: grid;
+      flex: 0 0 auto;
+      width: 27px;
+      height: 27px;
+      margin-left: 5px;
+      padding: 0;
+      place-items: center;
+      border: 1px solid #c8e0f0;
+      border-radius: 7px;
+      background: var(--blue-soft);
+      color: var(--blue-dark);
+      font-size: 13px;
+      font-weight: 900;
+    }
+    .sidebar-tab-search-submit:hover { border-color: var(--blue); background: var(--blue); color: #fff; }
     .search-button kbd {
       flex: 0 0 auto;
+      margin-left: 5px;
       padding: 2px 5px;
       border: 1px solid var(--line-strong);
       border-radius: 5px;
@@ -2037,10 +2054,11 @@
         </div>
       </div>
 
-      <label class="search-button" for="sidebarTabSearch">
-        <span><b>⌕</b><input id="sidebarTabSearch" type="search" placeholder="빠른 검색" autocomplete="off" aria-label="탭 검색"></span>
+      <div class="search-button">
+        <label for="sidebarTabSearch"><b>⌕</b><input id="sidebarTabSearch" type="search" placeholder="빠른 검색" autocomplete="off" aria-label="탭 검색"></label>
+        <button class="sidebar-tab-search-submit" id="sidebarTabSearchSubmit" type="button" aria-label="검색한 탭 열기" title="검색">⌕</button>
         <kbd>⌘ K</kbd>
-      </label>
+      </div>
 
       <nav aria-label="워크스페이스 바로가기">
         <section class="nav-section">
@@ -3057,6 +3075,22 @@
       return mainTabButtons.filter((button) => !button.hidden);
     }
 
+    function openSidebarSearchResult() {
+      if (!sidebarTabSearch.value.trim()) {
+        sidebarTabSearch.focus();
+        return;
+      }
+      const firstVisibleTab = filterSidebarTabs()[0];
+      if (!firstVisibleTab) {
+        showToast('일치하는 탭이 없습니다.');
+        sidebarTabSearch.focus();
+        return;
+      }
+      firstVisibleTab.click();
+      sidebarTabSearch.value = '';
+      filterSidebarTabs();
+    }
+
     mainTabButtons.forEach((button) => {
       button.addEventListener('click', () => {
         if (!sidebarTabSearch.value) return;
@@ -3065,14 +3099,11 @@
       });
     });
     sidebarTabSearch.addEventListener('input', filterSidebarTabs);
+    document.getElementById('sidebarTabSearchSubmit').addEventListener('click', openSidebarSearchResult);
     sidebarTabSearch.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
-        const firstVisibleTab = filterSidebarTabs()[0];
-        if (!firstVisibleTab) return;
         event.preventDefault();
-        firstVisibleTab.click();
-        sidebarTabSearch.value = '';
-        filterSidebarTabs();
+        openSidebarSearchResult();
       } else if (event.key === 'Escape') {
         sidebarTabSearch.value = '';
         filterSidebarTabs();
