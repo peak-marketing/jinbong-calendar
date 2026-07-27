@@ -213,11 +213,11 @@ const uploadJpgPng = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 }, f
 const uploadFile = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
 
 const pool = new Pool({
-  user: 'calendar_user',
-  password: 'peak_cal_2026!',
-  host: 'localhost',
-  port: 5432,
-  database: 'calendar_db',
+  user: process.env.PGUSER || 'calendar_user',
+  password: process.env.PGPASSWORD,
+  host: process.env.PGHOST || 'localhost',
+  port: Number(process.env.PGPORT || 5432),
+  database: process.env.PGDATABASE || 'calendar_db',
 });
 
 function normalizeReportAmountValue(value) {
@@ -5596,7 +5596,7 @@ app.post('/api/fcm/register', authMiddleware, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-const PORT = 4100;
+const PORT = Number(process.env.PORT || 4100);
 
 async function startServer() {
   try {

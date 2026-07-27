@@ -85,6 +85,6 @@ http.createServer((req, res) => {
   }
   serveFile(req, res);
 }).listen(port, '127.0.0.1', () => {
-  console.log(`Calendar redesign: http://127.0.0.1:${port}`);
+  console.log(`Peak Marketing Business OS: http://127.0.0.1:${port}`);
   console.log(`API proxy: http://127.0.0.1:${apiPort}`);
 });
