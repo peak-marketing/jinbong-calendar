@@ -4,92 +4,93 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow,noarchive">
-  <title>PEAK OS · Business Dashboard Preview</title>
+  <title>PEAK OS · Business OS Preview</title>
   <style>
     :root {
-      color-scheme: dark;
-      --bg: #11120f;
-      --sidebar: #1a1b17;
-      --surface: #1d1e1a;
-      --surface-2: #24251f;
-      --surface-3: #2c2d26;
-      --line: #34362e;
-      --line-soft: #292a24;
-      --text: #f2f0e9;
-      --muted: #9c9d93;
-      --muted-2: #71736b;
-      --cream: #d8d1b8;
-      --cream-2: #a69d7c;
-      --orange: #d88651;
-      --yellow: #d5b85d;
-      --green: #7ca982;
-      --blue: #7798b7;
-      --red: #c16f67;
-      --purple: #9580af;
-      --shadow: 0 20px 70px rgba(0, 0, 0, .23);
+      color-scheme: light;
+      --blue: #348ecd;
+      --blue-dark: #2674ac;
+      --blue-soft: #eaf5fc;
+      --blue-pale: #f5faff;
+      --ink: #17212b;
+      --text: #344252;
+      --muted: #718091;
+      --muted-2: #9aa7b4;
+      --line: #e4eaf0;
+      --line-strong: #d7e0e8;
+      --paper: #ffffff;
+      --canvas: #f6f8fa;
+      --green: #35a873;
+      --green-soft: #eaf8f1;
+      --orange: #e59242;
+      --orange-soft: #fff4e7;
+      --violet: #7668c9;
+      --violet-soft: #f1effd;
+      --red: #dd5b63;
+      --red-soft: #fdecf0;
+      --shadow: 0 8px 28px rgba(29, 58, 82, .07);
+      --shadow-soft: 0 2px 10px rgba(29, 58, 82, .05);
     }
 
     * { box-sizing: border-box; }
-
     html { scroll-behavior: smooth; }
 
     body {
       margin: 0;
       min-width: 320px;
       min-height: 100vh;
-      background:
-        radial-gradient(circle at 74% -20%, rgba(216, 209, 184, .08), transparent 42rem),
-        var(--bg);
+      background: var(--canvas);
       color: var(--text);
       font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       letter-spacing: -.025em;
     }
 
-    button, input { font: inherit; }
-    button { cursor: pointer; }
+    button { font: inherit; cursor: pointer; }
 
     .prototype-bar {
       position: sticky;
       top: 0;
-      z-index: 60;
+      z-index: 80;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 9px;
+      gap: 8px;
       min-height: 34px;
       padding: 7px 16px;
-      border-bottom: 1px solid rgba(216, 209, 184, .14);
-      background: rgba(31, 31, 26, .94);
-      color: #d8d1b8;
+      border-bottom: 1px solid #cfe5f5;
+      background: #edf7fe;
+      color: #327dac;
       font-size: 11px;
-      font-weight: 700;
-      backdrop-filter: blur(16px);
+      font-weight: 750;
+      text-align: center;
     }
 
-    .prototype-dot {
+    .prototype-bar i {
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: var(--cream);
-      box-shadow: 0 0 11px rgba(216, 209, 184, .58);
+      background: var(--blue);
+      box-shadow: 0 0 0 4px rgba(52, 142, 205, .12);
     }
 
     .app {
       display: grid;
-      grid-template-columns: 248px minmax(0, 1fr);
+      grid-template-columns: 246px minmax(0, 1fr);
       min-height: calc(100vh - 34px);
     }
 
-    .sidebar {
+    .app-sidebar {
       position: sticky;
       top: 34px;
+      z-index: 50;
       display: flex;
       flex-direction: column;
       height: calc(100vh - 34px);
       padding: 15px 11px 12px;
-      border-right: 1px solid var(--line-soft);
-      background: rgba(26, 27, 23, .97);
+      border-right: 1px solid var(--line);
+      background: rgba(255, 255, 255, .96);
       overflow-y: auto;
+      backdrop-filter: blur(16px);
     }
 
     .workspace {
@@ -97,72 +98,72 @@
       align-items: center;
       gap: 10px;
       min-height: 48px;
-      padding: 6px 8px 13px;
+      padding: 4px 8px 13px;
+    }
+
+    .workspace-logo,
+    .page-icon {
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-weight: 900;
+      background: var(--blue);
+      box-shadow: 0 5px 14px rgba(52, 142, 205, .22);
     }
 
     .workspace-logo {
-      display: grid;
-      flex: 0 0 auto;
-      width: 31px;
-      height: 31px;
-      place-items: center;
-      border-radius: 8px;
-      background: var(--cream);
-      color: #171711;
+      width: 32px;
+      height: 32px;
+      border-radius: 9px;
       font-size: 13px;
-      font-weight: 900;
     }
 
-    .workspace-name {
-      min-width: 0;
-      line-height: 1.15;
-    }
-
-    .workspace-name strong,
-    .workspace-name span {
+    .workspace-copy { min-width: 0; line-height: 1.2; }
+    .workspace-copy strong,
+    .workspace-copy small {
       display: block;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
-    .workspace-name strong { font-size: 13px; }
-    .workspace-name span { margin-top: 4px; color: var(--muted-2); font-size: 9px; letter-spacing: .09em; }
+    .workspace-copy strong { color: var(--ink); font-size: 13px; }
+    .workspace-copy small { margin-top: 4px; color: var(--muted-2); font-size: 9px; letter-spacing: .08em; }
 
-    .quick-capture {
+    .search-button {
       display: flex;
       align-items: center;
       justify-content: space-between;
       width: 100%;
       min-height: 38px;
-      margin: 3px 0 15px;
+      margin: 3px 0 16px;
       padding: 0 11px;
       border: 1px solid var(--line);
-      border-radius: 7px;
-      background: #20211c;
-      color: #d5d2c7;
+      border-radius: 9px;
+      background: #f8fafc;
+      color: var(--muted);
       font-size: 11px;
       font-weight: 650;
     }
 
-    .quick-capture kbd {
+    .search-button span:first-child { display: flex; align-items: center; gap: 8px; }
+    .search-button kbd {
       padding: 2px 5px;
-      border: 1px solid #44463d;
-      border-radius: 4px;
-      background: #2b2c26;
-      color: var(--muted);
+      border: 1px solid var(--line-strong);
+      border-radius: 5px;
+      background: #fff;
+      color: var(--muted-2);
       font-family: inherit;
       font-size: 9px;
     }
 
-    .nav-section { margin-bottom: 13px; }
-
+    .nav-section { margin-bottom: 15px; }
     .nav-label {
-      margin: 0 8px 6px;
-      color: #66685f;
+      margin: 0 9px 6px;
+      color: var(--muted-2);
       font-size: 9px;
-      font-weight: 800;
-      letter-spacing: .12em;
+      font-weight: 850;
+      letter-spacing: .11em;
       text-transform: uppercase;
     }
 
@@ -171,1045 +172,878 @@
       align-items: center;
       gap: 9px;
       width: 100%;
-      min-height: 34px;
-      margin-bottom: 1px;
-      padding: 0 9px;
+      min-height: 36px;
+      margin-bottom: 2px;
+      padding: 0 10px;
       border: 0;
-      border-radius: 6px;
+      border-radius: 8px;
       background: transparent;
-      color: #aaa99f;
-      font-size: 11px;
+      color: #657485;
+      font-size: 12px;
+      font-weight: 670;
       text-align: left;
-      transition: .16s ease;
-    }
-
-    .nav-item:hover { background: #23241f; color: var(--text); }
-    .nav-item.active { background: #303027; color: var(--text); font-weight: 750; }
-
-    .nav-icon {
-      display: grid;
-      width: 17px;
-      height: 17px;
-      place-items: center;
-      color: #8c8c82;
-      font-size: 12px;
-    }
-
-    .nav-item.active .nav-icon { color: var(--cream); }
-
-    .nav-badge {
-      min-width: 18px;
-      margin-left: auto;
-      padding: 2px 5px;
-      border-radius: 8px;
-      background: #3a3a31;
-      color: #c7c4b8;
-      font-size: 8px;
-      font-weight: 800;
-      text-align: center;
-    }
-
-    .sidebar-footer {
-      display: flex;
-      align-items: center;
-      gap: 9px;
-      margin-top: auto;
-      padding: 12px 8px 3px;
-      border-top: 1px solid var(--line-soft);
-    }
-
-    .avatar {
-      display: grid;
-      flex: 0 0 auto;
-      width: 29px;
-      height: 29px;
-      place-items: center;
-      border-radius: 7px;
-      background: #3b3b33;
-      color: #e2ded0;
-      font-size: 9px;
-      font-weight: 850;
-    }
-
-    .profile-copy strong,
-    .profile-copy span { display: block; }
-    .profile-copy strong { font-size: 10px; }
-    .profile-copy span { margin-top: 3px; color: var(--muted-2); font-size: 9px; }
-
-    .main {
-      width: 100%;
-      max-width: 1480px;
-      margin: 0 auto;
-      padding: 28px clamp(22px, 3vw, 48px) 70px;
-    }
-
-    .topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 20px;
-      margin-bottom: 38px;
-    }
-
-    .breadcrumb {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      color: var(--muted-2);
-      font-size: 10px;
-    }
-
-    .breadcrumb b { color: #bdb9aa; font-weight: 700; }
-
-    .top-actions {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-    }
-
-    .search {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-width: 220px;
-      height: 35px;
-      padding: 0 11px;
-      border: 1px solid var(--line);
-      border-radius: 7px;
-      background: rgba(29, 30, 26, .8);
-      color: var(--muted);
-      font-size: 10px;
-    }
-
-    .icon-button {
-      display: grid;
-      width: 35px;
-      height: 35px;
-      place-items: center;
-      border: 1px solid var(--line);
-      border-radius: 7px;
-      background: var(--surface);
-      color: #b8b5a9;
-      font-size: 12px;
-    }
-
-    .hero {
-      display: flex;
-      align-items: flex-end;
-      justify-content: space-between;
-      gap: 24px;
-      margin-bottom: 25px;
-    }
-
-    .hero-kicker {
-      margin-bottom: 8px;
-      color: var(--cream-2);
-      font-size: 9px;
-      font-weight: 850;
-      letter-spacing: .16em;
-      text-transform: uppercase;
-    }
-
-    h1 {
-      margin: 0;
-      font-family: Georgia, "Times New Roman", serif;
-      font-size: clamp(31px, 4vw, 48px);
-      font-weight: 500;
-      letter-spacing: -.045em;
-      line-height: 1.08;
-    }
-
-    .hero p {
-      max-width: 600px;
-      margin: 11px 0 0;
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.65;
-    }
-
-    .primary-button {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      min-height: 39px;
-      padding: 0 14px;
-      border: 1px solid #d8d1b8;
-      border-radius: 7px;
-      background: var(--cream);
-      color: #1b1b16;
-      font-size: 11px;
-      font-weight: 850;
-      white-space: nowrap;
-    }
-
-    .quick-row {
-      display: flex;
-      gap: 7px;
-      margin-bottom: 18px;
-      overflow-x: auto;
-      scrollbar-width: none;
-    }
-
-    .quick-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      min-height: 33px;
-      padding: 0 11px;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      background: rgba(29, 30, 26, .65);
-      color: #b6b3a8;
-      font-size: 10px;
-      white-space: nowrap;
-    }
-
-    .quick-chip b { color: #d8d3c5; font-weight: 800; }
-
-    .metrics {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-      margin-bottom: 10px;
-    }
-
-    .metric {
-      min-height: 118px;
-      padding: 17px;
-      border: 1px solid var(--line-soft);
-      border-radius: 9px;
-      background: rgba(29, 30, 26, .9);
-    }
-
-    .metric-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      color: var(--muted);
-      font-size: 10px;
-    }
-
-    .metric-icon {
-      display: grid;
-      width: 24px;
-      height: 24px;
-      place-items: center;
-      border-radius: 6px;
-      background: var(--surface-3);
-      color: var(--cream);
-      font-size: 10px;
-    }
-
-    .metric-value {
-      margin-top: 16px;
-      font-family: Georgia, "Times New Roman", serif;
-      font-size: 26px;
-      letter-spacing: -.03em;
-    }
-
-    .metric-foot {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      margin-top: 7px;
-      color: var(--muted-2);
-      font-size: 9px;
-    }
-
-    .trend-up { color: var(--green); font-weight: 800; }
-    .trend-warn { color: var(--orange); font-weight: 800; }
-
-    .dashboard {
-      display: grid;
-      grid-template-columns: minmax(0, 1.45fr) minmax(270px, .68fr);
-      gap: 10px;
-    }
-
-    .column { display: grid; gap: 10px; align-content: start; }
-
-    .card {
-      border: 1px solid var(--line-soft);
-      border-radius: 9px;
-      background: rgba(29, 30, 26, .94);
-      box-shadow: var(--shadow);
-      overflow: hidden;
-    }
-
-    .card-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
-      min-height: 57px;
-      padding: 14px 16px;
-      border-bottom: 1px solid var(--line-soft);
-    }
-
-    .card-title { margin: 0; font-size: 12px; font-weight: 800; }
-    .card-subtitle { margin-top: 4px; color: var(--muted-2); font-size: 9px; }
-
-    .text-button {
-      border: 0;
-      background: transparent;
-      color: var(--cream-2);
-      font-size: 9px;
-      font-weight: 750;
-    }
-
-    .goal-body {
-      display: grid;
-      grid-template-columns: minmax(0, 1.2fr) minmax(210px, .8fr);
-      gap: 20px;
-      padding: 19px 16px 17px;
-    }
-
-    .goal-main {
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      min-height: 178px;
-    }
-
-    .goal-name {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 8px;
-      color: #dedbcf;
-      font-size: 11px;
-      font-weight: 750;
-    }
-
-    .status-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: var(--green);
-    }
-
-    .goal-number {
-      margin-top: 4px;
-      font-family: Georgia, "Times New Roman", serif;
-      font-size: 38px;
-    }
-
-    .goal-number small {
-      color: var(--muted-2);
-      font-family: inherit;
-      font-size: 16px;
-    }
-
-    .progress-top {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 7px;
-      color: var(--muted);
-      font-size: 9px;
-    }
-
-    .progress-track {
-      height: 6px;
-      border-radius: 999px;
-      background: #33342d;
-      overflow: hidden;
-    }
-
-    .progress-fill {
-      height: 100%;
-      border-radius: inherit;
-      background: var(--cream);
-    }
-
-    .chart {
-      position: relative;
-      min-height: 178px;
-      padding: 12px 8px 3px;
-      border-left: 1px solid var(--line-soft);
-    }
-
-    .chart-label {
-      margin: 0 0 12px 9px;
-      color: var(--muted-2);
-      font-size: 9px;
-    }
-
-    .chart svg {
-      width: 100%;
-      height: 130px;
-      overflow: visible;
-    }
-
-    .projects-body {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 9px;
-      padding: 14px;
-    }
-
-    .project-card {
-      min-height: 153px;
-      padding: 14px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #22231e;
-      transition: transform .16s ease, border-color .16s ease;
-    }
-
-    .project-card:hover { transform: translateY(-2px); border-color: #535449; }
-
-    .project-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-    }
-
-    .project-type {
-      color: var(--muted-2);
-      font-size: 8px;
-      font-weight: 800;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-    }
-
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      min-height: 19px;
-      padding: 0 7px;
-      border-radius: 999px;
-      font-size: 8px;
-      font-weight: 800;
-    }
-
-    .pill.green { background: rgba(124, 169, 130, .13); color: #9dc7a3; }
-    .pill.orange { background: rgba(216, 134, 81, .13); color: #e0a177; }
-    .pill.blue { background: rgba(119, 152, 183, .13); color: #9bb8d2; }
-    .pill.red { background: rgba(193, 111, 103, .13); color: #d59690; }
-    .pill.cream { background: rgba(216, 209, 184, .11); color: #d8d1b8; }
-
-    .project-name {
-      min-height: 38px;
-      margin-top: 14px;
-      font-size: 12px;
-      font-weight: 780;
-      line-height: 1.45;
-    }
-
-    .project-meta {
-      display: flex;
-      justify-content: space-between;
-      gap: 9px;
-      margin: 12px 0 7px;
-      color: var(--muted-2);
-      font-size: 8px;
-    }
-
-    .mini-progress {
-      height: 4px;
-      border-radius: 999px;
-      background: #36372f;
-      overflow: hidden;
-    }
-
-    .mini-progress div { height: 100%; border-radius: inherit; background: var(--cream-2); }
-
-    .people-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-top: 12px;
-    }
-
-    .avatar-stack { display: flex; padding-left: 5px; }
-    .avatar-stack span {
-      display: grid;
-      width: 22px;
-      height: 22px;
-      margin-left: -5px;
-      place-items: center;
-      border: 2px solid #22231e;
-      border-radius: 50%;
-      background: #46473e;
-      color: #e5e1d5;
-      font-size: 7px;
-      font-weight: 850;
-    }
-
-    .due { color: var(--muted-2); font-size: 8px; }
-
-    .table-head,
-    .task-row {
-      display: grid;
-      grid-template-columns: minmax(0, 1.7fr) .75fr .7fr .7fr;
-      gap: 12px;
-      align-items: center;
-    }
-
-    .table-head {
-      padding: 10px 16px;
-      border-bottom: 1px solid var(--line-soft);
-      color: var(--muted-2);
-      font-size: 8px;
-      font-weight: 800;
-    }
-
-    .task-row {
-      min-height: 46px;
-      padding: 8px 16px;
-      border-bottom: 1px solid var(--line-soft);
-      font-size: 9px;
-    }
-
-    .task-row:last-child { border-bottom: 0; }
-
-    .task-name {
-      display: flex;
-      align-items: center;
-      gap: 9px;
-      min-width: 0;
-      color: #d6d3c8;
-      font-size: 10px;
-      font-weight: 650;
-    }
-
-    .task-check {
-      display: grid;
-      flex: 0 0 auto;
-      width: 17px;
-      height: 17px;
-      place-items: center;
-      border: 1px solid #4a4b43;
-      border-radius: 5px;
-      color: var(--green);
-      font-size: 9px;
-    }
-
-    .task-owner, .task-date { color: var(--muted); }
-
-    .priority {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      color: #bbb8ad;
-    }
-
-    .priority::before {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--orange);
-      content: "";
-    }
-
-    .priority.medium::before { background: var(--yellow); }
-    .priority.low::before { background: var(--blue); }
-
-    .side-card-body { padding: 8px 14px 14px; }
-
-    .review-item,
-    .schedule-item {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      padding: 11px 0;
-      border-bottom: 1px solid var(--line-soft);
-    }
-
-    .review-item:last-child,
-    .schedule-item:last-child { border-bottom: 0; }
-
-    .item-symbol {
-      display: grid;
-      flex: 0 0 auto;
-      width: 27px;
-      height: 27px;
-      place-items: center;
-      border-radius: 7px;
-      background: #2b2c26;
-      color: var(--cream-2);
-      font-size: 10px;
-    }
-
-    .item-copy { min-width: 0; flex: 1; }
-    .item-copy strong {
-      display: block;
-      overflow: hidden;
-      color: #d2cfc3;
-      font-size: 10px;
-      font-weight: 700;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .item-copy span {
-      display: block;
-      margin-top: 4px;
-      color: var(--muted-2);
-      font-size: 8px;
-      line-height: 1.45;
-    }
-
-    .item-action {
-      flex: 0 0 auto;
-      padding: 4px 7px;
-      border: 1px solid var(--line);
-      border-radius: 5px;
-      background: #272822;
-      color: #c8c4b7;
-      font-size: 8px;
-    }
-
-    .week-bars {
-      display: flex;
-      align-items: flex-end;
-      justify-content: space-between;
-      gap: 8px;
-      height: 152px;
-      padding: 14px 6px 0;
-    }
-
-    .bar-group {
-      display: grid;
-      flex: 1;
-      height: 100%;
-      grid-template-rows: 1fr auto;
-      gap: 8px;
-      align-items: end;
-      text-align: center;
-    }
-
-    .bar {
-      width: 100%;
-      max-width: 25px;
-      margin: 0 auto;
-      border-radius: 4px 4px 2px 2px;
-      background: linear-gradient(to top, #7e7a68, #b0a88d);
-      opacity: .82;
-    }
-
-    .bar-group:nth-child(6) .bar,
-    .bar-group:nth-child(7) .bar { opacity: .32; }
-    .bar-group span { color: var(--muted-2); font-size: 8px; }
-
-    .legend {
-      display: flex;
-      justify-content: space-between;
-      padding: 13px 0 2px;
-      color: var(--muted-2);
-      font-size: 8px;
-    }
-
-    .schedule-time {
-      flex: 0 0 36px;
-      padding-top: 2px;
-      color: var(--cream-2);
-      font-size: 9px;
-      font-weight: 800;
-    }
-
-    .toast {
-      position: fixed;
-      right: 18px;
-      bottom: 18px;
-      z-index: 80;
-      max-width: 310px;
-      padding: 11px 13px;
-      border: 1px solid #4b4b41;
-      border-radius: 7px;
-      background: #272820;
-      color: #d9d5c8;
-      box-shadow: 0 18px 50px rgba(0, 0, 0, .45);
-      font-size: 10px;
-      line-height: 1.5;
-      opacity: 0;
-      transform: translateY(8px);
-      pointer-events: none;
       transition: .18s ease;
     }
 
-    .toast.show { opacity: 1; transform: translateY(0); }
+    .nav-item:hover { background: #f5f8fa; color: var(--ink); }
+    .nav-item.active { background: var(--blue-soft); color: var(--blue-dark); font-weight: 800; }
+    .nav-icon { width: 18px; color: var(--muted-2); font-size: 14px; text-align: center; }
+    .nav-item.active .nav-icon { color: var(--blue); }
+    .nav-badge {
+      margin-left: auto;
+      min-width: 20px;
+      padding: 2px 6px;
+      border-radius: 9px;
+      background: #eef2f5;
+      color: #788697;
+      font-size: 9px;
+      text-align: center;
+    }
+    .nav-item.active .nav-badge { background: #fff; color: var(--blue); }
 
-    .mobile-head { display: none; }
+    .sidebar-spacer { flex: 1; min-height: 18px; }
+    .sidebar-card {
+      padding: 12px;
+      border: 1px solid #d9eaf6;
+      border-radius: 11px;
+      background: var(--blue-pale);
+    }
+    .sidebar-card strong { display: block; color: var(--ink); font-size: 11px; }
+    .sidebar-card p { margin: 6px 0 10px; color: var(--muted); font-size: 9px; line-height: 1.55; }
+    .sidebar-card span { color: var(--blue-dark); font-size: 9px; font-weight: 800; }
+
+    .member {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-top: 11px;
+      padding: 10px 8px 1px;
+      border-top: 1px solid var(--line);
+    }
+    .avatar {
+      display: grid;
+      width: 28px;
+      height: 28px;
+      place-items: center;
+      border-radius: 50%;
+      background: #dff1fc;
+      color: var(--blue-dark);
+      font-size: 10px;
+      font-weight: 900;
+    }
+    .member-copy strong, .member-copy small { display: block; }
+    .member-copy strong { color: var(--ink); font-size: 11px; }
+    .member-copy small { margin-top: 2px; color: var(--muted-2); font-size: 9px; }
+
+    .main-shell { min-width: 0; }
+    .topbar {
+      position: sticky;
+      top: 34px;
+      z-index: 40;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 58px;
+      padding: 0 30px;
+      border-bottom: 1px solid rgba(228, 234, 240, .9);
+      background: rgba(255, 255, 255, .9);
+      backdrop-filter: blur(16px);
+    }
+
+    .breadcrumbs {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .breadcrumbs strong { color: var(--ink); }
+    .breadcrumbs span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .top-actions { display: flex; gap: 7px; }
+    .icon-button,
+    .primary-button {
+      min-height: 34px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 800;
+    }
+    .icon-button {
+      min-width: 34px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--muted);
+    }
+    .primary-button {
+      padding: 0 14px;
+      border: 1px solid var(--blue);
+      background: var(--blue);
+      color: #fff;
+      box-shadow: 0 5px 12px rgba(52, 142, 205, .17);
+    }
+    .mobile-menu { display: none; }
+
+    .page {
+      width: min(1240px, calc(100% - 48px));
+      margin: 0 auto;
+      padding: 44px 0 70px;
+    }
+
+    .page-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 26px;
+    }
+    .heading-main { display: flex; align-items: flex-start; gap: 15px; }
+    .page-icon {
+      flex: 0 0 auto;
+      width: 50px;
+      height: 50px;
+      border-radius: 13px;
+      font-size: 21px;
+    }
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
+      color: var(--blue);
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 3vw, 36px); line-height: 1.15; letter-spacing: -.045em; }
+    .heading-copy p { max-width: 620px; margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.65; }
+    .heading-meta { display: flex; gap: 7px; padding-top: 4px; }
+    .soft-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 28px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+    .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+
+    .view-tabs {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .view-tabs::-webkit-scrollbar { display: none; }
+    .tab-button {
+      flex: 0 0 auto;
+      min-height: 32px;
+      padding: 0 12px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 750;
+    }
+    .tab-button.active { border-color: #cce3f3; background: var(--blue-soft); color: var(--blue-dark); }
+
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 292px minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--paper);
+      box-shadow: var(--shadow-soft);
+    }
+    .panel-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 17px 18px 14px;
+      border-bottom: 1px solid #edf1f4;
+    }
+    .panel-title { color: var(--ink); font-size: 12px; font-weight: 850; }
+    .panel-subtitle { margin-top: 4px; color: var(--muted); font-size: 9px; line-height: 1.5; }
+    .more-button {
+      padding: 1px 4px;
+      border: 0;
+      background: transparent;
+      color: var(--muted-2);
+      font-size: 16px;
+    }
+
+    .map-panel { position: sticky; top: 108px; overflow: hidden; }
+    .map-brand {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin: 12px;
+      padding: 10px;
+      border-radius: 9px;
+      background: var(--blue-soft);
+      color: var(--blue-dark);
+      font-size: 10px;
+      font-weight: 850;
+    }
+    .map-brand .tiny-logo {
+      display: grid;
+      width: 23px;
+      height: 23px;
+      place-items: center;
+      border-radius: 6px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 10px;
+    }
+    .tree { padding: 0 12px 15px; }
+    .tree-group { padding: 7px 0; border-bottom: 1px solid #f0f3f5; }
+    .tree-group:last-child { border-bottom: 0; }
+    .tree-trigger {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      width: 100%;
+      min-height: 27px;
+      padding: 0 4px;
+      border: 0;
+      background: transparent;
+      color: var(--ink);
+      font-size: 10px;
+      font-weight: 820;
+      text-align: left;
+    }
+    .caret { width: 10px; color: var(--muted-2); font-size: 8px; transition: transform .18s ease; }
+    .tree-group.closed .caret { transform: rotate(-90deg); }
+    .tree-children { padding: 2px 0 2px 24px; }
+    .tree-group.closed .tree-children { display: none; }
+    .tree-item {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      width: 100%;
+      min-height: 25px;
+      padding: 0 5px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: #6a7887;
+      font-size: 9px;
+      text-align: left;
+    }
+    .tree-item:hover, .tree-item.active { background: #f3f8fc; color: var(--blue-dark); }
+    .tree-icon { width: 13px; color: #9ba9b5; text-align: center; }
+    .tree-item.active .tree-icon { color: var(--blue); }
+
+    .content-stack { display: grid; gap: 16px; min-width: 0; }
+    .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .metric-card {
+      min-width: 0;
+      padding: 15px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      box-shadow: var(--shadow-soft);
+    }
+    .metric-label { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 9px; font-weight: 750; }
+    .metric-icon { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 7px; background: var(--blue-soft); color: var(--blue); font-size: 11px; }
+    .metric-value { margin-top: 10px; color: var(--ink); font-size: 20px; font-weight: 880; letter-spacing: -.04em; }
+    .metric-change { margin-top: 5px; color: var(--green); font-size: 8px; font-weight: 800; }
+    .metric-change.neutral { color: var(--muted); }
+
+    .chart-wrap { padding: 17px 18px 13px; }
+    .chart-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+    .legend { display: flex; align-items: center; gap: 13px; color: var(--muted); font-size: 8px; font-weight: 700; }
+    .legend span { display: flex; align-items: center; gap: 5px; }
+    .legend i { width: 7px; height: 7px; border-radius: 50%; background: var(--blue); }
+    .legend span:last-child i { background: #cbd5de; }
+    .period {
+      padding: 5px 8px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 8px;
+      font-weight: 750;
+    }
+    .chart { width: 100%; height: auto; min-height: 188px; overflow: visible; }
+    .chart text { fill: #9aa7b4; font-family: inherit; font-size: 9px; }
+    .chart .grid { stroke: #edf1f4; stroke-width: 1; }
+    .chart .area { fill: url(#areaGradient); }
+    .chart .line { fill: none; stroke: var(--blue); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+    .chart .target { fill: none; stroke: #cbd5de; stroke-width: 1.5; stroke-dasharray: 4 5; }
+    .chart .point { fill: #fff; stroke: var(--blue); stroke-width: 2.5; }
+    .chart-note { color: var(--muted-2); font-size: 8px; text-align: right; }
+
+    .section-body { padding: 14px 16px 16px; }
+    .goal-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .goal-card {
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fcfdfe;
+    }
+    .goal-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 20px;
+      padding: 0 7px;
+      border-radius: 6px;
+      background: var(--blue-soft);
+      color: var(--blue-dark);
+      font-size: 8px;
+      font-weight: 850;
+    }
+    .status.green { background: var(--green-soft); color: #26885b; }
+    .status.orange { background: var(--orange-soft); color: #b87530; }
+    .goal-date { color: var(--muted-2); font-size: 8px; }
+    .goal-card h3 { min-height: 34px; margin: 0 0 10px; color: var(--ink); font-size: 10px; line-height: 1.55; }
+    .progress-label { display: flex; justify-content: space-between; margin-bottom: 6px; color: var(--muted); font-size: 8px; }
+    .progress-label strong { color: var(--blue-dark); }
+    .progress-track { height: 5px; border-radius: 5px; background: #e9eef2; overflow: hidden; }
+    .progress-track i { display: block; height: 100%; border-radius: inherit; background: var(--blue); }
+
+    .split-grid { display: grid; grid-template-columns: 1.2fr .8fr; gap: 16px; }
+    .notice-list, .task-list { padding: 4px 16px 10px; }
+    .notice-row, .task-row {
+      display: grid;
+      align-items: center;
+      min-height: 47px;
+      border-bottom: 1px solid #f0f3f5;
+    }
+    .notice-row:last-child, .task-row:last-child { border-bottom: 0; }
+    .notice-row { grid-template-columns: 55px minmax(0, 1fr) 66px; gap: 9px; }
+    .notice-tag { color: var(--blue); font-size: 8px; font-weight: 850; }
+    .notice-title { overflow: hidden; color: var(--text); font-size: 9px; font-weight: 720; text-overflow: ellipsis; white-space: nowrap; }
+    .notice-date { color: var(--muted-2); font-size: 8px; text-align: right; }
+    .task-row { grid-template-columns: 20px minmax(0, 1fr) auto; gap: 9px; }
+    .check {
+      width: 17px;
+      height: 17px;
+      padding: 0;
+      border: 1.5px solid #cbd5de;
+      border-radius: 5px;
+      background: #fff;
+      color: transparent;
+      font-size: 9px;
+      line-height: 14px;
+    }
+    .check.done { border-color: var(--blue); background: var(--blue); color: #fff; }
+    .task-copy { min-width: 0; }
+    .task-copy strong, .task-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .task-copy strong { color: var(--text); font-size: 9px; }
+    .task-copy small { margin-top: 3px; color: var(--muted-2); font-size: 8px; }
+    .priority { width: 7px; height: 7px; border-radius: 50%; background: var(--orange); }
+    .priority.blue { background: var(--blue); }
+    .priority.green { background: var(--green); }
+
+    .project-table { padding: 2px 16px 11px; overflow-x: auto; }
+    .project-row {
+      display: grid;
+      grid-template-columns: minmax(160px, 1.7fr) 95px 80px minmax(100px, .8fr);
+      align-items: center;
+      min-width: 560px;
+      min-height: 45px;
+      border-bottom: 1px solid #f0f3f5;
+      color: var(--muted);
+      font-size: 8px;
+    }
+    .project-row:last-child { border-bottom: 0; }
+    .project-row.header { min-height: 35px; color: var(--muted-2); font-weight: 800; }
+    .project-name { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 9px; font-weight: 750; }
+    .project-mark { width: 7px; height: 7px; border-radius: 2px; background: var(--blue); }
+    .project-mark.violet { background: var(--violet); }
+    .project-mark.orange { background: var(--orange); }
+    .member-stack { display: flex; }
+    .mini-avatar {
+      display: grid;
+      width: 20px;
+      height: 20px;
+      margin-left: -4px;
+      place-items: center;
+      border: 2px solid #fff;
+      border-radius: 50%;
+      background: #e9f3fa;
+      color: var(--blue-dark);
+      font-size: 7px;
+      font-weight: 850;
+    }
+    .mini-avatar:first-child { margin-left: 0; }
+    .row-progress { display: flex; align-items: center; gap: 7px; }
+    .row-progress .progress-track { flex: 1; min-width: 48px; }
+
+    .toast {
+      position: fixed;
+      right: 22px;
+      bottom: 22px;
+      z-index: 100;
+      max-width: calc(100vw - 44px);
+      padding: 12px 15px;
+      border: 1px solid #cfe4f3;
+      border-radius: 10px;
+      background: #fff;
+      color: var(--blue-dark);
+      box-shadow: var(--shadow);
+      font-size: 10px;
+      font-weight: 750;
+      opacity: 0;
+      transform: translateY(12px);
+      pointer-events: none;
+      transition: .22s ease;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .mobile-overlay { display: none; }
 
     @media (max-width: 1080px) {
-      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .dashboard { grid-template-columns: 1fr; }
-      .column.side { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .projects-body { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .app { grid-template-columns: 220px minmax(0, 1fr); }
+      .page { width: min(100% - 32px, 1040px); padding-top: 34px; }
+      .dashboard-grid { grid-template-columns: 260px minmax(0, 1fr); }
+      .metric-grid { grid-template-columns: repeat(2, 1fr); }
+      .goal-grid { grid-template-columns: 1fr; }
+      .goal-card h3 { min-height: auto; }
+      .split-grid { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 760px) {
-      .prototype-bar { font-size: 9px; }
-      .app { display: block; }
-      .sidebar { display: none; }
-      .mobile-head {
-        position: sticky;
-        top: 34px;
-        z-index: 40;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        min-height: 52px;
-        padding: 0 14px;
-        border-bottom: 1px solid var(--line-soft);
-        background: rgba(26, 27, 23, .96);
-        backdrop-filter: blur(14px);
+      .prototype-bar { min-height: 38px; padding-inline: 12px; font-size: 10px; }
+      .app { display: block; min-height: calc(100vh - 38px); }
+      .app-sidebar {
+        position: fixed;
+        top: 38px;
+        left: 0;
+        z-index: 70;
+        width: 260px;
+        height: calc(100vh - 38px);
+        box-shadow: 18px 0 40px rgba(23, 33, 43, .13);
+        transform: translateX(-105%);
+        transition: transform .24s ease;
       }
-      .mobile-brand { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 800; }
-      .mobile-brand .workspace-logo { width: 26px; height: 26px; font-size: 11px; }
-      .main { padding: 22px 13px 55px; }
-      .topbar { display: none; }
-      .hero { display: block; margin-bottom: 20px; }
-      .hero .primary-button { margin-top: 16px; }
-      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .metric { min-height: 105px; padding: 14px; }
-      .metric-value { font-size: 23px; }
-      .goal-body { grid-template-columns: 1fr; }
-      .chart { border-top: 1px solid var(--line-soft); border-left: 0; }
-      .projects-body { display: flex; overflow-x: auto; }
-      .project-card { flex: 0 0 240px; }
-      .column.side { grid-template-columns: 1fr; }
-      .table-head { display: none; }
-      .task-row { grid-template-columns: minmax(0, 1fr) auto; }
-      .task-row > :nth-child(2), .task-row > :nth-child(4) { display: none; }
+      body.menu-open .app-sidebar { transform: translateX(0); }
+      .mobile-overlay {
+        position: fixed;
+        inset: 38px 0 0;
+        z-index: 65;
+        background: rgba(23, 33, 43, .22);
+      }
+      body.menu-open .mobile-overlay { display: block; }
+      .topbar { top: 38px; min-height: 54px; padding: 0 14px; }
+      .mobile-menu { display: inline-block; }
+      .breadcrumbs span:first-of-type, .breadcrumbs .slash, .top-actions .icon-button { display: none; }
+      .primary-button { min-height: 32px; padding: 0 11px; }
+      .page { width: calc(100% - 24px); padding: 24px 0 46px; }
+      .page-heading { display: block; margin-bottom: 21px; }
+      .heading-main { gap: 11px; }
+      .page-icon { width: 43px; height: 43px; border-radius: 11px; font-size: 18px; }
+      h1 { font-size: 23px; }
+      .heading-copy p { margin-top: 7px; font-size: 11px; }
+      .heading-meta { margin-top: 14px; padding-left: 54px; overflow-x: auto; }
+      .dashboard-grid { display: block; }
+      .map-panel { position: static; margin-bottom: 12px; }
+      .content-stack { width: 100%; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+      .content-stack > *,
+      .panel { min-width: 0; max-width: 100%; }
+      .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+      .metric-card { padding: 12px; }
+      .metric-value { font-size: 18px; }
+      .panel-head { padding: 14px; }
+      .chart-wrap { padding: 13px 10px 10px; overflow-x: auto; }
+      .chart { width: 600px; max-width: none; }
+      .goal-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+      .split-grid { grid-template-columns: minmax(0, 1fr); }
+      .notice-list, .task-list { padding-inline: 12px; }
+      .notice-row { grid-template-columns: 50px minmax(0, 1fr); }
+      .notice-date { display: none; }
+      .project-table { padding-inline: 12px; }
+      .toast { right: 12px; bottom: 12px; max-width: calc(100vw - 24px); }
+    }
+
+    @media (max-width: 420px) {
+      .heading-meta { padding-left: 0; }
+      .soft-pill:last-child { display: none; }
+      .metric-label { display: block; }
+      .metric-icon { margin-bottom: 8px; }
+      .metric-value { margin-top: 0; }
     }
   </style>
 </head>
 <body>
   <div class="prototype-bar">
-    <span class="prototype-dot"></span>
-    DESIGN PROTOTYPE · 가짜 데이터 · 운영 시스템과 연결되지 않은 Business OS 시안입니다
-  </div>
-
-  <div class="mobile-head">
-    <div class="mobile-brand"><span class="workspace-logo">P</span> PEAK OS</div>
-    <button class="icon-button prototype-action" type="button">☰</button>
+    <i aria-hidden="true"></i>
+    디자인 검토용 프리뷰 · 화면과 데이터는 운영 시스템에 연결되지 않습니다
   </div>
 
   <div class="app">
-    <aside class="sidebar">
+    <aside class="app-sidebar" aria-label="메인 메뉴">
       <div class="workspace">
-        <span class="workspace-logo">P</span>
-        <div class="workspace-name">
-          <strong>PEAK MARKETING</strong>
-          <span>BUSINESS OS</span>
+        <div class="workspace-logo">P</div>
+        <div class="workspace-copy">
+          <strong>PEAK OS</strong>
+          <small>PEAK MARKETING WORKSPACE</small>
         </div>
       </div>
 
-      <button class="quick-capture prototype-action" type="button">
-        <span>＋ 빠른 기록</span>
+      <button class="search-button preview-action" type="button">
+        <span><b>⌕</b> 빠른 검색</span>
         <kbd>⌘ K</kbd>
       </button>
 
-      <div class="nav-section">
-        <p class="nav-label">Workspace</p>
-        <button class="nav-item active" type="button"><span class="nav-icon">⌂</span><span>홈 대시보드</span></button>
-        <button class="nav-item" type="button"><span class="nav-icon">✓</span><span>나의 업무</span><span class="nav-badge">7</span></button>
-        <button class="nav-item" type="button"><span class="nav-icon">◎</span><span>목표 &amp; 마일스톤</span></button>
-        <button class="nav-item" type="button"><span class="nav-icon">▦</span><span>프로젝트</span><span class="nav-badge">5</span></button>
-        <button class="nav-item" type="button"><span class="nav-icon">□</span><span>캘린더</span></button>
-      </div>
+      <nav>
+        <section class="nav-section">
+          <p class="nav-label">Workspace</p>
+          <button class="nav-item active" type="button"><span class="nav-icon">⌂</span>Business OS</button>
+          <button class="nav-item" type="button"><span class="nav-icon">▦</span>오늘의 업무<span class="nav-badge">8</span></button>
+          <button class="nav-item" type="button"><span class="nav-icon">◫</span>캘린더</button>
+          <button class="nav-item" type="button"><span class="nav-icon">✓</span>검토 요청<span class="nav-badge">3</span></button>
+        </section>
+        <section class="nav-section">
+          <p class="nav-label">Company</p>
+          <button class="nav-item" type="button"><span class="nav-icon">◇</span>목표 &amp; KPI</button>
+          <button class="nav-item" type="button"><span class="nav-icon">▣</span>프로젝트</button>
+          <button class="nav-item" type="button"><span class="nav-icon">◉</span>영업 관리</button>
+          <button class="nav-item" type="button"><span class="nav-icon">▤</span>보고서</button>
+          <button class="nav-item" type="button"><span class="nav-icon">◎</span>회의 기록</button>
+        </section>
+        <section class="nav-section">
+          <p class="nav-label">Communication</p>
+          <button class="nav-item" type="button"><span class="nav-icon">◌</span>채팅<span class="nav-badge">5</span></button>
+          <button class="nav-item" type="button"><span class="nav-icon">♢</span>공지사항</button>
+          <button class="nav-item" type="button"><span class="nav-icon">＋</span>아이디어</button>
+        </section>
+      </nav>
 
-      <div class="nav-section">
-        <p class="nav-label">Operations</p>
-        <button class="nav-item" type="button"><span class="nav-icon">↗</span><span>영업 파이프라인</span></button>
-        <button class="nav-item" type="button"><span class="nav-icon">▤</span><span>보고서 &amp; 실적</span></button>
-        <button class="nav-item" type="button"><span class="nav-icon">◈</span><span>제품 &amp; 서비스</span></button>
-        <button class="nav-item" type="button"><span class="nav-icon">✦</span><span>아이디어</span></button>
+      <div class="sidebar-spacer"></div>
+      <div class="sidebar-card">
+        <strong>이번 주 팀 진행률 72%</strong>
+        <p>완료 처리 전 검토가 필요한 업무가 3건 있습니다.</p>
+        <span>검토함 열기 →</span>
       </div>
-
-      <div class="nav-section">
-        <p class="nav-label">Company</p>
-        <button class="nav-item" type="button"><span class="nav-icon">▱</span><span>업무 매뉴얼</span></button>
-        <button class="nav-item" type="button"><span class="nav-icon">◌</span><span>회의 &amp; 의사결정</span></button>
-        <button class="nav-item" type="button"><span class="nav-icon">☷</span><span>자료 &amp; 노트</span></button>
-      </div>
-
-      <div class="sidebar-footer">
-        <span class="avatar">대호</span>
-        <div class="profile-copy">
-          <strong>김대호</strong>
-          <span>관리자 워크스페이스</span>
-        </div>
+      <div class="member">
+        <div class="avatar">대호</div>
+        <div class="member-copy"><strong>김대호</strong><small>관리자</small></div>
       </div>
     </aside>
+    <button class="mobile-overlay" type="button" aria-label="메뉴 닫기"></button>
 
-    <main class="main">
-      <div class="topbar">
-        <div class="breadcrumb"><span>PEAK MARKETING</span><span>/</span><b>HOME</b></div>
+    <main class="main-shell">
+      <header class="topbar">
+        <div class="breadcrumbs">
+          <button class="icon-button mobile-menu" type="button" aria-label="메뉴 열기">☰</button>
+          <span>PEAK OS</span><span class="slash">/</span><strong>Business OS</strong>
+        </div>
         <div class="top-actions">
-          <div class="search"><span>⌕</span><span>업무, 프로젝트, 자료 검색</span></div>
-          <button class="icon-button prototype-action" type="button" aria-label="알림">♢</button>
-          <button class="icon-button prototype-action" type="button" aria-label="설정">•••</button>
+          <button class="icon-button preview-action" type="button">공유</button>
+          <button class="icon-button preview-action" type="button">•••</button>
+          <button class="primary-button preview-action" type="button">＋ 새 업무</button>
         </div>
-      </div>
+      </header>
 
-      <section class="hero">
-        <div>
-          <div class="hero-kicker">Monday · 27 July 2026</div>
-          <h1>Good morning, Peak.</h1>
-          <p>오늘의 우선순위부터 회사 목표, 프로젝트, 팀 업무까지 한 흐름에서 확인하세요.</p>
-        </div>
-        <button class="primary-button prototype-action" type="button"><span>＋</span> 새 업무 만들기</button>
-      </section>
-
-      <div class="quick-row">
-        <button class="quick-chip prototype-action" type="button"><b>＋</b> 일정</button>
-        <button class="quick-chip prototype-action" type="button"><b>＋</b> 업무</button>
-        <button class="quick-chip prototype-action" type="button"><b>＋</b> 프로젝트</button>
-        <button class="quick-chip prototype-action" type="button"><b>＋</b> 아이디어</button>
-        <button class="quick-chip prototype-action" type="button"><b>＋</b> 회의 기록</button>
-        <button class="quick-chip prototype-action" type="button"><b>＋</b> 보고서</button>
-      </div>
-
-      <section class="metrics">
-        <article class="metric">
-          <div class="metric-head"><span>이번 달 매출</span><span class="metric-icon">₩</span></div>
-          <div class="metric-value">₩72.4M</div>
-          <div class="metric-foot"><span class="trend-up">↗ 12.8%</span><span>지난달 대비</span></div>
-        </article>
-        <article class="metric">
-          <div class="metric-head"><span>진행 중 프로젝트</span><span class="metric-icon">▦</span></div>
-          <div class="metric-value">5</div>
-          <div class="metric-foot"><span>검토 대기 2 · 마감 임박 1</span></div>
-        </article>
-        <article class="metric">
-          <div class="metric-head"><span>이번 주 업무</span><span class="metric-icon">✓</span></div>
-          <div class="metric-value">34 <small style="color:var(--muted-2);font-size:13px">/ 48</small></div>
-          <div class="metric-foot"><span class="trend-up">71% 완료</span><span>팀 전체</span></div>
-        </article>
-        <article class="metric">
-          <div class="metric-head"><span>오늘 확인할 항목</span><span class="metric-icon">!</span></div>
-          <div class="metric-value">7</div>
-          <div class="metric-foot"><span class="trend-warn">검토요청 4</span><span>· 지연 3</span></div>
-        </article>
-      </section>
-
-      <section class="dashboard">
-        <div class="column">
-          <article class="card">
-            <div class="card-header">
-              <div>
-                <h2 class="card-title">회사 목표</h2>
-                <div class="card-subtitle">이번 분기 핵심 목표와 현재 달성 흐름</div>
-              </div>
-              <button class="text-button prototype-action" type="button">모든 목표 보기 →</button>
+      <div class="page">
+        <section class="page-heading">
+          <div class="heading-main">
+            <div class="page-icon">P</div>
+            <div class="heading-copy">
+              <div class="eyebrow"><span>●</span> Company Home</div>
+              <h1>BUSINESS OS | PEAK MARKETING</h1>
+              <p>목표부터 프로젝트, 영업과 기록까지 회사의 모든 흐름을 한 페이지에서 연결합니다.</p>
             </div>
-            <div class="goal-body">
-              <div class="goal-main">
-                <div>
-                  <div class="goal-name"><span class="status-dot"></span> 3분기 신규 매출 목표</div>
-                  <div class="goal-number">72.4 <small>/ 100M</small></div>
+          </div>
+          <div class="heading-meta">
+            <span class="soft-pill"><i class="live-dot"></i> 운영 중</span>
+            <span class="soft-pill">2026년 7월 4주</span>
+          </div>
+        </section>
+
+        <nav class="view-tabs" aria-label="페이지 보기">
+          <button class="tab-button active" type="button">대시보드</button>
+          <button class="tab-button" type="button">주간 운영</button>
+          <button class="tab-button" type="button">프로젝트</button>
+          <button class="tab-button" type="button">영업 현황</button>
+          <button class="tab-button" type="button">팀 기록</button>
+        </nav>
+
+        <div class="dashboard-grid">
+          <aside class="panel map-panel">
+            <div class="panel-head">
+              <div><div class="panel-title">회사 업무 지도</div><div class="panel-subtitle">업무와 자료의 전체 구조</div></div>
+              <button class="more-button preview-action" type="button" aria-label="더보기">•••</button>
+            </div>
+            <div class="map-brand"><span class="tiny-logo">P</span>BUSINESS OS | PEAK</div>
+            <div class="tree">
+              <section class="tree-group">
+                <button class="tree-trigger" type="button"><span class="caret">▼</span>◇ 브랜드</button>
+                <div class="tree-children">
+                  <button class="tree-item" type="button"><span class="tree-icon">◉</span>MVC</button>
+                  <button class="tree-item" type="button"><span class="tree-icon">⌘</span>브랜드 디자인 시스템</button>
+                  <button class="tree-item" type="button"><span class="tree-icon">☰</span>브랜드 로고</button>
+                  <button class="tree-item" type="button"><span class="tree-icon">▱</span>회사 소개서</button>
                 </div>
-                <div>
-                  <div class="progress-top"><span>현재 달성률</span><strong>72%</strong></div>
-                  <div class="progress-track"><div class="progress-fill" style="width:72%"></div></div>
+              </section>
+              <section class="tree-group">
+                <button class="tree-trigger" type="button"><span class="caret">▼</span>♧ 제품 &amp; 서비스</button>
+                <div class="tree-children">
+                  <button class="tree-item" type="button"><span class="tree-icon">♙</span>제품 &amp; 서비스</button>
+                  <button class="tree-item" type="button"><span class="tree-icon">▧</span>상품 자료</button>
                 </div>
+              </section>
+              <section class="tree-group">
+                <button class="tree-trigger" type="button"><span class="caret">▼</span>▦ 운영</button>
+                <div class="tree-children">
+                  <button class="tree-item" type="button"><span class="tree-icon">⌑</span>목표 &amp; KPI</button>
+                  <button class="tree-item active" type="button"><span class="tree-icon">▣</span>프로젝트 &amp; 태스크</button>
+                  <button class="tree-item" type="button"><span class="tree-icon">◷</span>루틴</button>
+                  <button class="tree-item" type="button"><span class="tree-icon">◩</span>공지사항</button>
+                  <button class="tree-item" type="button"><span class="tree-icon">♟</span>회의 로그</button>
+                  <button class="tree-item" type="button"><span class="tree-icon">▱</span>팀 문서</button>
+                  <button class="tree-item" type="button"><span class="tree-icon">↗</span>결정 로그</button>
+                </div>
+              </section>
+              <section class="tree-group">
+                <button class="tree-trigger" type="button"><span class="caret">▼</span>◒ 마케팅</button>
+                <div class="tree-children">
+                  <button class="tree-item" type="button"><span class="tree-icon">◆</span>마케팅 대시보드</button>
+                  <button class="tree-item" type="button"><span class="tree-icon">◇</span>캠페인 관리</button>
+                </div>
+              </section>
+              <section class="tree-group">
+                <button class="tree-trigger" type="button"><span class="caret">▼</span>◈ 세일즈</button>
+                <div class="tree-children">
+                  <button class="tree-item" type="button"><span class="tree-icon">◉</span>영업 파이프라인</button>
+                  <button class="tree-item" type="button"><span class="tree-icon">♙</span>고객 관리</button>
+                  <button class="tree-item" type="button"><span class="tree-icon">▤</span>견적 / 계약</button>
+                </div>
+              </section>
+              <section class="tree-group">
+                <button class="tree-trigger" type="button"><span class="caret">▼</span>▤ 재무</button>
+                <div class="tree-children">
+                  <button class="tree-item" type="button"><span class="tree-icon">▥</span>월별 매출 보고서</button>
+                  <button class="tree-item" type="button"><span class="tree-icon">◉</span>비용</button>
+                  <button class="tree-item" type="button"><span class="tree-icon">●</span>정산</button>
+                </div>
+              </section>
+            </div>
+          </aside>
+
+          <div class="content-stack">
+            <section class="metric-grid" aria-label="핵심 지표">
+              <article class="metric-card">
+                <div class="metric-label"><span>이번 달 매출</span><span class="metric-icon">↗</span></div>
+                <div class="metric-value">₩ 4,820만</div>
+                <div class="metric-change">↑ 12.4% 지난달 대비</div>
+              </article>
+              <article class="metric-card">
+                <div class="metric-label"><span>진행 프로젝트</span><span class="metric-icon">▣</span></div>
+                <div class="metric-value">12</div>
+                <div class="metric-change neutral">완료 3 · 진행 9</div>
+              </article>
+              <article class="metric-card">
+                <div class="metric-label"><span>주간 업무 완료율</span><span class="metric-icon">✓</span></div>
+                <div class="metric-value">72%</div>
+                <div class="metric-change">↑ 8% 지난주 대비</div>
+              </article>
+              <article class="metric-card">
+                <div class="metric-label"><span>검토 대기</span><span class="metric-icon">◷</span></div>
+                <div class="metric-value">3</div>
+                <div class="metric-change neutral">오늘 처리 예정 2건</div>
+              </article>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <div><div class="panel-title">월별 매출 추이</div><div class="panel-subtitle">목표 매출과 실제 매출 비교</div></div>
+                <button class="more-button preview-action" type="button" aria-label="더보기">•••</button>
               </div>
-              <div class="chart">
-                <p class="chart-label">7월 누적 실적</p>
-                <svg viewBox="0 0 260 130" role="img" aria-label="누적 실적 증가 그래프">
+              <div class="chart-wrap">
+                <div class="chart-toolbar">
+                  <div class="legend"><span><i></i>실제 매출</span><span><i></i>목표 매출</span></div>
+                  <span class="period">최근 6개월⌄</span>
+                </div>
+                <svg class="chart" viewBox="0 0 700 220" role="img" aria-label="월별 매출 추이 그래프">
                   <defs>
-                    <linearGradient id="area" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stop-color="#d8d1b8" stop-opacity=".28"/>
-                      <stop offset="100%" stop-color="#d8d1b8" stop-opacity="0"/>
+                    <linearGradient id="areaGradient" x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="0" stop-color="#348ecd" stop-opacity=".22"/>
+                      <stop offset="1" stop-color="#348ecd" stop-opacity="0"/>
                     </linearGradient>
                   </defs>
-                  <g stroke="#34362e" stroke-width="1">
-                    <line x1="12" y1="20" x2="252" y2="20"/>
-                    <line x1="12" y1="55" x2="252" y2="55"/>
-                    <line x1="12" y1="90" x2="252" y2="90"/>
-                    <line x1="12" y1="120" x2="252" y2="120"/>
-                  </g>
-                  <path d="M12,114 C38,108 45,100 70,97 S110,84 128,78 S164,72 184,57 S218,41 252,24 L252,120 L12,120 Z" fill="url(#area)"/>
-                  <path d="M12,114 C38,108 45,100 70,97 S110,84 128,78 S164,72 184,57 S218,41 252,24" fill="none" stroke="#d8d1b8" stroke-width="2"/>
-                  <circle cx="252" cy="24" r="4" fill="#d8d1b8"/>
+                  <line class="grid" x1="55" y1="30" x2="680" y2="30"/>
+                  <line class="grid" x1="55" y1="75" x2="680" y2="75"/>
+                  <line class="grid" x1="55" y1="120" x2="680" y2="120"/>
+                  <line class="grid" x1="55" y1="165" x2="680" y2="165"/>
+                  <text x="5" y="34">6,000만</text><text x="5" y="79">4,500만</text><text x="5" y="124">3,000만</text><text x="5" y="169">1,500만</text>
+                  <path class="target" d="M70 135 L188 119 L306 104 L424 89 L542 75 L660 60"/>
+                  <path class="area" d="M70 148 C120 145 145 136 188 132 C235 126 267 130 306 112 C347 94 382 102 424 83 C466 62 502 73 542 66 C590 57 620 45 660 39 L660 175 L70 175 Z"/>
+                  <path class="line" d="M70 148 C120 145 145 136 188 132 C235 126 267 130 306 112 C347 94 382 102 424 83 C466 62 502 73 542 66 C590 57 620 45 660 39"/>
+                  <circle class="point" cx="70" cy="148" r="4"/><circle class="point" cx="188" cy="132" r="4"/><circle class="point" cx="306" cy="112" r="4"/><circle class="point" cx="424" cy="83" r="4"/><circle class="point" cx="542" cy="66" r="4"/><circle class="point" cx="660" cy="39" r="4"/>
+                  <text x="58" y="202">2월</text><text x="176" y="202">3월</text><text x="294" y="202">4월</text><text x="412" y="202">5월</text><text x="530" y="202">6월</text><text x="648" y="202">7월</text>
                 </svg>
+                <div class="chart-note">* 프리뷰용 예시 데이터입니다</div>
               </div>
-            </div>
-          </article>
+            </section>
 
-          <article class="card">
-            <div class="card-header">
-              <div>
-                <h2 class="card-title">진행 중 프로젝트</h2>
-                <div class="card-subtitle">목표에 연결된 프로젝트 진행 상황</div>
+            <section class="panel">
+              <div class="panel-head">
+                <div><div class="panel-title">이번 분기 목표</div><div class="panel-subtitle">회사 목표와 현재 진행률</div></div>
+                <button class="more-button preview-action" type="button" aria-label="더보기">＋</button>
               </div>
-              <button class="text-button prototype-action" type="button">프로젝트 보드 →</button>
-            </div>
-            <div class="projects-body">
-              <div class="project-card">
-                <div class="project-top"><span class="project-type">Brand</span><span class="pill green">진행중</span></div>
-                <div class="project-name">자사 리워드 상품<br>브랜드 통합</div>
-                <div class="project-meta"><span>진행률</span><b>75%</b></div>
-                <div class="mini-progress"><div style="width:75%"></div></div>
-                <div class="people-row">
-                  <div class="avatar-stack"><span>대호</span><span>지현</span><span>민준</span></div>
-                  <span class="due">D-12</span>
+              <div class="section-body">
+                <div class="goal-grid">
+                  <article class="goal-card">
+                    <div class="goal-meta"><span class="status">진행 중</span><span class="goal-date">7월 31일</span></div>
+                    <h3>신규 매출 1.5억 달성 및 영업 전환율 개선</h3>
+                    <div class="progress-label"><span>진행률</span><strong>78%</strong></div>
+                    <div class="progress-track"><i style="width:78%"></i></div>
+                  </article>
+                  <article class="goal-card">
+                    <div class="goal-meta"><span class="status green">순항</span><span class="goal-date">8월 15일</span></div>
+                    <h3>브랜드 인지도 상승을 위한 신규 캠페인 론칭</h3>
+                    <div class="progress-label"><span>진행률</span><strong>62%</strong></div>
+                    <div class="progress-track"><i style="width:62%"></i></div>
+                  </article>
+                  <article class="goal-card">
+                    <div class="goal-meta"><span class="status orange">확인 필요</span><span class="goal-date">8월 30일</span></div>
+                    <h3>팀 업무 프로세스 표준화 및 리드타임 단축</h3>
+                    <div class="progress-label"><span>진행률</span><strong>44%</strong></div>
+                    <div class="progress-track"><i style="width:44%"></i></div>
+                  </article>
                 </div>
               </div>
-              <div class="project-card">
-                <div class="project-top"><span class="project-type">Product</span><span class="pill orange">검토중</span></div>
-                <div class="project-name">리뷰스페이스<br>운영 고도화</div>
-                <div class="project-meta"><span>진행률</span><b>58%</b></div>
-                <div class="mini-progress"><div style="width:58%"></div></div>
-                <div class="people-row">
-                  <div class="avatar-stack"><span>서연</span><span>태호</span></div>
-                  <span class="due">D-7</span>
-                </div>
-              </div>
-              <div class="project-card">
-                <div class="project-top"><span class="project-type">Sales</span><span class="pill blue">계획중</span></div>
-                <div class="project-name">신규 영업<br>파이프라인 구축</div>
-                <div class="project-meta"><span>진행률</span><b>32%</b></div>
-                <div class="mini-progress"><div style="width:32%"></div></div>
-                <div class="people-row">
-                  <div class="avatar-stack"><span>민준</span><span>대호</span><span>+2</span></div>
-                  <span class="due">D-24</span>
-                </div>
-              </div>
-            </div>
-          </article>
+            </section>
 
-          <article class="card">
-            <div class="card-header">
-              <div>
-                <h2 class="card-title">나의 우선 업무</h2>
-                <div class="card-subtitle">오늘 처리하거나 검토를 요청해야 하는 업무</div>
+            <div class="split-grid">
+              <section class="panel">
+                <div class="panel-head">
+                  <div><div class="panel-title">공지 &amp; 업데이트</div><div class="panel-subtitle">전사 공유가 필요한 소식</div></div>
+                  <button class="more-button preview-action" type="button">전체보기</button>
+                </div>
+                <div class="notice-list">
+                  <div class="notice-row"><span class="notice-tag">필독</span><span class="notice-title">7월 마지막 주 주간회의 일정 안내</span><span class="notice-date">07.27</span></div>
+                  <div class="notice-row"><span class="notice-tag">운영</span><span class="notice-title">업무 완료 후 검토 요청 프로세스 적용</span><span class="notice-date">07.26</span></div>
+                  <div class="notice-row"><span class="notice-tag">프로젝트</span><span class="notice-title">하반기 핵심 프로젝트 담당자 확정</span><span class="notice-date">07.25</span></div>
+                  <div class="notice-row"><span class="notice-tag">공유</span><span class="notice-title">새 제안서 및 회사소개서 템플릿 배포</span><span class="notice-date">07.23</span></div>
+                </div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head">
+                  <div><div class="panel-title">오늘의 체크</div><div class="panel-subtitle">내 업무와 검토 요청</div></div>
+                  <button class="more-button preview-action" type="button">＋</button>
+                </div>
+                <div class="task-list">
+                  <div class="task-row"><button class="check done" type="button">✓</button><span class="task-copy"><strong>주간 실적 취합</strong><small>오전 11:00 · 김대호</small></span><i class="priority green"></i></div>
+                  <div class="task-row"><button class="check" type="button">✓</button><span class="task-copy"><strong>캠페인 소재 검토</strong><small>오후 2:00 · 모두</small></span><i class="priority"></i></div>
+                  <div class="task-row"><button class="check" type="button">✓</button><span class="task-copy"><strong>신규 제안서 승인</strong><small>오늘까지 · 검토 요청</small></span><i class="priority blue"></i></div>
+                  <div class="task-row"><button class="check" type="button">✓</button><span class="task-copy"><strong>영업 회의 준비</strong><small>오후 5:00 · 영업팀</small></span><i class="priority green"></i></div>
+                </div>
+              </section>
+            </div>
+
+            <section class="panel">
+              <div class="panel-head">
+                <div><div class="panel-title">진행 중인 프로젝트</div><div class="panel-subtitle">핵심 일정과 담당자 진행 현황</div></div>
+                <button class="more-button preview-action" type="button">전체보기</button>
               </div>
-              <button class="text-button prototype-action" type="button">전체 업무 →</button>
-            </div>
-            <div class="table-head"><span>업무</span><span>프로젝트</span><span>우선순위</span><span>마감일</span></div>
-            <div class="task-row">
-              <div class="task-name"><span class="task-check"></span> 여름 캠페인 최종 소재 검수</div>
-              <span class="task-owner">브랜드 통합</span>
-              <span class="priority">높음</span>
-              <span class="task-date">오늘</span>
-            </div>
-            <div class="task-row">
-              <div class="task-name"><span class="task-check">✓</span> 영업 주간회의 결정사항 반영</div>
-              <span class="task-owner">영업 파이프라인</span>
-              <span class="priority medium">보통</span>
-              <span class="task-date">7월 28일</span>
-            </div>
-            <div class="task-row">
-              <div class="task-name"><span class="task-check"></span> 리뷰 정책 변경안 작성</div>
-              <span class="task-owner">리뷰스페이스</span>
-              <span class="priority">높음</span>
-              <span class="task-date">7월 29일</span>
-            </div>
-            <div class="task-row">
-              <div class="task-name"><span class="task-check"></span> 8월 영업 목표 초안</div>
-              <span class="task-owner">영업 운영</span>
-              <span class="priority low">낮음</span>
-              <span class="task-date">7월 31일</span>
-            </div>
-          </article>
+              <div class="project-table">
+                <div class="project-row header"><span>프로젝트</span><span>담당자</span><span>상태</span><span>진행률</span></div>
+                <div class="project-row">
+                  <span class="project-name"><i class="project-mark"></i>하반기 브랜드 캠페인</span>
+                  <span class="member-stack"><i class="mini-avatar">김</i><i class="mini-avatar">박</i><i class="mini-avatar">+2</i></span>
+                  <span class="status">진행 중</span>
+                  <span class="row-progress"><span class="progress-track"><i style="width:72%"></i></span>72%</span>
+                </div>
+                <div class="project-row">
+                  <span class="project-name"><i class="project-mark violet"></i>영업 프로세스 개선</span>
+                  <span class="member-stack"><i class="mini-avatar">이</i><i class="mini-avatar">최</i></span>
+                  <span class="status green">순항</span>
+                  <span class="row-progress"><span class="progress-track"><i style="width:58%"></i></span>58%</span>
+                </div>
+                <div class="project-row">
+                  <span class="project-name"><i class="project-mark orange"></i>신규 서비스 기획</span>
+                  <span class="member-stack"><i class="mini-avatar">모두</i></span>
+                  <span class="status orange">검토</span>
+                  <span class="row-progress"><span class="progress-track"><i style="width:35%"></i></span>35%</span>
+                </div>
+              </div>
+            </section>
+          </div>
         </div>
-
-        <div class="column side">
-          <article class="card">
-            <div class="card-header">
-              <div>
-                <h2 class="card-title">검토 대기</h2>
-                <div class="card-subtitle">최종 확인이 필요한 업무 4건</div>
-              </div>
-              <span class="pill orange">4</span>
-            </div>
-            <div class="side-card-body">
-              <div class="review-item">
-                <span class="item-symbol">✓</span>
-                <div class="item-copy"><strong>SNS 캠페인 소재 검수</strong><span>김지현 외 2명 · 전원 완료</span></div>
-                <button class="item-action prototype-action" type="button">확인</button>
-              </div>
-              <div class="review-item">
-                <span class="item-symbol">▤</span>
-                <div class="item-copy"><strong>리뷰 정책 변경안</strong><span>이서연 · 18분 전 요청</span></div>
-                <button class="item-action prototype-action" type="button">확인</button>
-              </div>
-              <div class="review-item">
-                <span class="item-symbol">◈</span>
-                <div class="item-copy"><strong>신규 상품 상세페이지</strong><span>박민준 · 오늘 10:42</span></div>
-                <button class="item-action prototype-action" type="button">확인</button>
-              </div>
-            </div>
-          </article>
-
-          <article class="card">
-            <div class="card-header">
-              <div>
-                <h2 class="card-title">이번 주 업무 현황</h2>
-                <div class="card-subtitle">팀 전체 완료 업무 34건</div>
-              </div>
-              <button class="text-button prototype-action" type="button">상세 →</button>
-            </div>
-            <div class="side-card-body">
-              <div class="week-bars">
-                <div class="bar-group"><div class="bar" style="height:38%"></div><span>월</span></div>
-                <div class="bar-group"><div class="bar" style="height:61%"></div><span>화</span></div>
-                <div class="bar-group"><div class="bar" style="height:48%"></div><span>수</span></div>
-                <div class="bar-group"><div class="bar" style="height:83%"></div><span>목</span></div>
-                <div class="bar-group"><div class="bar" style="height:69%"></div><span>금</span></div>
-                <div class="bar-group"><div class="bar" style="height:18%"></div><span>토</span></div>
-                <div class="bar-group"><div class="bar" style="height:12%"></div><span>일</span></div>
-              </div>
-              <div class="legend"><span>이번 주 완료율</span><strong style="color:var(--cream)">71%</strong></div>
-            </div>
-          </article>
-
-          <article class="card">
-            <div class="card-header">
-              <div>
-                <h2 class="card-title">오늘의 일정</h2>
-                <div class="card-subtitle">7월 27일 월요일</div>
-              </div>
-              <button class="text-button prototype-action" type="button">캘린더 →</button>
-            </div>
-            <div class="side-card-body">
-              <div class="schedule-item">
-                <span class="schedule-time">10:30</span>
-                <div class="item-copy"><strong>영업 주간회의</strong><span>회의실 A · 참여자 8명</span></div>
-              </div>
-              <div class="schedule-item">
-                <span class="schedule-time">14:00</span>
-                <div class="item-copy"><strong>브랜드 캠페인 최종 검수</strong><span>Google Meet · 프로젝트 일정</span></div>
-              </div>
-              <div class="schedule-item">
-                <span class="schedule-time">16:30</span>
-                <div class="item-copy"><strong>리뷰스페이스 운영 미팅</strong><span>회의실 B · 참여자 4명</span></div>
-              </div>
-            </div>
-          </article>
-        </div>
-      </section>
+      </div>
     </main>
   </div>
 
-  <div class="toast" id="toast">디자인 시안입니다. 기능 연결은 다음 단계에서 진행합니다.</div>
+  <div class="toast" role="status">디자인 시안입니다. 실제 기능과 데이터는 연결되지 않았어요.</div>
 
   <script>
-    const toast = document.getElementById('toast');
+    const body = document.body;
+    const toast = document.querySelector('.toast');
     let toastTimer;
 
-    function showPrototypeMessage(message = '디자인 시안입니다. 기능 연결은 다음 단계에서 진행합니다.') {
-      toast.textContent = message;
+    function showToast(message) {
+      toast.textContent = message || '디자인 시안입니다. 실제 기능과 데이터는 연결되지 않았어요.';
       toast.classList.add('show');
-      window.clearTimeout(toastTimer);
-      toastTimer = window.setTimeout(() => toast.classList.remove('show'), 2200);
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('show'), 2200);
     }
 
-    document.querySelectorAll('.prototype-action').forEach(button => {
-      button.addEventListener('click', () => showPrototypeMessage());
+    document.querySelector('.mobile-menu').addEventListener('click', () => body.classList.add('menu-open'));
+    document.querySelector('.mobile-overlay').addEventListener('click', () => body.classList.remove('menu-open'));
+
+    document.querySelectorAll('.tree-trigger').forEach((button) => {
+      button.addEventListener('click', () => button.closest('.tree-group').classList.toggle('closed'));
     });
 
-    document.querySelectorAll('.nav-item').forEach(button => {
+    document.querySelectorAll('.tree-item').forEach((button) => {
       button.addEventListener('click', () => {
-        document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+        document.querySelectorAll('.tree-item').forEach((item) => item.classList.remove('active'));
         button.classList.add('active');
-        showPrototypeMessage(`${button.innerText.trim()} 화면은 다음 시안에서 연결할 수 있습니다.`);
+        showToast(button.textContent.trim() + ' 화면은 다음 단계에서 연결할 수 있어요.');
       });
+    });
+
+    document.querySelectorAll('.tab-button').forEach((button) => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('.tab-button').forEach((tab) => tab.classList.remove('active'));
+        button.classList.add('active');
+        showToast(button.textContent.trim() + ' 보기를 선택했습니다. 현재는 디자인 시안이에요.');
+      });
+    });
+
+    document.querySelectorAll('.nav-item').forEach((button) => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('.nav-item').forEach((item) => item.classList.remove('active'));
+        button.classList.add('active');
+        body.classList.remove('menu-open');
+        showToast(button.textContent.trim() + ' 메뉴는 디자인 확인용입니다.');
+      });
+    });
+
+    document.querySelectorAll('.check').forEach((button) => {
+      button.addEventListener('click', () => {
+        button.classList.toggle('done');
+        showToast(button.classList.contains('done') ? '체크되었습니다. 실제 데이터에는 반영되지 않아요.' : '체크가 해제되었습니다.');
+      });
+    });
+
+    document.querySelectorAll('.preview-action').forEach((button) => {
+      button.addEventListener('click', () => showToast());
     });
   </script>
 </body>
