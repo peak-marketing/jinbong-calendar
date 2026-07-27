@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>PEAK OS · Business OS Preview</title>
+  <link rel="stylesheet" href="/business-os-live.css">
   <style>
     :root {
       color-scheme: light;
@@ -3041,7 +3042,7 @@
 
   <div class="toast" role="status">디자인 시안입니다. 실제 기능과 데이터는 연결되지 않았어요.</div>
 
-  <script>
+  <script type="application/x-peak-static-preview">
     const body = document.body;
     const toast = document.querySelector('.toast');
     const dashboardView = document.getElementById('dashboardView');
@@ -3689,5 +3690,8 @@
       button.addEventListener('click', () => showToast());
     });
   </script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="/business-os-preview.js"></script>
 </body>
 </html>
