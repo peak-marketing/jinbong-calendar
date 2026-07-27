@@ -733,6 +733,8 @@
       gap: 16px;
       margin-bottom: 14px;
     }
+    .chat-page-toolbar.actions-only { justify-content: flex-end; }
+    .chat-page-toolbar.actions-only .chat-page-actions { margin-left: auto; }
     .chat-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
     .chat-heading-icon {
       display: grid;
@@ -1057,6 +1059,198 @@
       font-size: 14px;
     }
     .chat-view.room-open .chat-page-toolbar { display: none; }
+
+    .todo-view { min-width: 0; }
+    .todo-page-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    .todo-date-copy strong,
+    .todo-date-copy span { display: block; }
+    .todo-date-copy strong { color: var(--ink); font-size: 18px; letter-spacing: -.035em; }
+    .todo-date-copy span { margin-top: 4px; color: var(--muted); font-size: 10px; }
+    .todo-add-button {
+      min-height: 34px;
+      padding: 0 13px;
+      border: 1px solid var(--blue);
+      border-radius: 8px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 9px;
+      font-weight: 820;
+      box-shadow: 0 5px 12px rgba(52, 142, 205, .17);
+    }
+    .todo-scope-tabs {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 12px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .todo-scope-tabs::-webkit-scrollbar { display: none; }
+    .todo-scope-button {
+      flex: 0 0 auto;
+      min-height: 34px;
+      padding: 0 13px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 820;
+    }
+    .todo-scope-button.active { border-color: var(--blue); background: var(--blue); color: #fff; }
+    .todo-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .todo-summary-card {
+      min-width: 0;
+      padding: 13px 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: var(--shadow-soft);
+    }
+    .todo-summary-card span { display: block; color: var(--muted); font-size: 8px; font-weight: 750; }
+    .todo-summary-card strong { display: block; margin-top: 7px; color: var(--ink); font-size: 19px; letter-spacing: -.025em; }
+    .todo-summary-card.primary { border-color: #c9e2f2; background: var(--blue-pale); }
+    .todo-summary-card.primary strong { color: var(--blue-dark); }
+    .todo-board {
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: #fff;
+      box-shadow: var(--shadow-soft);
+      overflow: hidden;
+    }
+    .todo-board-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 15px 17px;
+      border-bottom: 1px solid var(--line);
+    }
+    .todo-board-head strong,
+    .todo-board-head span { display: block; }
+    .todo-board-head strong { color: var(--ink); font-size: 13px; }
+    .todo-board-head span { margin-top: 4px; color: var(--muted-2); font-size: 9px; }
+    .todo-board-progress {
+      min-width: 58px;
+      color: var(--blue-dark);
+      font-size: 10px;
+      font-weight: 850;
+      text-align: right;
+    }
+    .todo-group { border-bottom: 1px solid #edf1f4; }
+    .todo-group:last-child { border-bottom: 0; }
+    .todo-group[hidden] { display: none; }
+    .todo-group-head {
+      display: grid;
+      grid-template-columns: 13px 8px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      min-height: 43px;
+      padding: 0 17px;
+      border: 0;
+      background: #fbfcfd;
+      color: var(--ink);
+      text-align: left;
+    }
+    .todo-group-head:hover { background: #f6f9fb; }
+    .todo-group-caret { color: var(--muted-2); font-size: 8px; transition: transform .16s; }
+    .todo-group.collapsed .todo-group-caret { transform: rotate(-90deg); }
+    .todo-group-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--blue); }
+    .todo-group-dot.yellow { background: #e1a925; }
+    .todo-group-dot.red { background: #e55c61; }
+    .todo-group-dot.pink { background: #db67ac; }
+    .todo-group-dot.teal { background: #22aaa4; }
+    .todo-group-title { overflow: hidden; font-size: 10px; font-weight: 850; text-overflow: ellipsis; white-space: nowrap; }
+    .todo-group-count { color: var(--muted-2); font-size: 8px; font-weight: 750; }
+    .todo-group.collapsed .todo-group-body { display: none; }
+    .todo-task {
+      display: grid;
+      grid-template-columns: 22px minmax(0, 1fr) auto;
+      gap: 10px;
+      padding: 12px 17px 12px 25px;
+      border-top: 1px solid #f1f3f5;
+      background: #fff;
+    }
+    .todo-task-check {
+      display: grid;
+      width: 20px;
+      height: 20px;
+      margin-top: 1px;
+      place-items: center;
+      border: 1.5px solid #a9b9c5;
+      border-radius: 6px;
+      background: #fff;
+      color: transparent;
+      font-size: 11px;
+      font-weight: 900;
+    }
+    .todo-task-check.checked { border-color: var(--blue); background: var(--blue); color: #fff; }
+    .todo-task-main { min-width: 0; }
+    .todo-task-title { color: var(--ink); font-size: 11px; font-weight: 800; line-height: 1.45; }
+    .todo-task.done .todo-task-title { color: var(--muted-2); text-decoration: line-through; }
+    .todo-task-meta { margin-top: 4px; color: var(--muted); font-size: 8px; line-height: 1.5; }
+    .todo-task-note {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 7px;
+      color: var(--muted-2);
+      font-size: 8px;
+      line-height: 1.45;
+    }
+    .todo-task-side { min-width: 80px; text-align: right; }
+    .todo-progress-pill {
+      display: inline-flex;
+      min-height: 20px;
+      padding: 0 7px;
+      align-items: center;
+      border-radius: 7px;
+      background: var(--blue-soft);
+      color: var(--blue-dark);
+      font-size: 8px;
+      font-weight: 850;
+    }
+    .todo-progress-pill.review { background: #fff3db; color: #aa741d; }
+    .todo-task-progress {
+      width: 80px;
+      height: 4px;
+      margin: 8px 0 0 auto;
+      border-radius: 5px;
+      background: #e8edf1;
+      overflow: hidden;
+    }
+    .todo-task-progress i { display: block; height: 100%; border-radius: inherit; background: var(--blue); }
+    .todo-checklist-count { display: block; margin-top: 5px; color: var(--muted-2); font-size: 7px; }
+    .todo-add-row {
+      width: 100%;
+      min-height: 35px;
+      padding: 0 57px;
+      border: 0;
+      border-top: 1px dashed #dce4e9;
+      background: #fff;
+      color: var(--blue-dark);
+      font-size: 8px;
+      font-weight: 800;
+      text-align: left;
+    }
+    .todo-empty {
+      padding: 45px 20px;
+      color: var(--muted);
+      font-size: 10px;
+      text-align: center;
+    }
 
     .chart-wrap { padding: 17px 18px 13px; }
     .chart-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
@@ -1544,6 +1738,7 @@
       .calendar-page .home-calendar-cell { min-height: 68px; }
       .chat-page-toolbar { display: block; }
       .chat-page-actions { max-width: 100%; margin-top: 11px; overflow-x: auto; scrollbar-width: none; }
+      .chat-page-toolbar.actions-only .chat-page-actions { margin-top: 0; margin-left: 0; justify-content: flex-end; }
       .chat-page-actions::-webkit-scrollbar { display: none; }
       .chat-action-button { min-height: 31px; padding-inline: 9px; }
       .chat-bulk-toolbar { align-items: flex-start; }
@@ -1571,6 +1766,15 @@
         border: 0;
         border-radius: 0;
       }
+      .todo-page-toolbar { align-items: flex-start; }
+      .todo-date-copy strong { font-size: 16px; }
+      .todo-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+      .todo-summary-card { padding: 11px 12px; }
+      .todo-task { grid-template-columns: 22px minmax(0, 1fr); padding: 11px 12px 11px 16px; }
+      .todo-task-side { grid-column: 2; display: flex; align-items: center; gap: 8px; min-width: 0; text-align: left; }
+      .todo-task-progress { width: 72px; margin: 0; }
+      .todo-checklist-count { margin-top: 0; }
+      .todo-add-row { padding-left: 48px; }
       .goal-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
       .split-grid { grid-template-columns: minmax(0, 1fr); }
       .notice-list, .task-list { padding-inline: 12px; }
@@ -1624,16 +1828,16 @@
 
       <nav aria-label="워크스페이스 바로가기">
         <section class="nav-section">
-          <p class="nav-label">Quick access</p>
+          <p class="nav-label">주요 메뉴</p>
           <button class="nav-item active" type="button" data-view="dashboard"><span class="nav-icon">⌂</span>PEAKMARKETING</button>
           <button class="nav-item" type="button" data-view="calendar"><span class="nav-icon">◫</span>CALENDAR</button>
           <button class="nav-item" type="button" data-view="chat"><span class="nav-icon">◌</span>CHAT<span class="nav-badge">5</span></button>
-          <button class="nav-item" type="button"><span class="nav-icon">▦</span>오늘 할 일<span class="nav-badge">8</span></button>
+          <button class="nav-item" type="button" data-view="todo"><span class="nav-icon">▦</span>TO DO LIST<span class="nav-badge">6</span></button>
           <button class="nav-item" type="button"><span class="nav-icon">✓</span>검토 요청<span class="nav-badge">3</span></button>
         </section>
 
         <div class="sidebar-tree-heading">
-          <span>Company map</span>
+          <span>회사 업무 구조</span>
           <button class="preview-action" type="button" aria-label="새 페이지 추가">＋</button>
         </div>
         <div class="tree" aria-label="회사 업무 구조">
@@ -1970,7 +2174,7 @@
           <section class="panel home-calendar-panel" id="companyCalendar">
             <div class="panel-head calendar-panel-head">
               <div>
-                <div class="panel-title">Monthly Schedule</div>
+                <div class="panel-title">월간 일정</div>
                 <div class="panel-subtitle">날짜를 선택하면 해당 일의 상세 일정이 표시됩니다</div>
               </div>
               <div class="calendar-head-actions">
@@ -1996,43 +2200,39 @@
         </section>
 
         <section class="chat-view" id="chatView" hidden>
-          <header class="chat-page-toolbar">
-            <div class="chat-heading">
-              <span class="chat-heading-icon">◌</span>
-              <div class="chat-heading-copy"><h2>CHAT</h2><span>팀 대화와 회의방을 한곳에서 관리합니다</span></div>
-            </div>
+          <header class="chat-page-toolbar actions-only">
             <div class="chat-page-actions">
-              <button class="chat-action-button chat-preview-action" type="button">GROUPS</button>
-              <button class="chat-action-button meeting chat-preview-action" type="button">◫ MEETING ROOM</button>
-              <button class="chat-action-button primary chat-preview-action" type="button">＋ NEW ROOM</button>
+              <button class="chat-action-button chat-preview-action" type="button">그룹</button>
+              <button class="chat-action-button meeting chat-preview-action" type="button">◫ 회의방</button>
+              <button class="chat-action-button primary chat-preview-action" type="button">＋ 새 채팅방</button>
             </div>
           </header>
 
           <div id="chatListPane">
             <div class="chat-search-wrap">
               <span class="chat-search-icon">⌕</span>
-              <input class="chat-search-input" id="chatSearchInput" type="search" placeholder="Search rooms and recent messages">
-              <span class="chat-search-count" id="chatSearchCount">9 rooms</span>
+              <input class="chat-search-input" id="chatSearchInput" type="search" placeholder="채팅방, 최근 메시지 검색">
+              <span class="chat-search-count" id="chatSearchCount">채팅방 9개</span>
             </div>
 
             <div class="chat-bulk-toolbar">
-              <button class="chat-bulk-button" id="chatBulkToggle" type="button">BULK SELECT</button>
+              <button class="chat-bulk-button" id="chatBulkToggle" type="button">일괄 선택</button>
               <div class="chat-bulk-actions" id="chatBulkActions">
-                <span class="chat-selected-count" id="chatSelectedCount">0 selected</span>
-                <button class="chat-bulk-button chat-preview-action" type="button">MOVE GROUP</button>
-                <button class="chat-bulk-button chat-preview-action" type="button">DELETE REQUEST</button>
+                <span class="chat-selected-count" id="chatSelectedCount">0개 선택</span>
+                <button class="chat-bulk-button chat-preview-action" type="button">그룹 이동</button>
+                <button class="chat-bulk-button chat-preview-action" type="button">삭제 요청</button>
               </div>
             </div>
 
             <nav class="chat-filter-tabs" aria-label="채팅방 그룹">
-              <button class="chat-filter active" type="button" data-filter="all">ALL 9</button>
-              <button class="chat-filter" type="button" data-filter="product">PRODUCT DETAILS 2</button>
-              <button class="chat-filter" type="button" data-filter="report">REPORTS &amp; CHECKLISTS 3</button>
-              <button class="chat-filter" type="button" data-filter="done">DONE 1</button>
-              <button class="chat-filter" type="button" data-filter="archive">ARCHIVE 2</button>
-              <button class="chat-filter" type="button" data-filter="active">ACTIVE 2</button>
-              <button class="chat-filter" type="button" data-filter="uncategorized">UNCATEGORIZED 1</button>
-              <button class="chat-filter chat-preview-action" type="button" data-filter="manager">GROUP MANAGER</button>
+              <button class="chat-filter active" type="button" data-filter="all">전체 9</button>
+              <button class="chat-filter" type="button" data-filter="product">상품 디테일 2</button>
+              <button class="chat-filter" type="button" data-filter="report">보고 및 체크리스트 3</button>
+              <button class="chat-filter" type="button" data-filter="done">완료 1</button>
+              <button class="chat-filter" type="button" data-filter="archive">보관채팅 2</button>
+              <button class="chat-filter" type="button" data-filter="active">활성화 2</button>
+              <button class="chat-filter" type="button" data-filter="uncategorized">미분류 1</button>
+              <button class="chat-filter chat-preview-action" type="button" data-filter="manager">그룹 관리</button>
             </nav>
 
             <section class="chat-list-panel" id="chatRoomList" aria-label="채팅방 목록"></section>
@@ -2041,9 +2241,9 @@
           <section class="chat-room-pane" id="chatRoomPane" hidden aria-label="채팅방">
             <header class="chat-thread-head">
               <button class="chat-thread-back" id="chatBackButton" type="button" aria-label="목록으로">←</button>
-              <div class="chat-thread-heading"><strong id="chatThreadTitle">Room</strong><small id="chatThreadMeta">0 members</small></div>
+              <div class="chat-thread-heading"><strong id="chatThreadTitle">채팅방</strong><small id="chatThreadMeta">참여자 0명</small></div>
               <div class="chat-thread-actions">
-                <button class="chat-action-button chat-preview-action" type="button">SEARCH</button>
+                <button class="chat-action-button chat-preview-action" type="button">검색</button>
                 <button class="chat-action-button chat-preview-action" type="button">↗</button>
                 <button class="chat-action-button chat-preview-action" type="button">•••</button>
               </div>
@@ -2051,9 +2251,183 @@
             <div class="chat-thread-messages" id="chatThreadMessages"></div>
             <form class="chat-composer" id="chatComposer">
               <button class="chat-attach chat-preview-action" type="button">＋</button>
-              <textarea class="chat-message-input" id="chatMessageInput" rows="1" placeholder="Write a message… (@ to mention)"></textarea>
+              <textarea class="chat-message-input" id="chatMessageInput" rows="1" placeholder="메시지 입력… (@로 멤버 언급)"></textarea>
               <button class="chat-send-button" type="submit">↑</button>
             </form>
+          </section>
+        </section>
+
+        <section class="todo-view" id="todoView" hidden>
+          <header class="todo-page-toolbar">
+            <div class="todo-date-copy">
+              <strong>2026년 7월 27일 월요일</strong>
+              <span>오늘 해야 할 업무를 한곳에서 확인하고 완료 상태를 관리합니다</span>
+            </div>
+            <button class="todo-add-button todo-preview-add" type="button">＋ 할 일 추가</button>
+          </header>
+
+          <nav class="todo-scope-tabs" aria-label="오늘 할 일 범위">
+            <button class="todo-scope-button" type="button" data-todo-scope="personal">내 일정</button>
+            <button class="todo-scope-button" type="button" data-todo-scope="team">팀</button>
+            <button class="todo-scope-button active" type="button" data-todo-scope="all">전체</button>
+          </nav>
+
+          <section class="todo-summary" aria-label="오늘 업무 요약">
+            <article class="todo-summary-card primary"><span>오늘 할 일</span><strong id="todoTotalCount">8건</strong></article>
+            <article class="todo-summary-card"><span>완료</span><strong id="todoDoneCount">2건</strong></article>
+            <article class="todo-summary-card"><span>남은 업무</span><strong id="todoRemainingCount">6건</strong></article>
+            <article class="todo-summary-card"><span>검토 요청</span><strong id="todoReviewCount">2건</strong></article>
+          </section>
+
+          <section class="todo-board" aria-label="오늘의 업무 목록">
+            <header class="todo-board-head">
+              <div><strong>오늘의 업무</strong><span>마감 시간과 체크리스트 진행률을 함께 확인할 수 있습니다</span></div>
+              <div class="todo-board-progress" id="todoBoardProgress">25% 완료</div>
+            </header>
+
+            <article class="todo-group" data-scope="team">
+              <button class="todo-group-head" type="button">
+                <span class="todo-group-caret">▼</span><i class="todo-group-dot yellow"></i>
+                <span class="todo-group-title">마감 임박</span><span class="todo-group-count">0/1</span>
+              </button>
+              <div class="todo-group-body">
+                <div class="todo-task" data-review="true">
+                  <button class="todo-task-check" type="button" aria-label="주간 보고서 제출 완료">✓</button>
+                  <div class="todo-task-main">
+                    <div class="todo-task-title">주간 보고서 제출 및 최종 확인</div>
+                    <div class="todo-task-meta">담당 경영지원팀 · 오늘 오후 6:00 마감</div>
+                    <div class="todo-task-note">▣ 이번 주 실적과 다음 주 계획을 확인해 주세요</div>
+                  </div>
+                  <div class="todo-task-side">
+                    <span class="todo-progress-pill review">검토 요청</span>
+                    <div class="todo-task-progress"><i style="width:75%"></i></div>
+                    <span class="todo-checklist-count">체크리스트 3/4</span>
+                  </div>
+                </div>
+                <button class="todo-add-row todo-preview-add" type="button">＋ 할 일 추가</button>
+              </div>
+            </article>
+
+            <article class="todo-group" data-scope="personal">
+              <button class="todo-group-head" type="button">
+                <span class="todo-group-caret">▼</span><i class="todo-group-dot red"></i>
+                <span class="todo-group-title">보고서</span><span class="todo-group-count">0/1</span>
+              </button>
+              <div class="todo-group-body">
+                <div class="todo-task">
+                  <button class="todo-task-check" type="button" aria-label="운영 보고서 작성 완료">✓</button>
+                  <div class="todo-task-main">
+                    <div class="todo-task-title">7월 4주차 운영 보고서 작성</div>
+                    <div class="todo-task-meta">담당 김대호 · 오후 4:00까지</div>
+                    <div class="todo-task-note">▣ 팀별 매출과 접수 현황을 포함해 주세요</div>
+                  </div>
+                  <div class="todo-task-side">
+                    <span class="todo-progress-pill">작성 중</span>
+                    <div class="todo-task-progress"><i style="width:50%"></i></div>
+                    <span class="todo-checklist-count">체크리스트 2/4</span>
+                  </div>
+                </div>
+                <button class="todo-add-row todo-preview-add" type="button">＋ 할 일 추가</button>
+              </div>
+            </article>
+
+            <article class="todo-group" data-scope="personal">
+              <button class="todo-group-head" type="button">
+                <span class="todo-group-caret">▼</span><i class="todo-group-dot red"></i>
+                <span class="todo-group-title">김대호 개인 업무</span><span class="todo-group-count">1/2</span>
+              </button>
+              <div class="todo-group-body">
+                <div class="todo-task done">
+                  <button class="todo-task-check checked" type="button" aria-label="영업 실적 취합 완료" aria-pressed="true">✓</button>
+                  <div class="todo-task-main">
+                    <div class="todo-task-title">영업팀 금주 실적 취합</div>
+                    <div class="todo-task-meta">담당 김대호 · 오전 11:30 완료</div>
+                  </div>
+                  <div class="todo-task-side"><span class="todo-progress-pill" data-previous-label="진행 중">완료</span></div>
+                </div>
+                <div class="todo-task">
+                  <button class="todo-task-check" type="button" aria-label="운영 이슈 정리 완료">✓</button>
+                  <div class="todo-task-main">
+                    <div class="todo-task-title">플랫폼 운영 이슈 및 요청사항 정리</div>
+                    <div class="todo-task-meta">담당 김대호 · 오늘 오후 5:00</div>
+                    <div class="todo-task-note">▣ 채팅방에서 수집된 요청 3건을 반영해 주세요</div>
+                  </div>
+                  <div class="todo-task-side">
+                    <span class="todo-progress-pill">진행 중</span>
+                    <div class="todo-task-progress"><i style="width:40%"></i></div>
+                    <span class="todo-checklist-count">체크리스트 2/5</span>
+                  </div>
+                </div>
+                <button class="todo-add-row todo-preview-add" type="button">＋ 할 일 추가</button>
+              </div>
+            </article>
+
+            <article class="todo-group" data-scope="team">
+              <button class="todo-group-head" type="button">
+                <span class="todo-group-caret">▼</span><i class="todo-group-dot pink"></i>
+                <span class="todo-group-title">크몽 상품 등록</span><span class="todo-group-count">0/1</span>
+              </button>
+              <div class="todo-group-body">
+                <div class="todo-task" data-review="true">
+                  <button class="todo-task-check" type="button" aria-label="크몽 상품 등록 완료">✓</button>
+                  <div class="todo-task-main">
+                    <div class="todo-task-title">신규 크몽 상품 등록 및 검수</div>
+                    <div class="todo-task-meta">담당 플랫폼운영팀 · 오늘 오후 3:00</div>
+                    <div class="todo-task-note">▣ 이번 주까지 등록을 완료해야 합니다</div>
+                  </div>
+                  <div class="todo-task-side">
+                    <span class="todo-progress-pill review">검토 요청</span>
+                    <div class="todo-task-progress"><i style="width:71%"></i></div>
+                    <span class="todo-checklist-count">체크리스트 5/7</span>
+                  </div>
+                </div>
+                <button class="todo-add-row todo-preview-add" type="button">＋ 할 일 추가</button>
+              </div>
+            </article>
+
+            <article class="todo-group" data-scope="team">
+              <button class="todo-group-head" type="button">
+                <span class="todo-group-caret">▼</span><i class="todo-group-dot teal"></i>
+                <span class="todo-group-title">브랜드블로그</span><span class="todo-group-count">1/3</span>
+              </button>
+              <div class="todo-group-body">
+                <div class="todo-task done">
+                  <button class="todo-task-check checked" type="button" aria-label="나스정형외과 업무 완료" aria-pressed="true">✓</button>
+                  <div class="todo-task-main">
+                    <div class="todo-task-title">박우진 · 나스정형외과 콘텐츠 확인</div>
+                    <div class="todo-task-meta">담당 박우진 · 게시 완료</div>
+                  </div>
+                  <div class="todo-task-side"><span class="todo-progress-pill" data-previous-label="게시 완료">완료</span><span class="todo-checklist-count">체크리스트 8/8</span></div>
+                </div>
+                <div class="todo-task">
+                  <button class="todo-task-check" type="button" aria-label="HS신경외과의원 업무 완료">✓</button>
+                  <div class="todo-task-main">
+                    <div class="todo-task-title">박우진 · HS신경외과의원 2회차 원고</div>
+                    <div class="todo-task-meta">담당 박우진 · 오늘 오후 2:00</div>
+                    <div class="todo-task-note">▣ 2회차 발행 전 검토가 필요합니다</div>
+                  </div>
+                  <div class="todo-task-side">
+                    <span class="todo-progress-pill">진행 중</span>
+                    <div class="todo-task-progress"><i style="width:84%"></i></div>
+                    <span class="todo-checklist-count">체크리스트 27/32</span>
+                  </div>
+                </div>
+                <div class="todo-task">
+                  <button class="todo-task-check" type="button" aria-label="메이퓨어의원 업무 완료">✓</button>
+                  <div class="todo-task-main">
+                    <div class="todo-task-title">김대호 · 메이퓨어의원 3회차 발행</div>
+                    <div class="todo-task-meta">담당 김대호 · 오늘 오후 5:30</div>
+                    <div class="todo-task-note">▣ 예약 발행과 링크 확인이 필요합니다</div>
+                  </div>
+                  <div class="todo-task-side">
+                    <span class="todo-progress-pill">대기</span>
+                    <div class="todo-task-progress"><i style="width:13%"></i></div>
+                    <span class="todo-checklist-count">체크리스트 1/8</span>
+                  </div>
+                </div>
+                <button class="todo-add-row todo-preview-add" type="button">＋ 할 일 추가</button>
+              </div>
+            </article>
           </section>
         </section>
 
@@ -2062,7 +2436,7 @@
             <div class="permissions-heading-main">
               <div class="permission-icon">♙</div>
               <div>
-                <div class="admin-label"><i></i> Master administration</div>
+                <div class="admin-label"><i></i> 마스터 권한 관리</div>
                 <h1>조직 &amp; 권한 관리</h1>
                 <p>직급·지사·팀을 기준으로 자료와 업무의 조회, 편집, 관리 범위를 설정합니다. 아래 내용은 현재 조직을 반영한 MVP 초기 권한안입니다.</p>
               </div>
@@ -2271,6 +2645,7 @@
     const dashboardView = document.getElementById('dashboardView');
     const calendarView = document.getElementById('calendarView');
     const chatView = document.getElementById('chatView');
+    const todoView = document.getElementById('todoView');
     const permissionsView = document.getElementById('permissionsView');
     const pageCrumb = document.getElementById('pageCrumb');
     let toastTimer;
@@ -2326,7 +2701,7 @@
           </button>`).join('')
         : '<div class="agenda-empty">등록된 일정이 없습니다.</div>';
       agenda.innerHTML = `
-        <div class="agenda-date">SELECTED DAY</div>
+        <div class="agenda-date">선택한 날짜</div>
         <h3>${dateLabel}</h3>
         <p class="agenda-summary">${selectedEvents.length ? '일정 ' + selectedEvents.length + '건' : '여유 있는 하루예요'}</p>
         <div class="agenda-list">${items}</div>
@@ -2449,14 +2824,14 @@
     }
 
     const chatRoomsPreview = [
-      { id: 1, name: '스페이스/파라곤 배포 운영', icon: '◫', meeting: true, groups: ['report'], badges: [['REPORTS & CHECKLISTS', '']], preview: '이동희: 실제 진행상황 보고드립니다. 현재 배포와 노출을 확인하고 있습니다.', time: '12:04', members: 5, unread: 5 },
-      { id: 2, name: '당근', icon: '◌', groups: ['active'], badges: [['ACTIVE', 'green']], preview: '전현우: 한국표준금거래소 서귀포점 당근마켓 운영 완료했습니다.', time: '10:52', members: 8, unread: 0 },
-      { id: 3, name: '플랫폼 충전요청 승인', icon: '◌', groups: ['report'], badges: [['REPORTS & CHECKLISTS', '']], preview: '박종원: 리퍼플로우 환급 요청했습니다. 확인 부탁드립니다.', time: '07.24', members: 8, unread: 0 },
-      { id: 4, name: '경영지원팀', icon: '◌', groups: ['report'], badges: [['REPORTS & CHECKLISTS', '']], preview: '김대호: 넵 맞습니다. 회의 토스 관련 내용 전달드렸습니다.', time: '07.23', members: 6, unread: 0 },
-      { id: 5, name: '리워드스페이스', icon: '◫', meeting: true, groups: ['product'], badges: [['PRODUCT DETAILS', 'orange'], ['MEETING', '']], preview: '김대호: 리워드스페이스 개발 보고 및 연동 미션을 공유합니다.', time: '07.22', members: 4, unread: 0 },
-      { id: 6, name: '시스템 개선 회의방', icon: '◫', meeting: true, groups: ['active'], badges: [['ACTIVE', 'green'], ['MEETING', '']], preview: '김지호: 대표님 확인했습니다. 개선 항목을 정리해 공유드릴게요.', time: '07.21', members: 5, unread: 0 },
-      { id: 7, name: '6/10 근태 관련 공지사항', icon: '◫', meeting: true, groups: ['archive'], badges: [['ARCHIVE', 'gray'], ['MEETING', '']], preview: '김주환: 확인했습니다!', time: '07.13', members: 11, unread: 0 },
-      { id: 8, name: '비품관리대장', icon: '◌', groups: ['done'], badges: [['DONE', 'green']], preview: '박종원: 넵!', time: '07.06', members: 6, unread: 0 },
+      { id: 1, name: '스페이스/파라곤 배포 운영', icon: '◫', meeting: true, groups: ['report'], badges: [['보고 및 체크리스트', '']], preview: '이동희: 실제 진행상황 보고드립니다. 현재 배포와 노출을 확인하고 있습니다.', time: '12:04', members: 5, unread: 5 },
+      { id: 2, name: '당근', icon: '◌', groups: ['active'], badges: [['활성화', 'green']], preview: '전현우: 한국표준금거래소 서귀포점 당근마켓 운영 완료했습니다.', time: '10:52', members: 8, unread: 0 },
+      { id: 3, name: '플랫폼 충전요청 승인', icon: '◌', groups: ['report'], badges: [['보고 및 체크리스트', '']], preview: '박종원: 리퍼플로우 환급 요청했습니다. 확인 부탁드립니다.', time: '07.24', members: 8, unread: 0 },
+      { id: 4, name: '경영지원팀', icon: '◌', groups: ['report'], badges: [['보고 및 체크리스트', '']], preview: '김대호: 넵 맞습니다. 회의 토스 관련 내용 전달드렸습니다.', time: '07.23', members: 6, unread: 0 },
+      { id: 5, name: '리워드스페이스', icon: '◫', meeting: true, groups: ['product'], badges: [['상품 디테일', 'orange'], ['회의', '']], preview: '김대호: 리워드스페이스 개발 보고 및 연동 미션을 공유합니다.', time: '07.22', members: 4, unread: 0 },
+      { id: 6, name: '시스템 개선 회의방', icon: '◫', meeting: true, groups: ['active'], badges: [['활성화', 'green'], ['회의', '']], preview: '김지호: 대표님 확인했습니다. 개선 항목을 정리해 공유드릴게요.', time: '07.21', members: 5, unread: 0 },
+      { id: 7, name: '6/10 근태 관련 공지사항', icon: '◫', meeting: true, groups: ['archive'], badges: [['보관채팅', 'gray'], ['회의', '']], preview: '김주환: 확인했습니다!', time: '07.13', members: 11, unread: 0 },
+      { id: 8, name: '비품관리대장', icon: '◌', groups: ['done'], badges: [['완료', 'green']], preview: '박종원: 넵!', time: '07.06', members: 6, unread: 0 },
       { id: 9, name: '경영지원팀 업무보고 및 소통방', icon: '◌', groups: ['uncategorized'], badges: [], preview: '김대호: 감사합니다. 고생 많으셨습니다!', time: '06.30', members: 4, unread: 0 }
     ];
     let chatRoomFilter = 'all';
@@ -2477,19 +2852,19 @@
     }
 
     function updateChatSelectionUi() {
-      document.getElementById('chatSelectedCount').textContent = selectedChatRooms.size + ' selected';
+      document.getElementById('chatSelectedCount').textContent = selectedChatRooms.size + '개 선택';
       document.getElementById('chatBulkActions').classList.toggle('show', chatBulkMode);
       document.getElementById('chatBulkToggle').classList.toggle('active', chatBulkMode);
-      document.getElementById('chatBulkToggle').textContent = chatBulkMode ? 'EXIT SELECT' : 'BULK SELECT';
+      document.getElementById('chatBulkToggle').textContent = chatBulkMode ? '선택 종료' : '일괄 선택';
     }
 
     function renderChatRoomList() {
       const list = document.getElementById('chatRoomList');
       const rooms = getVisibleChatRooms();
       list.classList.toggle('bulk-mode', chatBulkMode);
-      document.getElementById('chatSearchCount').textContent = rooms.length + ' rooms';
+      document.getElementById('chatSearchCount').textContent = '채팅방 ' + rooms.length + '개';
       if (!rooms.length) {
-        list.innerHTML = '<div class="chat-empty">No chat rooms found.</div>';
+        list.innerHTML = '<div class="chat-empty">검색 결과가 없습니다.</div>';
         updateChatSelectionUi();
         return;
       }
@@ -2544,7 +2919,7 @@
       chatView.classList.add('room-open');
       body.classList.add('chat-preview-room-open');
       document.getElementById('chatThreadTitle').textContent = room.name;
-      document.getElementById('chatThreadMeta').textContent = room.members + ' members · ' + (room.meeting ? 'Meeting room' : 'Chat room');
+      document.getElementById('chatThreadMeta').textContent = '참여자 ' + room.members + '명 · ' + (room.meeting ? '회의방' : '채팅방');
       document.getElementById('chatThreadMessages').innerHTML = `
         <div class="chat-date-separator">2026년 7월 27일</div>
         <div class="chat-message">
@@ -2586,13 +2961,54 @@
       messages.scrollTop = messages.scrollHeight;
     }
 
+    let todoScope = 'all';
+
+    function visibleTodoGroups() {
+      return Array.from(todoView.querySelectorAll('.todo-group')).filter((group) => !group.hidden);
+    }
+
+    function updateTodoUi() {
+      todoView.querySelectorAll('.todo-group').forEach((group) => {
+        const tasks = Array.from(group.querySelectorAll('.todo-task'));
+        const done = tasks.filter((task) => task.classList.contains('done')).length;
+        group.querySelector('.todo-group-count').textContent = done + '/' + tasks.length;
+      });
+
+      const visibleTasks = visibleTodoGroups().flatMap((group) => Array.from(group.querySelectorAll('.todo-task')));
+      const completed = visibleTasks.filter((task) => task.classList.contains('done')).length;
+      const remaining = visibleTasks.length - completed;
+      const reviews = visibleTasks.filter((task) => task.dataset.review === 'true' && !task.classList.contains('done')).length;
+      const progress = visibleTasks.length ? Math.round((completed / visibleTasks.length) * 100) : 0;
+      document.getElementById('todoTotalCount').textContent = visibleTasks.length + '건';
+      document.getElementById('todoDoneCount').textContent = completed + '건';
+      document.getElementById('todoRemainingCount').textContent = remaining + '건';
+      document.getElementById('todoReviewCount').textContent = reviews + '건';
+      document.getElementById('todoBoardProgress').textContent = progress + '% 완료';
+
+      const allTasks = Array.from(todoView.querySelectorAll('.todo-task'));
+      const allRemaining = allTasks.filter((task) => !task.classList.contains('done')).length;
+      document.querySelector('[data-view="todo"] .nav-badge').textContent = allRemaining;
+    }
+
+    function setTodoScope(scope) {
+      todoScope = scope;
+      todoView.querySelectorAll('.todo-group').forEach((group) => {
+        group.hidden = todoScope !== 'all' && group.dataset.scope !== todoScope;
+      });
+      todoView.querySelectorAll('.todo-scope-button').forEach((button) => {
+        button.classList.toggle('active', button.dataset.todoScope === todoScope);
+      });
+      updateTodoUi();
+    }
+
     function showWorkspaceView(view) {
       if (view !== 'chat') closePreviewChatRoom();
       dashboardView.hidden = view !== 'dashboard';
       calendarView.hidden = view !== 'calendar';
       chatView.hidden = view !== 'chat';
+      todoView.hidden = view !== 'todo';
       permissionsView.hidden = view !== 'permissions';
-      pageCrumb.textContent = view === 'permissions' ? '조직 & 권한' : (view === 'calendar' ? 'CALENDAR' : (view === 'chat' ? 'CHAT' : 'PEAKMARKETING'));
+      pageCrumb.textContent = view === 'permissions' ? '조직 및 권한' : (view === 'calendar' ? 'CALENDAR' : (view === 'chat' ? 'CHAT' : (view === 'todo' ? 'TO DO LIST' : 'PEAKMARKETING')));
       body.classList.remove('menu-open');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -2663,6 +3079,38 @@
     });
     renderChatRoomList();
 
+    document.querySelectorAll('.todo-scope-button').forEach((button) => {
+      button.addEventListener('click', () => setTodoScope(button.dataset.todoScope));
+    });
+    document.querySelectorAll('.todo-group-head').forEach((button) => {
+      button.addEventListener('click', () => button.closest('.todo-group').classList.toggle('collapsed'));
+    });
+    document.querySelectorAll('.todo-task-check').forEach((button) => {
+      button.addEventListener('click', () => {
+        const task = button.closest('.todo-task');
+        const side = task.querySelector('.todo-task-side');
+        const pill = side?.querySelector('.todo-progress-pill');
+        const completed = !task.classList.contains('done');
+        task.classList.toggle('done', completed);
+        button.classList.toggle('checked', completed);
+        button.setAttribute('aria-pressed', completed ? 'true' : 'false');
+        if (pill) {
+          if (!pill.dataset.previousLabel) {
+            pill.dataset.previousLabel = pill.textContent;
+            pill.dataset.previousReview = pill.classList.contains('review') ? 'true' : 'false';
+          }
+          pill.textContent = completed ? '완료' : pill.dataset.previousLabel;
+          pill.classList.toggle('review', !completed && pill.dataset.previousReview === 'true');
+        }
+        updateTodoUi();
+        showToast(completed ? '할 일을 완료로 표시했습니다.' : '할 일을 진행 중으로 되돌렸습니다.');
+      });
+    });
+    document.querySelectorAll('.todo-preview-add').forEach((button) => {
+      button.addEventListener('click', () => showToast('할 일 등록 화면은 다음 단계에서 실제 업무 데이터와 연결됩니다.'));
+    });
+    setTodoScope('all');
+
     document.querySelectorAll('.tree-trigger').forEach((button) => {
       button.addEventListener('click', () => button.closest('.tree-group').classList.toggle('closed'));
     });
@@ -2700,7 +3148,7 @@
           if (button.dataset.scroll) {
             setTimeout(() => document.getElementById(button.dataset.scroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
           }
-          const viewNames = { dashboard: 'PEAKMARKETING', calendar: 'CALENDAR', chat: 'CHAT' };
+          const viewNames = { dashboard: 'PEAKMARKETING', calendar: 'CALENDAR', chat: 'CHAT', todo: 'TO DO LIST' };
           showToast((viewNames[button.dataset.view] || '해당') + ' 화면을 열었습니다.');
           return;
         }
