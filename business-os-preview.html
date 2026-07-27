@@ -522,6 +522,46 @@
     .tree-item.active .side-count { background: var(--blue-soft); color: var(--blue); }
 
     .content-stack { display: grid; gap: 16px; min-width: 0; }
+    .sales-context {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 14px 16px;
+      border: 1px solid #d7e7f2;
+      border-radius: 12px;
+      background: linear-gradient(110deg, #f4faff, #fff 65%);
+      box-shadow: var(--shadow-soft);
+    }
+    .sales-context-user { display: flex; align-items: center; gap: 11px; min-width: 0; }
+    .sales-context-avatar {
+      display: grid;
+      flex: 0 0 auto;
+      width: 36px;
+      height: 36px;
+      place-items: center;
+      border-radius: 10px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 900;
+    }
+    .sales-context-copy strong, .sales-context-copy small { display: block; }
+    .sales-context-copy strong { color: var(--ink); font-size: 11px; }
+    .sales-context-copy small { margin-top: 4px; color: var(--muted); font-size: 8px; }
+    .role-preview { display: flex; align-items: center; gap: 5px; }
+    .role-preview-label { margin-right: 3px; color: var(--muted-2); font-size: 8px; font-weight: 780; white-space: nowrap; }
+    .role-button {
+      min-height: 28px;
+      padding: 0 9px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 8px;
+      font-weight: 800;
+    }
+    .role-button.active { border-color: #bcdced; background: var(--blue-soft); color: var(--blue-dark); }
     .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
     .metric-card {
       min-width: 0;
@@ -538,6 +578,10 @@
     .metric-change.neutral { color: var(--muted); }
 
     .home-calendar-panel { overflow: hidden; scroll-margin-top: 110px; }
+    .calendar-page .home-calendar-panel { box-shadow: var(--shadow); }
+    .calendar-page .home-calendar-layout { grid-template-columns: minmax(0, 1fr) 310px; }
+    .calendar-page .home-calendar-cell { min-height: 112px; }
+    .calendar-page .home-calendar-main { padding: 16px; }
     .calendar-panel-head { align-items: center; }
     .calendar-head-actions { display: flex; align-items: center; gap: 7px; }
     .calendar-nav {
@@ -1138,6 +1182,9 @@
       .content-stack { width: 100%; grid-template-columns: minmax(0, 1fr); gap: 12px; }
       .content-stack > *,
       .panel { min-width: 0; max-width: 100%; }
+      .sales-context { display: block; padding: 12px; }
+      .role-preview { margin-top: 12px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+      .role-preview::-webkit-scrollbar { display: none; }
       .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
       .metric-card { padding: 12px; }
       .metric-value { font-size: 18px; }
@@ -1159,6 +1206,9 @@
       .calendar-event i { width: 100%; height: 100%; }
       .calendar-more { display: none; }
       .calendar-agenda { padding: 14px; border-top: 1px solid #edf1f4; border-left: 0; }
+      .calendar-page .home-calendar-layout { grid-template-columns: minmax(0, 1fr); }
+      .calendar-page .home-calendar-main { padding: 8px; }
+      .calendar-page .home-calendar-cell { min-height: 68px; }
       .goal-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
       .split-grid { grid-template-columns: minmax(0, 1fr); }
       .notice-list, .task-list { padding-inline: 12px; }
@@ -1213,8 +1263,8 @@
       <nav aria-label="워크스페이스 바로가기">
         <section class="nav-section">
           <p class="nav-label">Quick access</p>
-          <button class="nav-item active" type="button" data-view="dashboard"><span class="nav-icon">⌂</span>회사 홈</button>
-          <button class="nav-item" type="button" data-view="dashboard" data-scroll="companyCalendar"><span class="nav-icon">◫</span>캘린더</button>
+          <button class="nav-item active" type="button" data-view="dashboard"><span class="nav-icon">⌂</span>PEAKMARKETING</button>
+          <button class="nav-item" type="button" data-view="calendar"><span class="nav-icon">◫</span>CALENDAR</button>
           <button class="nav-item" type="button"><span class="nav-icon">▦</span>오늘 할 일<span class="nav-badge">8</span></button>
           <button class="nav-item" type="button"><span class="nav-icon">✓</span>검토 요청<span class="nav-badge">3</span></button>
         </section>
@@ -1293,7 +1343,7 @@
       <header class="topbar">
         <div class="breadcrumbs">
           <button class="icon-button mobile-menu" type="button" aria-label="메뉴 열기">☰</button>
-          <span>PEAK OS</span><span class="slash">/</span><strong id="pageCrumb">Business OS</strong>
+          <span>PEAK OS</span><span class="slash">/</span><strong id="pageCrumb">PEAKMARKETING</strong>
         </div>
         <div class="top-actions">
           <button class="icon-button preview-action" type="button">공유</button>
@@ -1308,9 +1358,9 @@
           <div class="heading-main">
             <div class="page-icon">P</div>
             <div class="heading-copy">
-              <div class="eyebrow"><span>●</span> BUSINESS OS | PEAK MARKETING</div>
-              <h1>회사 홈</h1>
-              <p>오늘의 일정과 업무부터 프로젝트, 영업과 기록까지 회사의 모든 흐름을 한 페이지에서 연결합니다.</p>
+              <div class="eyebrow"><span>●</span> COMPANY HOME</div>
+              <h1>PEAKMARKETING</h1>
+              <p>권한과 소속에 맞는 매출, 목표, 정산 현황을 한 페이지에서 확인합니다.</p>
             </div>
           </div>
           <div class="heading-meta">
@@ -1390,64 +1440,53 @@
           </aside>
 
           <div class="content-stack">
-            <section class="metric-grid" aria-label="핵심 지표">
-              <article class="metric-card">
-                <div class="metric-label"><span>이번 달 매출</span><span class="metric-icon">↗</span></div>
-                <div class="metric-value">₩ 4,820만</div>
-                <div class="metric-change">↑ 12.4% 지난달 대비</div>
-              </article>
-              <article class="metric-card">
-                <div class="metric-label"><span>진행 프로젝트</span><span class="metric-icon">▣</span></div>
-                <div class="metric-value">12</div>
-                <div class="metric-change neutral">완료 3 · 진행 9</div>
-              </article>
-              <article class="metric-card">
-                <div class="metric-label"><span>주간 업무 완료율</span><span class="metric-icon">✓</span></div>
-                <div class="metric-value">72%</div>
-                <div class="metric-change">↑ 8% 지난주 대비</div>
-              </article>
-              <article class="metric-card">
-                <div class="metric-label"><span>검토 대기</span><span class="metric-icon">◷</span></div>
-                <div class="metric-value">3</div>
-                <div class="metric-change neutral">오늘 처리 예정 2건</div>
-              </article>
+            <section class="sales-context" aria-label="대시보드 권한 미리보기">
+              <div class="sales-context-user">
+                <span class="sales-context-avatar">팀장</span>
+                <span class="sales-context-copy">
+                  <strong id="salesRoleTitle">플랫폼운영팀 · 팀장 대시보드</strong>
+                  <small id="salesRoleDescription">소속 부서 전체 매출과 본인 매출을 함께 확인합니다</small>
+                </span>
+              </div>
+              <div class="role-preview">
+                <span class="role-preview-label">권한 미리보기</span>
+                <button class="role-button" type="button" data-role="master">대표</button>
+                <button class="role-button active" type="button" data-role="leader">팀장</button>
+                <button class="role-button" type="button" data-role="member">영업자</button>
+              </div>
             </section>
 
-            <section class="panel home-calendar-panel" id="companyCalendar">
-              <div class="panel-head calendar-panel-head">
-                <div>
-                  <div class="panel-title">회사 캘린더</div>
-                  <div class="panel-subtitle">기존 Paragon 일정과 팀 업무를 회사 홈에서 함께 확인합니다</div>
-                </div>
-                <div class="calendar-head-actions">
-                  <button class="calendar-nav" id="calendarPrev" type="button" aria-label="이전 달">‹</button>
-                  <span class="calendar-month" id="calendarMonthLabel">2026년 7월</span>
-                  <button class="calendar-nav" id="calendarNext" type="button" aria-label="다음 달">›</button>
-                </div>
-              </div>
-              <div class="calendar-scope">
-                <button class="calendar-scope-button" type="button" data-scope="personal">내 일정</button>
-                <button class="calendar-scope-button" type="button" data-scope="team">팀 일정</button>
-                <button class="calendar-scope-button active" type="button" data-scope="all">전체</button>
-                <span class="calendar-scope-spacer"></span>
-                <span class="calendar-hint" id="calendarMonthCount">이번 달 일정 10건</span>
-              </div>
-              <div class="home-calendar-layout">
-                <div class="home-calendar-main">
-                  <div class="home-calendar-grid" id="homeCalendarGrid" aria-label="월간 캘린더"></div>
-                </div>
-                <aside class="calendar-agenda" id="homeCalendarAgenda" aria-label="선택 날짜 일정"></aside>
-              </div>
+            <section class="metric-grid" aria-label="핵심 지표">
+              <article class="metric-card">
+                <div class="metric-label"><span id="salesMetricLabel1">부서 전체 매출</span><span class="metric-icon">↗</span></div>
+                <div class="metric-value" id="salesMetricValue1">₩ 4,820만</div>
+                <div class="metric-change" id="salesMetricMeta1">↑ 12.4% 지난달 대비</div>
+              </article>
+              <article class="metric-card">
+                <div class="metric-label"><span id="salesMetricLabel2">본인 매출</span><span class="metric-icon">●</span></div>
+                <div class="metric-value" id="salesMetricValue2">₩ 1,860만</div>
+                <div class="metric-change" id="salesMetricMeta2">팀 매출의 38.6%</div>
+              </article>
+              <article class="metric-card">
+                <div class="metric-label"><span id="salesMetricLabel3">부서 목표 달성률</span><span class="metric-icon">✓</span></div>
+                <div class="metric-value" id="salesMetricValue3">80.3%</div>
+                <div class="metric-change" id="salesMetricMeta3">목표 ₩ 6,000만</div>
+              </article>
+              <article class="metric-card">
+                <div class="metric-label"><span id="salesMetricLabel4">정산 예정</span><span class="metric-icon">◷</span></div>
+                <div class="metric-value" id="salesMetricValue4">₩ 345만</div>
+                <div class="metric-change neutral" id="salesMetricMeta4">검토 대기 3건</div>
+              </article>
             </section>
 
             <section class="panel">
               <div class="panel-head">
-                <div><div class="panel-title">월별 매출 추이</div><div class="panel-subtitle">목표 매출과 실제 매출 비교</div></div>
+                <div><div class="panel-title" id="salesChartTitle">월별 매출 현황</div><div class="panel-subtitle" id="salesChartSubtitle">플랫폼운영팀 전체 매출과 본인 매출 비교</div></div>
                 <button class="more-button preview-action" type="button" aria-label="더보기">•••</button>
               </div>
               <div class="chart-wrap">
                 <div class="chart-toolbar">
-                  <div class="legend"><span><i></i>실제 매출</span><span><i></i>목표 매출</span></div>
+                  <div class="legend"><span><i></i><b id="salesLegendPrimary">부서 전체</b></span><span><i></i><b id="salesLegendSecondary">본인 매출</b></span></div>
                   <span class="period">최근 6개월⌄</span>
                 </div>
                 <svg class="chart" viewBox="0 0 700 220" role="img" aria-label="월별 매출 추이 그래프">
@@ -1559,6 +1598,68 @@
           </div>
         </div>
       </div>
+
+        <section class="calendar-page" id="calendarView" hidden>
+          <header class="page-heading">
+            <div class="heading-main">
+              <div class="page-icon">◫</div>
+              <div class="heading-copy">
+                <div class="eyebrow"><span>●</span> WORKSPACE SCHEDULE</div>
+                <h1>CALENDAR</h1>
+                <p>기존 Paragon 일정과 개인·팀 업무를 더 큰 월간 화면에서 확인합니다.</p>
+              </div>
+            </div>
+            <div class="heading-meta">
+              <button class="primary-button preview-action" type="button">＋ 일정 등록</button>
+            </div>
+          </header>
+
+          <section class="permission-stats" aria-label="월간 일정 요약">
+            <article class="permission-stat">
+              <div class="permission-stat-top"><span>이번 달 일정</span><i>◫</i></div>
+              <strong>13</strong><small>내 일정과 팀 일정 전체</small>
+            </article>
+            <article class="permission-stat">
+              <div class="permission-stat-top"><span>미완료 할 일</span><i>✓</i></div>
+              <strong>3</strong><small>오늘 처리 예정 2건</small>
+            </article>
+            <article class="permission-stat">
+              <div class="permission-stat-top"><span>팀 일정</span><i>▦</i></div>
+              <strong>10</strong><small>회의·마감·정산 일정</small>
+            </article>
+            <article class="permission-stat">
+              <div class="permission-stat-top"><span>이번 주 미팅</span><i>◎</i></div>
+              <strong>4</strong><small>영업·운영 정기회의 포함</small>
+            </article>
+          </section>
+
+          <section class="panel home-calendar-panel" id="companyCalendar">
+            <div class="panel-head calendar-panel-head">
+              <div>
+                <div class="panel-title">Monthly Schedule</div>
+                <div class="panel-subtitle">날짜를 선택하면 해당 일의 상세 일정이 표시됩니다</div>
+              </div>
+              <div class="calendar-head-actions">
+                <button class="calendar-nav" id="calendarPrev" type="button" aria-label="이전 달">‹</button>
+                <span class="calendar-month" id="calendarMonthLabel">2026년 7월</span>
+                <button class="calendar-nav" id="calendarNext" type="button" aria-label="다음 달">›</button>
+              </div>
+            </div>
+            <div class="calendar-scope">
+              <button class="calendar-scope-button" type="button" data-scope="personal">내 일정</button>
+              <button class="calendar-scope-button" type="button" data-scope="team">팀 일정</button>
+              <button class="calendar-scope-button active" type="button" data-scope="all">전체</button>
+              <span class="calendar-scope-spacer"></span>
+              <span class="calendar-hint" id="calendarMonthCount">이번 달 일정 13건</span>
+            </div>
+            <div class="home-calendar-layout">
+              <div class="home-calendar-main">
+                <div class="home-calendar-grid" id="homeCalendarGrid" aria-label="월간 캘린더"></div>
+              </div>
+              <aside class="calendar-agenda" id="homeCalendarAgenda" aria-label="선택 날짜 일정"></aside>
+            </div>
+          </section>
+        </section>
 
         <section class="permissions-view" id="permissionsView" hidden>
           <header class="permissions-heading">
@@ -1772,6 +1873,7 @@
     const body = document.body;
     const toast = document.querySelector('.toast');
     const dashboardView = document.getElementById('dashboardView');
+    const calendarView = document.getElementById('calendarView');
     const permissionsView = document.getElementById('permissionsView');
     const pageCrumb = document.getElementById('pageCrumb');
     let toastTimer;
@@ -1883,11 +1985,77 @@
       renderHomeCalendarAgenda();
     }
 
+    const salesRoleData = {
+      master: {
+        avatar: '대표',
+        title: '대표 · MASTER 대시보드',
+        description: '전체 지사와 모든 부서의 통합 매출을 확인합니다',
+        metrics: [
+          ['전사 전체 매출', '₩ 1억 8,620만', '↑ 15.8% 지난달 대비'],
+          ['플랫폼운영팀 매출', '₩ 4,820만', '전사 매출의 25.9%'],
+          ['전사 목표 달성률', '87.2%', '목표 ₩ 2억 1,350만'],
+          ['총 정산 예정', '₩ 2,340만', '전체 지사 18건']
+        ],
+        chartTitle: '전사 월별 매출 현황',
+        chartSubtitle: '전체 지사 통합 매출과 목표 비교',
+        primary: '전사 매출',
+        secondary: '목표 매출'
+      },
+      leader: {
+        avatar: '팀장',
+        title: '플랫폼운영팀 · 팀장 대시보드',
+        description: '소속 부서 전체 매출과 본인 매출을 함께 확인합니다',
+        metrics: [
+          ['부서 전체 매출', '₩ 4,820만', '↑ 12.4% 지난달 대비'],
+          ['본인 매출', '₩ 1,860만', '팀 매출의 38.6%'],
+          ['부서 목표 달성률', '80.3%', '목표 ₩ 6,000만'],
+          ['정산 예정', '₩ 345만', '검토 대기 3건']
+        ],
+        chartTitle: '월별 매출 현황',
+        chartSubtitle: '플랫폼운영팀 전체 매출과 본인 매출 비교',
+        primary: '부서 전체',
+        secondary: '본인 매출'
+      },
+      member: {
+        avatar: '영업',
+        title: '플랫폼운영팀 · 영업자 대시보드',
+        description: '본인의 매출, 목표, 접수와 예상 정산만 확인합니다',
+        metrics: [
+          ['이번 달 본인 매출', '₩ 1,860만', '↑ 9.2% 지난달 대비'],
+          ['개인 목표 달성률', '74.4%', '목표 ₩ 2,500만'],
+          ['신규 접수', '12건', '계약 전환 5건'],
+          ['예상 정산', '₩ 212만', '본인 정산 4건']
+        ],
+        chartTitle: '나의 월별 매출 현황',
+        chartSubtitle: '본인 매출과 개인 목표 비교',
+        primary: '본인 매출',
+        secondary: '개인 목표'
+      }
+    };
+
+    function renderSalesRole(role) {
+      const data = salesRoleData[role];
+      document.querySelector('.sales-context-avatar').textContent = data.avatar;
+      document.getElementById('salesRoleTitle').textContent = data.title;
+      document.getElementById('salesRoleDescription').textContent = data.description;
+      data.metrics.forEach((metric, index) => {
+        const number = index + 1;
+        document.getElementById('salesMetricLabel' + number).textContent = metric[0];
+        document.getElementById('salesMetricValue' + number).textContent = metric[1];
+        document.getElementById('salesMetricMeta' + number).textContent = metric[2];
+      });
+      document.getElementById('salesChartTitle').textContent = data.chartTitle;
+      document.getElementById('salesChartSubtitle').textContent = data.chartSubtitle;
+      document.getElementById('salesLegendPrimary').textContent = data.primary;
+      document.getElementById('salesLegendSecondary').textContent = data.secondary;
+      document.querySelectorAll('.role-button').forEach((button) => button.classList.toggle('active', button.dataset.role === role));
+    }
+
     function showWorkspaceView(view) {
-      const isPermissions = view === 'permissions';
-      dashboardView.hidden = isPermissions;
-      permissionsView.hidden = !isPermissions;
-      pageCrumb.textContent = isPermissions ? '조직 & 권한' : 'Business OS';
+      dashboardView.hidden = view !== 'dashboard';
+      calendarView.hidden = view !== 'calendar';
+      permissionsView.hidden = view !== 'permissions';
+      pageCrumb.textContent = view === 'permissions' ? '조직 & 권한' : (view === 'calendar' ? 'CALENDAR' : 'PEAKMARKETING');
       body.classList.remove('menu-open');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -1914,6 +2082,13 @@
       });
     });
     renderHomeCalendar();
+    document.querySelectorAll('.role-button').forEach((button) => {
+      button.addEventListener('click', () => {
+        renderSalesRole(button.dataset.role);
+        showToast(button.textContent.trim() + ' 권한 기준의 매출 화면입니다.');
+      });
+    });
+    renderSalesRole('leader');
 
     document.querySelectorAll('.tree-trigger').forEach((button) => {
       button.addEventListener('click', () => button.closest('.tree-group').classList.toggle('closed'));
@@ -1952,7 +2127,7 @@
           if (button.dataset.scroll) {
             setTimeout(() => document.getElementById(button.dataset.scroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
           }
-          showToast('회사 홈 대시보드로 돌아왔습니다.');
+          showToast(button.dataset.view === 'calendar' ? 'CALENDAR 화면을 열었습니다.' : 'PEAKMARKETING 대시보드로 돌아왔습니다.');
           return;
         }
         showToast(button.textContent.trim() + ' 메뉴는 디자인 확인용입니다.');
