@@ -53,7 +53,7 @@ function serveFile(req, res) {
     return;
   }
 
-  if (pathname === '/') pathname = '/index.html';
+  if (pathname === '/') pathname = '/business-os-preview.html';
   const filePath = path.resolve(root, `.${pathname}`);
   const relative = path.relative(root, filePath);
 
