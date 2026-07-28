@@ -46,6 +46,8 @@
   let salesSummary = { key: '', status: 'idle', data: null, error: '' };
   const salesSummaryCache = new Map();
   let orgBranchFilter = 'all';
+  // 평소에는 갈래로 나뉜 조직도, 수정할 때만 세로로 나열한다
+  let orgEditMode = false;
   let orgDirectory = { status: 'idle', accounts: [] };
   // 직급 수정은 아직 운영 DB에 쓰지 않는다. 브라우저에만 남는 초안이다.
   let orgRankDraft = {};
@@ -1533,27 +1535,42 @@
     </div>`;
   }
 
+  // 보기 모드에서는 이름과 직급만 한 줄로 간결하게 보여 준다.
+  function renderOrgMemberChip(member) {
+    const account = orgAccountFor(member.name);
+    const isMe = account && account.uid === userDoc?.uid;
+    return `<span class="org-chip ${isMe ? 'current' : ''}">
+      <strong>${esc(member.name)}</strong>
+      <small>${esc(orgRankOf(member))}</small>
+    </span>`;
+  }
+
   function renderOrgDivision(division) {
     const currentGroupName = String(userDoc?.group_name || '').trim();
     const isCurrent = currentGroupName && (division.name.includes(currentGroupName) || currentGroupName.includes(division.name));
+    const renderMembers = members => (orgEditMode
+      ? `<div class="org-member-list">${members.map(renderOrgMemberRow).join('')}</div>`
+      : `<div class="org-chip-list">${members.map(renderOrgMemberChip).join('')}</div>`);
     return `<article class="org-division ${isCurrent ? 'current' : ''}">
       <header class="org-division-head">
         <span class="org-node-icon ${esc(division.tone || '')}">${esc(division.icon || '◆')}</span>
         <span class="org-node-copy"><strong>${esc(division.name)}</strong><small>${esc(division.detail || '')}</small></span>
         ${isCurrent ? '<span class="org-current-badge">내 소속</span>' : ''}
       </header>
-      ${division.members.length ? `<div class="org-member-list">${division.members.map(renderOrgMemberRow).join('')}</div>` : ''}
+      ${division.members.length ? renderMembers(division.members) : ''}
       ${(division.teams || []).map(team => {
         const teamCurrent = currentGroupName && team.name.includes(currentGroupName);
         return `<section class="org-subteam ${teamCurrent ? 'current' : ''}">
           <header class="org-subteam-head"><span>${esc(team.icon || '◎')}</span><strong>${esc(team.name)}</strong>${teamCurrent ? '<span class="org-current-badge">내 소속</span>' : ''}</header>
-          <div class="org-member-list">${team.members.map(renderOrgMemberRow).join('')}</div>
+          ${renderMembers(team.members)}
         </section>`;
       }).join('')}
     </article>`;
   }
 
   function renderOrgBranch(branch) {
+    // 보기 모드에서 갈래가 2개 이상이면 가로 연결선을 그린다
+    const branching = !orgEditMode && branch.divisions.length > 1;
     return `<section class="org-branch" data-org-branch="${esc(branch.id)}">
       <article class="org-master-node ${branch.lead?.master ? 'master' : ''}">
         <span class="org-node-icon">♛</span>
@@ -1564,7 +1581,7 @@
         ${branch.lead?.master ? '<span class="org-master-chip">MASTER</span>' : ''}
       </article>
       ${branch.divisions.length
-        ? `<div class="org-vertical-line"></div><div class="org-divisions">${branch.divisions.map(renderOrgDivision).join('')}</div>`
+        ? `<div class="org-vertical-line ${branching ? 'branching' : ''}"></div><div class="org-divisions ${branch.divisions.length === 1 ? 'single' : ''}">${branch.divisions.map(renderOrgDivision).join('')}</div>`
         : '<p class="org-branch-empty">아직 등록된 하위 조직이 없습니다.</p>'}
     </section>`;
   }
@@ -1615,14 +1632,17 @@
                 ${ORG_STRUCTURE.map(branch => `<option value="${esc(branch.id)}" ${orgBranchFilter === branch.id ? 'selected' : ''}>${esc(branch.name)}</option>`).join('')}
               </select>
             </label>
+            ${canManageOrganization ? `<button class="module-action ${orgEditMode ? 'active' : ''}" type="button" data-org-edit-toggle>${orgEditMode ? '수정 완료' : '직급 수정'}</button>` : ''}
             ${canManageOrganization ? '<button class="module-action" type="button" data-open-permissions>권한 관리</button>' : ''}
           </span>
         </div>
         <div class="module-section-body">
-          <div class="org-chart">${branches.map(renderOrgBranch).join('')}</div>
-          <p class="sales-basis">직급은 부장 이상만 수정할 수 있습니다. ${canManageOrganization
-            ? '지금 바꾼 직급은 이 브라우저에만 저장되는 초안이며 운영 DB에는 반영되지 않습니다.'
-            : '현재 계정은 조회만 가능합니다.'}</p>
+          <div class="org-chart ${orgEditMode ? 'edit' : 'view'}">${branches.map(renderOrgBranch).join('')}</div>
+          <p class="sales-basis">${orgEditMode
+            ? '수정 중에는 구성원을 세로로 펼쳐 보여 줍니다. 바꾼 직급은 이 브라우저에만 저장되는 초안이며 운영 DB에는 반영되지 않습니다.'
+            : (canManageOrganization
+              ? '직급을 바꾸려면 오른쪽 위 직급 수정을 누르세요. 부장 이상만 수정할 수 있습니다.'
+              : '직급은 부장 이상만 수정할 수 있습니다. 현재 계정은 조회만 가능합니다.')}</p>
         </div>
       </section>
       ${renderOrgUnassigned()}
@@ -1715,6 +1735,10 @@
     }));
     moduleView.querySelector('[data-open-permissions]')?.addEventListener('click', () => activateView('permissions'));
 
+    moduleView.querySelector('[data-org-edit-toggle]')?.addEventListener('click', () => {
+      orgEditMode = !orgEditMode;
+      renderPlannedModule('organization');
+    });
     moduleView.querySelector('[data-org-branch-filter]')?.addEventListener('change', event => {
       orgBranchFilter = event.target.value;
       renderPlannedModule('organization');

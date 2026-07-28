@@ -1429,6 +1429,7 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 }
 
 .module-action:hover { border-color: #348ecd; background: #eaf5fc; }
+.module-action.active { border-color: #348ecd; background: #348ecd; color: #fff; }
 
 .module-section { overflow: hidden; }
 
@@ -2024,18 +2025,79 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 }
 
 .org-vertical-line {
+  position: relative;
   width: 1px;
-  height: 26px;
+  height: 30px;
   margin: 0 auto;
   background: #bdd5e5;
 }
 
-/* 지사 아래로 팀이 한 줄씩 쭉 내려오는 구조 */
+/* 갈래가 둘 이상이면 각 팀 위로 가로 연결선을 얹는다 */
+.org-vertical-line.branching::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 50%;
+  border-top: 1px solid #bdd5e5;
+  transform: translateX(-50%);
+}
+
 .org-divisions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
 }
+
+/* 보기 모드: 좌우로 갈라지는 조직도 */
+.org-chart.view .org-divisions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+  align-items: start;
+}
+
+/* 갈래가 하나뿐인 지사는 한 칸으로 두어 대표 아래 가운데에 오게 한다 */
+.org-chart.view .org-divisions.single { grid-template-columns: minmax(0, 1fr); }
+
+.org-chart.view .org-division { position: relative; }
+
+.org-vertical-line.branching + .org-divisions .org-division::before {
+  content: "";
+  position: absolute;
+  top: -16px;
+  left: 50%;
+  width: 1px;
+  height: 16px;
+  background: #bdd5e5;
+}
+
+/* 수정 모드: 위에서 아래로 한 줄씩 나열 */
+.org-chart.edit .org-divisions { grid-template-columns: minmax(0, 1fr); }
+
+.org-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.org-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 38px;
+  padding: 6px 14px;
+  border: 1px solid #e6ecf1;
+  border-radius: 999px;
+  background: #fbfcfd;
+}
+
+.org-chip.current {
+  border-color: #9dcced;
+  background: #f2f9fe;
+}
+
+.org-chip strong { color: #24313e; font-size: 15px; font-weight: 700; }
+.org-chip small { color: #2674ac; font-size: 13px; font-weight: 600; }
 
 .org-division {
   padding: 18px 20px;
@@ -2296,7 +2358,11 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   .org-master-node { align-items: flex-start; padding: 14px; }
   .org-master-chip { margin-left: auto; }
   .org-vertical-line { height: 22px; }
-  .org-divisions { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  /* 좁은 화면에서는 갈래도 한 줄로 접는다 */
+  .org-divisions,
+  .org-chart.view .org-divisions { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .org-vertical-line.branching::after { display: none; }
+  .org-vertical-line.branching + .org-divisions .org-division::before { display: none; }
   .org-division { padding: 14px; }
   .org-node-copy strong { font-size: 15px; }
   .org-node-copy small { font-size: 12px; }
