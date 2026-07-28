@@ -177,7 +177,12 @@
   left: 278px; /* .app 사이드바 폭과 같은 값 */
   z-index: 0;
   background: url("/logo-trimmed.png") no-repeat center 52% / auto min(52vh, 430px);
-  opacity: .07;
+  opacity: .11;
+  filter:
+    drop-shadow(-5px -6px 5px rgba(255, 255, 255, 1))
+    drop-shadow(7px 9px 5px rgba(14, 46, 76, .85))
+    drop-shadow(22px 28px 26px rgba(14, 46, 76, .35));
+  transform: perspective(1100px) rotateX(12deg) rotateY(-14deg) rotate(-3deg);
   pointer-events: none;
 }
 
@@ -1981,14 +1986,20 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 }
 
 /* 조직도 카드가 흰색이라 메인 워터마크를 가린다. 트리 뒤쪽에 한 번 더
-   깔아 로고가 비치게 하되, 노드는 그 위에 그려 가독성은 그대로 둔다. */
+   깔아 로고가 비치게 하되, 노드는 그 위에 그려 가독성은 그대로 둔다.
+   살짝 기울이고 그림자를 넣어 판판하지 않고 떠 있는 느낌을 준다. */
 .org-chart::before {
   content: "";
   position: absolute;
   inset: 0;
   z-index: 0;
   background: url("/logo-trimmed.png") no-repeat center 46% / auto min(58%, 420px);
-  opacity: .08;
+  opacity: .13;
+  filter:
+    drop-shadow(-5px -6px 5px rgba(255, 255, 255, 1))
+    drop-shadow(7px 9px 5px rgba(14, 46, 76, .85))
+    drop-shadow(22px 28px 26px rgba(14, 46, 76, .35));
+  transform: perspective(1100px) rotateX(12deg) rotateY(-14deg) rotate(-3deg);
   pointer-events: none;
 }
 
