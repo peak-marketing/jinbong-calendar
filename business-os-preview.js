@@ -939,6 +939,7 @@
 
   function renderOrganizationModule() {
     const currentGroup = String(userDoc?.group_name || '').trim();
+    const canManageOrganization = ['admin', 'manager'].includes(userDoc?.role);
     const currentClass = (...names) => names.some(name => currentGroup.includes(name)) ? 'current' : '';
     const currentBadge = (...names) => names.some(name => currentGroup.includes(name)) ? '<span class="org-current-badge">내 소속</span>' : '';
     moduleView.innerHTML = `
@@ -951,7 +952,10 @@
       <section class="module-section">
         <div class="module-section-head">
           <span><strong>전체 조직 구조</strong><small>현재 로그인 계정의 소속은 파란색으로 강조됩니다</small></span>
-          <button class="module-action" type="button" data-module-action="지사별 조직도">전체 지사⌄</button>
+          <span style="display:flex;gap:7px;align-items:center">
+            <button class="module-action" type="button" data-module-action="지사별 조직도">전체 지사⌄</button>
+            ${canManageOrganization ? '<button class="module-action" type="button" data-open-permissions>권한 관리</button>' : ''}
+          </span>
         </div>
         <div class="module-section-body">
           <div class="org-chart">
@@ -1080,6 +1084,7 @@
       reportType = button.dataset.reportType;
       renderPlannedModule('reports');
     }));
+    moduleView.querySelector('[data-open-permissions]')?.addEventListener('click', () => activateView('permissions'));
     wireModuleActions();
   }
 
@@ -1087,6 +1092,15 @@
     moduleView.querySelectorAll('[data-module-action]').forEach(button => button.addEventListener('click', () => {
       showToast(`${button.dataset.moduleAction} 기능은 실제 자료·API 구조가 확정되면 연결합니다.`);
     }));
+  }
+
+  function setNavClusterClosed(cluster, closed) {
+    if (!cluster) return;
+    cluster.classList.toggle('closed', closed);
+    const toggle = cluster.querySelector('.nav-cluster-toggle');
+    const caret = cluster.querySelector('.nav-cluster-caret');
+    if (toggle) toggle.setAttribute('aria-expanded', closed ? 'false' : 'true');
+    if (caret) caret.textContent = closed ? '⌄' : '⌃';
   }
 
   function activateView(view) {
@@ -1103,6 +1117,8 @@
     const labels = { dashboard: 'PEAKMARKETING', calendar: 'CALENDAR', chat: 'CHAT', todo: 'TO DO LIST', review: 'PROJECTS', permissions: '조직 및 권한', ...PLANNED_MODULES };
     pageCrumb.textContent = labels[view] || 'PEAKMARKETING';
     document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === view));
+    const activeNav = document.querySelector(`.app-sidebar .nav-item[data-view="${view}"]`);
+    if (activeNav) setNavClusterClosed(activeNav.closest('[data-nav-cluster]'), false);
     body.classList.remove('menu-open');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -1113,10 +1129,16 @@
     document.querySelectorAll('.nav-item[data-view]').forEach(button => button.addEventListener('click', () => activateView(button.dataset.view)));
     document.querySelectorAll('.tree-item[data-view]').forEach(button => button.addEventListener('click', () => activateView(button.dataset.view)));
     document.querySelectorAll('.tree-trigger').forEach(button => button.addEventListener('click', () => button.closest('.tree-group').classList.toggle('closed')));
+    document.querySelectorAll('[data-nav-cluster]').forEach(cluster => {
+      cluster.querySelector('.nav-cluster-toggle')?.addEventListener('click', () => {
+        setNavClusterClosed(cluster, !cluster.classList.contains('closed'));
+      });
+    });
 
     const search = document.getElementById('sidebarTabSearch');
     const submit = document.getElementById('sidebarTabSearchSubmit');
     const searchable = [...document.querySelectorAll('.nav-section .nav-item[data-tab-search]')];
+    const navClusters = [...document.querySelectorAll('[data-nav-cluster]')];
     const filter = () => {
       const query = search.value.trim().toLowerCase().replace(/\s/g, '');
       let visible = 0;
@@ -1124,6 +1146,11 @@
         const matches = !query || button.dataset.tabSearch.toLowerCase().replace(/\s/g, '').includes(query);
         button.hidden = !matches;
         if (matches) visible += 1;
+      });
+      navClusters.forEach(cluster => {
+        const hasVisibleItem = [...cluster.querySelectorAll('.nav-item[data-tab-search]')].some(button => !button.hidden);
+        cluster.hidden = !!query && !hasVisibleItem;
+        cluster.classList.toggle('search-open', !!query && hasVisibleItem);
       });
       document.getElementById('tabSearchEmpty').hidden = visible !== 0;
       return searchable.filter(button => !button.hidden);

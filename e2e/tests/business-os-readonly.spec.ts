@@ -88,6 +88,15 @@ test.describe('Business OS read-only operating data', () => {
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
     await expect(page.locator('.prototype-bar')).toContainText('운영 데이터 · 읽기 전용');
+    await expect(page.locator('.app-sidebar [data-nav-cluster]')).toHaveCount(4);
+    await expect(page.locator('.app-sidebar .sidebar-tree-heading')).toHaveCount(0);
+    await expect(page.locator('[data-nav-cluster="finance"]')).toHaveClass(/closed/);
+    await expect(page.locator('[data-nav-cluster="tools"]')).toHaveClass(/closed/);
+    await page.locator('#sidebarTabSearch').fill('세금');
+    await expect(page.locator('[data-nav-cluster="finance"]')).toHaveClass(/search-open/);
+    await expect(page.locator('.nav-item[data-view="tax"]')).toBeVisible();
+    await page.locator('#sidebarTabSearch').fill('');
+    await expect(page.locator('[data-nav-cluster="finance"]')).toHaveClass(/closed/);
     await expect(page.locator('#dashboardView')).toContainText('오늘 운영 업무');
     await expect(page.locator('#dashboardView')).toContainText('아직 전달받은 실제 데이터가 없습니다');
     await expect(page.locator('#dashboardView')).not.toContainText('₩ 4,820만');
@@ -113,6 +122,7 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#readonlyDetailModal')).toContainText('진행사항 원문');
     await page.locator('#readonlyModalClose').click();
 
+    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
     await page.locator('.nav-item[data-view="reports"]').click();
     await expect(page.locator('#moduleView')).toContainText('출근보고서');
     await expect(page.locator('#moduleView')).toContainText('분기별보고서');
@@ -149,6 +159,7 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView')).toContainText('세무 · 재무');
     await expect(page.locator('#moduleView .org-subteam.current')).toContainText('개발팀');
     await expect(page.locator('#moduleView .org-subteam.current')).toContainText('내 소속');
+    await expect(page.locator('#moduleView [data-open-permissions]')).toBeVisible();
 
     await page.locator('.nav-item[data-view="settlement"]').click();
     await expect(page.locator('#moduleView')).toContainText('내 개인정산서');
@@ -161,6 +172,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('.nav-item[data-view="platform"]').click();
     await expect(page.locator('#moduleView')).toContainText('API 통합 정산 흐름');
 
+    await page.locator('[data-nav-cluster="tools"] .nav-cluster-toggle').click();
     await page.locator('.nav-item[data-view="saas"]').click();
     await expect(page.locator('#moduleView')).toContainText('SaaS 사이트 목록');
 
@@ -186,6 +198,7 @@ test.describe('Business OS read-only operating data', () => {
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
+    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
     await page.locator('.nav-item[data-view="settlement"]').click();
     await expect(page.locator('#moduleView')).toContainText('내 개인정산서');
     await expect(page.locator('#moduleView')).not.toContainText('최종정산서');

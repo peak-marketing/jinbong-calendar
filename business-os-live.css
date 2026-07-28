@@ -114,6 +114,56 @@
 
 .member-signout:hover { border-color: #348ecd; color: #348ecd; }
 
+.app-sidebar .sidebar-nav {
+  display: block;
+  flex: 1 0 auto;
+}
+
+.app-sidebar .nav-cluster {
+  margin-bottom: 6px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid rgba(215, 224, 232, .72);
+}
+
+.app-sidebar .nav-cluster:last-of-type { border-bottom: 0; }
+
+.nav-cluster-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 29px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #8b99a7;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .08em;
+  text-align: left;
+}
+
+.nav-cluster-toggle:hover { background: rgba(255, 255, 255, .58); color: #52697c; }
+
+.nav-cluster-caret {
+  color: #a2aeba;
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.nav-cluster-items { display: block; }
+.nav-cluster.closed .nav-cluster-items { display: none; }
+.nav-cluster.closed.search-open .nav-cluster-items { display: block; }
+
+.app-sidebar .tab-search-empty {
+  margin: 12px 8px;
+  padding: 12px 8px;
+  border: 1px dashed #d5e0e8;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .46);
+}
+
 .readonly-badge {
   display: inline-flex;
   align-items: center;
