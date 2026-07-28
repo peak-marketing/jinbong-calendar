@@ -1690,7 +1690,6 @@
     const canManageOrganization = canManagePermissions();
     const branches = ORG_STRUCTURE.filter(branch => orgBranchFilter === 'all' || branch.id === orgBranchFilter);
     moduleView.innerHTML = `
-      ${moduleStatusbar('피크마케팅 조직도', `지사 ${ORG_STRUCTURE.length}곳 · 조직도 인원 ${orgRoster().length}명 · 내 직급 ${currentOrgRank()}`, '직급 초안 · 저장 전')}
       <section class="module-section">
         <div class="module-section-head">
           <span><strong>전체 조직 구조</strong><small>현재 로그인 계정의 소속은 파란색으로 강조됩니다</small></span>
