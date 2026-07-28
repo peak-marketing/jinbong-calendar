@@ -43,6 +43,8 @@
   let chatFilter = 'all';
   let selectedChatRoomId = null;
   let reportType = 'attendance';
+  let salesSummary = { key: '', status: 'idle', data: null, error: '' };
+  const salesSummaryCache = new Map();
   let serviceFilter = 'all';
   let serviceCatalog = [
     { id: 'brand-auto-space', icon: '💻', name: '브랜드오토스페이스', description: '프로그램 판매 사이트', category: 'sales', url: '' },
@@ -935,10 +937,10 @@
     body.classList.remove('chat-preview-room-open');
   }
 
-  function moduleStatusbar(title, detail) {
+  function moduleStatusbar(title, detail, badge = 'MVP 기획 · 데이터 연결 전') {
     return `<div class="module-statusbar">
       <span><strong>${esc(title)}</strong><small>${esc(detail)}</small></span>
-      <span class="module-plan-badge">MVP 기획 · 데이터 연결 전</span>
+      <span class="module-plan-badge">${esc(badge)}</span>
     </div>`;
   }
 
@@ -951,19 +953,221 @@
     </article>`;
   }
 
-  function renderReportChart(label) {
-    return `<div class="report-kpis">
-      <article class="report-kpi"><span>보고 매출</span><strong>—</strong><small>매출 데이터 연결 전</small></article>
-      <article class="report-kpi"><span>보고서 수</span><strong>—</strong><small>보고서 DB 연결 전</small></article>
-      <article class="report-kpi"><span>전기 대비</span><strong>—</strong><small>비교 기준 연결 전</small></article>
-    </div>
-    <div class="report-chart">
-      <div class="report-chart-title"><strong>${esc(label)} 매출 추이</strong><span>현재 계정의 지사·팀·개인 권한 범위</span></div>
-      <div class="report-chart-axis"><span>높음</span><span>중간</span><span>낮음</span><span>0</span></div>
-      <div class="report-chart-canvas"></div>
-      <div class="report-chart-labels"><span>1구간</span><span>2구간</span><span>3구간</span><span>4구간</span><span>5구간</span></div>
-      <div class="report-empty-overlay"><strong>매출 데이터 연결 후 표시</strong>실제 보고서의 기간별 매출을 선 그래프와 핵심 지표로 보여줄 자리입니다.</div>
+  // 보고서 종류별 조회 기간·집계 단위. 서버의 sales-summary bucket과 짝을 이룬다.
+  const SALES_REPORT_PERIODS = {
+    daily: { bucket: 'day', rangeLabel: '최근 14일', span: { days: 14 } },
+    weekly: { bucket: 'week', rangeLabel: '최근 8주', span: { weeks: 8 } },
+    monthly: { bucket: 'month', rangeLabel: '최근 6개월', span: { months: 6 } },
+    quarterly: { bucket: 'quarter', rangeLabel: '최근 4분기', span: { quarters: 4 } }
+  };
+
+  const SALES_SCOPE_LABEL = {
+    all: '전체 지사·팀 보고서',
+    group: '소속 부서와 본인 보고서',
+    self: '본인 보고서'
+  };
+
+  function salesPeriodFor(type) {
+    const config = SALES_REPORT_PERIODS[type];
+    if (!config) return null;
+    const today = new Date();
+    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    if (config.span.days) start.setDate(start.getDate() - (config.span.days - 1));
+    if (config.span.weeks) {
+      start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+      start.setDate(start.getDate() - (config.span.weeks - 1) * 7);
+    }
+    if (config.span.months) start.setMonth(start.getMonth() - (config.span.months - 1), 1);
+    if (config.span.quarters) {
+      start.setMonth(Math.floor(start.getMonth() / 3) * 3 - (config.span.quarters - 1) * 3, 1);
+    }
+    return { bucket: config.bucket, rangeLabel: config.rangeLabel, from: localDateKey(start), to: localDateKey(today) };
+  }
+
+  function salesBucketLabel(bucket, key) {
+    const value = String(key || '');
+    if (bucket === 'day') {
+      const parts = value.split('-');
+      return parts.length === 3 ? `${Number(parts[1])}/${Number(parts[2])}` : value;
+    }
+    if (bucket === 'week') {
+      const start = new Date(`${value}T00:00:00`);
+      if (Number.isNaN(start.getTime())) return value;
+      const end = new Date(start);
+      end.setDate(end.getDate() + 6);
+      return `${start.getMonth() + 1}/${start.getDate()}~${end.getMonth() + 1}/${end.getDate()}`;
+    }
+    if (bucket === 'month') return `${Number(value.slice(5, 7))}월`;
+    if (bucket === 'quarter') return `${value.slice(-1)}분기`;
+    return value;
+  }
+
+  function formatWon(value) {
+    return `${Math.round(Number(value) || 0).toLocaleString('ko-KR')}원`;
+  }
+
+  // 큰 금액은 억·만 단위로 줄여 지표 카드에서 읽기 쉽게 표시한다.
+  function formatWonShort(value) {
+    const amount = Math.round(Number(value) || 0);
+    if (amount >= 100000000) return `${(amount / 100000000).toFixed(1)}억원`;
+    if (amount >= 10000) return `${Math.round(amount / 10000).toLocaleString('ko-KR')}만원`;
+    return `${amount.toLocaleString('ko-KR')}원`;
+  }
+
+  function salesBucketTotals(data) {
+    return (data.bucketKeys || []).map(key => ({
+      key,
+      label: salesBucketLabel(data.bucket, key),
+      amount: (data.authors || []).reduce((sum, author) => sum + (author.amounts?.[key] || 0), 0)
+    }));
+  }
+
+  function renderSalesChart(buckets) {
+    const max = buckets.reduce((peak, item) => Math.max(peak, item.amount), 0);
+    if (!max) return '';
+    return `<div class="sales-chart" role="img" aria-label="기간별 보고 매출 막대 그래프">
+      ${buckets.map(item => {
+        const ratio = Math.max(2, Math.round((item.amount / max) * 100));
+        return `<div class="sales-bar">
+          <span class="sales-bar-value">${esc(formatWonShort(item.amount))}</span>
+          <span class="sales-bar-track"><span class="sales-bar-fill" style="height:${ratio}%"></span></span>
+          <span class="sales-bar-label">${esc(item.label)}</span>
+        </div>`;
+      }).join('')}
     </div>`;
+  }
+
+  function renderSalesAuthorTable(data, buckets) {
+    if (!data.authors?.length) return '';
+    return `<div class="sales-table-scroll">
+      <table class="sales-table">
+        <thead>
+          <tr>
+            <th scope="col">영업자</th>
+            <th scope="col">소속</th>
+            ${buckets.map(item => `<th scope="col">${esc(item.label)}</th>`).join('')}
+            <th scope="col">합계</th>
+            <th scope="col">보고서</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${data.authors.map(author => `<tr>
+            <th scope="row">${esc(author.name)}</th>
+            <td class="sales-cell-group">${esc(author.groupName)}</td>
+            ${buckets.map(item => {
+              const amount = author.amounts?.[item.key] || 0;
+              return `<td class="${amount ? '' : 'sales-cell-zero'}">${amount ? esc(amount.toLocaleString('ko-KR')) : '—'}</td>`;
+            }).join('')}
+            <td class="sales-cell-total">${esc(author.total.toLocaleString('ko-KR'))}</td>
+            <td class="sales-cell-count">${esc(String(author.reportCount))}건</td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row">합계</th>
+            <td></td>
+            ${buckets.map(item => `<td>${esc(item.amount.toLocaleString('ko-KR'))}</td>`).join('')}
+            <td class="sales-cell-total">${esc(Number(data.totals?.amount || 0).toLocaleString('ko-KR'))}</td>
+            <td class="sales-cell-count">${esc(String(data.totals?.reportCount || 0))}건</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`;
+  }
+
+  function renderSalesFields(data) {
+    const fields = (data.fields || []).slice(0, 8);
+    if (!fields.length) return '';
+    const max = fields[0].amount || 1;
+    return `<div class="sales-field-list">
+      ${fields.map(field => `<div class="sales-field">
+        <span class="sales-field-name">${esc(field.name)}</span>
+        <span class="sales-field-track"><span class="sales-field-fill" style="width:${Math.max(3, Math.round((field.amount / max) * 100))}%"></span></span>
+        <span class="sales-field-amount">${esc(formatWon(field.amount))}</span>
+      </div>`).join('')}
+    </div>`;
+  }
+
+  function renderSalesSummaryPane() {
+    const pane = document.getElementById('salesSummaryPane');
+    if (!pane) return;
+
+    if (salesSummary.status === 'loading') {
+      pane.innerHTML = '<p class="sales-state">운영 보고서에서 매출을 집계하는 중입니다…</p>';
+      return;
+    }
+    if (salesSummary.status === 'error') {
+      pane.innerHTML = `<p class="sales-state sales-state-error">매출 집계를 불러오지 못했습니다. ${esc(salesSummary.error)}</p>`;
+      return;
+    }
+
+    const data = salesSummary.data;
+    if (!data) {
+      pane.innerHTML = '';
+      return;
+    }
+
+    const buckets = salesBucketTotals(data);
+    const total = Number(data.totals?.amount || 0);
+    if (!total) {
+      pane.innerHTML = `<p class="sales-state">${esc(data.from)} ~ ${esc(data.to)} 기간에 조회 권한 범위 내 보고 매출이 없습니다.</p>`;
+      return;
+    }
+
+    const changeRate = data.previous?.changeRate;
+    const changeText = typeof changeRate === 'number'
+      ? `${changeRate >= 0 ? '+' : ''}${(changeRate * 100).toFixed(1)}%`
+      : '비교 구간 없음';
+    const changeTone = typeof changeRate === 'number' ? (changeRate >= 0 ? 'up' : 'down') : '';
+
+    pane.innerHTML = `
+      <div class="sales-kpis">
+        <article class="sales-kpi">
+          <span>보고 매출</span>
+          <strong>${esc(formatWonShort(total))}</strong>
+          <small>${esc(formatWon(total))}</small>
+        </article>
+        <article class="sales-kpi">
+          <span>보고서 수</span>
+          <strong>${esc(Number(data.totals?.reportCount || 0).toLocaleString('ko-KR'))}건</strong>
+          <small>영업자 ${esc(String(data.totals?.authorCount || 0))}명</small>
+        </article>
+        <article class="sales-kpi">
+          <span>직전 구간 대비</span>
+          <strong class="sales-change ${esc(changeTone)}">${esc(changeText)}</strong>
+          <small>${esc(data.previous?.from || '')} ~ ${esc(data.previous?.to || '')} · ${esc(formatWonShort(data.previous?.amount || 0))}</small>
+        </article>
+      </div>
+      ${renderSalesChart(buckets)}
+      ${renderSalesAuthorTable(data, buckets)}
+      ${renderSalesFields(data)}
+      <p class="sales-basis">집계 기준 · 일일보고서의 매출 항목만 합산하며 수금액·미수잔액은 제외합니다. 조회 범위는 ${esc(SALES_SCOPE_LABEL[data.scope] || '허용된 보고서')}입니다.</p>`;
+  }
+
+  async function loadSalesSummary(type) {
+    const period = salesPeriodFor(type);
+    if (!period) return;
+    const key = `${period.bucket}:${period.from}:${period.to}`;
+
+    if (salesSummaryCache.has(key)) {
+      salesSummary = { key, status: 'ready', data: salesSummaryCache.get(key), error: '' };
+      renderSalesSummaryPane();
+      return;
+    }
+
+    salesSummary = { key, status: 'loading', data: null, error: '' };
+    renderSalesSummaryPane();
+
+    try {
+      const data = await readOnlyApi(`/reports/sales-summary?bucket=${encodeURIComponent(period.bucket)}&from=${period.from}&to=${period.to}`);
+      salesSummaryCache.set(key, data);
+      if (salesSummary.key !== key) return;
+      salesSummary = { key, status: 'ready', data, error: '' };
+    } catch (error) {
+      if (salesSummary.key !== key) return;
+      salesSummary = { key, status: 'error', data: null, error: error.message || '조회 실패' };
+    }
+    renderSalesSummaryPane();
   }
 
   function renderAttendanceReport() {
@@ -987,21 +1191,34 @@
       ['quarterly', '◇', '분기별보고서', '분기 성장 지표']
     ];
     const selected = types.find(([key]) => key === reportType) || types[0];
+    const period = salesPeriodFor(reportType);
     const content = reportType === 'attendance'
       ? renderAttendanceReport()
       : `<section class="module-section">
-          <div class="module-section-head"><span><strong>${esc(selected[2])}</strong><small>기간별 보고 매출을 그래프와 지표로 확인합니다</small></span><span class="module-chip">매출 DB 연결 전</span></div>
-          <div class="module-section-body">${renderReportChart(selected[2])}</div>
+          <div class="module-section-head">
+            <span><strong>${esc(selected[2])}</strong><small>${esc(period ? `${period.rangeLabel} · ${period.from} ~ ${period.to}` : '기간별 보고 매출')}</small></span>
+            <span class="module-chip live">운영 보고서 연결</span>
+          </div>
+          <div class="module-section-body"><div id="salesSummaryPane" class="sales-pane"></div></div>
         </section>`;
     moduleView.innerHTML = `
-      ${moduleStatusbar('보고서 모듈', '출근 기록과 일일·주간·월말·분기별 매출 보고서를 한곳에서 관리합니다.')}
+      ${moduleStatusbar(
+        '보고서 모듈',
+        '출근 기록과 일일·주간·월말·분기별 매출 보고서를 한곳에서 관리합니다.',
+        reportType === 'attendance' ? '근태 API 연결 전' : '운영 보고서 연결 · 읽기 전용'
+      )}
       <div class="report-layout">
         <nav class="report-type-list" aria-label="보고서 종류">
           ${types.map(([key, icon, label, detail]) => `<button class="report-type-button ${reportType === key ? 'active' : ''}" type="button" data-report-type="${key}"><span class="report-type-icon">${icon}</span><span class="report-type-copy"><strong>${label}</strong><small>${detail}</small></span><span class="report-type-chevron">›</span></button>`).join('')}
         </nav>
         ${content}
       </div>
-      <div class="module-security"><span>▣</span><span><strong>보고서 권한 기준</strong><br>대표는 전체 지사, 팀장은 소속 부서 전체와 본인, 일반 구성원은 본인에게 허용된 보고서만 조회하는 구조로 연결합니다.</span></div>`;
+      <div class="module-security"><span>▣</span><span><strong>보고서 권한 기준</strong><br>대표는 전체 지사, 팀장은 소속 부서 전체와 본인, 일반 구성원은 본인 보고서만 조회합니다. 매출 집계도 같은 기준으로 서버에서 걸러 내려받습니다.</span></div>`;
+
+    if (reportType !== 'attendance') {
+      renderSalesSummaryPane();
+      loadSalesSummary(reportType);
+    }
   }
 
   function renderDocumentsModule() {

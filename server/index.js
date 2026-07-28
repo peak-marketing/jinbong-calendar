@@ -3136,6 +3136,190 @@ app.get('/api/reports/weekly-summary', authMiddleware, async (req, res) => {
   }
 });
 
+// PEAK OS 보고서 매출 집계 (읽기 전용 조회 전용, 기간·단위별)
+const SALES_SUMMARY_BUCKETS = {
+  day: `r.report_date`,
+  week: `to_char(date_trunc('week', r.report_date::date), 'YYYY-MM-DD')`,
+  month: `substr(r.report_date, 1, 7)`,
+  quarter: `to_char(date_trunc('quarter', r.report_date::date), 'YYYY"Q"Q')`,
+};
+// 금액 문자열에서 숫자만 남긴 값. 콤마·"원" 표기가 섞여 있어 파라곤 집계와 동일하게 정규화한다.
+const SALES_AMOUNT_DIGITS = `regexp_replace(re.value, '[^0-9]', '', 'g')`;
+const SALES_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function shiftDate(date, days) {
+  const next = new Date(`${date}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next.toISOString().slice(0, 10);
+}
+
+// 계정 권한에 따라 조회 가능한 보고서 범위를 좁힌다. weekly-summary와 동일 기준.
+function salesSummaryScope(req, params) {
+  if (req.userDoc.role === 'admin' || req.userDoc.can_view_all_reports) {
+    return { clause: '', scope: 'all' };
+  }
+  if (req.userDoc.role === 'manager') {
+    params.push(req.uid, req.userDoc.group_id);
+    return { clause: ` AND (r.author_id = $${params.length - 1} OR u.group_id = $${params.length})`, scope: 'group' };
+  }
+  params.push(req.uid);
+  return { clause: ` AND r.author_id = $${params.length}`, scope: 'self' };
+}
+
+app.get('/api/reports/sales-summary', authMiddleware, async (req, res) => {
+  if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
+
+  const bucket = String(req.query.bucket || 'month');
+  const bucketExpr = Object.prototype.hasOwnProperty.call(SALES_SUMMARY_BUCKETS, bucket)
+    ? SALES_SUMMARY_BUCKETS[bucket]
+    : null;
+  if (!bucketExpr) return res.status(400).json({ error: '지원하지 않는 집계 단위입니다.' });
+
+  const from = String(req.query.from || '');
+  const to = String(req.query.to || '');
+  if (!SALES_DATE_PATTERN.test(from) || !SALES_DATE_PATTERN.test(to) || from > to) {
+    return res.status(400).json({ error: '조회 기간이 올바르지 않습니다.' });
+  }
+
+  try {
+    // 기간·금액 필드 공통 조건. is_amount 항목만 매출로 보고, 수금액·미수잔액 등은 제외된다.
+    const baseWhere = `WHERE r.report_date BETWEEN $1 AND $2
+        AND r.report_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'`;
+    const amountJoin = `JOIN report_entries re ON re.report_id = r.id
+      JOIN report_fields rf ON rf.id = re.field_id AND rf.is_amount = true`;
+    const amountWhere = ` AND length(${SALES_AMOUNT_DIGITS}) BETWEEN 1 AND 15`;
+
+    const amountParams = [from, to];
+    const amountScope = salesSummaryScope(req, amountParams);
+    const amounts = await pool.query(
+      `SELECT r.author_id,
+              r.author_name,
+              COALESCE(g.name, '(미지정)') AS group_name,
+              ${bucketExpr} AS bucket_key,
+              COALESCE(SUM(${SALES_AMOUNT_DIGITS}::bigint), 0) AS amount
+       FROM reports r
+       JOIN users u ON u.uid = r.author_id
+       LEFT JOIN groups g ON g.id = u.group_id
+       ${amountJoin}
+       ${baseWhere}${amountWhere}${amountScope.clause}
+       GROUP BY 1, 2, 3, 4`,
+      amountParams
+    );
+
+    const countParams = [from, to];
+    const countScope = salesSummaryScope(req, countParams);
+    const counts = await pool.query(
+      `SELECT r.author_id, ${bucketExpr} AS bucket_key, COUNT(*)::int AS report_count
+       FROM reports r
+       JOIN users u ON u.uid = r.author_id
+       ${baseWhere}${countScope.clause}
+       GROUP BY 1, 2`,
+      countParams
+    );
+
+    const fieldParams = [from, to];
+    const fieldScope = salesSummaryScope(req, fieldParams);
+    const fields = await pool.query(
+      `SELECT rf.field_name, COALESCE(SUM(${SALES_AMOUNT_DIGITS}::bigint), 0) AS amount
+       FROM reports r
+       JOIN users u ON u.uid = r.author_id
+       ${amountJoin}
+       ${baseWhere}${amountWhere}${fieldScope.clause}
+       GROUP BY 1
+       HAVING SUM(${SALES_AMOUNT_DIGITS}::bigint) > 0
+       ORDER BY 2 DESC`,
+      fieldParams
+    );
+
+    // 전기 대비: 조회 기간과 같은 길이의 직전 구간
+    const spanDays = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1;
+    const prevTo = shiftDate(from, -1);
+    const prevFrom = shiftDate(prevTo, -(spanDays - 1));
+    const prevParams = [prevFrom, prevTo];
+    const prevScope = salesSummaryScope(req, prevParams);
+    const previous = await pool.query(
+      `SELECT COALESCE(SUM(${SALES_AMOUNT_DIGITS}::bigint), 0) AS amount
+       FROM reports r
+       JOIN users u ON u.uid = r.author_id
+       ${amountJoin}
+       ${baseWhere}${amountWhere}${prevScope.clause}`,
+      prevParams
+    );
+
+    const bucketKeys = [...new Set([
+      ...amounts.rows.map(row => row.bucket_key),
+      ...counts.rows.map(row => row.bucket_key),
+    ])].sort();
+
+    const authorMap = new Map();
+    const ensureAuthor = (authorId, authorName, groupName) => {
+      if (!authorMap.has(authorId)) {
+        authorMap.set(authorId, {
+          authorId,
+          name: authorName || '이름 없음',
+          groupName: groupName || '(미지정)',
+          total: 0,
+          reportCount: 0,
+          amounts: {},
+          reportCounts: {},
+        });
+      }
+      return authorMap.get(authorId);
+    };
+
+    amounts.rows.forEach(row => {
+      const author = ensureAuthor(row.author_id, row.author_name, row.group_name);
+      const amount = Number(row.amount) || 0;
+      author.amounts[row.bucket_key] = (author.amounts[row.bucket_key] || 0) + amount;
+      author.total += amount;
+    });
+    counts.rows.forEach(row => {
+      const author = ensureAuthor(row.author_id, row.author_name, null);
+      author.reportCounts[row.bucket_key] = (author.reportCounts[row.bucket_key] || 0) + row.report_count;
+      author.reportCount += row.report_count;
+    });
+
+    const authors = [...authorMap.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'ko'));
+    const groupMap = new Map();
+    authors.forEach(author => {
+      const current = groupMap.get(author.groupName) || { name: author.groupName, total: 0, amounts: {} };
+      current.total += author.total;
+      bucketKeys.forEach(key => {
+        current.amounts[key] = (current.amounts[key] || 0) + (author.amounts[key] || 0);
+      });
+      groupMap.set(author.groupName, current);
+    });
+
+    const totalAmount = authors.reduce((sum, author) => sum + author.total, 0);
+    const totalReports = authors.reduce((sum, author) => sum + author.reportCount, 0);
+    const previousAmount = Number(previous.rows[0]?.amount) || 0;
+
+    res.json({
+      from,
+      to,
+      bucket,
+      scope: amountScope.scope,
+      bucketKeys,
+      authors,
+      groups: [...groupMap.values()].sort((a, b) => b.total - a.total),
+      fields: fields.rows.map(row => ({ name: row.field_name, amount: Number(row.amount) || 0 })),
+      totals: {
+        amount: totalAmount,
+        reportCount: totalReports,
+        authorCount: authors.length,
+      },
+      previous: {
+        from: prevFrom,
+        to: prevTo,
+        amount: previousAmount,
+        changeRate: previousAmount > 0 ? (totalAmount - previousAmount) / previousAmount : null,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 미제출 체크
 app.get('/api/reports/missing-today', authMiddleware, async (req, res) => {
   if (req.userDoc?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });

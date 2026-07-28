@@ -5,6 +5,7 @@ test.describe('Business OS read-only operating data', () => {
   test('renders account-scoped Paragon data and only issues GET requests', async ({ page }) => {
     await installFirebaseStub(page);
     const apiMethods: string[] = [];
+    const salesSummaryQueries: string[] = [];
     const pageErrors: string[] = [];
     page.on('pageerror', error => pageErrors.push(error.message));
     const today = new Date();
@@ -108,6 +109,45 @@ test.describe('Business OS read-only operating data', () => {
         payload = { canManageAll: true, projects: [project] };
       } else if (pathname === '/projects/project-live-1') {
         payload = project;
+      } else if (pathname === '/reports/sales-summary') {
+        salesSummaryQueries.push(new URL(request.url()).search);
+        payload = {
+          from: '2026-06-01',
+          to: '2026-07-26',
+          bucket: 'week',
+          scope: 'all',
+          bucketKeys: ['2026-07-13', '2026-07-20'],
+          authors: [
+            {
+              authorId: 'author-1',
+              name: '박종원',
+              groupName: '본사 영업팀',
+              total: 35745660,
+              reportCount: 9,
+              amounts: { '2026-07-13': 12841920, '2026-07-20': 22903740 },
+              reportCounts: { '2026-07-13': 4, '2026-07-20': 5 },
+            },
+            {
+              authorId: 'author-2',
+              name: '깨비승짱',
+              groupName: '대구지사',
+              total: 1093600,
+              reportCount: 6,
+              amounts: { '2026-07-13': 62500, '2026-07-20': 1031100 },
+              reportCounts: { '2026-07-13': 3, '2026-07-20': 3 },
+            },
+          ],
+          groups: [
+            { name: '본사 영업팀', total: 35745660, amounts: {} },
+            { name: '대구지사', total: 1093600, amounts: {} },
+          ],
+          fields: [
+            { name: '리워드', amount: 20000000 },
+            { name: '블로그', amount: 16839260 },
+          ],
+          totals: { amount: 36839260, reportCount: 15, authorCount: 2 },
+          previous: { from: '2026-05-04', to: '2026-06-28', amount: 30000000, changeRate: 0.2279 },
+        };
       }
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
     });
@@ -174,11 +214,25 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('.nav-item[data-view="reports"]').click();
     await expect(page.locator('#moduleView')).toContainText('출근보고서');
     await expect(page.locator('#moduleView')).toContainText('분기별보고서');
-    await expect(page.locator('#moduleView .report-chart')).toHaveCount(0);
+    await expect(page.locator('#moduleView .sales-chart')).toHaveCount(0);
+
+    // 주간보고서: 운영 보고서 매출이 실제 숫자로 표시되어야 한다
     await page.locator('[data-report-type="weekly"]').click();
-    await expect(page.locator('#moduleView')).toContainText('주간보고서 매출 추이');
-    await expect(page.locator('#moduleView')).toContainText('매출 데이터 연결 후 표시');
-    await expect(page.locator('#moduleView .report-chart')).toHaveCount(1);
+    await expect(page.locator('#moduleView .sales-chart')).toHaveCount(1);
+    await expect(page.locator('#moduleView')).not.toContainText('매출 데이터 연결 후 표시');
+    await expect(page.locator('#moduleView .sales-kpi').first()).toContainText('3,684만원');
+    await expect(page.locator('#moduleView .sales-kpi').first()).toContainText('36,839,260원');
+    await expect(page.locator('#moduleView .sales-change')).toContainText('+22.8%');
+    await expect(page.locator('#moduleView .sales-table tbody tr').first()).toContainText('박종원');
+    await expect(page.locator('#moduleView .sales-table tbody tr').first()).toContainText('22,903,740');
+    await expect(page.locator('#moduleView .sales-table tbody tr')).toHaveCount(2);
+    await expect(page.locator('#moduleView .sales-table tfoot')).toContainText('36,839,260');
+    await expect(page.locator('#moduleView .sales-bar-label').first()).toHaveText('7/13~7/19');
+    await expect(page.locator('#moduleView')).toContainText('리워드');
+    await expect(page.locator('#moduleView .sales-basis')).toContainText('수금액·미수잔액은 제외');
+    expect(salesSummaryQueries.length).toBeGreaterThan(0);
+    expect(salesSummaryQueries[0]).toContain('bucket=week');
+    expect(salesSummaryQueries[0]).toMatch(/from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/);
 
     await page.locator('.nav-item[data-view="documents"]').click();
     await expect(page.locator('#moduleView')).toContainText('협업제안서');
@@ -251,5 +305,46 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView')).toContainText('내 개인정산서');
     await expect(page.locator('#moduleView')).not.toContainText('최종정산서');
     await expect(page.locator('#moduleView')).toContainText('본인의 개인정산서만 표시');
+  });
+
+  test('shows no invented amounts when the account has no sales rows', async ({ page }) => {
+    await installFirebaseStub(page);
+    await page.route('**/api/**', route => {
+      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+      let payload: unknown = [];
+      if (pathname === '/users/me') {
+        payload = { uid: 'e2e-test-user', name: '일반 영업자', role: 'member', approved: true, is_active: true, group_name: '영업팀' };
+      } else if (pathname === '/chat-rooms/unread') {
+        payload = {};
+      } else if (pathname === '/projects') {
+        payload = { canManageAll: false, projects: [] };
+      } else if (pathname === '/reports/sales-summary') {
+        payload = {
+          from: '2026-06-01',
+          to: '2026-07-26',
+          bucket: 'week',
+          scope: 'self',
+          bucketKeys: [],
+          authors: [],
+          groups: [],
+          fields: [],
+          totals: { amount: 0, reportCount: 0, authorCount: 0 },
+          previous: { from: '2026-04-06', to: '2026-05-31', amount: 0, changeRate: null },
+        };
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    });
+
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+    await page.locator('.nav-item[data-view="reports"]').click();
+    await page.locator('[data-report-type="weekly"]').click();
+    await expect(page.locator('#moduleView .sales-state')).toContainText('보고 매출이 없습니다');
+    await expect(page.locator('#moduleView .sales-chart')).toHaveCount(0);
+    await expect(page.locator('#moduleView .sales-table')).toHaveCount(0);
+    await expect(page.locator('#moduleView .sales-kpi')).toHaveCount(0);
+    // 금액 자리에 임의의 숫자가 채워지지 않아야 한다
+    await expect(page.locator('#salesSummaryPane')).not.toHaveText(/\d[\d,]*\s*원/);
   });
 });
