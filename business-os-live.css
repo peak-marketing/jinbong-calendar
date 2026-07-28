@@ -164,6 +164,28 @@
   background: rgba(255, 255, 255, .46);
 }
 
+/* 메인 영역 워터마크. 로고를 옅게 깔아 두되 위에 올라가는 내용은
+   그대로 읽히도록 뒤쪽 레이어에만 두고 클릭도 통과시킨다. */
+.main-shell { position: relative; }
+
+.main-shell::before {
+  content: "";
+  position: fixed;
+  top: 34px;
+  right: 0;
+  bottom: 0;
+  left: 278px; /* .app 사이드바 폭과 같은 값 */
+  z-index: 0;
+  background: url("/logo-trimmed.png") no-repeat center 52% / auto min(52vh, 430px);
+  opacity: .07;
+  pointer-events: none;
+}
+
+.main-shell > * {
+  position: relative;
+  z-index: 1;
+}
+
 body.calendar-workspace .page,
 body.org-workspace .page {
   width: calc(100% - 40px);
@@ -1952,12 +1974,27 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 }
 
 .org-chart {
+  position: relative;
   display: grid;
   gap: 26px;
   padding: 4px 0 8px;
 }
 
+/* 조직도 카드가 흰색이라 메인 워터마크를 가린다. 트리 뒤쪽에 한 번 더
+   깔아 로고가 비치게 하되, 노드는 그 위에 그려 가독성은 그대로 둔다. */
+.org-chart::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: url("/logo-trimmed.png") no-repeat center 46% / auto min(58%, 420px);
+  opacity: .08;
+  pointer-events: none;
+}
+
 .org-branch {
+  position: relative;
+  z-index: 1;
   display: grid;
   gap: 0;
 }
@@ -2309,6 +2346,13 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 }
 
 @media (max-width: 760px) {
+  /* 모바일은 사이드바가 화면 밖으로 빠지므로 메인이 전체 폭을 쓴다 */
+  .main-shell::before {
+    top: 38px;
+    left: 0;
+    background-size: auto min(34vh, 280px);
+    opacity: .05;
+  }
   .auth-card { padding: 27px 22px; }
   body.calendar-workspace .page { width: calc(100% - 20px); }
   body.calendar-workspace .calendar-page { gap: 12px; }
