@@ -111,9 +111,65 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-project-id="project-live-1"]').click();
     await expect(page.locator('#readonlyDetailModal')).toContainText('읽기 전용 업무 확인');
     await expect(page.locator('#readonlyDetailModal')).toContainText('진행사항 원문');
+    await page.locator('#readonlyModalClose').click();
+
+    await page.locator('.nav-item[data-view="reports"]').click();
+    await expect(page.locator('#moduleView')).toContainText('출근보고서');
+    await expect(page.locator('#moduleView')).toContainText('분기별보고서');
+    await expect(page.locator('#moduleView .report-chart')).toHaveCount(0);
+    await page.locator('[data-report-type="weekly"]').click();
+    await expect(page.locator('#moduleView')).toContainText('주간보고서 매출 추이');
+    await expect(page.locator('#moduleView')).toContainText('매출 데이터 연결 후 표시');
+    await expect(page.locator('#moduleView .report-chart')).toHaveCount(1);
+
+    await page.locator('.nav-item[data-view="documents"]').click();
+    await expect(page.locator('#moduleView')).toContainText('협업제안서');
+    await expect(page.locator('#moduleView')).toContainText('교육메뉴얼');
+    await expect(page.locator('#moduleView')).toContainText('상품별 교육자료');
+
+    await page.locator('.nav-item[data-view="company"]').click();
+    await expect(page.locator('#moduleView')).toContainText('사업자등록증');
+    await expect(page.locator('#moduleView')).toContainText('회사 자료');
+
+    await page.locator('.nav-item[data-view="settlement"]').click();
+    await expect(page.locator('#moduleView')).toContainText('내 개인정산서');
+    await expect(page.locator('#moduleView')).toContainText('최종정산서');
+
+    await page.locator('.nav-item[data-view="tax"]').click();
+    await expect(page.locator('#moduleView')).toContainText('거래처별 사업자등록증');
+    await expect(page.locator('#moduleView')).toContainText('세금계산서');
+
+    await page.locator('.nav-item[data-view="platform"]').click();
+    await expect(page.locator('#moduleView')).toContainText('API 통합 정산 흐름');
+
+    await page.locator('.nav-item[data-view="saas"]').click();
+    await expect(page.locator('#moduleView')).toContainText('SaaS 사이트 목록');
 
     expect(apiMethods.length).toBeGreaterThan(0);
     expect(new Set(apiMethods)).toEqual(new Set(['GET']));
     expect(pageErrors).toEqual([]);
+  });
+
+  test('hides final settlement from a regular member account', async ({ page }) => {
+    await installFirebaseStub(page);
+    await page.route('**/api/**', route => {
+      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+      let payload: unknown = [];
+      if (pathname === '/users/me') {
+        payload = { uid: 'e2e-test-user', name: '일반 영업자', role: 'member', approved: true, is_active: true, group_name: '영업팀' };
+      } else if (pathname === '/chat-rooms/unread') {
+        payload = {};
+      } else if (pathname === '/projects') {
+        payload = { canManageAll: false, projects: [] };
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    });
+
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+    await page.locator('.nav-item[data-view="settlement"]').click();
+    await expect(page.locator('#moduleView')).toContainText('내 개인정산서');
+    await expect(page.locator('#moduleView')).not.toContainText('최종정산서');
+    await expect(page.locator('#moduleView')).toContainText('본인의 개인정산서만 표시');
   });
 });

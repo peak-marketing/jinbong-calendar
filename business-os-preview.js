@@ -16,6 +16,7 @@
   const chatView = document.getElementById('chatView');
   const todoView = document.getElementById('todoView');
   const reviewView = document.getElementById('reviewView');
+  const moduleView = document.getElementById('moduleView');
   const permissionsView = document.getElementById('permissionsView');
   const pageCrumb = document.getElementById('pageCrumb');
   const prototypeBar = document.querySelector('.prototype-bar');
@@ -38,6 +39,17 @@
   let projectFilter = 'all';
   let chatFilter = 'all';
   let selectedChatRoomId = null;
+  let reportType = 'attendance';
+
+  const PLANNED_MODULES = {
+    reports: 'REPORTS',
+    documents: 'DOCUMENTS',
+    company: 'COMPANY',
+    settlement: 'SETTLEMENT',
+    tax: 'TAX',
+    platform: 'PLATFORM',
+    saas: 'SAAS HUB'
+  };
 
   const PROJECT_STATUS = {
     planning: ['기획 중', 'planning'],
@@ -704,15 +716,212 @@
     body.classList.remove('chat-preview-room-open');
   }
 
+  function moduleStatusbar(title, detail) {
+    return `<div class="module-statusbar">
+      <span><strong>${esc(title)}</strong><small>${esc(detail)}</small></span>
+      <span class="module-plan-badge">MVP 기획 · 데이터 연결 전</span>
+    </div>`;
+  }
+
+  function moduleCard({ icon, tone = '', title, description, chip = '연결 전', chipClass = '', footer = '자료 구조 확정 후 연결', action = '구조 보기' }) {
+    return `<article class="module-card">
+      <div class="module-card-top"><span class="module-card-icon ${esc(tone)}">${esc(icon)}</span><span class="module-chip ${esc(chipClass)}">${esc(chip)}</span></div>
+      <h2>${esc(title)}</h2>
+      <p>${esc(description)}</p>
+      <div class="module-card-footer"><span>${esc(footer)}</span><button class="module-action" type="button" data-module-action="${esc(title)}">${esc(action)}</button></div>
+    </article>`;
+  }
+
+  function renderReportChart(label) {
+    return `<div class="report-kpis">
+      <article class="report-kpi"><span>보고 매출</span><strong>—</strong><small>매출 데이터 연결 전</small></article>
+      <article class="report-kpi"><span>보고서 수</span><strong>—</strong><small>보고서 DB 연결 전</small></article>
+      <article class="report-kpi"><span>전기 대비</span><strong>—</strong><small>비교 기준 연결 전</small></article>
+    </div>
+    <div class="report-chart">
+      <div class="report-chart-title"><strong>${esc(label)} 매출 추이</strong><span>현재 계정의 지사·팀·개인 권한 범위</span></div>
+      <div class="report-chart-axis"><span>높음</span><span>중간</span><span>낮음</span><span>0</span></div>
+      <div class="report-chart-canvas"></div>
+      <div class="report-chart-labels"><span>1구간</span><span>2구간</span><span>3구간</span><span>4구간</span><span>5구간</span></div>
+      <div class="report-empty-overlay"><strong>매출 데이터 연결 후 표시</strong>실제 보고서의 기간별 매출을 선 그래프와 핵심 지표로 보여줄 자리입니다.</div>
+    </div>`;
+  }
+
+  function renderAttendanceReport() {
+    return `<section class="module-section">
+      <div class="module-section-head"><span><strong>출근보고서</strong><small>출근·퇴근 시간과 근무 기록을 확인합니다</small></span><span class="module-chip">근태 API 연결 전</span></div>
+      <div class="module-section-body" style="padding:0">
+        <table class="empty-table">
+          <thead><tr><th>이름</th><th>소속</th><th>출근</th><th>퇴근</th><th>근무시간</th><th>상태</th></tr></thead>
+          <tbody><tr><td class="empty-table-message" colspan="6">실제 출근 기록이 연결되면 계정 권한 범위에 맞춰 표시됩니다.</td></tr></tbody>
+        </table>
+      </div>
+    </section>`;
+  }
+
+  function renderReportsModule() {
+    const types = [
+      ['attendance', '◷', '출근보고서', '출퇴근 및 근태'],
+      ['daily', '▤', '일일보고서', '일별 매출 지표'],
+      ['weekly', '▥', '주간보고서', '주간 매출 추이'],
+      ['monthly', '◫', '월말보고서', '월간 실적 결산'],
+      ['quarterly', '◇', '분기별보고서', '분기 성장 지표']
+    ];
+    const selected = types.find(([key]) => key === reportType) || types[0];
+    const content = reportType === 'attendance'
+      ? renderAttendanceReport()
+      : `<section class="module-section">
+          <div class="module-section-head"><span><strong>${esc(selected[2])}</strong><small>기간별 보고 매출을 그래프와 지표로 확인합니다</small></span><span class="module-chip">매출 DB 연결 전</span></div>
+          <div class="module-section-body">${renderReportChart(selected[2])}</div>
+        </section>`;
+    moduleView.innerHTML = `
+      ${moduleStatusbar('보고서 모듈', '출근 기록과 일일·주간·월말·분기별 매출 보고서를 한곳에서 관리합니다.')}
+      <div class="report-layout">
+        <nav class="report-type-list" aria-label="보고서 종류">
+          ${types.map(([key, icon, label, detail]) => `<button class="report-type-button ${reportType === key ? 'active' : ''}" type="button" data-report-type="${key}"><span class="report-type-icon">${icon}</span><span class="report-type-copy"><strong>${label}</strong><small>${detail}</small></span><span class="report-type-chevron">›</span></button>`).join('')}
+        </nav>
+        ${content}
+      </div>
+      <div class="module-security"><span>▣</span><span><strong>보고서 권한 기준</strong><br>대표는 전체 지사, 팀장은 소속 부서 전체와 본인, 일반 구성원은 본인에게 허용된 보고서만 조회하는 구조로 연결합니다.</span></div>`;
+  }
+
+  function renderDocumentsModule() {
+    moduleView.innerHTML = `
+      ${moduleStatusbar('자료 모듈', '회사에서 반복 사용하는 제안서와 교육자료를 Google Drive 기반으로 정리합니다.')}
+      <section class="module-grid">
+        ${moduleCard({ icon: '◇', title: '협업제안서', description: '제휴·협업을 위한 회사 소개, 서비스 구성, 제안서 원본과 최신 버전을 관리합니다.', action: '폴더 보기' })}
+        ${moduleCard({ icon: '▤', tone: 'green', title: '교육메뉴얼', description: '신규 입사자와 직무별 온보딩에 필요한 공통 교육 매뉴얼을 관리합니다.', action: '메뉴얼 보기' })}
+        ${moduleCard({ icon: '▦', tone: 'orange', title: '상품별 교육자료', description: '상품별 소개, 영업 포인트, FAQ와 업데이트 이력을 한곳에서 확인합니다.', action: '상품 분류 보기' })}
+      </section>
+      <section class="module-section">
+        <div class="module-section-head"><span><strong>Google Drive 연결 구조</strong><small>원본 파일은 Drive에 두고 PEAK OS에서는 권한과 최신본을 관리합니다</small></span><span class="module-chip">Drive 연결 전</span></div>
+        <div class="module-section-body">
+          <div class="integration-flow">
+            <div class="integration-node"><span class="module-card-icon">▱</span><strong>Drive 원본 자료</strong><small>기존 폴더와 문서를 자료 유형별로 연결</small></div>
+            <div class="integration-arrow">→</div>
+            <div class="integration-node primary"><span class="module-card-icon">P</span><strong>PEAK OS 자료함</strong><small>검색·최신 버전·권한을 한 화면에서 제공</small></div>
+            <div class="integration-arrow">→</div>
+            <div class="integration-node"><span class="module-card-icon green">♙</span><strong>직급·팀별 노출</strong><small>지사, 팀, 직급과 개별 예외 권한 적용</small></div>
+          </div>
+        </div>
+      </section>`;
+  }
+
+  function renderCompanyModule() {
+    moduleView.innerHTML = `
+      ${moduleStatusbar('회사 자료 모듈', '사업자등록증과 회사 공식 자료를 지사·법인 단위로 관리합니다.')}
+      <section class="module-grid two">
+        ${moduleCard({ icon: '▥', title: '사업자등록증', description: '본사와 지사별 사업자등록증 원본, 발급일, 사업자번호와 사용 범위를 관리합니다.', chip: '민감자료', chipClass: 'restricted', footer: '허용된 지사만 조회', action: '자료함 보기' })}
+        ${moduleCard({ icon: '◇', tone: 'violet', title: '회사 자료', description: '회사소개서, 법인 기본자료, 계좌 사본과 계약에 필요한 공식 자료를 관리합니다.', chip: '권한 적용', chipClass: 'visible', footer: '직급·팀별 접근 제어', action: '분류 보기' })}
+      </section>
+      <section class="module-section">
+        <div class="module-section-head"><span><strong>지사·법인별 자료 구조</strong><small>대표가 전체 범위를 관리하고 사용자에게 허용된 지사 자료만 노출합니다</small></span><button class="module-action" type="button" data-module-action="지사 분류">지사 분류</button></div>
+        <div class="module-section-body"><div class="data-unavailable"><span class="data-unavailable-icon">◇</span><div><strong>회사 자료가 아직 연결되지 않았습니다</strong><p>사업자등록증과 회사 공식 자료를 전달받으면 지사·법인 단위 폴더와 열람 권한을 구성합니다.</p></div></div></div>
+      </section>
+      <div class="module-security"><span>▣</span><span><strong>민감자료 보호</strong><br>파일 주소를 직접 노출하지 않고 서버 권한 확인, 열람 기록, 다운로드 권한을 함께 적용합니다.</span></div>`;
+  }
+
+  function renderSettlementModule() {
+    const management = ['admin', 'manager'].includes(userDoc?.role);
+    const managementCards = management ? `
+      ${moduleCard({ icon: '♙', tone: 'green', title: '영업자별 개인정산서', description: '소속 또는 허용된 영업자별 매출, 공제, 지급 예정액과 정산 상태를 확인합니다.', chip: '관리직 조회', chipClass: 'visible', footer: '소속·허용 지사 기준', action: '영업자 목록' })}
+      ${moduleCard({ icon: '♛', tone: 'violet', title: '최종정산서', description: '전체 정산 검토가 끝난 뒤 확정된 최종 지급 내역과 승인 이력을 관리합니다.', chip: '관리직 전용', chipClass: 'restricted', footer: '대표·팀장만 표시', action: '정산 구조 보기' })}` : '';
+    moduleView.innerHTML = `
+      ${moduleStatusbar('정산 모듈', management ? '개인정산과 관리직용 최종정산 구조를 확인합니다.' : '로그인한 영업자의 개인정산 범위만 표시합니다.')}
+      <section class="module-grid ${management ? '' : 'single'}">
+        ${moduleCard({ icon: '◉', title: '내 개인정산서', description: '본인의 매출, 공제 항목, 지급 예정액과 월별 정산 이력을 확인합니다.', chip: '본인만', chipClass: 'visible', footer: '현재 로그인 계정 기준', action: '정산서 보기' })}
+        ${managementCards}
+      </section>
+      <section class="module-section">
+        <div class="module-section-head"><span><strong>정산 현황</strong><small>실제 매출·공제·지급 데이터가 연결되면 월별 상태를 표시합니다</small></span><span class="module-chip">정산 DB 연결 전</span></div>
+        <div class="module-section-body"><div class="report-kpis"><article class="report-kpi"><span>정산 대상</span><strong>—</strong><small>데이터 연결 전</small></article><article class="report-kpi"><span>검토 중</span><strong>—</strong><small>데이터 연결 전</small></article><article class="report-kpi"><span>지급 확정</span><strong>—</strong><small>데이터 연결 전</small></article></div></div>
+      </section>
+      <div class="module-security"><span>▣</span><span><strong>현재 적용 권한: ${esc(roleLabel(userDoc?.role))}</strong><br>${management ? '영업자별 정산과 최종정산 메뉴가 표시됩니다.' : '본인의 개인정산서만 표시되며 관리직용 정산 기능은 메뉴와 API 모두 차단합니다.'}</span></div>`;
+  }
+
+  function renderTaxModule() {
+    moduleView.innerHTML = `
+      ${moduleStatusbar('세금관리 모듈', '거래처별 증빙과 세금계산서를 한 단위로 묶어 관리합니다.')}
+      <section class="module-grid two">
+        ${moduleCard({ icon: '▥', title: '거래처별 사업자등록증', description: '거래처 기본정보와 사업자등록증 원본, 변경 이력 및 유효 상태를 관리합니다.', chip: '민감자료', chipClass: 'restricted', footer: '세무·재무 권한 적용', action: '거래처 보기' })}
+        ${moduleCard({ icon: '▤', tone: 'orange', title: '세금계산서', description: '거래처별 발행·수취 세금계산서와 정산 연결 상태를 월별로 확인합니다.', chip: '세무자료', chipClass: 'restricted', footer: '발행·수취 상태 관리', action: '월별 보기' })}
+      </section>
+      <section class="module-section">
+        <div class="module-section-head"><span><strong>거래처 증빙 현황</strong><small>사업자등록증과 세금계산서를 거래처 기준으로 연결합니다</small></span><span class="module-chip">세금 데이터 연결 전</span></div>
+        <div class="module-section-body" style="padding:0"><table class="empty-table"><thead><tr><th>거래처</th><th>사업자등록증</th><th>세금계산서</th><th>정산 연결</th><th>담당자</th></tr></thead><tbody><tr><td class="empty-table-message" colspan="5">거래처와 세금 자료가 연결되면 이곳에 표시됩니다.</td></tr></tbody></table></div>
+      </section>`;
+  }
+
+  function renderPlatformModule() {
+    moduleView.innerHTML = `
+      ${moduleStatusbar('플랫폼 통합 모듈', '각 플랫폼 API를 연결해 정산 내역을 한 화면에서 비교·확인합니다.')}
+      <section class="module-section">
+        <div class="module-section-head"><span><strong>API 통합 정산 흐름</strong><small>플랫폼별 원본 내역을 표준 정산 항목으로 변환합니다</small></span><span class="module-chip">API 목록 확정 전</span></div>
+        <div class="module-section-body">
+          <div class="integration-flow">
+            <div class="integration-node"><span class="module-card-icon">⌘</span><strong>플랫폼 API</strong><small>승인된 각 플랫폼의 매출·수수료·지급 내역 수집</small></div>
+            <div class="integration-arrow">→</div>
+            <div class="integration-node primary"><span class="module-card-icon">P</span><strong>통합 정산 엔진</strong><small>항목 표준화, 중복 확인, 정산 기간 매칭</small></div>
+            <div class="integration-arrow">→</div>
+            <div class="integration-node"><span class="module-card-icon green">▥</span><strong>통합 정산 화면</strong><small>플랫폼·영업자·지사별 정산 결과 비교</small></div>
+          </div>
+        </div>
+      </section>
+      <section class="module-grid two">
+        ${moduleCard({ icon: '＋', title: '플랫폼 연결 관리', description: '연동할 플랫폼, API 인증 방식, 수집 주기와 담당자를 등록합니다.', footer: '연동 대상 전달 필요', action: '연결 구조 보기' })}
+        ${moduleCard({ icon: '✓', tone: 'green', title: '정산 검증', description: '플랫폼 원본 합계와 내부 정산 합계를 비교해 차이를 검토합니다.', footer: '검증 규칙 확정 필요', action: '검증 항목 보기' })}
+      </section>`;
+  }
+
+  function renderSaasModule() {
+    moduleView.innerHTML = `
+      ${moduleStatusbar('SaaS HUB', '회사에서 사용하는 모든 SaaS 사이트와 담당·권한 정보를 한곳에 취합합니다.')}
+      <section class="module-section">
+        <div class="module-section-head"><span><strong>SaaS 사이트 목록</strong><small>서비스 주소, 사용 목적, 담당팀과 계정 정책을 관리합니다</small></span><button class="module-action" type="button" data-module-action="SaaS 등록">＋ SaaS 등록</button></div>
+        <div class="module-section-body" style="padding:0"><table class="empty-table"><thead><tr><th>서비스</th><th>사용 목적</th><th>담당팀</th><th>로그인 방식</th><th>계약·갱신</th><th>상태</th></tr></thead><tbody><tr><td class="empty-table-message" colspan="6">사용 중인 SaaS 목록을 전달받으면 이곳에 통합합니다.</td></tr></tbody></table></div>
+      </section>
+      <section class="module-grid">
+        ${moduleCard({ icon: '◇', title: '마케팅·영업', description: '광고, 분석, CRM과 영업 운영에 사용하는 SaaS를 분류합니다.', action: '분류 보기' })}
+        ${moduleCard({ icon: '▦', tone: 'green', title: '업무·협업', description: '메신저, 문서, 일정, 프로젝트와 협업 도구를 분류합니다.', action: '분류 보기' })}
+        ${moduleCard({ icon: '▥', tone: 'orange', title: '재무·관리', description: '결제, 회계, 세금과 인사 관리에 사용하는 SaaS를 분류합니다.', action: '분류 보기' })}
+      </section>
+      <div class="module-security"><span>▣</span><span><strong>계정 비밀번호는 저장하지 않습니다</strong><br>SaaS Hub에는 사이트 주소와 담당·권한 정책만 관리하고, 인증정보는 SSO 또는 별도 비밀관리 시스템으로 연결합니다.</span></div>`;
+  }
+
+  function renderPlannedModule(view) {
+    if (view === 'reports') renderReportsModule();
+    if (view === 'documents') renderDocumentsModule();
+    if (view === 'company') renderCompanyModule();
+    if (view === 'settlement') renderSettlementModule();
+    if (view === 'tax') renderTaxModule();
+    if (view === 'platform') renderPlatformModule();
+    if (view === 'saas') renderSaasModule();
+
+    moduleView.querySelectorAll('[data-report-type]').forEach(button => button.addEventListener('click', () => {
+      reportType = button.dataset.reportType;
+      renderPlannedModule('reports');
+    }));
+    wireModuleActions();
+  }
+
+  function wireModuleActions() {
+    moduleView.querySelectorAll('[data-module-action]').forEach(button => button.addEventListener('click', () => {
+      showToast(`${button.dataset.moduleAction} 기능은 실제 자료·API 구조가 확정되면 연결합니다.`);
+    }));
+  }
+
   function activateView(view) {
     if (view !== 'chat') closeChatRoom();
+    const isPlannedModule = Object.prototype.hasOwnProperty.call(PLANNED_MODULES, view);
+    if (isPlannedModule) renderPlannedModule(view);
     dashboardView.hidden = view !== 'dashboard';
     calendarView.hidden = view !== 'calendar';
     chatView.hidden = view !== 'chat';
     todoView.hidden = view !== 'todo';
     reviewView.hidden = view !== 'review';
+    moduleView.hidden = !isPlannedModule;
     permissionsView.hidden = view !== 'permissions';
-    const labels = { dashboard: 'PEAKMARKETING', calendar: 'CALENDAR', chat: 'CHAT', todo: 'TO DO LIST', review: 'PROJECTS', permissions: '조직 및 권한' };
+    const labels = { dashboard: 'PEAKMARKETING', calendar: 'CALENDAR', chat: 'CHAT', todo: 'TO DO LIST', review: 'PROJECTS', permissions: '조직 및 권한', ...PLANNED_MODULES };
     pageCrumb.textContent = labels[view] || 'PEAKMARKETING';
     document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === view));
     body.classList.remove('menu-open');
