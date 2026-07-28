@@ -395,8 +395,9 @@
     const agenda = document.getElementById('homeCalendarAgenda');
     const selectedEvents = calendarEventsForScope().filter(event => event.date === calendarSelected);
     const selectedDate = new Date(calendarSelected + 'T00:00:00');
+    const selectedDateLabel = formatDate(selectedDate, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
     agenda.innerHTML = `
-      <div class="agenda-date"><strong>${selectedDate.getDate()}</strong><span>${formatDate(selectedDate, { month: 'long', weekday: 'long' })}</span></div>
+      <div class="agenda-date"><span>선택 날짜</span><strong>${esc(selectedDateLabel)}</strong></div>
       <div class="agenda-list">
         ${selectedEvents.length ? selectedEvents.map(event => `
           <button class="agenda-item" type="button" data-event-detail="${esc(event.id)}">
@@ -427,11 +428,11 @@
       const key = `${calendarYear}-${String(calendarMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const dateEvents = monthEvents.filter(event => event.date === key);
       const weekday = new Date(calendarYear, calendarMonth - 1, day).getDay();
-      const eventMarkup = dateEvents.slice(0, 2).map(event => `<span class="calendar-event ${esc(event.type)}"><i></i><span>${esc(event.title)}</span></span>`).join('');
+      const eventMarkup = dateEvents.slice(0, 3).map(event => `<span class="calendar-event ${esc(event.type)}"><i></i><span>${esc(event.title)}</span></span>`).join('');
       cells.push(`
         <button class="home-calendar-cell ${dateEvents.length ? 'has-events' : ''} ${key === localDateKey(new Date()) ? 'today' : ''} ${key === calendarSelected ? 'selected' : ''} ${weekday === 0 ? 'sun' : ''} ${weekday === 6 ? 'sat' : ''}" type="button" data-date="${key}">
           <span class="calendar-date-line"><span class="calendar-date">${day}</span>${dateEvents.length ? `<span class="calendar-count">${dateEvents.length}</span>` : ''}</span>
-          <span class="calendar-events">${eventMarkup}</span>${dateEvents.length > 2 ? `<span class="calendar-more">+${dateEvents.length - 2}개 더보기</span>` : ''}
+          <span class="calendar-events">${eventMarkup}</span>${dateEvents.length > 3 ? `<span class="calendar-more">+${dateEvents.length - 3}개 더보기</span>` : ''}
         </button>`);
     }
     const used = firstDay + days;
@@ -1219,6 +1220,7 @@
 
   function activateView(view) {
     if (view !== 'chat') closeChatRoom();
+    body.classList.toggle('calendar-workspace', view === 'calendar');
     const isPlannedModule = Object.prototype.hasOwnProperty.call(PLANNED_MODULES, view);
     if (isPlannedModule) renderPlannedModule(view);
     if (view === 'review') renderProjects();

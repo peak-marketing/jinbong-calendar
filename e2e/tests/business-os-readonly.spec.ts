@@ -111,6 +111,13 @@ test.describe('Business OS read-only operating data', () => {
 
     await page.locator('.nav-item[data-view="calendar"]').click();
     await expect(page.locator('#calendarView')).toContainText('오늘 운영 업무');
+    await expect(page.locator('#calendarMonthLabel')).toHaveText(`${year}년 ${today.getMonth() + 1}월`);
+    await expect(page.locator('#homeCalendarAgenda .agenda-date strong')).toContainText(`${year}년 ${today.getMonth() + 1}월 ${today.getDate()}일`);
+    const nextMonth = new Date(year, today.getMonth() + 1, 1);
+    await page.locator('#calendarNext').click();
+    await expect(page.locator('#calendarMonthLabel')).toHaveText(`${nextMonth.getFullYear()}년 ${nextMonth.getMonth() + 1}월`);
+    await expect(page.locator('#homeCalendarAgenda .agenda-date strong')).toContainText(`${nextMonth.getFullYear()}년 ${nextMonth.getMonth() + 1}월 1일`);
+    await page.locator('#calendarPrev').click();
 
     await page.locator('.nav-item[data-view="chat"]').click();
     await page.locator('[data-room-id="room-live-1"]').click();
