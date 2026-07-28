@@ -279,6 +279,20 @@
 .review-project-card[data-project-id]:hover { border-color: #bcd9ed; box-shadow: 0 9px 24px rgba(52, 142, 205, .09); }
 .review-card-status.review { background: #fff3db; color: #a96f16; }
 
+#reviewView .review-summary-card span { font-size: 10px; }
+#reviewView .review-summary-card strong { font-size: 22px; }
+#reviewView .review-filter { min-height: 36px; font-size: 10px; }
+#reviewView .review-visible-count { font-size: 10px; }
+#reviewView .review-project-card { min-height: 238px; padding: 17px; }
+#reviewView .review-card-status,
+#reviewView .readonly-badge { font-size: 10px; }
+#reviewView .review-card-title { font-size: 15px; }
+#reviewView .review-card-description { font-size: 11px; line-height: 1.7; }
+#reviewView .review-card-progress-label,
+#reviewView .review-card-meta,
+#reviewView .review-card-count { font-size: 10px; }
+#reviewView .review-open-button { min-height: 32px; font-size: 10px; }
+
 .project-detail-page {
   display: grid;
   gap: 14px;
@@ -315,7 +329,7 @@
 }
 
 .project-detail-heading strong {
-  font-size: 18px;
+  font-size: 22px;
   letter-spacing: -.03em;
 }
 
@@ -323,13 +337,13 @@
 
 .project-detail-actions button,
 .project-detail-loading button {
-  min-height: 34px;
-  padding: 0 12px;
+  min-height: 38px;
+  padding: 0 14px;
   border: 1px solid #d8e3eb;
   border-radius: 8px;
   background: #fff;
   color: #667787;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 850;
 }
 
@@ -360,7 +374,7 @@
 .project-detail-hero-meta {
   gap: 7px;
   color: #8291a0;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .project-detail-hero-meta > span:not(.review-card-status) {
@@ -372,7 +386,7 @@
 .project-detail-hero h1 {
   max-width: 100%;
   margin: 10px 0 0;
-  font-size: clamp(18px, 2.2vw, 24px);
+  font-size: clamp(23px, 2.4vw, 30px);
   letter-spacing: -.035em;
   overflow-wrap: anywhere;
 }
@@ -380,7 +394,7 @@
 .project-detail-hero p {
   margin: 8px 0 0;
   color: #718091;
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .project-detail-progress {
@@ -391,12 +405,12 @@
 .project-detail-progress > span {
   justify-content: space-between;
   color: #718091;
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .project-detail-progress > span strong {
   color: #2674ac;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .project-detail-progress .progress-track {
@@ -408,7 +422,7 @@
   display: block;
   margin-top: 6px;
   color: #93a0ac;
-  font-size: 8px;
+  font-size: 10px;
   text-align: right;
 }
 
@@ -423,13 +437,13 @@
 
 .project-detail-tabs button {
   flex: 0 0 auto;
-  min-height: 34px;
-  padding: 0 13px;
+  min-height: 38px;
+  padding: 0 15px;
   border: 1px solid transparent;
   border-radius: 8px;
   background: #edf2f6;
   color: #6f7e8c;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 850;
 }
 
@@ -477,7 +491,7 @@
 .project-detail-panel > header strong,
 .project-conversation > header strong {
   color: #253441;
-  font-size: 12px;
+  font-size: 15px;
 }
 
 .project-detail-panel-body { padding: 0 15px; }
@@ -493,7 +507,7 @@
 .project-description {
   margin: 0;
   color: #566879;
-  font-size: 10px;
+  font-size: 13px;
   line-height: 1.8;
   white-space: pre-wrap;
 }
@@ -507,14 +521,14 @@
 
 .project-member-chip {
   display: inline-flex;
-  min-height: 30px;
-  padding: 0 9px 0 5px;
+  min-height: 34px;
+  padding: 0 11px 0 6px;
   align-items: center;
   gap: 5px;
   border-radius: 999px;
   background: #edf7fe;
   color: #3b617c;
-  font-size: 8px;
+  font-size: 11px;
   white-space: nowrap;
 }
 
@@ -522,20 +536,20 @@
 .project-detail-avatar {
   display: grid;
   flex: 0 0 auto;
-  width: 21px;
-  height: 21px;
+  width: 25px;
+  height: 25px;
   place-items: center;
   border-radius: 50%;
   background: #348ecd;
   color: #fff;
-  font-size: 8px;
+  font-size: 10px;
   font-style: normal;
   font-weight: 900;
 }
 
 .project-member-chip b {
   color: #2674ac;
-  font-size: 7px;
+  font-size: 9px;
 }
 
 .project-detail-task {
@@ -543,7 +557,7 @@
   grid-template-columns: 22px minmax(0, 1fr) auto;
   gap: 9px;
   align-items: start;
-  padding: 12px 0;
+  padding: 15px 0;
   border-bottom: 1px solid #edf1f4;
 }
 
@@ -553,8 +567,8 @@
 .project-comment:last-child { border-bottom: 0; }
 
 .project-detail-check {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   border: 1.5px solid #c7d5df;
   border-radius: 6px;
@@ -575,14 +589,14 @@
   flex-wrap: wrap;
   gap: 6px;
   color: #8a98a6;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .project-detail-task-copy > strong {
   display: block;
   margin-top: 7px;
   color: #24313e;
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .project-detail-task-copy p,
@@ -590,7 +604,7 @@
 .project-comment p {
   margin: 5px 0 0;
   color: #718091;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.65;
   white-space: pre-wrap;
 }
@@ -600,7 +614,7 @@
   border: 0;
   background: transparent;
   color: #348ecd;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .project-detail-update,
@@ -608,7 +622,7 @@
   display: grid;
   grid-template-columns: 25px minmax(0, 1fr);
   gap: 9px;
-  padding: 12px 0;
+  padding: 14px 0;
   border-bottom: 1px solid #edf1f4;
 }
 
@@ -621,13 +635,13 @@
 .project-detail-update-meta strong,
 .project-comment-meta strong {
   color: #344554;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .project-detail-update-meta > span:not(.review-card-status),
 .project-comment-meta span {
   color: #96a2ae;
-  font-size: 8px;
+  font-size: 9px;
 }
 
 .project-detail-event {
@@ -640,14 +654,14 @@
 
 .project-detail-event span strong,
 .project-detail-event span small { display: block; }
-.project-detail-event span strong { color: #344554; font-size: 10px; }
-.project-detail-event span small { margin-top: 5px; color: #8e9aa6; font-size: 8px; line-height: 1.5; }
+.project-detail-event span strong { color: #344554; font-size: 13px; }
+.project-detail-event span small { margin-top: 5px; color: #8e9aa6; font-size: 10px; line-height: 1.5; }
 .project-detail-event-date strong { color: #2674ac !important; }
 
 .project-detail-empty {
   padding: 30px 10px;
   color: #96a2ae;
-  font-size: 9px;
+  font-size: 11px;
   text-align: center;
 }
 
@@ -667,7 +681,7 @@
 .project-conversation > header small {
   margin-top: 5px;
   color: #8795a2;
-  font-size: 8px;
+  font-size: 10px;
   line-height: 1.55;
 }
 
@@ -676,13 +690,13 @@
 }
 
 .project-conversation > nav button {
-  min-height: 28px;
-  padding: 0 9px;
+  min-height: 32px;
+  padding: 0 11px;
   border: 0;
   border-radius: 7px;
   background: #348ecd;
   color: #fff;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 850;
 }
 
@@ -696,7 +710,7 @@
   display: inline-flex;
   margin-top: 7px;
   color: #2674ac;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 800;
 }
 
@@ -709,30 +723,30 @@
 
 .project-comment-compose textarea {
   width: 100%;
-  min-height: 88px;
-  padding: 10px;
+  min-height: 104px;
+  padding: 12px;
   resize: vertical;
   border: 1px solid #dce5eb;
   border-radius: 9px;
   background: #f8fafb;
   color: #7b8996;
   font: inherit;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .project-comment-compose > span,
 .project-comment-compose > small {
   color: #8c99a5;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .project-comment-compose button {
-  min-height: 34px;
+  min-height: 38px;
   border: 0;
   border-radius: 8px;
   background: #348ecd;
   color: #fff;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 850;
   opacity: .55;
 }
@@ -751,7 +765,7 @@
 }
 
 .project-detail-loading strong { color: #253441; font-size: 13px; }
-.project-detail-loading span { color: #8795a2; font-size: 9px; }
+.project-detail-loading span { color: #8795a2; font-size: 11px; }
 .project-detail-loading button { margin-top: 8px; }
 
 .readonly-modal {
