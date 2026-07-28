@@ -37,6 +37,7 @@
   let calendarScope = 'all';
   let todoScope = 'all';
   let projectFilter = 'all';
+  let projectDetailTab = 'overview';
   let chatFilter = 'all';
   let selectedChatRoomId = null;
   let reportType = 'attendance';
@@ -588,31 +589,144 @@
     reviewView.querySelectorAll('[data-project-id]').forEach(card => card.addEventListener('click', () => openProjectDetail(card.dataset.projectId)));
   }
 
+  function projectTaskRow(task) {
+    const assignees = Array.isArray(task.assignees) ? task.assignees : [];
+    const completed = assignees.filter(item => item.completed).length;
+    const assigneeLabel = assignees.map(item => item.name).filter(Boolean).join(', ') || task.assignee_name || '미지정';
+    const taskStatus = task.status || 'todo';
+    const statusClass = taskStatus === 'done' ? 'done' : taskStatus === 'review' ? 'review' : taskStatus === 'hold' ? 'hold' : 'active';
+    const completion = assignees.length > 1 ? ` ${completed}/${assignees.length}` : '';
+    return `<article class="project-detail-task">
+      <button class="project-detail-check ${taskStatus === 'done' ? 'checked' : ''}" type="button" disabled aria-label="${esc(task.title)} 완료 상태">${taskStatus === 'done' ? '✓' : ''}</button>
+      <div class="project-detail-task-copy">
+        <div class="project-detail-task-meta"><span class="review-card-status ${statusClass}">${esc(TASK_STATUS[taskStatus] || taskStatus)}${completion}</span><span>담당 ${esc(assigneeLabel)}</span>${task.due_date ? `<span>마감 ${esc(task.due_date)}</span>` : ''}</div>
+        <strong>${esc(task.title || '업무명 없음')}</strong>
+        ${task.description ? `<p>${esc(task.description)}</p>` : ''}
+      </div>
+      <button class="project-detail-text-action" type="button" data-project-readonly-action>수정</button>
+    </article>`;
+  }
+
+  function projectUpdateRow(update) {
+    const author = update.author_name || update.owner_name || '작성자';
+    return `<article class="project-detail-update">
+      <span class="project-detail-avatar">${esc(author.slice(0, 1))}</span>
+      <div><div class="project-detail-update-meta"><strong>${esc(author)}</strong><span>${esc(formatDate(update.created_at, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</span>${update.status_snapshot ? `<span class="review-card-status active">${esc(update.status_snapshot)}</span>` : ''}</div><p>${esc(update.content || update.text || '')}</p></div>
+    </article>`;
+  }
+
+  function projectEventRow(event) {
+    return `<article class="project-detail-event">
+      <span class="project-detail-event-date"><strong>${esc(formatDate(event.date, { month: 'numeric', day: 'numeric' }))}</strong><small>${esc(formatTime(event.time || ''))}</small></span>
+      <span><strong>${esc(event.title || '프로젝트 일정')}</strong><small>${esc(event.memo || event.description || '등록된 일정 설명이 없습니다.')}</small></span>
+    </article>`;
+  }
+
+  function projectCommentRow(comment) {
+    const author = comment.author_name || '작성자';
+    let attachments = comment.attachments;
+    if (typeof attachments === 'string') {
+      try { attachments = JSON.parse(attachments); } catch (_) { attachments = []; }
+    }
+    if (!Array.isArray(attachments)) attachments = [];
+    const attachmentRows = attachments.map(attachment => {
+      const url = safeAssetUrl(attachment.url || attachment.download_url || attachment.src);
+      if (!url) return '';
+      return `<a class="project-comment-attachment" href="${url}" target="_blank" rel="noopener">첨부 이미지 보기 ↗</a>`;
+    }).join('');
+    return `<article class="project-comment">
+      <span class="project-detail-avatar">${esc(author.slice(0, 1))}</span>
+      <div><div class="project-comment-meta"><strong>${esc(author)}</strong><span>${esc(formatDate(comment.created_at, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</span></div>${comment.content ? `<p>${esc(comment.content)}</p>` : ''}${attachmentRows}</div>
+    </article>`;
+  }
+
+  function projectDetailPanel(title, content, emptyText, className = '') {
+    return `<section class="project-detail-panel ${className}">
+      <header><strong>${esc(title)}</strong></header>
+      <div class="project-detail-panel-body">${content || `<div class="project-detail-empty">${esc(emptyText)}</div>`}</div>
+    </section>`;
+  }
+
+  function renderProjectDetail(project, tab = projectDetailTab) {
+    projectDetailTab = tab;
+    const status = PROJECT_STATUS[project.status] || PROJECT_STATUS.active;
+    const tasks = Array.isArray(project.tasks) ? project.tasks : [];
+    const updates = Array.isArray(project.updates) ? project.updates : [];
+    const members = Array.isArray(project.members) ? project.members : [];
+    const comments = Array.isArray(project.comments) ? project.comments : [];
+    const events = Array.isArray(project.events) ? project.events : [];
+    const doneTasks = tasks.filter(task => task.status === 'done').length;
+    const percent = tasks.length ? Math.round(doneTasks / tasks.length * 100) : 0;
+    const memberRows = members.map(member => `<span class="project-member-chip"><i>${esc((member.name || '?').slice(0, 1))}</i>${esc(member.name || member.email || '이름 없음')}${member.role === 'manager' ? '<b>담당</b>' : ''}</span>`).join('');
+    const taskRows = tasks.map(projectTaskRow).join('');
+    const updateRows = updates.map(projectUpdateRow).join('');
+    const eventRows = events.map(projectEventRow).join('');
+    const commentRows = comments.map(projectCommentRow).join('');
+    const overview = `
+      <div class="project-overview-grid">
+        ${projectDetailPanel('개요', `<p class="project-description">${esc(project.description || '등록된 프로젝트 설명이 없습니다.')}</p>`, '')}
+        ${projectDetailPanel('참여 멤버', `<div class="project-member-list">${memberRows || '<div class="project-detail-empty">등록된 참여 멤버가 없습니다.</div>'}</div>`, '')}
+        ${projectDetailPanel('다음 업무', taskRows, '등록된 업무가 없습니다.')}
+        ${projectDetailPanel('최근 진행사항', updates.slice(0, 5).map(projectUpdateRow).join(''), '아직 진행사항 기록이 없습니다.')}
+      </div>`;
+    const tabContent = {
+      overview,
+      tasks: projectDetailPanel(`업무 ${tasks.length}개`, taskRows, '등록된 업무가 없습니다.', 'project-detail-panel-wide'),
+      updates: projectDetailPanel(`진행사항 ${updates.length}개`, updateRows, '아직 진행사항 기록이 없습니다.', 'project-detail-panel-wide'),
+      schedule: projectDetailPanel(`일정 ${events.length}개`, eventRows, '등록된 프로젝트 일정이 없습니다.', 'project-detail-panel-wide')
+    }[tab] || overview;
+
+    reviewView.innerHTML = `
+      <div class="project-detail-page">
+        <header class="project-detail-toolbar">
+          <div class="project-detail-heading"><span>▰</span><strong>프로젝트</strong></div>
+          <div class="project-detail-actions">
+            <button type="button" data-project-back>← 목록</button>
+            <button type="button" class="primary" data-project-readonly-action>＋ 프로젝트</button>
+            <button type="button" data-project-readonly-action>수정</button>
+          </div>
+        </header>
+        <section class="project-detail-hero">
+          <div>
+            <div class="project-detail-hero-meta"><span class="review-card-status ${status[1]}">${esc(status[0])}</span>${project.deadline ? `<span>마감 ${esc(project.deadline)}</span>` : ''}</div>
+            <h1>${esc(project.name || '프로젝트명 없음')}</h1>
+            <p>담당 ${esc(project.owner_name || '미지정')} · 참여 ${members.length}명</p>
+          </div>
+          <div class="project-detail-progress"><span><b>진행률</b><strong>${percent}%</strong></span><div class="progress-track"><i style="width:${percent}%"></i></div><small>${doneTasks}/${tasks.length} 완료</small></div>
+        </section>
+        <nav class="project-detail-tabs" aria-label="프로젝트 상세 메뉴">
+          ${[['overview','개요'],['tasks','업무'],['updates','진행사항'],['schedule','일정']].map(([key, label]) => `<button class="${tab === key ? 'active' : ''}" type="button" data-project-detail-tab="${key}">${label}</button>`).join('')}
+        </nav>
+        <div class="project-detail-layout">
+          <main class="project-detail-main">${tabContent}</main>
+          <aside class="project-conversation">
+            <header><strong>프로젝트 전체 대화</strong><small>전체 공유는 여기, 업무별 확인사항은 업무를 선택해서 남깁니다.</small></header>
+            <nav><button class="active" type="button">전체 ${comments.length}</button></nav>
+            <div class="project-comment-list">${commentRows || '<div class="project-detail-empty">아직 프로젝트 전체 대화가 없습니다.</div>'}</div>
+            <div class="project-comment-compose">
+              <textarea disabled placeholder="프로젝트 전체 대화를 남겨주세요."></textarea>
+              <span>이미지 첨부 (JPG, PNG)</span>
+              <button type="button" disabled>등록</button>
+              <small>읽기 전용 프리뷰입니다.</small>
+            </div>
+          </aside>
+        </div>
+      </div>`;
+
+    reviewView.querySelector('[data-project-back]').addEventListener('click', renderProjects);
+    reviewView.querySelectorAll('[data-project-detail-tab]').forEach(button => button.addEventListener('click', () => renderProjectDetail(project, button.dataset.projectDetailTab)));
+    reviewView.querySelectorAll('[data-project-readonly-action]').forEach(button => button.addEventListener('click', () => showToast('읽기 전용 화면입니다. 변경은 기존 파라곤에서 진행해 주세요.')));
+  }
+
   async function openProjectDetail(projectId) {
-    openDetailModal('프로젝트 불러오는 중…', '<div class="live-list-empty">상세 데이터를 조회하고 있습니다.</div>');
+    projectDetailTab = 'overview';
+    reviewView.innerHTML = `<div class="project-detail-loading"><strong>프로젝트를 불러오는 중입니다</strong><span>상세 데이터를 조회하고 있습니다.</span></div>`;
     try {
       const project = await readOnlyApi('/projects/' + encodeURIComponent(projectId));
-      const status = PROJECT_STATUS[project.status] || PROJECT_STATUS.active;
-      const tasks = Array.isArray(project.tasks) ? project.tasks : [];
-      const updates = Array.isArray(project.updates) ? project.updates : [];
-      const members = Array.isArray(project.members) ? project.members : [];
-      const taskRows = tasks.map(task => {
-        const assignees = Array.isArray(task.assignees) ? task.assignees : [];
-        const completed = assignees.filter(item => item.completed).length;
-        const assigneeLabel = assignees.map(item => item.name).filter(Boolean).join(', ') || task.assignee_name || '미지정';
-        return `<div class="readonly-task-row"><span><strong>${esc(task.title)}</strong><small>${esc(assigneeLabel)}${task.due_date ? ` · ${esc(task.due_date)}` : ''}</small></span><span class="review-card-status ${task.status === 'done' ? 'done' : task.status === 'review' ? 'review' : 'active'}">${esc(TASK_STATUS[task.status] || task.status || '대기')}${assignees.length > 1 ? ` ${completed}/${assignees.length}` : ''}</span></div>`;
-      }).join('');
-      const updateRows = updates.slice(0, 10).map(update => `<div class="readonly-task-row"><span><strong>${esc(update.author_name || update.owner_name || '작성자')}</strong><small>${esc(update.content || update.text || '')}</small></span><span>${esc(formatDate(update.created_at, { month: 'numeric', day: 'numeric' }))}</span></div>`).join('');
-      openDetailModal(project.name || '프로젝트 상세', `
-        <div class="readonly-detail-meta"><span>${esc(status[0])}</span><span>담당 ${esc(project.owner_name || '미지정')}</span><span>참여 ${members.length}명</span>${project.deadline ? `<span>마감 ${esc(project.deadline)}</span>` : ''}</div>
-        <p class="readonly-detail-copy">${esc(project.description || '등록된 프로젝트 설명이 없습니다.')}</p>
-        <h3 class="readonly-section-title">업무 ${tasks.length}개</h3>
-        ${taskRows || '<div class="live-list-empty">등록된 업무가 없습니다.</div>'}
-        <h3 class="readonly-section-title">진행사항 ${updates.length}개</h3>
-        ${updateRows || '<div class="live-list-empty">등록된 진행사항이 없습니다.</div>'}
-        <span class="readonly-badge">읽기 전용</span>`);
+      renderProjectDetail(project, 'overview');
     } catch (error) {
-      openDetailModal('프로젝트 조회 실패', `<div class="live-list-empty">${esc(error.message)}</div>`);
+      reviewView.innerHTML = `<div class="project-detail-loading error"><strong>프로젝트를 불러오지 못했습니다</strong><span>${esc(error.message)}</span><button type="button" data-project-back>목록으로 돌아가기</button></div>`;
+      reviewView.querySelector('[data-project-back]').addEventListener('click', renderProjects);
     }
   }
 
@@ -1107,6 +1221,7 @@
     if (view !== 'chat') closeChatRoom();
     const isPlannedModule = Object.prototype.hasOwnProperty.call(PLANNED_MODULES, view);
     if (isPlannedModule) renderPlannedModule(view);
+    if (view === 'review') renderProjects();
     dashboardView.hidden = view !== 'dashboard';
     calendarView.hidden = view !== 'calendar';
     chatView.hidden = view !== 'chat';

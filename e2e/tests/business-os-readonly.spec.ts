@@ -30,11 +30,14 @@ test.describe('Business OS read-only operating data', () => {
       tasks: [{
         id: 'task-live-1',
         title: '읽기 전용 업무 확인',
+        description: '프로젝트 상세 업무 설명',
         status: 'review',
         due_date: date,
         assignees: [{ uid: 'e2e-test-user', name: 'E2E', completed: true }],
       }],
       updates: [{ id: 'update-1', author_name: 'E2E', content: '진행사항 원문', created_at: `${date}T09:00:00Z` }],
+      comments: [{ id: 'comment-1', author_name: '동료', content: '프로젝트 전체 대화 원문', attachments: [], created_at: `${date}T10:00:00Z` }],
+      events: [{ id: 'project-event-1', title: '프로젝트 회의', date, time: '16:00', memo: '회의 일정 원문' }],
     };
 
     await page.route('**/api/**', route => {
@@ -118,9 +121,16 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#reviewView .review-page-toolbar')).toHaveCount(0);
     await expect(page.locator('#reviewSearchInput')).toHaveCount(0);
     await page.locator('[data-project-id="project-live-1"]').click();
-    await expect(page.locator('#readonlyDetailModal')).toContainText('읽기 전용 업무 확인');
-    await expect(page.locator('#readonlyDetailModal')).toContainText('진행사항 원문');
-    await page.locator('#readonlyModalClose').click();
+    await expect(page.locator('#reviewView .project-detail-page')).toBeVisible();
+    await expect(page.locator('#reviewView')).toContainText('운영 데이터 연결 프로젝트');
+    await expect(page.locator('#reviewView')).toContainText('읽기 전용 업무 확인');
+    await expect(page.locator('#reviewView')).toContainText('진행사항 원문');
+    await expect(page.locator('#reviewView')).toContainText('프로젝트 전체 대화 원문');
+    await expect(page.locator('#reviewView .project-comment-compose textarea')).toBeDisabled();
+    await page.locator('[data-project-detail-tab="schedule"]').click();
+    await expect(page.locator('#reviewView')).toContainText('프로젝트 회의');
+    await page.locator('[data-project-back]').click();
+    await expect(page.locator('[data-project-id="project-live-1"]')).toBeVisible();
 
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
     await page.locator('.nav-item[data-view="reports"]').click();
