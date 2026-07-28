@@ -127,6 +127,18 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView')).toContainText('교육메뉴얼');
     await expect(page.locator('#moduleView')).toContainText('상품별 교육자료');
 
+    await page.locator('.nav-item[data-view="services"]').click();
+    await expect(page.locator('#moduleView .service-card')).toHaveCount(16);
+    await expect(page.locator('#moduleView')).toContainText('브랜드오토스페이스');
+    await page.locator('[data-service-filter="review"]').click();
+    await expect(page.locator('#moduleView .service-card')).toHaveCount(2);
+    await page.locator('[data-service-add]').click();
+    await page.locator('#serviceDraftForm input[name="name"]').fill('신규 테스트 상품');
+    await page.locator('#serviceDraftForm textarea[name="description"]').fill('로컬 등록 검증용 상품');
+    await page.locator('#serviceDraftForm button[type="submit"]').click();
+    await expect(page.locator('#moduleView')).toContainText('신규 테스트 상품');
+    await expect(page.locator('#moduleView .service-card')).toHaveCount(17);
+
     await page.locator('.nav-item[data-view="company"]').click();
     await expect(page.locator('#moduleView')).toContainText('사업자등록증');
     await expect(page.locator('#moduleView')).toContainText('회사 자료');

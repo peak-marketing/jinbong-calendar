@@ -40,10 +40,30 @@
   let chatFilter = 'all';
   let selectedChatRoomId = null;
   let reportType = 'attendance';
+  let serviceFilter = 'all';
+  let serviceCatalog = [
+    { id: 'brand-auto-space', icon: '💻', name: '브랜드오토스페이스', description: '프로그램 판매 사이트', category: 'sales', url: '' },
+    { id: 'review-flow', icon: '🛒', name: '리뷰플로우', description: '영수증 리뷰 플랫폼', category: 'review', url: '' },
+    { id: 'keyword-master', icon: '🔍', name: '키워드 마스터', description: '키워드 조회 사이트', category: 'tool', url: '' },
+    { id: 'peak-intake-ui', icon: '📱', name: '피크 접수 UI', description: '리워드·블로그 접수 UI', category: 'intake', url: '' },
+    { id: 'space-shopping', icon: '⚡', name: '스페이스·쇼핑', description: '쇼핑 접수 UI', category: 'intake', url: '' },
+    { id: 'writing-program', icon: '📝', name: '원고 프로그램', description: '최적화 글 원고 프로그램', category: 'tool', url: '' },
+    { id: 'sns-automation', icon: '🎯', name: 'SNS자동화 사이트', description: '인스타·틱톡 등 자동화 사이트', category: 'automation', url: '' },
+    { id: 'naver', icon: '📈', name: '네이버', description: '네이버 운영 바로가기', category: 'operations', url: '' },
+    { id: 'daegu-all-in-one', icon: '📊', name: '대구지사 올인원 링크', description: '대구지사 업무 통합 링크', category: 'operations', url: '' },
+    { id: 'final-report-settlement', icon: '📊', name: '최종보고정산서', description: '최종 보고 및 정산 자료', category: 'settlement', url: '' },
+    { id: 'mobile-naver', icon: '📈', name: '모바일네이버', description: '모바일 네이버 바로가기', category: 'operations', url: '' },
+    { id: 'db-site', icon: '💼', name: 'DB사이트', description: '대구지사 영업 및 TM 사이트', category: 'operations', url: '' },
+    { id: 'settlement-image', icon: '💰', name: '정산서 이미지', description: '클라이언트 청구용 정산서 이미지 캡처 시트', category: 'settlement', url: '' },
+    { id: 'review-space', icon: '🌐', name: '리뷰스페이스', description: '최블 기자단 플랫폼', category: 'review', url: '' },
+    { id: 'build-solution', icon: '🤖', name: '빌드 솔루션', description: '홈페이지·브랜드블로그·개발 의뢰 레퍼런스', category: 'sales', url: '' },
+    { id: 'reward-space', icon: '💻', name: '리워드 스페이스', description: '오퍼월 B2B 리워드 신규 사이트', category: 'sales', url: '' }
+  ];
 
   const PLANNED_MODULES = {
     reports: 'REPORTS',
     documents: 'DOCUMENTS',
+    services: 'SERVICES',
     company: 'COMPANY',
     settlement: 'SETTLEMENT',
     tax: 'TAX',
@@ -807,6 +827,101 @@
       </section>`;
   }
 
+  function serviceCategoryLabel(category) {
+    return {
+      sales: '판매·제안',
+      review: '리뷰',
+      tool: '업무도구',
+      intake: '접수',
+      automation: '자동화',
+      operations: '운영',
+      settlement: '정산'
+    }[category] || '기타';
+  }
+
+  function renderServicesModule() {
+    const categories = [
+      ['all', '전체'],
+      ['sales', '판매·제안'],
+      ['review', '리뷰'],
+      ['tool', '업무도구'],
+      ['intake', '접수'],
+      ['automation', '자동화'],
+      ['operations', '운영'],
+      ['settlement', '정산']
+    ];
+    const visible = serviceCatalog.filter(service => serviceFilter === 'all' || service.category === serviceFilter);
+    moduleView.innerHTML = `
+      ${moduleStatusbar('피크마케팅 서비스', '회사 상품·서비스·운영 사이트를 카드 형태로 등록하고 한곳에서 관리합니다.')}
+      <section class="module-section">
+        <div class="service-toolbar">
+          <nav class="service-filters" aria-label="서비스 분류">
+            ${categories.map(([key, label]) => `<button class="service-filter ${serviceFilter === key ? 'active' : ''}" type="button" data-service-filter="${key}">${label}<span>${key === 'all' ? serviceCatalog.length : serviceCatalog.filter(item => item.category === key).length}</span></button>`).join('')}
+          </nav>
+          <button class="service-add-button" type="button" data-service-add>＋ 상품 등록</button>
+        </div>
+        <div class="service-grid" aria-label="피크마케팅 상품 및 서비스">
+          ${visible.map(service => {
+            const url = safeAssetUrl(service.url);
+            return `<article class="service-card">
+              <div class="service-card-top"><span class="service-card-icon">${esc(service.icon || '🔗')}</span><span class="module-chip">${esc(serviceCategoryLabel(service.category))}</span></div>
+              <h2>${esc(service.name)}</h2>
+              <p>${esc(service.description || '설명이 등록되지 않았습니다.')}</p>
+              <div class="service-card-footer">
+                <span>${url ? '링크 등록됨' : '링크 미등록'}</span>
+                ${url ? `<a class="module-action" href="${url}" target="_blank" rel="noopener noreferrer">열기 ↗</a>` : '<button class="module-action" type="button" data-module-action="서비스 링크">링크 등록</button>'}
+              </div>
+            </article>`;
+          }).join('') || '<div class="live-list-empty">이 분류에 등록된 상품이 없습니다.</div>'}
+        </div>
+      </section>
+      <div class="module-security"><span>▣</span><span><strong>현재는 로컬 등록 시안입니다</strong><br>상품 등록 폼의 내용은 이 브라우저 화면에만 추가되고 새로고침하면 초기화됩니다. 실제 저장은 상품 DB와 권한 API를 만든 뒤 연결합니다.</span></div>`;
+
+    moduleView.querySelectorAll('[data-service-filter]').forEach(button => button.addEventListener('click', () => {
+      serviceFilter = button.dataset.serviceFilter;
+      renderPlannedModule('services');
+    }));
+    moduleView.querySelector('[data-service-add]')?.addEventListener('click', openServiceDraftModal);
+  }
+
+  function openServiceDraftModal() {
+    openDetailModal('상품 등록 · 로컬 시안', `
+      <form class="service-form" id="serviceDraftForm">
+        <div class="service-form-note">서버에는 저장되지 않으며 현재 화면에서만 카드가 추가됩니다.</div>
+        <label><span>상품명 *</span><input name="name" maxlength="60" required placeholder="예: 신규 리워드 서비스"></label>
+        <label><span>설명</span><textarea name="description" maxlength="180" rows="3" placeholder="상품 또는 서비스의 용도를 입력하세요"></textarea></label>
+        <div class="service-form-row">
+          <label><span>아이콘</span><input name="icon" maxlength="4" value="🔗" placeholder="🔗"></label>
+          <label><span>분류</span><select name="category"><option value="sales">판매·제안</option><option value="review">리뷰</option><option value="tool">업무도구</option><option value="intake">접수</option><option value="automation">자동화</option><option value="operations">운영</option><option value="settlement">정산</option></select></label>
+        </div>
+        <label><span>연결 주소</span><input name="url" type="url" placeholder="https://"></label>
+        <div class="service-form-actions"><button class="module-action" type="button" data-service-cancel>취소</button><button class="service-add-button" type="submit">상품 추가</button></div>
+      </form>`);
+    document.querySelector('[data-service-cancel]')?.addEventListener('click', closeDetailModal);
+    document.getElementById('serviceDraftForm')?.addEventListener('submit', event => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const name = String(form.get('name') || '').trim();
+      const description = String(form.get('description') || '').trim();
+      const icon = String(form.get('icon') || '').trim() || '🔗';
+      const category = String(form.get('category') || 'sales');
+      const url = String(form.get('url') || '').trim();
+      if (!name) return;
+      if (url && !/^https?:\/\//i.test(url)) {
+        showToast('연결 주소는 http:// 또는 https://로 입력해 주세요.');
+        return;
+      }
+      serviceCatalog = [
+        { id: `local-service-${Date.now()}`, name, description, icon, category, url },
+        ...serviceCatalog
+      ];
+      serviceFilter = 'all';
+      closeDetailModal();
+      renderPlannedModule('services');
+      showToast(`${name} 상품을 로컬 시안에 추가했습니다. 서버에는 저장되지 않았습니다.`);
+    });
+  }
+
   function renderCompanyModule() {
     moduleView.innerHTML = `
       ${moduleStatusbar('회사 자료 모듈', '사업자등록증과 회사 공식 자료를 지사·법인 단위로 관리합니다.')}
@@ -891,6 +1006,7 @@
   function renderPlannedModule(view) {
     if (view === 'reports') renderReportsModule();
     if (view === 'documents') renderDocumentsModule();
+    if (view === 'services') renderServicesModule();
     if (view === 'company') renderCompanyModule();
     if (view === 'settlement') renderSettlementModule();
     if (view === 'tax') renderTaxModule();
