@@ -1551,6 +1551,12 @@
       orgRankOrder(orgRankOf(a)) - orgRankOrder(orgRankOf(b)));
   }
 
+  // 조직도에서는 팀 이름 끝의 '팀'을 떼고 보여 준다
+  function orgDisplayName(name) {
+    const value = String(name || '');
+    return value.length > 1 && value.endsWith('팀') ? value.slice(0, -1) : value;
+  }
+
   // 카드 안에 들어가는 구성원 한 줄
   function orgPersonLine(member) {
     const account = orgAccountFor(member.name);
@@ -1563,7 +1569,7 @@
   // 팀 카드. 팀 이름 아래에 소속 구성원을 직급 순으로 나열한다.
   function orgCardNode({ icon = '', title, detail = '', members = [], kind = '', current = false }) {
     return `<div class="org-node ${kind} ${current ? 'current' : ''}">
-      <strong>${icon ? `${esc(icon)} ` : ''}${esc(title)}</strong>
+      <strong>${icon ? `${esc(icon)} ` : ''}${esc(orgDisplayName(title))}</strong>
       ${detail ? `<small>${esc(detail)}</small>` : ''}
       ${current ? '<small class="org-node-mine">내 소속</small>' : ''}
       ${members.length ? `<span class="org-person-list">${orgSortByRank(members).map(orgPersonLine).join('')}</span>` : ''}
@@ -1642,14 +1648,14 @@
     return `<article class="org-division ${isCurrent ? 'current' : ''}">
       <header class="org-division-head">
         <span class="org-node-icon ${esc(division.tone || '')}">${esc(division.icon || '◆')}</span>
-        <span class="org-node-copy"><strong>${esc(division.name)}</strong><small>${esc(division.detail || '')}</small></span>
+        <span class="org-node-copy"><strong>${esc(orgDisplayName(division.name))}</strong><small>${esc(division.detail || '')}</small></span>
         ${isCurrent ? '<span class="org-current-badge">내 소속</span>' : ''}
       </header>
       ${division.members.length ? `<div class="org-member-list">${division.members.map(renderOrgMemberRow).join('')}</div>` : ''}
       ${(division.teams || []).map(team => {
         const teamCurrent = currentGroupName && team.name.includes(currentGroupName);
         return `<section class="org-subteam ${teamCurrent ? 'current' : ''}">
-          <header class="org-subteam-head"><span>${esc(team.icon || '◎')}</span><strong>${esc(team.name)}</strong>${teamCurrent ? '<span class="org-current-badge">내 소속</span>' : ''}</header>
+          <header class="org-subteam-head"><span>${esc(team.icon || '◎')}</span><strong>${esc(orgDisplayName(team.name))}</strong>${teamCurrent ? '<span class="org-current-badge">내 소속</span>' : ''}</header>
           <div class="org-member-list">${team.members.map(renderOrgMemberRow).join('')}</div>
         </section>`;
       }).join('')}

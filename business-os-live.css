@@ -2220,8 +2220,8 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .org-person small { color: #2674ac; font-size: 13px; font-weight: 600; }
 .org-person.me strong { color: #2674ac; }
 
+/* 카드 제목은 종류와 상관없이 같은 글자로 통일한다 */
 .org-node.roster { border-color: #e1e8ee; background: #fff; }
-.org-node.roster > strong { color: #6d7b89; font-size: 14px; font-weight: 600; }
 
 .org-node.lead {
   min-width: 210px;

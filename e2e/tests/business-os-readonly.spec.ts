@@ -261,10 +261,10 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView')).toContainText('회사 자료');
 
     await page.locator('.nav-item[data-view="organization"]').click();
-    await expect(page.locator('#moduleView')).toContainText('경영지원팀');
-    await expect(page.locator('#moduleView')).toContainText('플랫폼 영업팀');
-    await expect(page.locator('#moduleView')).toContainText('세무팀');
-    await expect(page.locator('#moduleView .org-node.team.sub.current')).toContainText('개발팀');
+    await expect(page.locator('#moduleView')).toContainText('경영지원');
+    await expect(page.locator('#moduleView')).toContainText('플랫폼 영업');
+    await expect(page.locator('#moduleView')).toContainText('세무');
+    await expect(page.locator('#moduleView .org-node.team.sub.current')).toContainText('개발');
     await expect(page.locator('#moduleView .org-node.team.sub.current')).toContainText('내 소속');
     await expect(page.locator('#moduleView [data-open-permissions]')).toBeVisible();
 
@@ -283,26 +283,26 @@ test.describe('Business OS read-only operating data', () => {
     await expect(hqTree.locator('> ul > li > ul > li > .org-node.team')).toHaveCount(2);
     // 경영지원팀 아래 하위팀(개발팀·세무팀)이 한 단계 더 내려간다
     await expect(hqTree.locator('.org-node.team.sub')).toHaveCount(2);
-    await expect(hqTree.locator('.org-node.team.sub').first()).toContainText('개발팀');
+    await expect(hqTree.locator('.org-node.team.sub').first()).toContainText('개발');
 
     // 팀 카드 → 최상위 직급 → 나머지 구성원·하위팀이 한 줄에 나란히
-    const supportDivision = hqTree.locator('> ul > li > ul > li').filter({ hasText: '경영지원팀' });
+    const supportDivision = hqTree.locator('> ul > li > ul > li').filter({ hasText: '경영지원' });
     await expect(supportDivision.locator('> ul > li > .org-node.person')).toContainText('김대호');
     const supportChildren = supportDivision.locator('> ul > li > ul > li > .org-node');
     await expect(supportChildren).toHaveCount(3);
     await expect(supportChildren.nth(0)).toContainText('전현우');
-    await expect(supportChildren.nth(1)).toContainText('개발팀');
-    await expect(supportChildren.nth(2)).toContainText('세무팀');
+    await expect(supportChildren.nth(1)).toContainText('개발');
+    await expect(supportChildren.nth(2)).toContainText('세무');
 
     // 팀 카드 안에는 구성원이 직급 순으로 들어간다
-    const devCard = page.locator('#moduleView .org-node').filter({ hasText: '개발팀' }).first();
+    const devCard = page.locator('#moduleView .org-node.team.sub').filter({ hasText: '개발' }).first();
     await expect(devCard.locator('.org-person')).toHaveCount(2);
     await expect(devCard.locator('.org-person').nth(0)).toContainText('이종혁');
     await expect(devCard.locator('.org-person').nth(0)).toContainText('대리');
     await expect(devCard.locator('.org-person').nth(1)).toContainText('김동우');
 
     // 플랫폼 영업팀은 부장 아래 나머지 5명이 한 카드에 직급 순으로 들어간다
-    const salesRoster = page.locator('#moduleView .org-node.roster').filter({ hasText: '플랫폼 영업팀' });
+    const salesRoster = page.locator('#moduleView .org-node.roster').filter({ hasText: '플랫폼 영업' });
     await expect(salesRoster.locator('.org-person')).toHaveCount(5);
     await expect(salesRoster.locator('.org-person').first()).toContainText('김지홍');
     await expect(salesRoster.locator('.org-person').nth(1)).toContainText('박우진');
