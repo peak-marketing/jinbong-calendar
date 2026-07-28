@@ -27,6 +27,7 @@
   let currentUser = null;
   let userDoc = null;
   let liveEvents = [];
+  let liveChecklistSummary = {};
   let liveProjects = [];
   let liveChatRooms = [];
   let liveUnreadCounts = {};
@@ -35,6 +36,7 @@
   let calendarMonth = new Date().getMonth() + 1;
   let calendarSelected = localDateKey(new Date());
   let calendarScope = 'all';
+  let calendarIncompleteOnly = true;
   let todoScope = 'all';
   let projectFilter = 'all';
   let projectDetailTab = 'overview';
@@ -251,7 +253,8 @@
       ownerName: record.owner_name ?? record.ownerName ?? '',
       isShared: record.is_shared === true || record.isShared === true,
       done: record.done === true,
-      projectId: record.project_id ?? record.projectId ?? ''
+      projectId: record.project_id ?? record.projectId ?? '',
+      sortOrder: Number(record.sort_order ?? record.sortOrder ?? 0)
     };
   }
 
@@ -263,13 +266,15 @@
 
   async function loadLiveData() {
     const currentYear = new Date().getFullYear();
-    const [events, rooms, unread, projectData] = await Promise.all([
+    const [events, checklistSummary, rooms, unread, projectData] = await Promise.all([
       readOnlyApi(`/events?from=${currentYear}-01-01&to=${currentYear}-12-31`),
+      readOnlyApi('/events/checklist-summary').catch(() => ({})),
       readOnlyApi('/chat-rooms'),
       readOnlyApi('/chat-rooms/unread').catch(() => ({})),
       readOnlyApi('/projects')
     ]);
     liveEvents = Array.isArray(events) ? events.map(normalizeEvent) : [];
+    liveChecklistSummary = checklistSummary && typeof checklistSummary === 'object' ? checklistSummary : {};
     eventLoadedYear = currentYear;
     liveChatRooms = Array.isArray(rooms) ? rooms : [];
     liveUnreadCounts = unread && typeof unread === 'object' ? unread : {};
@@ -391,21 +396,99 @@
     return liveEvents;
   }
 
+  function isReportCalendarEvent(event) {
+    return event.todoCat === '보고서' || /보고서|업무보고/.test(event.title || '');
+  }
+
+  function calendarAgendaEvent(event) {
+    const checklist = liveChecklistSummary[String(event.id)] || { completed: 0, total: 0 };
+    const checklistLabel = checklist.total ? `체크리스트 ${checklist.completed}/${checklist.total}` : '';
+    return `<button class="agenda-work-item ${event.done ? 'done' : ''}" type="button" data-event-detail="${esc(event.id)}">
+      <span class="agenda-work-check">${event.done ? '✓' : ''}</span>
+      <span class="agenda-work-copy">
+        <strong>${esc(event.title)}</strong>
+        <small>${esc(event.ownerName || '담당자 미지정')}${event.time ? ` · ${esc(formatTime(event.time))}` : ''}</small>
+        ${event.memo ? `<em>${esc(event.memo)}</em>` : ''}
+      </span>
+      ${checklistLabel ? `<span class="agenda-work-checklist">${esc(checklistLabel)}</span>` : ''}
+    </button>`;
+  }
+
   function renderCalendarAgenda() {
     const agenda = document.getElementById('homeCalendarAgenda');
-    const selectedEvents = calendarEventsForScope().filter(event => event.date === calendarSelected);
+    const allSelectedEvents = liveEvents.filter(event => event.date === calendarSelected);
+    const selectedEvents = calendarEventsForScope()
+      .filter(event => event.date === calendarSelected)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title, 'ko'));
     const selectedDate = new Date(calendarSelected + 'T00:00:00');
     const selectedDateLabel = formatDate(selectedDate, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+    const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+    const compactDate = `${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')} (${weekdays[selectedDate.getDay()]})`;
+    const personalCount = allSelectedEvents.filter(event => event.scope !== 'team').length;
+    const teamCount = allSelectedEvents.filter(event => event.scope === 'team').length;
+    const incompleteCount = allSelectedEvents.filter(event => !event.done).length;
+    const meetingCount = allSelectedEvents.filter(event => event.type === 'meeting').length;
+    const relatedProjectIds = new Set(allSelectedEvents.map(event => String(event.projectId || '')).filter(Boolean));
+    const relatedRoomCount = new Set(liveProjects
+      .filter(project => relatedProjectIds.has(String(project.id)))
+      .map(project => project.chat_room_id)
+      .filter(Boolean)).size;
+    const reportEvents = selectedEvents.filter(isReportCalendarEvent);
+    const visibleEvents = calendarIncompleteOnly ? selectedEvents.filter(event => !event.done) : selectedEvents;
+    const grouped = new Map();
+    visibleEvents.forEach(event => {
+      const category = event.todoCat || (event.type === 'meeting' ? '미팅' : event.type === 'todo' ? '기타 업무' : '일정');
+      if (!grouped.has(category)) grouped.set(category, []);
+      grouped.get(category).push(event);
+    });
+    const groupRows = [...grouped.entries()].map(([category, events], index) => {
+      const allInCategory = selectedEvents.filter(event => (event.todoCat || (event.type === 'meeting' ? '미팅' : event.type === 'todo' ? '기타 업무' : '일정')) === category);
+      const completed = allInCategory.filter(event => event.done).length;
+      const tones = ['coral', 'violet', 'teal', 'blue'];
+      return `<section class="agenda-work-group" data-agenda-group>
+        <button class="agenda-work-group-head" type="button">
+          <span class="agenda-work-caret">▼</span><i class="${tones[index % tones.length]}"></i><strong>${esc(category)}</strong><small>${completed}/${allInCategory.length}</small>
+        </button>
+        <div class="agenda-work-group-body">${events.map(calendarAgendaEvent).join('')}</div>
+      </section>`;
+    }).join('');
+    const listTitle = calendarScope === 'personal' ? '내 일정' : calendarScope === 'team' ? '팀 일정' : '전체 일정';
     agenda.innerHTML = `
-      <div class="agenda-date"><span>선택 날짜</span><strong>${esc(selectedDateLabel)}</strong></div>
-      <div class="agenda-list">
-        ${selectedEvents.length ? selectedEvents.map(event => `
-          <button class="agenda-item" type="button" data-event-detail="${esc(event.id)}">
-            <span class="agenda-time">${esc(formatTime(event.time))}</span>
-            <span class="agenda-copy"><strong>${esc(event.title)}</strong><small>${esc(event.ownerName || '담당자 미지정')} · ${esc(eventTypeLabel(event))}</small></span>
-          </button>`).join('') : '<div class="live-list-empty">이 날짜에 일정이 없습니다.</div>'}
+      <div class="agenda-scope-tabs" aria-label="일정 범위">
+        <button class="${calendarScope === 'personal' ? 'active' : ''}" type="button" data-agenda-scope="personal">내 일정</button>
+        <button class="${calendarScope === 'team' ? 'active' : ''}" type="button" data-agenda-scope="team">팀</button>
+        <button class="${calendarScope === 'all' ? 'active' : ''}" type="button" data-agenda-scope="all">전체</button>
       </div>
+      <div class="agenda-filter-row"><button class="${calendarIncompleteOnly ? 'active' : ''}" type="button" data-agenda-incomplete>✓ 미완료만</button></div>
+      <section class="agenda-day-summary">
+        <div class="agenda-date"><span>${esc(selectedDateLabel)}</span><strong>${esc(compactDate)}</strong></div>
+        <p>전체 ${allSelectedEvents.length}건 · 관련 채팅방 ${relatedRoomCount}개</p>
+        <div class="agenda-day-stats">
+          <span><strong>${personalCount}</strong><small>내 일정</small></span>
+          <span><strong>${teamCount}</strong><small>팀 일정</small></span>
+          <span><strong>${incompleteCount}</strong><small>미완료</small></span>
+          <span><strong>${meetingCount}</strong><small>미팅</small></span>
+        </div>
+      </section>
+      <section class="agenda-report-section">
+        <header><strong>▤ 보고서 현황</strong><span>${reportEvents.filter(event => event.done).length}/${reportEvents.length}</span></header>
+        <div>${reportEvents.length ? reportEvents.map(event => `<button type="button" data-event-detail="${esc(event.id)}"><span>${event.done ? '✓' : '▶'}</span><strong>${esc(event.title)}</strong></button>`).join('') : '<p>이 날짜의 보고서 일정이 없습니다.</p>'}</div>
+      </section>
+      <section class="agenda-work-section">
+        <header><strong>▣ ${esc(listTitle)}</strong><span>${visibleEvents.length}건</span></header>
+        <div class="agenda-work-groups">${groupRows || `<div class="agenda-work-empty">${selectedEvents.length && calendarIncompleteOnly ? '미완료 일정이 없습니다.' : '이 날짜에 일정이 없습니다.'}</div>`}</div>
+      </section>
       <span class="todo-readonly-note">운영 데이터 · 읽기 전용</span>`;
+    agenda.querySelectorAll('[data-agenda-scope]').forEach(button => button.addEventListener('click', () => {
+      calendarScope = button.dataset.agendaScope;
+      document.querySelectorAll('.calendar-scope-button').forEach(item => item.classList.toggle('active', item.dataset.scope === calendarScope));
+      renderCalendar();
+    }));
+    agenda.querySelector('[data-agenda-incomplete]').addEventListener('click', () => {
+      calendarIncompleteOnly = !calendarIncompleteOnly;
+      renderCalendarAgenda();
+    });
+    agenda.querySelectorAll('[data-agenda-group]').forEach(group => group.querySelector('.agenda-work-group-head').addEventListener('click', () => group.classList.toggle('closed')));
     agenda.querySelectorAll('[data-event-detail]').forEach(button => button.addEventListener('click', () => {
       const event = liveEvents.find(item => String(item.id) === String(button.dataset.eventDetail));
       if (event) openEventDetail(event);

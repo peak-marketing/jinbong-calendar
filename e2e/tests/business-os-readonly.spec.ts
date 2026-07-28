@@ -60,7 +60,31 @@ test.describe('Business OS read-only operating data', () => {
           owner_id: 'e2e-test-user',
           owner_name: 'E2E',
           done: false,
+        }, {
+          id: 'event-live-2',
+          type: 'meeting',
+          title: '팀 운영 회의',
+          date,
+          time: '16:00',
+          todo_cat: '',
+          scope: 'team',
+          owner_id: 'colleague',
+          owner_name: '동료',
+          done: false,
+        }, {
+          id: 'event-live-3',
+          type: 'todo',
+          title: '일일 보고서 작성',
+          date,
+          time: '18:00',
+          todo_cat: '보고서',
+          scope: 'personal',
+          owner_id: 'e2e-test-user',
+          owner_name: 'E2E',
+          done: true,
         }];
+      } else if (pathname === '/events/checklist-summary') {
+        payload = { 'event-live-1': { total: 3, completed: 1 } };
       } else if (pathname === '/chat-rooms') {
         payload = [{
           id: 'room-live-1',
@@ -106,17 +130,24 @@ test.describe('Business OS read-only operating data', () => {
 
     await page.locator('.nav-item[data-view="todo"]').click();
     await expect(page.locator('#todoView')).toContainText('오늘 운영 업무');
-    await expect(page.locator('#todoView .todo-task-check')).toBeDisabled();
+    await expect(page.locator('#todoView .todo-task-check').first()).toBeDisabled();
     await expect(page.locator('#todoView')).not.toContainText('현재 계정에 허용된 오늘 업무를 조회합니다');
 
     await page.locator('.nav-item[data-view="calendar"]').click();
     await expect(page.locator('#calendarView')).toContainText('오늘 운영 업무');
     await expect(page.locator('#calendarMonthLabel')).toHaveText(`${year}년 ${today.getMonth() + 1}월`);
-    await expect(page.locator('#homeCalendarAgenda .agenda-date strong')).toContainText(`${year}년 ${today.getMonth() + 1}월 ${today.getDate()}일`);
+    await expect(page.locator('#homeCalendarAgenda .agenda-date span')).toContainText(`${year}년 ${today.getMonth() + 1}월 ${today.getDate()}일`);
+    await expect(page.locator('#homeCalendarAgenda .agenda-day-stats')).toContainText('내 일정');
+    await expect(page.locator('#homeCalendarAgenda .agenda-day-stats')).toContainText('팀 일정');
+    await expect(page.locator('#homeCalendarAgenda .agenda-report-section')).toContainText('일일 보고서 작성');
+    await expect(page.locator('#homeCalendarAgenda')).toContainText('체크리스트 1/3');
+    await page.locator('#homeCalendarAgenda [data-agenda-scope="team"]').click();
+    await expect(page.locator('#homeCalendarAgenda')).toContainText('팀 운영 회의');
+    await page.locator('#homeCalendarAgenda [data-agenda-scope="all"]').click();
     const nextMonth = new Date(year, today.getMonth() + 1, 1);
     await page.locator('#calendarNext').click();
     await expect(page.locator('#calendarMonthLabel')).toHaveText(`${nextMonth.getFullYear()}년 ${nextMonth.getMonth() + 1}월`);
-    await expect(page.locator('#homeCalendarAgenda .agenda-date strong')).toContainText(`${nextMonth.getFullYear()}년 ${nextMonth.getMonth() + 1}월 1일`);
+    await expect(page.locator('#homeCalendarAgenda .agenda-date span')).toContainText(`${nextMonth.getFullYear()}년 ${nextMonth.getMonth() + 1}월 1일`);
     await page.locator('#calendarPrev').click();
 
     await page.locator('.nav-item[data-view="chat"]').click();
