@@ -166,10 +166,10 @@
       divisions: [
         {
           id: 'daegu-main',
-          name: '지사 구성원',
+          name: '대구지사 영업팀',
           icon: '◈',
           tone: 'sales',
-          detail: '대구지사 영업 및 운영',
+          detail: '지사 영업 및 현장 운영',
           members: [
             { name: '임규태', rank: '이사' },
             { name: '진영석', rank: '이사' },
@@ -1632,8 +1632,8 @@
           </li>
         </ul>
       </div>
-      ${branch.divisions.length ? '' : '<p class="org-branch-empty">아직 등록된 하위 조직이 없습니다.</p>'}
-    </div>`;
+    </div>
+    ${branch.divisions.length ? '' : '<p class="org-branch-empty">아직 등록된 하위 조직이 없습니다.</p>'}`;
   }
 
   function renderOrgDivision(division) {
@@ -1659,7 +1659,8 @@
   function renderOrgBranch(branch) {
     // 보기는 피라미드, 수정은 세로 나열
     if (!orgEditMode) {
-      return `<section class="org-branch" data-org-branch="${esc(branch.id)}">${renderOrgTree(branch)}</section>`;
+        // 갈래가 여럿인 지사는 한 줄을 다 쓰고, 작은 지사는 옆으로 나란히 놓는다
+      return `<section class="org-branch ${branch.divisions.length > 1 ? 'wide' : ''}" data-org-branch="${esc(branch.id)}">${renderOrgTree(branch)}</section>`;
     }
     return `<section class="org-branch" data-org-branch="${esc(branch.id)}">
       <article class="org-master-node ${branch.lead?.master ? 'master' : ''}">
@@ -1699,9 +1700,11 @@
     </section>`;
   }
 
-  // 트리가 화면보다 넓으면 줄여서 한눈에 들어오게 한다. 너무 작아지면
-  // 글자를 못 읽으니 하한을 두고 그 아래로는 가로 스크롤로 넘긴다.
+  // 트리를 화면 폭에 맞춘다. 넘치면 줄이고, 남으면 키워서 빈 공간을 채운다.
+  // 너무 작아지면 글자를 못 읽으니 하한을 두고 그 아래로는 가로 스크롤로,
+  // 너무 커지면 어색하니 상한을 둔다.
   const ORG_TREE_MIN_SCALE = 0.72;
+  const ORG_TREE_MAX_SCALE = 1.5;
   const ORG_TREE_FIT_MIN_WIDTH = 700;
 
   function fitOrgTrees() {
@@ -1709,20 +1712,33 @@
       const scaler = tree.querySelector('.org-tree-scale');
       if (!scaler) return;
       scaler.style.transform = '';
+      scaler.style.transformOrigin = '';
       tree.style.height = '';
       tree.classList.remove('scrollable');
 
       const available = tree.clientWidth;
       const natural = scaler.offsetWidth;
-      if (!available || !natural || natural <= available) return;
+      if (!available || !natural) return;
 
-      if (available < ORG_TREE_FIT_MIN_WIDTH) {
-        tree.classList.add('scrollable');
-        return;
-      }
       const wanted = available / natural;
-      const scale = Math.max(ORG_TREE_MIN_SCALE, wanted);
-      if (wanted < ORG_TREE_MIN_SCALE) tree.classList.add('scrollable');
+      let scale;
+      if (natural > available) {
+        // 좁은 화면은 줄여 봐야 못 읽으니 그대로 두고 가로로 넘긴다
+        if (available < ORG_TREE_FIT_MIN_WIDTH) {
+          tree.classList.add('scrollable');
+          return;
+        }
+        scale = Math.max(ORG_TREE_MIN_SCALE, wanted);
+        if (wanted < ORG_TREE_MIN_SCALE) tree.classList.add('scrollable');
+        // 줄일 때는 왼쪽부터 채워야 잘리는 노드가 없다
+        scaler.style.transformOrigin = 'top left';
+      } else {
+        scale = Math.min(ORG_TREE_MAX_SCALE, wanted);
+        if (scale <= 1.02) return;
+        // 키울 때는 가운데를 기준으로 벌린다
+        scaler.style.transformOrigin = 'top center';
+      }
+
       scaler.style.transform = `scale(${scale})`;
       tree.style.height = `${Math.ceil(scaler.offsetHeight * scale)}px`;
     });

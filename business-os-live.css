@@ -1981,9 +1981,14 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .org-chart {
   position: relative;
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 26px;
   padding: 4px 0 8px;
 }
+
+/* 큰 지사는 한 줄을 다 쓰고, 작은 지사끼리는 옆으로 나란히 선다 */
+.org-chart.view .org-branch.wide { grid-column: 1 / -1; }
+.org-chart.edit .org-branch { grid-column: 1 / -1; }
 
 /* 조직도 카드가 흰색이라 메인 워터마크를 가린다. 트리 뒤쪽에 한 번 더
    깔아 로고가 비치게 하되, 노드는 그 위에 그려 가독성은 그대로 둔다.
@@ -2011,7 +2016,9 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   gap: 0;
 }
 
-.org-branch + .org-branch {
+/* 줄이 바뀔 때만 구분선을 긋는다. 옆으로 나란히 선 지사끼리는 긋지 않는다 */
+.org-chart.view .org-branch.wide + .org-branch,
+.org-chart.edit .org-branch + .org-branch {
   padding-top: 24px;
   border-top: 1px dashed #d7e3ec;
 }
@@ -2134,7 +2141,7 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 
 .org-tree li {
   position: relative;
-  padding: 26px 5px 0;
+  padding: 26px 12px 0;
   text-align: center;
   list-style: none;
 }
@@ -2158,7 +2165,7 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 }
 
 /* 지사 바로 아래 상위 팀끼리는 넉넉히 벌려 둔다 */
-.org-tree > ul > li > ul > li { padding-inline: 70px; }
+.org-tree > ul > li > ul > li { padding-inline: 100px; }
 
 .org-tree li:only-child { padding-top: 0; }
 .org-tree li:only-child::before,
@@ -2514,6 +2521,12 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   .org-master-node { align-items: flex-start; padding: 14px; }
   .org-master-chip { margin-left: auto; }
   .org-vertical-line { height: 22px; }
+  /* 좁은 화면에서는 지사도 한 줄씩 */
+  .org-chart { grid-template-columns: minmax(0, 1fr); }
+  .org-chart.view .org-branch + .org-branch {
+    padding-top: 24px;
+    border-top: 1px dashed #d7e3ec;
+  }
   .org-divisions { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   /* 피라미드는 좁은 화면에서 가로 스크롤로 넘긴다 */
   .org-node { min-width: 108px; padding: 10px 12px; }
