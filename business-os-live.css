@@ -2032,72 +2032,125 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   background: #bdd5e5;
 }
 
-/* 갈래가 둘 이상이면 각 팀 위로 가로 연결선을 얹는다 */
-.org-vertical-line.branching::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  width: 50%;
-  border-top: 1px solid #bdd5e5;
-  transform: translateX(-50%);
-}
-
 .org-divisions {
   display: grid;
   gap: 16px;
 }
 
-/* 보기 모드: 좌우로 갈라지는 조직도 */
-.org-chart.view .org-divisions {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 22px;
-  align-items: start;
-}
-
-/* 갈래가 하나뿐인 지사는 한 칸으로 두어 대표 아래 가운데에 오게 한다 */
-.org-chart.view .org-divisions.single { grid-template-columns: minmax(0, 1fr); }
-
-.org-chart.view .org-division { position: relative; }
-
-.org-vertical-line.branching + .org-divisions .org-division::before {
-  content: "";
-  position: absolute;
-  top: -16px;
-  left: 50%;
-  width: 1px;
-  height: 16px;
-  background: #bdd5e5;
-}
-
 /* 수정 모드: 위에서 아래로 한 줄씩 나열 */
 .org-chart.edit .org-divisions { grid-template-columns: minmax(0, 1fr); }
 
-.org-chip-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 14px;
+/* ── 보기 모드: 대표를 정점으로 내려가는 피라미드 ────────────── */
+.org-tree {
+  padding: 6px 4px 4px;
+  overflow-x: auto;
 }
 
-.org-chip {
+.org-tree ul {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  /* 트리가 컨테이너보다 넓어지면 가운데 정렬 탓에 왼쪽 끝이 스크롤로
+     닿지 않는다. safe를 붙이면 넘칠 때만 시작점 정렬로 물러난다. */
+  justify-content: safe center;
+  margin: 0;
+  padding: 26px 0 0;
+  list-style: none;
+}
+
+.org-tree > ul { padding-top: 0; }
+
+/* 부모 노드에서 아래 가로선까지 내려오는 선 */
+.org-tree ul ul::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 0;
+  height: 26px;
+  border-left: 1px solid #bdd5e5;
+}
+
+.org-tree li {
+  position: relative;
+  padding: 26px 8px 0;
+  text-align: center;
+  list-style: none;
+}
+
+/* 형제를 잇는 가로선과 각 노드로 내려가는 세로선 */
+.org-tree li::before,
+.org-tree li::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 50%;
+  width: 50%;
+  height: 26px;
+  border-top: 1px solid #bdd5e5;
+}
+
+.org-tree li::after {
+  right: auto;
+  left: 50%;
+  border-left: 1px solid #bdd5e5;
+}
+
+.org-tree li:only-child { padding-top: 0; }
+.org-tree li:only-child::before,
+.org-tree li:only-child::after { display: none; }
+.org-tree li:first-child::before,
+.org-tree li:last-child::after { border: 0; }
+.org-tree li:last-child::before { border-right: 1px solid #bdd5e5; }
+
+.org-node {
   display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-  min-height: 38px;
-  padding: 6px 14px;
-  border: 1px solid #e6ecf1;
-  border-radius: 999px;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 112px;
+  max-width: 200px;
+  padding: 12px 14px;
+  border: 1px solid #e1e8ee;
+  border-radius: 11px;
+  background: #fff;
+}
+
+.org-node strong { color: #24313e; font-size: 15px; font-weight: 700; white-space: nowrap; }
+.org-node small { color: #7b8794; font-size: 13px; }
+.org-node.person small { color: #2674ac; font-weight: 600; }
+
+.org-node.lead {
+  min-width: 210px;
+  border-color: #cfdce7;
   background: #fbfcfd;
 }
 
-.org-chip.current {
+.org-node.lead.master {
+  border-color: #a8cee8;
+  background: linear-gradient(135deg, #f5fbff, #eaf5fc);
+  box-shadow: 0 8px 22px rgba(52, 142, 205, .09);
+}
+
+.org-node.team { border-color: #d7e3ec; background: #f7fafc; }
+.org-node.team.support { border-color: #d3cdee; background: #f8f7fd; }
+.org-node.team.sales { border-color: #c6e5d6; background: #f5fbf8; }
+
+.org-node.current {
   border-color: #9dcced;
   background: #f2f9fe;
 }
 
-.org-chip strong { color: #24313e; font-size: 15px; font-weight: 700; }
-.org-chip small { color: #2674ac; font-size: 13px; font-weight: 600; }
+.org-node-mine {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e9f4fc;
+  color: #2674ac;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.org-node .org-master-chip { margin-top: 2px; }
 
 .org-division {
   padding: 18px 20px;
@@ -2358,11 +2411,12 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   .org-master-node { align-items: flex-start; padding: 14px; }
   .org-master-chip { margin-left: auto; }
   .org-vertical-line { height: 22px; }
-  /* 좁은 화면에서는 갈래도 한 줄로 접는다 */
-  .org-divisions,
-  .org-chart.view .org-divisions { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .org-vertical-line.branching::after { display: none; }
-  .org-vertical-line.branching + .org-divisions .org-division::before { display: none; }
+  .org-divisions { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  /* 피라미드는 좁은 화면에서 가로 스크롤로 넘긴다 */
+  .org-node { min-width: 108px; padding: 10px 12px; }
+  .org-node.lead { min-width: 168px; }
+  .org-node strong { font-size: 14px; }
+  .org-node small { font-size: 12px; }
   .org-division { padding: 14px; }
   .org-node-copy strong { font-size: 15px; }
   .org-node-copy small { font-size: 12px; }

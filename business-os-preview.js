@@ -1535,42 +1535,88 @@
     </div>`;
   }
 
-  // 보기 모드에서는 이름과 직급만 한 줄로 간결하게 보여 준다.
-  function renderOrgMemberChip(member) {
+  // ── 보기 모드: 대표를 정점으로 아래로 갈라지는 피라미드 ──────────
+  function orgTreeMember(member) {
     const account = orgAccountFor(member.name);
     const isMe = account && account.uid === userDoc?.uid;
-    return `<span class="org-chip ${isMe ? 'current' : ''}">
+    return `<li><div class="org-node person ${isMe ? 'current' : ''}">
       <strong>${esc(member.name)}</strong>
       <small>${esc(orgRankOf(member))}</small>
-    </span>`;
+    </div></li>`;
+  }
+
+  function orgTreeTeam(team, currentGroupName) {
+    const isCurrent = Boolean(currentGroupName) && team.name.includes(currentGroupName);
+    return `<li>
+      <div class="org-node team sub ${isCurrent ? 'current' : ''}">
+        <strong>${esc(team.icon || '◎')} ${esc(team.name)}</strong>
+        ${isCurrent ? '<small class="org-node-mine">내 소속</small>' : ''}
+      </div>
+      ${team.members.length ? `<ul>${team.members.map(orgTreeMember).join('')}</ul>` : ''}
+    </li>`;
+  }
+
+  function orgTreeDivision(division, currentGroupName) {
+    const isCurrent = Boolean(currentGroupName)
+      && (division.name.includes(currentGroupName) || currentGroupName.includes(division.name));
+    const children = [
+      ...division.members.map(orgTreeMember),
+      ...(division.teams || []).map(team => orgTreeTeam(team, currentGroupName))
+    ];
+    return `<li>
+      <div class="org-node team ${esc(division.tone || '')} ${isCurrent ? 'current' : ''}">
+        <strong>${esc(division.icon || '◆')} ${esc(division.name)}</strong>
+        <small>${esc(division.detail || '')}</small>
+        ${isCurrent ? '<small class="org-node-mine">내 소속</small>' : ''}
+      </div>
+      ${children.length ? `<ul>${children.join('')}</ul>` : ''}
+    </li>`;
+  }
+
+  function renderOrgTree(branch) {
+    const currentGroupName = String(userDoc?.group_name || '').trim();
+    return `<div class="org-tree">
+      <ul>
+        <li>
+          <div class="org-node lead ${branch.lead?.master ? 'master' : ''}">
+            <strong>♛ ${esc(branch.lead?.name || branch.name)}</strong>
+            <small>${esc(branch.name)} · ${esc(branch.lead ? orgRankOf(branch.lead) : '대표')}</small>
+            ${branch.lead?.master ? '<span class="org-master-chip">MASTER</span>' : ''}
+          </div>
+          ${branch.divisions.length
+            ? `<ul>${branch.divisions.map(division => orgTreeDivision(division, currentGroupName)).join('')}</ul>`
+            : ''}
+        </li>
+      </ul>
+      ${branch.divisions.length ? '' : '<p class="org-branch-empty">아직 등록된 하위 조직이 없습니다.</p>'}
+    </div>`;
   }
 
   function renderOrgDivision(division) {
     const currentGroupName = String(userDoc?.group_name || '').trim();
     const isCurrent = currentGroupName && (division.name.includes(currentGroupName) || currentGroupName.includes(division.name));
-    const renderMembers = members => (orgEditMode
-      ? `<div class="org-member-list">${members.map(renderOrgMemberRow).join('')}</div>`
-      : `<div class="org-chip-list">${members.map(renderOrgMemberChip).join('')}</div>`);
     return `<article class="org-division ${isCurrent ? 'current' : ''}">
       <header class="org-division-head">
         <span class="org-node-icon ${esc(division.tone || '')}">${esc(division.icon || '◆')}</span>
         <span class="org-node-copy"><strong>${esc(division.name)}</strong><small>${esc(division.detail || '')}</small></span>
         ${isCurrent ? '<span class="org-current-badge">내 소속</span>' : ''}
       </header>
-      ${division.members.length ? renderMembers(division.members) : ''}
+      ${division.members.length ? `<div class="org-member-list">${division.members.map(renderOrgMemberRow).join('')}</div>` : ''}
       ${(division.teams || []).map(team => {
         const teamCurrent = currentGroupName && team.name.includes(currentGroupName);
         return `<section class="org-subteam ${teamCurrent ? 'current' : ''}">
           <header class="org-subteam-head"><span>${esc(team.icon || '◎')}</span><strong>${esc(team.name)}</strong>${teamCurrent ? '<span class="org-current-badge">내 소속</span>' : ''}</header>
-          ${renderMembers(team.members)}
+          <div class="org-member-list">${team.members.map(renderOrgMemberRow).join('')}</div>
         </section>`;
       }).join('')}
     </article>`;
   }
 
   function renderOrgBranch(branch) {
-    // 보기 모드에서 갈래가 2개 이상이면 가로 연결선을 그린다
-    const branching = !orgEditMode && branch.divisions.length > 1;
+    // 보기는 피라미드, 수정은 세로 나열
+    if (!orgEditMode) {
+      return `<section class="org-branch" data-org-branch="${esc(branch.id)}">${renderOrgTree(branch)}</section>`;
+    }
     return `<section class="org-branch" data-org-branch="${esc(branch.id)}">
       <article class="org-master-node ${branch.lead?.master ? 'master' : ''}">
         <span class="org-node-icon">♛</span>
@@ -1581,7 +1627,7 @@
         ${branch.lead?.master ? '<span class="org-master-chip">MASTER</span>' : ''}
       </article>
       ${branch.divisions.length
-        ? `<div class="org-vertical-line ${branching ? 'branching' : ''}"></div><div class="org-divisions ${branch.divisions.length === 1 ? 'single' : ''}">${branch.divisions.map(renderOrgDivision).join('')}</div>`
+        ? `<div class="org-vertical-line"></div><div class="org-divisions">${branch.divisions.map(renderOrgDivision).join('')}</div>`
         : '<p class="org-branch-empty">아직 등록된 하위 조직이 없습니다.</p>'}
     </section>`;
   }
@@ -1641,8 +1687,8 @@
           <p class="sales-basis">${orgEditMode
             ? '수정 중에는 구성원을 세로로 펼쳐 보여 줍니다. 바꾼 직급은 이 브라우저에만 저장되는 초안이며 운영 DB에는 반영되지 않습니다.'
             : (canManageOrganization
-              ? '직급을 바꾸려면 오른쪽 위 직급 수정을 누르세요. 부장 이상만 수정할 수 있습니다.'
-              : '직급은 부장 이상만 수정할 수 있습니다. 현재 계정은 조회만 가능합니다.')}</p>
+              ? '조직도가 화면보다 넓으면 좌우로 밀어서 볼 수 있습니다. 직급을 바꾸려면 오른쪽 위 직급 수정을 누르세요. 부장 이상만 수정할 수 있습니다.'
+              : '조직도가 화면보다 넓으면 좌우로 밀어서 볼 수 있습니다. 직급은 부장 이상만 수정할 수 있으며 현재 계정은 조회만 가능합니다.')}</p>
         </div>
       </section>
       ${renderOrgUnassigned()}

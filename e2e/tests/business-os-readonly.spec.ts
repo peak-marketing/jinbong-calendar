@@ -264,28 +264,35 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView')).toContainText('경영지원팀');
     await expect(page.locator('#moduleView')).toContainText('플랫폼 영업팀');
     await expect(page.locator('#moduleView')).toContainText('세무팀');
-    await expect(page.locator('#moduleView .org-subteam.current')).toContainText('개발팀');
-    await expect(page.locator('#moduleView .org-subteam.current')).toContainText('내 소속');
+    await expect(page.locator('#moduleView .org-node.team.sub.current')).toContainText('개발팀');
+    await expect(page.locator('#moduleView .org-node.team.sub.current')).toContainText('내 소속');
     await expect(page.locator('#moduleView [data-open-permissions]')).toBeVisible();
 
-    // 기본은 갈래로 나뉜 보기 모드 — 직급은 칩으로만 보이고 입력칸은 없다
+    // 기본은 피라미드 보기 모드 — 직급은 노드에만 보이고 입력칸은 없다
     await expect(page.locator('#moduleView .org-chart.view')).toHaveCount(1);
+    await expect(page.locator('#moduleView .org-tree')).toHaveCount(3);
     await expect(page.locator('#moduleView .org-branch')).toHaveCount(3);
     await expect(page.locator('#moduleView')).toContainText('김진봉');
     await expect(page.locator('#moduleView .org-master-chip')).toHaveText('MASTER');
     await expect(page.locator('#moduleView [data-org-rank]')).toHaveCount(0);
-    await expect(page.locator('#moduleView .org-chip').filter({ hasText: '김대호' })).toContainText('부장');
-    // 본사는 두 갈래이므로 연결선이 그려진다
-    await expect(page.locator('#moduleView [data-org-branch="hq"] .org-vertical-line.branching')).toHaveCount(1);
+    await expect(page.locator('#moduleView .org-node.person').filter({ hasText: '김대호' })).toContainText('부장');
+
+    // 본사 트리: 대표 → 팀 2개 → 그 아래 구성원·하위팀으로 갈라진다
+    const hqTree = page.locator('#moduleView [data-org-branch="hq"] .org-tree');
+    await expect(hqTree.locator('> ul > li > .org-node.lead')).toHaveCount(1);
+    await expect(hqTree.locator('> ul > li > ul > li > .org-node.team')).toHaveCount(2);
+    // 경영지원팀 아래 하위팀(개발팀·세무팀)이 한 단계 더 내려간다
+    await expect(hqTree.locator('.org-node.team.sub')).toHaveCount(2);
+    await expect(hqTree.locator('.org-node.team.sub').first()).toContainText('개발팀');
     // 계정이 없는 구성원도 조직도에는 나와야 한다
-    await expect(page.locator('#moduleView .org-chip').filter({ hasText: '은시후' })).toContainText('주임');
+    await expect(page.locator('#moduleView .org-node.person').filter({ hasText: '은시후' })).toContainText('주임');
     // 조직도에 이름이 없는 계정은 숨기지 않고 따로 모아 보여 준다
     await expect(page.locator('#moduleView')).toContainText('조직도 미배치 계정');
 
     // 직급 수정을 누르면 세로 나열 + 입력칸으로 바뀐다
     await page.locator('#moduleView [data-org-edit-toggle]').click();
     await expect(page.locator('#moduleView .org-chart.edit')).toHaveCount(1);
-    await expect(page.locator('#moduleView .org-chip')).toHaveCount(0);
+    await expect(page.locator('#moduleView .org-tree')).toHaveCount(0);
     const daehoRank = page.locator('#moduleView [data-org-rank="김대호"]');
     await expect(daehoRank).toHaveValue('부장');
     await expect(daehoRank).toBeEnabled();
@@ -296,10 +303,10 @@ test.describe('Business OS read-only operating data', () => {
     await daehoRank.selectOption('이사');
     await expect(page.locator('#moduleView [data-org-rank="김대호"]')).toHaveValue('이사');
 
-    // 수정 완료를 누르면 다시 갈래 보기로 돌아오고 바뀐 직급이 반영된다
+    // 수정 완료를 누르면 다시 피라미드로 돌아오고 바뀐 직급이 반영된다
     await page.locator('#moduleView [data-org-edit-toggle]').click();
     await expect(page.locator('#moduleView .org-chart.view')).toHaveCount(1);
-    await expect(page.locator('#moduleView .org-chip').filter({ hasText: '김대호' })).toContainText('이사');
+    await expect(page.locator('#moduleView .org-node.person').filter({ hasText: '김대호' })).toContainText('이사');
 
     // 지사 필터
     await page.locator('#moduleView [data-org-branch-filter]').selectOption('jeonju');
