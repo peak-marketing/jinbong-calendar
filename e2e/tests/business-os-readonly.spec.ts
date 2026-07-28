@@ -284,6 +284,14 @@ test.describe('Business OS read-only operating data', () => {
     // 경영지원팀 아래 하위팀(개발팀·세무팀)이 한 단계 더 내려간다
     await expect(hqTree.locator('.org-node.team.sub')).toHaveCount(2);
     await expect(hqTree.locator('.org-node.team.sub').first()).toContainText('개발팀');
+
+    // 팀 안에서는 직급이 높은 순으로 한 단계씩 내려간다 (부장 → 팀장 → 하위팀)
+    const supportDivision = hqTree.locator('> ul > li > ul > li').filter({ hasText: '경영지원팀' });
+    await expect(supportDivision.locator('> ul > li > .org-node.person')).toContainText('김대호');
+    await expect(supportDivision.locator('> ul > li > ul > li > .org-node.person')).toContainText('전현우');
+    // 같은 직급인 과장 두 명은 한 줄에 나란히 선다
+    await expect(page.locator('#moduleView .org-tier').first().locator('.org-node.person')).toHaveCount(2);
+    await expect(page.locator('#moduleView .org-tier').first()).toContainText('과장');
     // 계정이 없는 구성원도 조직도에는 나와야 한다
     await expect(page.locator('#moduleView .org-node.person').filter({ hasText: '은시후' })).toContainText('주임');
     // 조직도에 이름이 없는 계정은 숨기지 않고 따로 모아 보여 준다

@@ -1993,7 +1993,8 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   position: absolute;
   inset: 0;
   z-index: 0;
-  background: url("/logo-trimmed.png") no-repeat center 46% / auto min(58%, 420px);
+  /* 화살표 끝이 맨 위 대표 노드를 가리키도록 위쪽에 고정한다 */
+  background: url("/logo-trimmed.png") no-repeat center 74px / auto min(58%, 420px);
   opacity: .13;
   filter:
     drop-shadow(-5px -6px 5px rgba(255, 255, 255, 1))
@@ -2179,6 +2180,13 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .org-node strong { color: #24313e; font-size: 15px; font-weight: 700; white-space: nowrap; }
 .org-node small { color: #7b8794; font-size: 13px; }
 .org-node.person small { color: #2674ac; font-weight: 600; }
+
+/* 같은 직급끼리는 한 줄에 나란히 세운다 */
+.org-tier {
+  display: inline-flex;
+  gap: 8px;
+  align-items: stretch;
+}
 
 .org-node.lead {
   min-width: 210px;

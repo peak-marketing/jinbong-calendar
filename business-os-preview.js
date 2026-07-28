@@ -1536,40 +1536,69 @@
   }
 
   // ── 보기 모드: 대표를 정점으로 아래로 갈라지는 피라미드 ──────────
-  function orgTreeMember(member) {
+  function orgNodeMember(member) {
     const account = orgAccountFor(member.name);
     const isMe = account && account.uid === userDoc?.uid;
-    return `<li><div class="org-node person ${isMe ? 'current' : ''}">
+    return `<div class="org-node person ${isMe ? 'current' : ''}">
       <strong>${esc(member.name)}</strong>
       <small>${esc(orgRankOf(member))}</small>
-    </div></li>`;
+    </div>`;
+  }
+
+  // 직급이 높은 순으로 묶는다. 같은 직급은 한 줄에 나란히 둔다.
+  function orgRankTiers(members) {
+    const tiers = [];
+    [...members]
+      .sort((a, b) => orgRankOrder(orgRankOf(a)) - orgRankOrder(orgRankOf(b)))
+      .forEach(member => {
+        const rank = orgRankOf(member);
+        const last = tiers[tiers.length - 1];
+        if (last && last.rank === rank) last.members.push(member);
+        else tiers.push({ rank, members: [member] });
+      });
+    return tiers;
+  }
+
+  // 부장 → 팀장 → … 순으로 한 단계씩 내려가는 가지를 만든다.
+  // 아래에서 위로 감싸 올라가며 마지막에 최상위 직급 하나만 남긴다.
+  function orgTreeRankBranch(members, tailHtml = '') {
+    const tiers = orgRankTiers(members);
+    let inner = tailHtml;
+    for (let i = tiers.length - 1; i >= 0; i -= 1) {
+      const tier = tiers[i];
+      const row = tier.members.length > 1
+        ? `<div class="org-tier">${tier.members.map(orgNodeMember).join('')}</div>`
+        : orgNodeMember(tier.members[0]);
+      inner = `<li>${row}${inner ? `<ul>${inner}</ul>` : ''}</li>`;
+    }
+    return inner;
   }
 
   function orgTreeTeam(team, currentGroupName) {
     const isCurrent = Boolean(currentGroupName) && team.name.includes(currentGroupName);
+    const inner = orgTreeRankBranch(team.members);
     return `<li>
       <div class="org-node team sub ${isCurrent ? 'current' : ''}">
         <strong>${esc(team.icon || '◎')} ${esc(team.name)}</strong>
         ${isCurrent ? '<small class="org-node-mine">내 소속</small>' : ''}
       </div>
-      ${team.members.length ? `<ul>${team.members.map(orgTreeMember).join('')}</ul>` : ''}
+      ${inner ? `<ul>${inner}</ul>` : ''}
     </li>`;
   }
 
   function orgTreeDivision(division, currentGroupName) {
     const isCurrent = Boolean(currentGroupName)
       && (division.name.includes(currentGroupName) || currentGroupName.includes(division.name));
-    const children = [
-      ...division.members.map(orgTreeMember),
-      ...(division.teams || []).map(team => orgTreeTeam(team, currentGroupName))
-    ];
+    // 하위팀은 가장 낮은 직급 아래에 붙어 함께 내려간다
+    const teamsHtml = (division.teams || []).map(team => orgTreeTeam(team, currentGroupName)).join('');
+    const inner = orgTreeRankBranch(division.members, teamsHtml);
     return `<li>
       <div class="org-node team ${esc(division.tone || '')} ${isCurrent ? 'current' : ''}">
         <strong>${esc(division.icon || '◆')} ${esc(division.name)}</strong>
         <small>${esc(division.detail || '')}</small>
         ${isCurrent ? '<small class="org-node-mine">내 소속</small>' : ''}
       </div>
-      ${children.length ? `<ul>${children.join('')}</ul>` : ''}
+      ${inner ? `<ul>${inner}</ul>` : ''}
     </li>`;
   }
 
