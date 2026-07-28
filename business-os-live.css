@@ -1936,22 +1936,50 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   padding-top: 4px;
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 .org-chart {
-  max-width: 960px;
-  margin: 0 auto;
+  display: grid;
+  gap: 26px;
   padding: 4px 0 8px;
+}
+
+.org-branch {
+  display: grid;
+  gap: 0;
+}
+
+.org-branch + .org-branch {
+  padding-top: 24px;
+  border-top: 1px dashed #d7e3ec;
 }
 
 .org-master-node {
   display: flex;
-  width: min(100%, 430px);
-  min-height: 76px;
+  width: min(100%, 560px);
+  min-height: 84px;
   margin: 0 auto;
-  padding: 14px;
+  padding: 16px 18px;
   align-items: center;
-  gap: 12px;
-  border: 1px solid #a8cee8;
+  gap: 14px;
+  border: 1px solid #cfdce7;
   border-radius: 13px;
+  background: #fbfcfd;
+}
+
+.org-master-node.master {
+  border-color: #a8cee8;
   background: linear-gradient(135deg, #f5fbff, #eaf5fc);
   box-shadow: 0 8px 22px rgba(52, 142, 205, .09);
 }
@@ -1959,13 +1987,13 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .org-node-icon {
   display: grid;
   flex: 0 0 auto;
-  width: 39px;
-  height: 39px;
+  width: 42px;
+  height: 42px;
   place-items: center;
   border-radius: 10px;
   background: #348ecd;
   color: #fff;
-  font-size: 16px;
+  font-size: 18px;
 }
 
 .org-node-icon.support { background: #7668c9; }
@@ -1978,132 +2006,179 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 
 .org-node-copy strong,
 .org-node-copy small { display: block; }
-.org-node-copy strong { color: #24313e; font-size: 12px; }
-.org-node-copy small { margin-top: 5px; color: #7e8d9b; font-size: 9px; }
+/* preview.html 인라인 <style>이 뒤에 오므로 조직도 안에서는 범위를 좁혀 덮어쓴다 */
+.org-chart .org-node-copy strong { color: #24313e; font-size: 17px; font-weight: 700; }
+.org-chart .org-node-copy small { margin-top: 5px; color: #7b8794; font-size: 13px; }
 
 .org-master-chip {
   display: inline-flex;
-  min-height: 24px;
-  padding: 0 8px;
+  min-height: 26px;
+  padding: 0 10px;
   align-items: center;
   border-radius: 999px;
   background: #348ecd;
   color: #fff;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 900;
+  letter-spacing: .4px;
 }
 
 .org-vertical-line {
-  position: relative;
   width: 1px;
-  height: 34px;
+  height: 26px;
   margin: 0 auto;
   background: #bdd5e5;
 }
 
-.org-vertical-line::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  width: min(620px, 62vw);
-  border-top: 1px solid #bdd5e5;
-  transform: translateX(-50%);
-}
-
+/* 지사 아래로 팀이 한 줄씩 쭉 내려오는 구조 */
 .org-divisions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 22px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
 }
 
 .org-division {
-  position: relative;
-  min-width: 0;
-  padding-top: 22px;
+  padding: 18px 20px;
+  border: 1px solid #e1e8ee;
+  border-radius: 13px;
+  background: #fff;
 }
 
-.org-division::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 50%;
-  width: 1px;
-  height: 22px;
-  background: #bdd5e5;
+.org-division.current {
+  border-color: #9dcced;
+  background: #fbfdff;
 }
 
 .org-division-head {
   display: flex;
-  min-height: 72px;
-  padding: 13px;
   align-items: center;
-  gap: 11px;
-  border: 1px solid #dce5eb;
-  border-radius: 12px;
-  background: #fff;
-}
-
-.org-division.current .org-division-head {
-  border-color: #90c4e6;
-  box-shadow: 0 0 0 3px rgba(52, 142, 205, .08);
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #eef2f5;
 }
 
 .org-current-badge {
   display: inline-flex;
-  flex: 0 0 auto;
-  min-height: 22px;
-  padding: 0 7px;
+  min-height: 24px;
+  margin-left: 8px;
+  padding: 0 10px;
   align-items: center;
   border-radius: 999px;
-  background: #348ecd;
-  color: #fff;
-  font-size: 7px;
-  font-weight: 900;
+  background: #e9f4fc;
+  color: #2674ac;
+  font-size: 12px;
+  font-weight: 700;
 }
 
-.org-subteams {
+.org-member-list {
   display: grid;
-  gap: 7px;
-  margin-top: 9px;
+  gap: 8px;
+  margin-top: 14px;
 }
+
+.org-member {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px 110px;
+  gap: 12px;
+  align-items: center;
+  min-height: 52px;
+  padding: 8px 14px;
+  border: 1px solid #eef2f5;
+  border-radius: 10px;
+  background: #fbfcfd;
+}
+
+.org-member.current {
+  border-color: #9dcced;
+  background: #f2f9fe;
+}
+
+.org-member-name {
+  display: flex;
+  align-items: center;
+  color: #24313e;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.org-member-rank select {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid #d5dfe8;
+  border-radius: 8px;
+  background: #fff;
+  color: #35434f;
+  font-size: 15px;
+  font-family: inherit;
+}
+
+.org-member-rank select:disabled {
+  border-color: #e6ecf1;
+  background: #f4f7f9;
+  color: #6d7b89;
+}
+
+.org-member-rank-static { color: #6d7b89; font-size: 14px; }
+
+.org-member-account {
+  font-size: 13px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.org-member-account.linked { color: #287a55; }
+.org-member-account.missing { color: #b06a2c; }
 
 .org-subteam {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
-  min-height: 44px;
-  padding: 8px 10px;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid #e2e9ee;
-  border-radius: 9px;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid #e6ecf1;
+  border-radius: 11px;
   background: #fafcfd;
-  color: #718091;
 }
-
-.org-subteam > span:first-child {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  border-radius: 7px;
-  background: #edf2f6;
-  font-size: 10px;
-}
-
-.org-subteam strong { color: #465766; font-size: 10px; }
-.org-subteam small { color: #9aa7b4; font-size: 8px; }
 
 .org-subteam.current {
   border-color: #9dcced;
-  background: #edf7fe;
+  background: #f2f9fe;
 }
 
-.org-subteam.current strong { color: #2674ac; }
+.org-subteam-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #465766;
+  font-size: 15px;
+}
 
-.org-subteam.planned {
-  border-style: dashed;
+.org-subteam-head strong { color: #35434f; font-size: 15px; }
+.org-subteam .org-member-list { margin-top: 10px; }
+
+.org-branch-empty {
+  margin: 14px 0 0;
+  padding: 20px;
+  border: 1px dashed #d7e3ec;
+  border-radius: 11px;
+  color: #7b8794;
+  font-size: 14px;
+  text-align: center;
+}
+
+.org-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.org-branch-filter select {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #d5dfe8;
+  border-radius: 8px;
   background: #fff;
+  color: #35434f;
+  font-size: 14px;
+  font-family: inherit;
 }
 
 @media (max-width: 760px) {
@@ -2218,14 +2293,21 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   .service-card { min-height: 175px; padding: 12px; }
   .service-card-icon { width: 38px; height: 38px; font-size: 18px; }
   .service-form-row { grid-template-columns: 90px minmax(0, 1fr); }
-  .org-master-node { align-items: flex-start; }
+  .org-master-node { align-items: flex-start; padding: 14px; }
   .org-master-chip { margin-left: auto; }
-  .org-vertical-line { height: 26px; }
-  .org-vertical-line::after { display: none; }
+  .org-vertical-line { height: 22px; }
   .org-divisions { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .org-division { padding-top: 20px; }
-  .org-division:first-child { padding-top: 0; }
-  .org-division:first-child::before { display: none; }
+  .org-division { padding: 14px; }
+  .org-node-copy strong { font-size: 15px; }
+  .org-node-copy small { font-size: 12px; }
+  /* 좁은 화면에서는 이름·직급·계정을 세로로 쌓는다 */
+  .org-member {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    padding: 12px 14px;
+  }
+  .org-member-account { text-align: left; }
+  .org-toolbar { flex-wrap: wrap; justify-content: flex-end; }
 }
 
 @media (max-width: 430px) {

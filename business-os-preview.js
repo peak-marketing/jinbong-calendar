@@ -45,6 +45,10 @@
   let reportType = 'attendance';
   let salesSummary = { key: '', status: 'idle', data: null, error: '' };
   const salesSummaryCache = new Map();
+  let orgBranchFilter = 'all';
+  let orgDirectory = { status: 'idle', accounts: [] };
+  // 직급 수정은 아직 운영 DB에 쓰지 않는다. 브라우저에만 남는 초안이다.
+  let orgRankDraft = {};
   let serviceFilter = 'all';
   let serviceCatalog = [
     { id: 'brand-auto-space', icon: '💻', name: '브랜드오토스페이스', description: '프로그램 판매 사이트', category: 'sales', url: '' },
@@ -93,6 +97,94 @@
     done: '완료',
     hold: '보류'
   };
+
+  // 직급은 위에서 아래로 높은 순. 권한 관리는 부장 이상만 가능하다.
+  const ORG_RANKS = ['대표', '이사', '부장', '실장', '팀장', '과장', '대리', '주임'];
+  const ORG_RANK_MANAGE_FROM = ORG_RANKS.indexOf('부장');
+  const ORG_RANK_UNSET = '미지정';
+
+  // 2026-07-28 대표 확인 조직도. 8월 개편 예정이라 이 상수만 고치면 화면이 따라간다.
+  // 계정이 아직 없는 구성원도 조직도에는 보여야 해서 이름 기준으로 적어 둔다.
+  const ORG_STRUCTURE = [
+    {
+      id: 'hq',
+      name: '본사',
+      lead: { name: '김진봉', rank: '대표', master: true, detail: '최종 마스터 · 모든 지사와 조직 관리' },
+      divisions: [
+        {
+          id: 'hq-support',
+          name: '경영지원팀',
+          icon: '◆',
+          tone: 'support',
+          detail: '회사 운영 · 개발 · 세무 관리',
+          members: [
+            { name: '김대호', rank: '부장' },
+            { name: '전현우', rank: '팀장' }
+          ],
+          teams: [
+            {
+              id: 'hq-dev',
+              name: '개발팀',
+              icon: '⌘',
+              members: [
+                { name: '이종혁', rank: '대리' },
+                { name: '김동우', rank: '주임' }
+              ]
+            },
+            {
+              id: 'hq-tax',
+              name: '세무팀',
+              icon: '▥',
+              members: [{ name: '손명아', rank: '실장' }]
+            }
+          ]
+        },
+        {
+          id: 'hq-platform',
+          name: '플랫폼 영업팀',
+          icon: '◈',
+          tone: 'sales',
+          detail: '접수 · 영업 및 현장 운영',
+          members: [
+            { name: '박종원', rank: '부장' },
+            { name: '김지홍', rank: '팀장' },
+            { name: '박우진', rank: '과장' },
+            { name: '김주현', rank: '과장' },
+            { name: '김용일', rank: '대리' },
+            { name: '은시후', rank: '주임' }
+          ],
+          teams: []
+        }
+      ]
+    },
+    {
+      id: 'daegu',
+      name: '대구지사',
+      lead: { name: '김진표', rank: '대표', detail: '대구지사 총괄' },
+      divisions: [
+        {
+          id: 'daegu-main',
+          name: '지사 구성원',
+          icon: '◈',
+          tone: 'sales',
+          detail: '대구지사 영업 및 운영',
+          members: [
+            { name: '임규태', rank: '이사' },
+            { name: '진영석', rank: '이사' },
+            { name: '김승현', rank: '이사' },
+            { name: '이종용', rank: '팀장' }
+          ],
+          teams: []
+        }
+      ]
+    },
+    {
+      id: 'jeonju',
+      name: '전주지사',
+      lead: { name: '손지호', rank: '대표', detail: '전주지사 총괄' },
+      divisions: []
+    }
+  ];
 
   function esc(value) {
     return String(value ?? '')
@@ -1352,69 +1444,191 @@
       <div class="module-security"><span>▣</span><span><strong>민감자료 보호</strong><br>파일 주소를 직접 노출하지 않고 서버 권한 확인, 열람 기록, 다운로드 권한을 함께 적용합니다.</span></div>`;
   }
 
+  const ORG_RANK_STORAGE_KEY = 'peakos.orgRankDraft';
+
+  function loadOrgRankDraft() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(ORG_RANK_STORAGE_KEY) || '{}');
+      orgRankDraft = saved && typeof saved === 'object' ? saved : {};
+    } catch (error) {
+      orgRankDraft = {};
+    }
+  }
+
+  function saveOrgRankDraft() {
+    try {
+      localStorage.setItem(ORG_RANK_STORAGE_KEY, JSON.stringify(orgRankDraft));
+    } catch (error) {
+      /* 저장 공간이 막혀 있어도 화면 동작은 유지한다 */
+    }
+  }
+
+  function orgRankOf(member) {
+    return orgRankDraft[member.name] || member.rank || ORG_RANK_UNSET;
+  }
+
+  function orgRankOrder(rank) {
+    const index = ORG_RANKS.indexOf(rank);
+    return index === -1 ? ORG_RANKS.length : index;
+  }
+
+  // 조직도에 적힌 모든 구성원을 지사·팀 정보와 함께 한 줄로 펼친다.
+  function orgRoster() {
+    const rows = [];
+    ORG_STRUCTURE.forEach(branch => {
+      if (branch.lead) rows.push({ ...branch.lead, branch, divisionName: '지사 총괄', teamName: '' });
+      branch.divisions.forEach(division => {
+        division.members.forEach(member => rows.push({ ...member, branch, divisionName: division.name, teamName: '' }));
+        (division.teams || []).forEach(team => {
+          team.members.forEach(member => rows.push({ ...member, branch, divisionName: division.name, teamName: team.name }));
+        });
+      });
+    });
+    return rows;
+  }
+
+  function orgAccountFor(name) {
+    return orgDirectory.accounts.find(account => String(account.name || '').trim() === String(name || '').trim()) || null;
+  }
+
+  // 로그인 계정의 직급. 조직도에 없으면 admin만 대표로 취급한다.
+  function currentOrgRank() {
+    const myName = String(userDoc?.name || '').trim();
+    const mine = orgRoster().find(row => row.name === myName);
+    if (mine) return orgRankOf(mine);
+    return userDoc?.role === 'admin' ? '대표' : ORG_RANK_UNSET;
+  }
+
+  function canManagePermissions() {
+    return orgRankOrder(currentOrgRank()) <= ORG_RANK_MANAGE_FROM;
+  }
+
+  async function loadOrgDirectory() {
+    if (orgDirectory.status === 'loading' || orgDirectory.status === 'ready') return;
+    orgDirectory = { status: 'loading', accounts: [] };
+    try {
+      const accounts = await readOnlyApi('/users/all-approved');
+      orgDirectory = { status: 'ready', accounts: Array.isArray(accounts) ? accounts : [] };
+    } catch (error) {
+      orgDirectory = { status: 'error', accounts: [] };
+    }
+    // 조직도가 아직 화면에 떠 있을 때만 다시 그린다
+    if (document.querySelector('[data-org-branch-filter]')) renderPlannedModule('organization');
+  }
+
+  function renderOrgMemberRow(member) {
+    const rank = orgRankOf(member);
+    const account = orgAccountFor(member.name);
+    const isMe = account && account.uid === userDoc?.uid;
+    return `<div class="org-member ${isMe ? 'current' : ''}">
+      <span class="org-member-name">${esc(member.name)}${isMe ? '<span class="org-current-badge">나</span>' : ''}</span>
+      <label class="org-member-rank">
+        <span class="visually-hidden">${esc(member.name)} 직급</span>
+        <select data-org-rank="${esc(member.name)}" ${canManagePermissions() ? '' : 'disabled'}>
+          ${[ORG_RANK_UNSET, ...ORG_RANKS].map(option =>
+            `<option value="${esc(option)}" ${option === rank ? 'selected' : ''}>${esc(option)}</option>`).join('')}
+        </select>
+      </label>
+      <span class="org-member-account ${account ? 'linked' : 'missing'}">${account ? '계정 연결됨' : '계정 없음'}</span>
+    </div>`;
+  }
+
+  function renderOrgDivision(division) {
+    const currentGroupName = String(userDoc?.group_name || '').trim();
+    const isCurrent = currentGroupName && (division.name.includes(currentGroupName) || currentGroupName.includes(division.name));
+    return `<article class="org-division ${isCurrent ? 'current' : ''}">
+      <header class="org-division-head">
+        <span class="org-node-icon ${esc(division.tone || '')}">${esc(division.icon || '◆')}</span>
+        <span class="org-node-copy"><strong>${esc(division.name)}</strong><small>${esc(division.detail || '')}</small></span>
+        ${isCurrent ? '<span class="org-current-badge">내 소속</span>' : ''}
+      </header>
+      ${division.members.length ? `<div class="org-member-list">${division.members.map(renderOrgMemberRow).join('')}</div>` : ''}
+      ${(division.teams || []).map(team => {
+        const teamCurrent = currentGroupName && team.name.includes(currentGroupName);
+        return `<section class="org-subteam ${teamCurrent ? 'current' : ''}">
+          <header class="org-subteam-head"><span>${esc(team.icon || '◎')}</span><strong>${esc(team.name)}</strong>${teamCurrent ? '<span class="org-current-badge">내 소속</span>' : ''}</header>
+          <div class="org-member-list">${team.members.map(renderOrgMemberRow).join('')}</div>
+        </section>`;
+      }).join('')}
+    </article>`;
+  }
+
+  function renderOrgBranch(branch) {
+    return `<section class="org-branch" data-org-branch="${esc(branch.id)}">
+      <article class="org-master-node ${branch.lead?.master ? 'master' : ''}">
+        <span class="org-node-icon">♛</span>
+        <span class="org-node-copy">
+          <strong>${esc(branch.name)} · ${esc(branch.lead ? orgRankOf(branch.lead) : '대표')} ${esc(branch.lead?.name || '')}</strong>
+          <small>${esc(branch.lead?.detail || '')}</small>
+        </span>
+        ${branch.lead?.master ? '<span class="org-master-chip">MASTER</span>' : ''}
+      </article>
+      ${branch.divisions.length
+        ? `<div class="org-vertical-line"></div><div class="org-divisions">${branch.divisions.map(renderOrgDivision).join('')}</div>`
+        : '<p class="org-branch-empty">아직 등록된 하위 조직이 없습니다.</p>'}
+    </section>`;
+  }
+
+  // 조직도에 없는 계정을 숨기지 않고 따로 모아 보여 준다.
+  function renderOrgUnassigned() {
+    if (orgDirectory.status !== 'ready') return '';
+    const rosterNames = new Set(orgRoster().map(row => row.name));
+    const unassigned = orgDirectory.accounts.filter(account => !rosterNames.has(String(account.name || '').trim()));
+    if (!unassigned.length) return '';
+    return `<section class="module-section">
+      <div class="module-section-head">
+        <span><strong>조직도 미배치 계정</strong><small>로그인 계정은 있으나 위 조직도에서 이름을 찾지 못했습니다</small></span>
+        <span class="module-chip restricted">${esc(String(unassigned.length))}건</span>
+      </div>
+      <div class="module-section-body">
+        <div class="org-member-list">
+          ${unassigned.map(account => `<div class="org-member">
+            <span class="org-member-name">${esc(account.name || '이름 없음')}</span>
+            <span class="org-member-rank-static">${esc(account.group_name || '소속 미지정')}</span>
+            <span class="org-member-account linked">계정 있음</span>
+          </div>`).join('')}
+        </div>
+      </div>
+    </section>`;
+  }
+
   function renderOrganizationModule() {
-    const currentGroup = String(userDoc?.group_name || '').trim();
-    const canManageOrganization = ['admin', 'manager'].includes(userDoc?.role);
-    const currentClass = (...names) => names.some(name => currentGroup.includes(name)) ? 'current' : '';
-    const currentBadge = (...names) => names.some(name => currentGroup.includes(name)) ? '<span class="org-current-badge">내 소속</span>' : '';
+    const canManageOrganization = canManagePermissions();
+    const branches = ORG_STRUCTURE.filter(branch => orgBranchFilter === 'all' || branch.id === orgBranchFilter);
+    const roster = orgRoster();
+    const linkedCount = roster.filter(row => orgAccountFor(row.name)).length;
     moduleView.innerHTML = `
-      ${moduleStatusbar('피크마케팅 조직도', '대표를 최상위 마스터로 두고 지사·상위 조직·기능팀·직급 순서로 구성합니다.')}
+      ${moduleStatusbar('피크마케팅 조직도', '대표를 최상위 마스터로 두고 지사·상위 조직·기능팀·직급 순서로 구성합니다.', '직급 초안 · 저장 전')}
       <section class="module-grid" aria-label="조직 구성 요약">
-        <article class="report-kpi"><span>상위 조직</span><strong>2</strong><small>경영지원 · 플랫폼운영</small></article>
-        <article class="report-kpi"><span>기능 팀</span><strong>4</strong><small>개발 · 인사 · 세무/재무 · 영업</small></article>
-        <article class="report-kpi"><span>등록 구성원</span><strong>—</strong><small>사용자 DB 연결 전</small></article>
+        <article class="sales-kpi"><span>지사</span><strong>${esc(String(ORG_STRUCTURE.length))}</strong><small>본사 · 대구 · 전주</small></article>
+        <article class="sales-kpi"><span>조직도 인원</span><strong>${esc(String(roster.length))}명</strong><small>계정 연결 ${esc(String(linkedCount))}명</small></article>
+        <article class="sales-kpi"><span>내 직급</span><strong>${esc(currentOrgRank())}</strong><small>${canManageOrganization ? '권한 관리 가능' : '부장 이상만 권한 관리'}</small></article>
       </section>
       <section class="module-section">
         <div class="module-section-head">
           <span><strong>전체 조직 구조</strong><small>현재 로그인 계정의 소속은 파란색으로 강조됩니다</small></span>
-          <span style="display:flex;gap:7px;align-items:center">
-            <button class="module-action" type="button" data-module-action="지사별 조직도">전체 지사⌄</button>
+          <span class="org-toolbar">
+            <label class="org-branch-filter">
+              <span class="visually-hidden">지사 선택</span>
+              <select data-org-branch-filter>
+                <option value="all" ${orgBranchFilter === 'all' ? 'selected' : ''}>전체 지사</option>
+                ${ORG_STRUCTURE.map(branch => `<option value="${esc(branch.id)}" ${orgBranchFilter === branch.id ? 'selected' : ''}>${esc(branch.name)}</option>`).join('')}
+              </select>
+            </label>
             ${canManageOrganization ? '<button class="module-action" type="button" data-open-permissions>권한 관리</button>' : ''}
           </span>
         </div>
         <div class="module-section-body">
-          <div class="org-chart">
-            <article class="org-master-node">
-              <span class="org-node-icon">♛</span>
-              <span class="org-node-copy"><strong>대표</strong><small>최종 마스터 · 모든 지사와 조직 관리</small></span>
-              <span class="org-master-chip">MASTER</span>
-            </article>
-            <div class="org-vertical-line"></div>
-            <div class="org-divisions">
-              <article class="org-division ${currentClass('경영지원', '개발', '인사', '세무', '재무')}">
-                <header class="org-division-head">
-                  <span class="org-node-icon support">◆</span>
-                  <span class="org-node-copy"><strong>경영지원팀</strong><small>회사 운영·개발·인사·재무 관리</small></span>
-                  ${currentBadge('경영지원')}
-                </header>
-                <div class="org-subteams">
-                  <div class="org-subteam ${currentClass('개발')}"><span>⌘</span><strong>개발팀</strong>${currentBadge('개발')}</div>
-                  <div class="org-subteam ${currentClass('인사')}"><span>♙</span><strong>인사담당</strong>${currentBadge('인사')}</div>
-                  <div class="org-subteam ${currentClass('세무', '재무')}"><span>▥</span><strong>세무 · 재무</strong>${currentBadge('세무', '재무')}</div>
-                </div>
-              </article>
-              <article class="org-division ${currentClass('플랫폼운영', '영업')}">
-                <header class="org-division-head">
-                  <span class="org-node-icon sales">◈</span>
-                  <span class="org-node-copy"><strong>플랫폼운영팀</strong><small>접수·영업 및 현장 운영</small></span>
-                  ${currentBadge('플랫폼운영')}
-                </header>
-                <div class="org-subteams">
-                  <div class="org-subteam ${currentClass('영업')}"><span>◎</span><strong>영업팀</strong>${currentBadge('영업')}</div>
-                  <div class="org-subteam planned"><span>＋</span><strong>추가 기능팀</strong><small>향후 확장</small></div>
-                </div>
-              </article>
-            </div>
-          </div>
+          <div class="org-chart">${branches.map(renderOrgBranch).join('')}</div>
+          <p class="sales-basis">직급은 부장 이상만 수정할 수 있습니다. ${canManageOrganization
+            ? '지금 바꾼 직급은 이 브라우저에만 저장되는 초안이며 운영 DB에는 반영되지 않습니다.'
+            : '현재 계정은 조회만 가능합니다.'}</p>
         </div>
       </section>
-      <section class="module-section">
-        <div class="module-section-head"><span><strong>구성원·직급·지사 배치</strong><small>Google 계정과 사용자 DB를 연결하면 실제 구성원 정보가 표시됩니다</small></span><span class="module-chip">조직 DB 연결 전</span></div>
-        <div class="module-section-body" style="padding:0">
-          <table class="empty-table"><thead><tr><th>구성원</th><th>직급</th><th>소속팀</th><th>지사</th><th>보고 대상</th><th>권한</th></tr></thead><tbody><tr><td class="empty-table-message" colspan="6">실제 사용자·지사·직급 정보가 연결되면 조직도와 함께 표시됩니다.</td></tr></tbody></table>
-        </div>
-      </section>
+      ${renderOrgUnassigned()}
       <div class="module-security"><span>▣</span><span><strong>조직도와 권한은 분리해서 관리합니다</strong><br>조직도는 보고 체계와 소속을 보여주고, 급여·최종정산·세금 같은 민감자료는 별도 서버 권한으로 다시 확인합니다.</span></div>`;
+
+    loadOrgDirectory();
   }
 
   function renderSettlementModule() {
@@ -1500,6 +1714,21 @@
       renderPlannedModule('reports');
     }));
     moduleView.querySelector('[data-open-permissions]')?.addEventListener('click', () => activateView('permissions'));
+
+    moduleView.querySelector('[data-org-branch-filter]')?.addEventListener('change', event => {
+      orgBranchFilter = event.target.value;
+      renderPlannedModule('organization');
+    });
+    moduleView.querySelectorAll('[data-org-rank]').forEach(select => select.addEventListener('change', event => {
+      const name = select.dataset.orgRank;
+      const rank = event.target.value;
+      if (rank === ORG_RANK_UNSET) delete orgRankDraft[name];
+      else orgRankDraft[name] = rank;
+      saveOrgRankDraft();
+      renderPlannedModule('organization');
+      showToast(`${name} 직급을 ${rank}(으)로 바꿨습니다. 이 브라우저에만 저장되는 초안입니다.`);
+    }));
+
     wireModuleActions();
   }
 
@@ -1676,6 +1905,7 @@
   }
 
   function initialize() {
+    loadOrgRankDraft();
     createAuthGate();
     createDetailModal();
     wireNavigation();

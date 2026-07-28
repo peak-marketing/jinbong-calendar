@@ -109,6 +109,11 @@ test.describe('Business OS read-only operating data', () => {
         payload = { canManageAll: true, projects: [project] };
       } else if (pathname === '/projects/project-live-1') {
         payload = project;
+      } else if (pathname === '/users/all-approved') {
+        payload = [
+          { uid: 'e2e-test-user', name: 'E2E', email: 'e2e@test.local', group_name: '개발팀' },
+          { uid: 'user-kdh', name: '김대호', email: 'kdh@test.local', group_name: '본사 영업팀' },
+        ];
       } else if (pathname === '/reports/sales-summary') {
         salesSummaryQueries.push(new URL(request.url()).search);
         payload = {
@@ -257,11 +262,35 @@ test.describe('Business OS read-only operating data', () => {
 
     await page.locator('.nav-item[data-view="organization"]').click();
     await expect(page.locator('#moduleView')).toContainText('경영지원팀');
-    await expect(page.locator('#moduleView')).toContainText('플랫폼운영팀');
-    await expect(page.locator('#moduleView')).toContainText('세무 · 재무');
+    await expect(page.locator('#moduleView')).toContainText('플랫폼 영업팀');
+    await expect(page.locator('#moduleView')).toContainText('세무팀');
     await expect(page.locator('#moduleView .org-subteam.current')).toContainText('개발팀');
     await expect(page.locator('#moduleView .org-subteam.current')).toContainText('내 소속');
     await expect(page.locator('#moduleView [data-open-permissions]')).toBeVisible();
+
+    // 조직도는 지사별로 아래로 쭉 이어지고, 구성원마다 직급 칸이 있다
+    await expect(page.locator('#moduleView .org-branch')).toHaveCount(3);
+    await expect(page.locator('#moduleView')).toContainText('김진봉');
+    await expect(page.locator('#moduleView .org-master-chip')).toHaveText('MASTER');
+    const daehoRank = page.locator('#moduleView [data-org-rank="김대호"]');
+    await expect(daehoRank).toHaveValue('부장');
+    await expect(daehoRank).toBeEnabled();
+    // 계정이 없는 구성원도 조직도에는 나와야 한다
+    await expect(page.locator('#moduleView [data-org-rank="은시후"]')).toHaveValue('주임');
+    await expect(page.locator('#moduleView .org-member').filter({ hasText: '은시후' })).toContainText('계정 없음');
+    await expect(page.locator('#moduleView .org-member').filter({ hasText: '김대호' })).toContainText('계정 연결됨');
+    // 조직도에 이름이 없는 계정은 숨기지 않고 따로 모아 보여 준다
+    await expect(page.locator('#moduleView')).toContainText('조직도 미배치 계정');
+
+    // 직급 변경은 화면에만 반영되고 서버로 나가지 않는다 (GET 단언이 이를 잠근다)
+    await daehoRank.selectOption('이사');
+    await expect(page.locator('#moduleView [data-org-rank="김대호"]')).toHaveValue('이사');
+
+    // 지사 필터
+    await page.locator('#moduleView [data-org-branch-filter]').selectOption('jeonju');
+    await expect(page.locator('#moduleView .org-branch')).toHaveCount(1);
+    await expect(page.locator('#moduleView')).toContainText('손지호');
+    await page.locator('#moduleView [data-org-branch-filter]').selectOption('all');
 
     await page.locator('.nav-item[data-view="settlement"]').click();
     await expect(page.locator('#moduleView')).toContainText('내 개인정산서');
@@ -305,6 +334,12 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView')).toContainText('내 개인정산서');
     await expect(page.locator('#moduleView')).not.toContainText('최종정산서');
     await expect(page.locator('#moduleView')).toContainText('본인의 개인정산서만 표시');
+
+    // 부장 미만 계정은 직급을 바꾸거나 권한 관리에 들어갈 수 없다
+    await page.locator('.nav-item[data-view="organization"]').click();
+    await expect(page.locator('#moduleView [data-open-permissions]')).toHaveCount(0);
+    await expect(page.locator('#moduleView [data-org-rank="김대호"]')).toBeDisabled();
+    await expect(page.locator('#moduleView')).toContainText('부장 이상만 권한 관리');
   });
 
   test('shows no invented amounts when the account has no sales rows', async ({ page }) => {
