@@ -143,6 +143,13 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView')).toContainText('사업자등록증');
     await expect(page.locator('#moduleView')).toContainText('회사 자료');
 
+    await page.locator('.nav-item[data-view="organization"]').click();
+    await expect(page.locator('#moduleView')).toContainText('경영지원팀');
+    await expect(page.locator('#moduleView')).toContainText('플랫폼운영팀');
+    await expect(page.locator('#moduleView')).toContainText('세무 · 재무');
+    await expect(page.locator('#moduleView .org-subteam.current')).toContainText('개발팀');
+    await expect(page.locator('#moduleView .org-subteam.current')).toContainText('내 소속');
+
     await page.locator('.nav-item[data-view="settlement"]').click();
     await expect(page.locator('#moduleView')).toContainText('내 개인정산서');
     await expect(page.locator('#moduleView')).toContainText('최종정산서');

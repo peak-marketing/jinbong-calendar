@@ -65,6 +65,7 @@
     documents: 'DOCUMENTS',
     services: 'SERVICES',
     company: 'COMPANY',
+    organization: 'ORGANIZATION',
     settlement: 'SETTLEMENT',
     tax: 'TAX',
     platform: 'PLATFORM',
@@ -936,6 +937,67 @@
       <div class="module-security"><span>▣</span><span><strong>민감자료 보호</strong><br>파일 주소를 직접 노출하지 않고 서버 권한 확인, 열람 기록, 다운로드 권한을 함께 적용합니다.</span></div>`;
   }
 
+  function renderOrganizationModule() {
+    const currentGroup = String(userDoc?.group_name || '').trim();
+    const currentClass = (...names) => names.some(name => currentGroup.includes(name)) ? 'current' : '';
+    const currentBadge = (...names) => names.some(name => currentGroup.includes(name)) ? '<span class="org-current-badge">내 소속</span>' : '';
+    moduleView.innerHTML = `
+      ${moduleStatusbar('피크마케팅 조직도', '대표를 최상위 마스터로 두고 지사·상위 조직·기능팀·직급 순서로 구성합니다.')}
+      <section class="module-grid" aria-label="조직 구성 요약">
+        <article class="report-kpi"><span>상위 조직</span><strong>2</strong><small>경영지원 · 플랫폼운영</small></article>
+        <article class="report-kpi"><span>기능 팀</span><strong>4</strong><small>개발 · 인사 · 세무/재무 · 영업</small></article>
+        <article class="report-kpi"><span>등록 구성원</span><strong>—</strong><small>사용자 DB 연결 전</small></article>
+      </section>
+      <section class="module-section">
+        <div class="module-section-head">
+          <span><strong>전체 조직 구조</strong><small>현재 로그인 계정의 소속은 파란색으로 강조됩니다</small></span>
+          <button class="module-action" type="button" data-module-action="지사별 조직도">전체 지사⌄</button>
+        </div>
+        <div class="module-section-body">
+          <div class="org-chart">
+            <article class="org-master-node">
+              <span class="org-node-icon">♛</span>
+              <span class="org-node-copy"><strong>대표</strong><small>최종 마스터 · 모든 지사와 조직 관리</small></span>
+              <span class="org-master-chip">MASTER</span>
+            </article>
+            <div class="org-vertical-line"></div>
+            <div class="org-divisions">
+              <article class="org-division ${currentClass('경영지원', '개발', '인사', '세무', '재무')}">
+                <header class="org-division-head">
+                  <span class="org-node-icon support">◆</span>
+                  <span class="org-node-copy"><strong>경영지원팀</strong><small>회사 운영·개발·인사·재무 관리</small></span>
+                  ${currentBadge('경영지원')}
+                </header>
+                <div class="org-subteams">
+                  <div class="org-subteam ${currentClass('개발')}"><span>⌘</span><strong>개발팀</strong>${currentBadge('개발')}</div>
+                  <div class="org-subteam ${currentClass('인사')}"><span>♙</span><strong>인사담당</strong>${currentBadge('인사')}</div>
+                  <div class="org-subteam ${currentClass('세무', '재무')}"><span>▥</span><strong>세무 · 재무</strong>${currentBadge('세무', '재무')}</div>
+                </div>
+              </article>
+              <article class="org-division ${currentClass('플랫폼운영', '영업')}">
+                <header class="org-division-head">
+                  <span class="org-node-icon sales">◈</span>
+                  <span class="org-node-copy"><strong>플랫폼운영팀</strong><small>접수·영업 및 현장 운영</small></span>
+                  ${currentBadge('플랫폼운영')}
+                </header>
+                <div class="org-subteams">
+                  <div class="org-subteam ${currentClass('영업')}"><span>◎</span><strong>영업팀</strong>${currentBadge('영업')}</div>
+                  <div class="org-subteam planned"><span>＋</span><strong>추가 기능팀</strong><small>향후 확장</small></div>
+                </div>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="module-section">
+        <div class="module-section-head"><span><strong>구성원·직급·지사 배치</strong><small>Google 계정과 사용자 DB를 연결하면 실제 구성원 정보가 표시됩니다</small></span><span class="module-chip">조직 DB 연결 전</span></div>
+        <div class="module-section-body" style="padding:0">
+          <table class="empty-table"><thead><tr><th>구성원</th><th>직급</th><th>소속팀</th><th>지사</th><th>보고 대상</th><th>권한</th></tr></thead><tbody><tr><td class="empty-table-message" colspan="6">실제 사용자·지사·직급 정보가 연결되면 조직도와 함께 표시됩니다.</td></tr></tbody></table>
+        </div>
+      </section>
+      <div class="module-security"><span>▣</span><span><strong>조직도와 권한은 분리해서 관리합니다</strong><br>조직도는 보고 체계와 소속을 보여주고, 급여·최종정산·세금 같은 민감자료는 별도 서버 권한으로 다시 확인합니다.</span></div>`;
+  }
+
   function renderSettlementModule() {
     const management = ['admin', 'manager'].includes(userDoc?.role);
     const managementCards = management ? `
@@ -1008,6 +1070,7 @@
     if (view === 'documents') renderDocumentsModule();
     if (view === 'services') renderServicesModule();
     if (view === 'company') renderCompanyModule();
+    if (view === 'organization') renderOrganizationModule();
     if (view === 'settlement') renderSettlementModule();
     if (view === 'tax') renderTaxModule();
     if (view === 'platform') renderPlatformModule();
