@@ -1575,19 +1575,21 @@
 
   function renderOrgTree(branch) {
     const currentGroupName = String(userDoc?.group_name || '').trim();
-    return `<div class="org-tree">
-      <ul>
-        <li>
-          <div class="org-node lead ${branch.lead?.master ? 'master' : ''}">
-            <strong>♛ ${esc(branch.lead?.name || branch.name)}</strong>
-            <small>${esc(branch.name)} · ${esc(branch.lead ? orgRankOf(branch.lead) : '대표')}</small>
-            ${branch.lead?.master ? '<span class="org-master-chip">MASTER</span>' : ''}
-          </div>
-          ${branch.divisions.length
-            ? `<ul>${branch.divisions.map(division => orgTreeDivision(division, currentGroupName)).join('')}</ul>`
-            : ''}
-        </li>
-      </ul>
+    return `<div class="org-tree" data-org-tree>
+      <div class="org-tree-scale">
+        <ul>
+          <li>
+            <div class="org-node lead ${branch.lead?.master ? 'master' : ''}">
+              <strong>♛ ${esc(branch.lead?.name || branch.name)}</strong>
+              <small>${esc(branch.name)} · ${esc(branch.lead ? orgRankOf(branch.lead) : '대표')}</small>
+              ${branch.lead?.master ? '<span class="org-master-chip">MASTER</span>' : ''}
+            </div>
+            ${branch.divisions.length
+              ? `<ul>${branch.divisions.map(division => orgTreeDivision(division, currentGroupName)).join('')}</ul>`
+              : ''}
+          </li>
+        </ul>
+      </div>
       ${branch.divisions.length ? '' : '<p class="org-branch-empty">아직 등록된 하위 조직이 없습니다.</p>'}
     </div>`;
   }
@@ -1655,18 +1657,40 @@
     </section>`;
   }
 
+  // 트리가 화면보다 넓으면 줄여서 한눈에 들어오게 한다. 너무 작아지면
+  // 글자를 못 읽으니 하한을 두고 그 아래로는 가로 스크롤로 넘긴다.
+  const ORG_TREE_MIN_SCALE = 0.72;
+  const ORG_TREE_FIT_MIN_WIDTH = 700;
+
+  function fitOrgTrees() {
+    document.querySelectorAll('[data-org-tree]').forEach(tree => {
+      const scaler = tree.querySelector('.org-tree-scale');
+      if (!scaler) return;
+      scaler.style.transform = '';
+      tree.style.height = '';
+      tree.classList.remove('scrollable');
+
+      const available = tree.clientWidth;
+      const natural = scaler.offsetWidth;
+      if (!available || !natural || natural <= available) return;
+
+      if (available < ORG_TREE_FIT_MIN_WIDTH) {
+        tree.classList.add('scrollable');
+        return;
+      }
+      const wanted = available / natural;
+      const scale = Math.max(ORG_TREE_MIN_SCALE, wanted);
+      if (wanted < ORG_TREE_MIN_SCALE) tree.classList.add('scrollable');
+      scaler.style.transform = `scale(${scale})`;
+      tree.style.height = `${Math.ceil(scaler.offsetHeight * scale)}px`;
+    });
+  }
+
   function renderOrganizationModule() {
     const canManageOrganization = canManagePermissions();
     const branches = ORG_STRUCTURE.filter(branch => orgBranchFilter === 'all' || branch.id === orgBranchFilter);
-    const roster = orgRoster();
-    const linkedCount = roster.filter(row => orgAccountFor(row.name)).length;
     moduleView.innerHTML = `
-      ${moduleStatusbar('피크마케팅 조직도', '대표를 최상위 마스터로 두고 지사·상위 조직·기능팀·직급 순서로 구성합니다.', '직급 초안 · 저장 전')}
-      <section class="module-grid" aria-label="조직 구성 요약">
-        <article class="sales-kpi"><span>지사</span><strong>${esc(String(ORG_STRUCTURE.length))}</strong><small>본사 · 대구 · 전주</small></article>
-        <article class="sales-kpi"><span>조직도 인원</span><strong>${esc(String(roster.length))}명</strong><small>계정 연결 ${esc(String(linkedCount))}명</small></article>
-        <article class="sales-kpi"><span>내 직급</span><strong>${esc(currentOrgRank())}</strong><small>${canManageOrganization ? '권한 관리 가능' : '부장 이상만 권한 관리'}</small></article>
-      </section>
+      ${moduleStatusbar('피크마케팅 조직도', `지사 ${ORG_STRUCTURE.length}곳 · 조직도 인원 ${orgRoster().length}명 · 내 직급 ${currentOrgRank()}`, '직급 초안 · 저장 전')}
       <section class="module-section">
         <div class="module-section-head">
           <span><strong>전체 조직 구조</strong><small>현재 로그인 계정의 소속은 파란색으로 강조됩니다</small></span>
@@ -1687,13 +1711,14 @@
           <p class="sales-basis">${orgEditMode
             ? '수정 중에는 구성원을 세로로 펼쳐 보여 줍니다. 바꾼 직급은 이 브라우저에만 저장되는 초안이며 운영 DB에는 반영되지 않습니다.'
             : (canManageOrganization
-              ? '조직도가 화면보다 넓으면 좌우로 밀어서 볼 수 있습니다. 직급을 바꾸려면 오른쪽 위 직급 수정을 누르세요. 부장 이상만 수정할 수 있습니다.'
-              : '조직도가 화면보다 넓으면 좌우로 밀어서 볼 수 있습니다. 직급은 부장 이상만 수정할 수 있으며 현재 계정은 조회만 가능합니다.')}</p>
+              ? '조직도는 화면 폭에 맞춰 한눈에 들어오게 자동으로 조절됩니다. 직급을 바꾸려면 오른쪽 위 직급 수정을 누르세요. 부장 이상만 수정할 수 있습니다.'
+              : '조직도는 화면 폭에 맞춰 한눈에 들어오게 자동으로 조절됩니다. 직급은 부장 이상만 수정할 수 있으며 현재 계정은 조회만 가능합니다.')}</p>
         </div>
       </section>
       ${renderOrgUnassigned()}
       <div class="module-security"><span>▣</span><span><strong>조직도와 권한은 분리해서 관리합니다</strong><br>조직도는 보고 체계와 소속을 보여주고, 급여·최종정산·세금 같은 민감자료는 별도 서버 권한으로 다시 확인합니다.</span></div>`;
 
+    fitOrgTrees();
     loadOrgDirectory();
   }
 
@@ -1820,6 +1845,8 @@
   function activateView(view) {
     if (view !== 'chat') closeChatRoom();
     body.classList.toggle('calendar-workspace', view === 'calendar');
+    // 조직도는 넓은 화면을 다 써야 트리가 스크롤 없이 들어간다
+    body.classList.toggle('org-workspace', view === 'organization');
     const isPlannedModule = Object.prototype.hasOwnProperty.call(PLANNED_MODULES, view);
     if (isPlannedModule) renderPlannedModule(view);
     if (view === 'review') renderProjects();
@@ -1840,6 +1867,11 @@
   }
 
   function wireNavigation() {
+    let orgFitTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(orgFitTimer);
+      orgFitTimer = setTimeout(fitOrgTrees, 120);
+    });
     document.querySelector('.mobile-menu').addEventListener('click', () => body.classList.add('menu-open'));
     document.querySelector('.mobile-overlay').addEventListener('click', () => body.classList.remove('menu-open'));
     document.querySelectorAll('.nav-item[data-view]').forEach(button => button.addEventListener('click', () => activateView(button.dataset.view)));

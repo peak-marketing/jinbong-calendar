@@ -278,7 +278,7 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView .org-node.person').filter({ hasText: '김대호' })).toContainText('부장');
 
     // 본사 트리: 대표 → 팀 2개 → 그 아래 구성원·하위팀으로 갈라진다
-    const hqTree = page.locator('#moduleView [data-org-branch="hq"] .org-tree');
+    const hqTree = page.locator('#moduleView [data-org-branch="hq"] .org-tree-scale');
     await expect(hqTree.locator('> ul > li > .org-node.lead')).toHaveCount(1);
     await expect(hqTree.locator('> ul > li > ul > li > .org-node.team')).toHaveCount(2);
     // 경영지원팀 아래 하위팀(개발팀·세무팀)이 한 단계 더 내려간다
@@ -362,7 +362,7 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView [data-open-permissions]')).toHaveCount(0);
     await expect(page.locator('#moduleView [data-org-edit-toggle]')).toHaveCount(0);
     await expect(page.locator('#moduleView [data-org-rank]')).toHaveCount(0);
-    await expect(page.locator('#moduleView')).toContainText('부장 이상만 권한 관리');
+    await expect(page.locator('#moduleView')).toContainText('부장 이상만 수정할 수 있으며');
     await expect(page.locator('#moduleView')).toContainText('현재 계정은 조회만 가능합니다');
   });
 
