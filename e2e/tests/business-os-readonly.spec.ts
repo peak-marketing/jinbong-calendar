@@ -285,15 +285,34 @@ test.describe('Business OS read-only operating data', () => {
     await expect(hqTree.locator('.org-node.team.sub')).toHaveCount(2);
     await expect(hqTree.locator('.org-node.team.sub').first()).toContainText('개발팀');
 
-    // 팀 안에서는 직급이 높은 순으로 한 단계씩 내려간다 (부장 → 팀장 → 하위팀)
+    // 팀 카드 → 최상위 직급 → 나머지 구성원·하위팀이 한 줄에 나란히
     const supportDivision = hqTree.locator('> ul > li > ul > li').filter({ hasText: '경영지원팀' });
     await expect(supportDivision.locator('> ul > li > .org-node.person')).toContainText('김대호');
-    await expect(supportDivision.locator('> ul > li > ul > li > .org-node.person')).toContainText('전현우');
-    // 같은 직급인 과장 두 명은 한 줄에 나란히 선다
-    await expect(page.locator('#moduleView .org-tier').first().locator('.org-node.person')).toHaveCount(2);
-    await expect(page.locator('#moduleView .org-tier').first()).toContainText('과장');
+    const supportChildren = supportDivision.locator('> ul > li > ul > li > .org-node');
+    await expect(supportChildren).toHaveCount(3);
+    await expect(supportChildren.nth(0)).toContainText('전현우');
+    await expect(supportChildren.nth(1)).toContainText('개발팀');
+    await expect(supportChildren.nth(2)).toContainText('세무팀');
+
+    // 팀 카드 안에는 구성원이 직급 순으로 들어간다
+    const devCard = page.locator('#moduleView .org-node').filter({ hasText: '개발팀' }).first();
+    await expect(devCard.locator('.org-person')).toHaveCount(2);
+    await expect(devCard.locator('.org-person').nth(0)).toContainText('이종혁');
+    await expect(devCard.locator('.org-person').nth(0)).toContainText('대리');
+    await expect(devCard.locator('.org-person').nth(1)).toContainText('김동우');
+
+    // 플랫폼 영업팀은 부장 아래 나머지 5명이 한 카드에 직급 순으로 들어간다
+    const salesRoster = page.locator('#moduleView .org-node.roster').filter({ hasText: '플랫폼 영업팀' });
+    await expect(salesRoster.locator('.org-person')).toHaveCount(5);
+    await expect(salesRoster.locator('.org-person').first()).toContainText('김지홍');
+    await expect(salesRoster.locator('.org-person').nth(1)).toContainText('박우진');
     // 계정이 없는 구성원도 조직도에는 나와야 한다
-    await expect(page.locator('#moduleView .org-node.person').filter({ hasText: '은시후' })).toContainText('주임');
+    await expect(salesRoster.locator('.org-person').last()).toContainText('은시후');
+
+    // 같은 직급인 대구지사 이사 세 명은 한 줄에 나란히 선다
+    const daeguTier = page.locator('#moduleView [data-org-branch="daegu"] .org-tier');
+    await expect(daeguTier.locator('.org-node.person')).toHaveCount(3);
+    await expect(daeguTier.locator('.org-node.person').first()).toContainText('임규태');
     // 조직도에 이름이 없는 계정은 숨기지 않고 따로 모아 보여 준다
     await expect(page.locator('#moduleView')).toContainText('조직도 미배치 계정');
 

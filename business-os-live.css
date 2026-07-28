@@ -2157,6 +2157,9 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   border-left: 1px solid #bdd5e5;
 }
 
+/* 지사 바로 아래 상위 팀끼리는 넉넉히 벌려 둔다 */
+.org-tree > ul > li > ul > li { padding-inline: 70px; }
+
 .org-tree li:only-child { padding-top: 0; }
 .org-tree li:only-child::before,
 .org-tree li:only-child::after { display: none; }
@@ -2187,6 +2190,31 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   gap: 8px;
   align-items: stretch;
 }
+
+/* 팀 카드 안의 구성원 목록 */
+.org-person-list {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e6ecf1;
+}
+
+.org-person {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.org-person strong { color: #24313e; font-size: 15px; font-weight: 700; }
+.org-person small { color: #2674ac; font-size: 13px; font-weight: 600; }
+.org-person.me strong { color: #2674ac; }
+
+.org-node.roster { border-color: #e1e8ee; background: #fff; }
+.org-node.roster > strong { color: #6d7b89; font-size: 14px; font-weight: 600; }
 
 .org-node.lead {
   min-width: 210px;

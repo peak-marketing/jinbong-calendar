@@ -1545,60 +1545,73 @@
     </div>`;
   }
 
-  // 직급이 높은 순으로 묶는다. 같은 직급은 한 줄에 나란히 둔다.
-  function orgRankTiers(members) {
-    const tiers = [];
-    [...members]
-      .sort((a, b) => orgRankOrder(orgRankOf(a)) - orgRankOrder(orgRankOf(b)))
-      .forEach(member => {
-        const rank = orgRankOf(member);
-        const last = tiers[tiers.length - 1];
-        if (last && last.rank === rank) last.members.push(member);
-        else tiers.push({ rank, members: [member] });
-      });
-    return tiers;
+  // 직급 순으로만 정렬한다. 같은 직급이면 조직도에 적은 순서를 지킨다.
+  function orgSortByRank(members) {
+    return [...members].sort((a, b) =>
+      orgRankOrder(orgRankOf(a)) - orgRankOrder(orgRankOf(b)));
   }
 
-  // 부장 → 팀장 → … 순으로 한 단계씩 내려가는 가지를 만든다.
-  // 아래에서 위로 감싸 올라가며 마지막에 최상위 직급 하나만 남긴다.
-  function orgTreeRankBranch(members, tailHtml = '') {
-    const tiers = orgRankTiers(members);
-    let inner = tailHtml;
-    for (let i = tiers.length - 1; i >= 0; i -= 1) {
-      const tier = tiers[i];
-      const row = tier.members.length > 1
-        ? `<div class="org-tier">${tier.members.map(orgNodeMember).join('')}</div>`
-        : orgNodeMember(tier.members[0]);
-      inner = `<li>${row}${inner ? `<ul>${inner}</ul>` : ''}</li>`;
-    }
-    return inner;
+  // 카드 안에 들어가는 구성원 한 줄
+  function orgPersonLine(member) {
+    const account = orgAccountFor(member.name);
+    const isMe = account && account.uid === userDoc?.uid;
+    return `<span class="org-person ${isMe ? 'me' : ''}">
+      <strong>${esc(member.name)}</strong><small>${esc(orgRankOf(member))}</small>
+    </span>`;
   }
 
-  function orgTreeTeam(team, currentGroupName) {
-    const isCurrent = Boolean(currentGroupName) && team.name.includes(currentGroupName);
-    const inner = orgTreeRankBranch(team.members);
-    return `<li>
-      <div class="org-node team sub ${isCurrent ? 'current' : ''}">
-        <strong>${esc(team.icon || '◎')} ${esc(team.name)}</strong>
-        ${isCurrent ? '<small class="org-node-mine">내 소속</small>' : ''}
-      </div>
-      ${inner ? `<ul>${inner}</ul>` : ''}
-    </li>`;
+  // 팀 카드. 팀 이름 아래에 소속 구성원을 직급 순으로 나열한다.
+  function orgCardNode({ icon = '', title, detail = '', members = [], kind = '', current = false }) {
+    return `<div class="org-node ${kind} ${current ? 'current' : ''}">
+      <strong>${icon ? `${esc(icon)} ` : ''}${esc(title)}</strong>
+      ${detail ? `<small>${esc(detail)}</small>` : ''}
+      ${current ? '<small class="org-node-mine">내 소속</small>' : ''}
+      ${members.length ? `<span class="org-person-list">${orgSortByRank(members).map(orgPersonLine).join('')}</span>` : ''}
+    </div>`;
   }
 
   function orgTreeDivision(division, currentGroupName) {
     const isCurrent = Boolean(currentGroupName)
       && (division.name.includes(currentGroupName) || currentGroupName.includes(division.name));
-    // 하위팀은 가장 낮은 직급 아래에 붙어 함께 내려간다
-    const teamsHtml = (division.teams || []).map(team => orgTreeTeam(team, currentGroupName)).join('');
-    const inner = orgTreeRankBranch(division.members, teamsHtml);
+
+    // 팀 최상위 직급은 팀 카드 바로 아래에 세우고, 나머지 구성원은
+    // 하위팀들과 같은 줄에 카드 하나로 묶는다.
+    const sorted = orgSortByRank(division.members);
+    const topRank = sorted.length ? orgRankOf(sorted[0]) : null;
+    const leaders = sorted.filter(member => orgRankOf(member) === topRank);
+    const rest = sorted.filter(member => orgRankOf(member) !== topRank);
+
+    const children = [];
+    if (rest.length) {
+      children.push(`<li>${orgCardNode({ title: division.name, members: rest, kind: 'roster' })}</li>`);
+    }
+    (division.teams || []).forEach(team => {
+      const teamCurrent = Boolean(currentGroupName) && team.name.includes(currentGroupName);
+      children.push(`<li>${orgCardNode({
+        icon: team.icon || '◎',
+        title: team.name,
+        members: team.members,
+        kind: 'team sub',
+        current: teamCurrent
+      })}</li>`);
+    });
+
+    const childList = children.length ? `<ul>${children.join('')}</ul>` : '';
+    const leaderRow = leaders.length > 1
+      ? `<div class="org-tier">${leaders.map(orgNodeMember).join('')}</div>`
+      : (leaders.length ? orgNodeMember(leaders[0]) : '');
+
     return `<li>
-      <div class="org-node team ${esc(division.tone || '')} ${isCurrent ? 'current' : ''}">
-        <strong>${esc(division.icon || '◆')} ${esc(division.name)}</strong>
-        <small>${esc(division.detail || '')}</small>
-        ${isCurrent ? '<small class="org-node-mine">내 소속</small>' : ''}
-      </div>
-      ${inner ? `<ul>${inner}</ul>` : ''}
+      ${orgCardNode({
+        icon: division.icon || '◆',
+        title: division.name,
+        detail: division.detail,
+        kind: `team ${division.tone || ''}`,
+        current: isCurrent
+      })}
+      ${leaders.length
+        ? `<ul><li>${leaderRow}${childList}</li></ul>`
+        : childList}
     </li>`;
   }
 
