@@ -713,11 +713,15 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
     await page.locator('.nav-item[data-view="settlement"]').click();
 
-    for (const [date, client] of [['2026-08-01', '한결에이전시'], ['2026-08-02', '나스컴퍼니'], ['2026-08-03', '파인트리']]) {
+    for (const [date, client, b, c] of [
+      ['2026-08-01', '한결에이전시', '원고', '프리미엄원고대필'],
+      ['2026-08-02', '나스컴퍼니', '원고', '프리미엄원고대필'],
+      ['2026-08-03', '파인트리', '최적화블로그', '최블 B'],
+    ] as [string, string, string, string][]) {
       await page.locator('[data-intake="date"]').fill(date);
       await page.locator('[data-intake="a"]').selectOption('블로그');
-      await page.locator('[data-intake="b"]').selectOption('원고');
-      await page.locator('[data-intake="c"]').selectOption('프리미엄원고대필');
+      await page.locator('[data-intake="b"]').selectOption(b);
+      await page.locator('[data-intake="c"]').selectOption(c);
       await page.locator('[data-intake="client"]').fill(client);
       await page.locator('[data-intake="qty"]').fill('10');
       await page.locator('[data-intake="sell"]').fill('15000');
@@ -740,15 +744,23 @@ test.describe('Business OS read-only operating data', () => {
     // 행마다 선택 상자를 두지 않는다.
     await expect(page.locator('[data-final-manager]')).toHaveCount(0);
     await page.locator('[data-final-assign]').click();
+
+    // 담당이 상품별로 갈리므로 상품으로도 좁힌다. 소분류는 고른 대분류 안에서만 나온다.
+    await page.locator('#assignMajor').selectOption('블로그');
+    await expect(page.locator('#assignMinor option')).toHaveText(['소분류 전체', '최블 B', '프리미엄원고대필']);
+    await page.locator('#assignMinor').selectOption('프리미엄원고대필');
+    await page.locator('#assignManager').selectOption('박종원');
+    await expect(page.locator('#assignPreview')).toContainText('2건');
+    await expect(page.locator('#assignPreview')).toContainText('블로그 › 프리미엄원고대필');
+
+    // 기간까지 겹치면 하루치 한 건만 남는다
     await page.locator('#assignFrom').fill('2026-08-02');
     await page.locator('#assignTo').fill('2026-08-02');
-    await page.locator('#assignManager').selectOption('박종원');
     await expect(page.locator('#assignPreview')).toContainText('1건');
-    await expect(page.locator('#assignPreview')).toContainText('박종원');
     await page.locator('[data-assign-save]').click();
     await expect(page.locator('#assignPreview')).toBeHidden();
 
-    // 고른 날짜만 바뀌고 나머지는 그대로다 (최신 날짜부터 내림차순)
+    // 날짜와 상품이 모두 맞는 건만 바뀐다 (최신 날짜부터 내림차순)
     await expect(rows.nth(0).locator('td').nth(0)).toHaveText('담당 없음');
     await expect(rows.nth(1).locator('td').nth(0)).toHaveText('박종원');
     await expect(rows.nth(2).locator('td').nth(0)).toHaveText('담당 없음');

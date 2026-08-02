@@ -2772,6 +2772,7 @@
     const to = finalFilter.to || '';
     const inRange = (row, a, b) => (!a || String(row.date) >= a) && (!b || String(row.date) <= b);
     const rows = finalSettlementRows();
+    const majors = [...new Set(rows.map(row => row.a).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
 
     openDetailModal('접수담당자 지정', `
       <p class="paid-hint">고른 기간의 접수에 담당자를 한 번에 배정합니다. 이미 담당자가 있는 건도 덮어씁니다.</p>
@@ -2784,6 +2785,20 @@
           <input class="paid-input" id="assignTo" type="date" value="${esc(to)}" aria-label="종료일">
         </span>
         <small class="paid-hint">비워 두면 전체 기간입니다. 하루만 지정하려면 같은 날짜를 양쪽에 넣으세요.</small>
+      </div>
+
+      <div class="paid-field">
+        <label class="paid-label" for="assignMajor">상품</label>
+        <span class="ledger-filter-range">
+          <select class="paid-input" id="assignMajor" aria-label="대분류">
+            <option value="">대분류 전체</option>
+            ${majors.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('')}
+          </select>
+          <select class="paid-input" id="assignMinor" aria-label="소분류">
+            <option value="">소분류 전체</option>
+          </select>
+        </span>
+        <small class="paid-hint">담당이 상품별로 갈리면 여기서 좁히세요.</small>
       </div>
 
       <div class="paid-field">
@@ -2804,11 +2819,24 @@
     const fromInput = document.getElementById('assignFrom');
     const toInput = document.getElementById('assignTo');
     const managerInput = document.getElementById('assignManager');
+    const majorInput = document.getElementById('assignMajor');
+    const minorInput = document.getElementById('assignMinor');
     const preview = document.getElementById('assignPreview');
     const saveButton = dialog.querySelector('[data-assign-save]');
 
     function targets() {
-      return rows.filter(row => inRange(row, fromInput.value, toInput.value));
+      return rows.filter(row => inRange(row, fromInput.value, toInput.value)
+        && (!majorInput.value || row.a === majorInput.value)
+        && (!minorInput.value || row.c === minorInput.value));
+    }
+
+    // 대분류를 고르면 그 안의 소분류만 남긴다.
+    function syncMinors() {
+      const pool = majorInput.value ? rows.filter(row => row.a === majorInput.value) : rows;
+      const minors = [...new Set(pool.map(row => row.c).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
+      const keep = minors.includes(minorInput.value) ? minorInput.value : '';
+      minorInput.innerHTML = `<option value="">소분류 전체</option>`
+        + minors.map(v => `<option value="${esc(v)}" ${v === keep ? 'selected' : ''}>${esc(v)}</option>`).join('');
     }
 
     // 몇 건이 어느 날짜에 걸리는지 먼저 보여 준다.
@@ -2817,13 +2845,16 @@
       const days = [...new Set(list.map(row => row.date))].sort();
       const label = managerInput.value || NO_MANAGER;
       saveButton.disabled = list.length === 0;
+      const scope = [majorInput.value, minorInput.value].filter(Boolean).join(' › ') || '상품 전체';
       preview.innerHTML = list.length
         ? `<strong>${esc(list.length.toLocaleString('ko-KR'))}건</strong>을 <strong>${esc(label)}</strong>(으)로 배정합니다.
-           <span>${esc(days[0].replace(/-/g, '.'))}${days.length > 1 ? ` ~ ${esc(days[days.length - 1].replace(/-/g, '.'))}` : ''} · ${esc(String(days.length))}일치</span>`
-        : '<span>고른 기간에 접수가 없습니다.</span>';
+           <span>${esc(days[0].replace(/-/g, '.'))}${days.length > 1 ? ` ~ ${esc(days[days.length - 1].replace(/-/g, '.'))}` : ''} · ${esc(String(days.length))}일치 · ${esc(scope)}</span>`
+        : `<span>고른 조건(${esc(scope)})에 맞는 접수가 없습니다.</span>`;
     }
 
-    [fromInput, toInput, managerInput].forEach(input => input.addEventListener('change', syncPreview));
+    majorInput.addEventListener('change', () => { syncMinors(); syncPreview(); });
+    [fromInput, toInput, minorInput, managerInput].forEach(input => input.addEventListener('change', syncPreview));
+    syncMinors();
     syncPreview();
 
     dialog.querySelector('[data-assign-cancel]').addEventListener('click', closeDetailModal);
@@ -2835,7 +2866,8 @@
       saveIntakeDraft();
       closeDetailModal();
       renderPlannedModule('final-settlement');
-      showToast(`${list.length.toLocaleString('ko-KR')}건을 ${manager || NO_MANAGER}(으)로 배정했습니다.`);
+      const scope = [majorInput.value, minorInput.value].filter(Boolean).join(' › ');
+      showToast(`${scope ? `${scope} ` : ''}${list.length.toLocaleString('ko-KR')}건을 ${manager || NO_MANAGER}(으)로 배정했습니다.`);
     });
   }
 
