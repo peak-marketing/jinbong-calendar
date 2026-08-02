@@ -1077,6 +1077,76 @@ test.describe('Business OS read-only operating data', () => {
     });
   }
 
+  // 최종정산서에서 상품을 추가하면 영업자 단가표에도 영업자단가만 실린다.
+  test('adds a product from the final settlement and shares it without company cost', async ({ page }) => {
+    await installFirebaseStub(page);
+    await page.route('**/api/**', route => {
+      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+      let payload: unknown = [];
+      if (pathname === '/users/me') {
+        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
+      } else if (pathname === '/chat-rooms/unread') {
+        payload = {};
+      } else if (pathname === '/projects') {
+        payload = { canManageAll: false, projects: [] };
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    });
+
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+
+    // 개인정산서 단가표에는 추가 버튼이 없다
+    await page.locator('.nav-item[data-view="settlement"]').click();
+    await page.locator('[data-price-table]').click();
+    await expect(page.locator('[data-price-add]')).toHaveCount(0);
+    await expect(page.locator('#priceTableBody .paid-hint')).toContainText('전체 165건');
+    await page.locator('[data-price-close]').click();
+
+    // 최종정산서에서 추가한다
+    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await page.locator('[data-price-table]').click();
+    await page.locator('[data-price-add]').click();
+    await page.locator('#newMajor').fill('블로그');
+    await page.locator('#newMiddle').fill('신규상품');
+    await page.locator('#newMinor').fill('AI 원고');
+    await page.locator('#newCost').fill('8000');
+    await page.locator('#newUnit').fill('9500');
+    await page.locator('[data-price-add-save]').click();
+
+    await page.locator('#priceSearch').fill('AI 원고');
+    const added = page.locator('.price-table tbody tr').first();
+    await expect(added).toContainText('추가');
+    await expect(added).toContainText('8,000');
+    await expect(added).toContainText('9,500');
+
+    // 같은 상품을 또 넣을 수는 없다
+    await page.locator('[data-price-add]').click();
+    await page.locator('#newMajor').fill('블로그');
+    await page.locator('#newMiddle').fill('신규상품');
+    await page.locator('#newMinor').fill('AI 원고');
+    await page.locator('[data-price-add-save]').click();
+    await expect(page.locator('#priceForm')).toBeVisible();
+    await page.locator('[data-price-add-cancel]').click();
+    await page.locator('[data-price-close]').click();
+
+    // 접수 화면에서도 바로 고를 수 있다
+    await openIntake(page);
+    await page.locator('[data-intake="a"]').selectOption('블로그');
+    await expect(page.locator('[data-intake="b"] option')).toContainText(['신규상품']);
+
+    // 영업자 계정에서는 영업자단가만 보인다
+    await page.locator('#personaSelect').selectOption('김용일');
+    await page.locator('.nav-item[data-view="settlement"]').click();
+    await page.locator('[data-price-table]').click();
+    await expect(page.locator('.price-table thead th')).toHaveText(['대분류', '중분류', '소분류', '영업자단가']);
+    await page.locator('#priceSearch').fill('AI 원고');
+    const shared = page.locator('.price-table tbody tr').first();
+    await expect(shared).toContainText('9,500');
+    await expect(shared).not.toContainText('8,000');
+  });
+
   // 접수 폼은 접혀 있다가 버튼으로 펼치고, 상시변동 상품은 회사 원가를 직접 넣는다.
   test('collapses the intake form and prompts for missing company cost', async ({ page }) => {
     await installFirebaseStub(page);

@@ -2146,13 +2146,43 @@
     }
   }
 
+  // 나중에 추가한 상품. 단가표는 회사 전체가 같이 쓰므로 계정별로 나누지 않는다.
+  const CUSTOM_PRICE_KEY = 'peakos.customPrices';
+  let customPrices = [];
+
+  function loadCustomPrices() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(CUSTOM_PRICE_KEY) || '[]');
+      customPrices = Array.isArray(saved) ? saved : [];
+    } catch (error) {
+      customPrices = [];
+    }
+  }
+
+  function saveCustomPrices() {
+    try {
+      localStorage.setItem(CUSTOM_PRICE_KEY, JSON.stringify(customPrices));
+    } catch (error) {
+      /* 저장 공간이 막혀 있어도 화면 동작은 유지한다 */
+    }
+  }
+
+  // 기본 단가표 + 추가한 상품. 접수 화면과 단가표가 같은 목록을 본다.
+  function priceRows() {
+    return PRICE_TABLE.concat(customPrices);
+  }
+
+  function isCustomPrice(row) {
+    return customPrices.includes(row);
+  }
+
   function priceRow(a, b, c) {
-    return PRICE_TABLE.find(row => row[0] === a && row[1] === b && row[2] === c) || null;
+    return priceRows().find(row => row[0] === a && row[1] === b && row[2] === c) || null;
   }
 
   function priceLevels(key, ...filters) {
     const index = ['a', 'b', 'c'].indexOf(key);
-    return [...new Set(PRICE_TABLE
+    return [...new Set(priceRows()
       .filter(row => filters.every((value, i) => !value || row[i] === value))
       .map(row => row[index]))];
   }
@@ -3124,7 +3154,7 @@
   function renderPriceTableBody() {
     const showCost = intakeContext === 'final-settlement' && canSeeCompanyCost();
     const q = priceTableQuery.trim().toLowerCase().replace(/\s/g, '');
-    const rows = PRICE_TABLE.filter(row => !q || `${row[0]}${row[1]}${row[2]}`.toLowerCase().replace(/\s/g, '').includes(q));
+    const rows = priceRows().filter(row => !q || `${row[0]}${row[1]}${row[2]}`.toLowerCase().replace(/\s/g, '').includes(q));
     const won = value => value === null ? '상시변동' : Number(value).toLocaleString('ko-KR');
 
     return `<div class="sales-table-scroll price-table-scroll">
@@ -3139,10 +3169,10 @@
           </tr>
         </thead>
         <tbody>
-          ${rows.length ? rows.map(row => `<tr>
+          ${rows.length ? rows.map(row => `<tr class="${isCustomPrice(row) ? 'price-added' : ''}">
             <td>${esc(row[0])}</td>
             <td>${esc(row[1])}</td>
-            <th scope="row">${esc(row[2])}</th>
+            <th scope="row">${esc(row[2])}${isCustomPrice(row) ? '<span class="kind-badge added">추가</span>' : ''}</th>
             ${showCost ? `<td class="${row[3] === null ? 'ledger-memo-empty' : ''}">${esc(won(row[3]))}</td>` : ''}
             <td class="${row[4] === null ? 'ledger-memo-empty' : ''}">${esc(won(row[4]))}</td>
           </tr>`).join('')
@@ -3150,7 +3180,7 @@
         </tbody>
       </table>
     </div>
-    <p class="paid-hint">${esc(rows.length.toLocaleString('ko-KR'))}건 / 전체 ${esc(PRICE_TABLE.length.toLocaleString('ko-KR'))}건${showCost ? '' : ' · 회사원가는 최종정산서에서만 볼 수 있습니다'}</p>`;
+    <p class="paid-hint">${esc(rows.length.toLocaleString('ko-KR'))}건 / 전체 ${esc(priceRows().length.toLocaleString('ko-KR'))}건${showCost ? '' : ' · 회사원가는 최종정산서에서만 볼 수 있습니다'}</p>`;
   }
 
   function openPriceTable() {
@@ -3163,10 +3193,34 @@
         <span><strong>주의 · 대외비</strong><br>피크마케팅 회사 내 타인에게 공유는 절대로 금합니다.</span>
       </div>
 
-      <div class="paid-field">
-        <label class="paid-label" for="priceSearch">상품 찾기</label>
-        <input class="paid-input" id="priceSearch" type="search" placeholder="대분류 · 중분류 · 소분류로 검색" autocomplete="off">
+      <div class="price-tools">
+        <label class="paid-field price-search">
+          <span class="paid-label">상품 찾기</span>
+          <input class="paid-input" id="priceSearch" type="search" placeholder="대분류 · 중분류 · 소분류로 검색" autocomplete="off">
+        </label>
+        ${showCost ? '<button class="module-action primary" type="button" data-price-add>＋ 상품 추가</button>' : ''}
       </div>
+
+      ${showCost ? `<div class="price-form" id="priceForm" hidden>
+        <div class="price-form-grid">
+          <label class="paid-field"><span class="paid-label">대분류</span>
+            <input class="paid-input" id="newMajor" type="text" list="priceMajors" placeholder="예: 블로그"></label>
+          <label class="paid-field"><span class="paid-label">중분류</span>
+            <input class="paid-input" id="newMiddle" type="text" placeholder="예: 원고"></label>
+          <label class="paid-field"><span class="paid-label">소분류</span>
+            <input class="paid-input" id="newMinor" type="text" placeholder="예: 프리미엄원고대필"></label>
+          <label class="paid-field"><span class="paid-label">회사원가</span>
+            <input class="paid-input" id="newCost" type="number" min="0" placeholder="비우면 상시변동"></label>
+          <label class="paid-field"><span class="paid-label">영업자단가</span>
+            <input class="paid-input" id="newUnit" type="number" min="0" placeholder="비우면 상시변동"></label>
+        </div>
+        <datalist id="priceMajors">${[...new Set(priceRows().map(row => row[0]))].map(v => `<option value="${esc(v)}"></option>`).join('')}</datalist>
+        <p class="paid-hint">단가를 비우면 상시변동으로 잡혀 접수할 때 직접 넣습니다. 추가한 상품은 영업자들 단가표에도 <strong>영업자단가만</strong> 함께 보입니다.</p>
+        <div class="paid-actions">
+          <button class="module-action" type="button" data-price-add-cancel>취소</button>
+          <button class="module-action primary" type="button" data-price-add-save>상품 추가</button>
+        </div>
+      </div>` : ''}
 
       <div id="priceTableBody">${renderPriceTableBody()}</div>
 
@@ -3181,6 +3235,36 @@
       document.getElementById('priceTableBody').innerHTML = renderPriceTableBody();
     });
     dialog.querySelector('[data-price-close]').addEventListener('click', closeDetailModal);
+
+    const form = document.getElementById('priceForm');
+    dialog.querySelector('[data-price-add]')?.addEventListener('click', () => {
+      form.hidden = !form.hidden;
+      if (!form.hidden) document.getElementById('newMajor').focus();
+    });
+    dialog.querySelector('[data-price-add-cancel]')?.addEventListener('click', () => { form.hidden = true; });
+    dialog.querySelector('[data-price-add-save]')?.addEventListener('click', () => {
+      const value = id => document.getElementById(id).value.trim();
+      const a = value('newMajor');
+      const b = value('newMiddle');
+      const c = value('newMinor');
+      if (!a || !b || !c) {
+        showToast('대분류·중분류·소분류를 모두 채워 주세요.');
+        return;
+      }
+      if (priceRow(a, b, c)) {
+        showToast('이미 단가표에 있는 상품입니다.');
+        return;
+      }
+      const num = id => value(id) === '' ? null : Number(value(id));
+      // 단가표와 같은 모양으로 넣어야 접수 화면이 그대로 읽는다.
+      customPrices.push([a, b, c, num('newCost'), num('newUnit')]);
+      saveCustomPrices();
+      form.hidden = true;
+      ['newMajor', 'newMiddle', 'newMinor', 'newCost', 'newUnit'].forEach(id => { document.getElementById(id).value = ''; });
+      document.getElementById('priceTableBody').innerHTML = renderPriceTableBody();
+      renderPlannedModule(intakeContext);
+      showToast(`${a} › ${b} › ${c} 상품을 단가표에 추가했습니다.`);
+    });
   }
 
   // 원가가 비어 있으면 회사이익도 공급사 지불액도 계산되지 않는다.
@@ -4062,6 +4146,7 @@
       userDoc = await readOnlyApi('/users/me');
       realUserDoc = userDoc;
       loadIntakeDraft();
+      loadCustomPrices();
       if (userDoc.is_active === false) throw new Error('비활성화된 계정입니다. 관리자에게 문의해 주세요.');
       if (!userDoc.approved) throw new Error('아직 승인되지 않은 계정입니다.');
       await loadLiveData();

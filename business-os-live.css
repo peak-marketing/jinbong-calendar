@@ -3069,3 +3069,13 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .price-table-scroll { max-height: 340px; overflow-y: auto; margin: 4px 0 2px; }
 .price-table thead th { position: sticky; top: 0; background: #f4f8fb; z-index: 1; }
 .price-table th[scope="row"] { font-weight: 800; color: #1d2b38; }
+
+/* 단가표 상품 추가 */
+.price-tools { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.price-search { flex: 1 1 260px; }
+.price-form { margin: 12px 0 6px; padding: 14px 16px; border-radius: 12px;
+  background: #f4f8fb; border: 1px solid #dbe6ef; }
+.price-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.price-form .paid-actions { margin-top: 12px; }
+.price-added { background: #f6f3ff; }
+.kind-badge.added { background: #ede9fb; color: #5b4bb5; }
