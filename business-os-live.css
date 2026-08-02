@@ -1937,7 +1937,6 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 
 .paid-input:focus-visible { outline: 2px solid #348ecd; outline-offset: 1px; }
 .paid-hint { margin: 0; color: #7b8794; font-size: 13px; line-height: 1.6; }
-.paid-hint.warn { color: #9d6a24; font-weight: 600; }
 
 .paid-required {
   margin-left: 5px;
@@ -1950,8 +1949,6 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   font-weight: 700;
 }
 
-.module-action.danger { border-color: #e2b8b5; color: #a8514c; }
-.module-action.danger:hover { border-color: #a8514c; background: #fbeceb; }
 
 .paid-actions {
   display: flex;

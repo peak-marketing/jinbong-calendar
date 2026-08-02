@@ -2308,40 +2308,24 @@
       <div class="paid-field">
         <label class="paid-label" for="paidMemo">입금 특이사항 <em class="paid-required">필수</em></label>
         <input class="paid-input" id="paidMemo" type="text" value="${esc(rows[0].paidMemo || '')}" placeholder="어느 통장에 어떻게 들어왔는지 적어 주세요">
-        <small class="paid-hint" id="paidMemoHint">8자 이상 적어야 입금확인이 됩니다.</small>
       </div>
 
       ${single ? '' : '<p class="paid-hint">묶음은 판매액 비율로 나눠 담습니다.</p>'}
 
       <div class="paid-actions">
-        ${already ? '<button class="module-action danger" type="button" data-paid-clear>입금 해제</button>' : ''}
         <button class="module-action" type="button" data-paid-cancel>취소</button>
-        <button class="module-action primary" type="button" data-paid-save>입금확인</button>
+        <button class="module-action primary" type="button" data-paid-save>${already ? '입금내용 수정' : '입금확인'}</button>
       </div>`, { locked: true });
 
     const dialog = document.getElementById('readonlyModalBody');
 
     const MEMO_MIN = 8;
     const memoInput = document.getElementById('paidMemo');
-    const memoHint = document.getElementById('paidMemoHint');
-
-    function checkMemo() {
-      const left = MEMO_MIN - memoInput.value.trim().length;
-      const short = left > 0;
-      memoHint.textContent = short
-        ? `${left}자 더 적어야 입금확인이 됩니다.`
-        : '입금확인할 수 있습니다.';
-      memoHint.classList.toggle('warn', short);
-      return !short;
-    }
-
-    memoInput.addEventListener('input', checkMemo);
-    checkMemo();
 
     dialog.querySelector('[data-paid-cancel]').addEventListener('click', closeDetailModal);
 
     dialog.querySelector('[data-paid-save]').addEventListener('click', () => {
-      if (!checkMemo()) {
+      if (memoInput.value.trim().length < MEMO_MIN) {
         memoInput.focus();
         showToast(`입금 특이사항을 ${MEMO_MIN}자 이상 적어 주세요.`);
         return;
@@ -2369,21 +2353,6 @@
       closeDetailModal();
       renderPlannedModule('settlement');
       showToast(`입금 ${amount.toLocaleString('ko-KR')}원을 ${rows.length}건에 반영했습니다.`);
-    });
-
-    dialog.querySelector('[data-paid-clear]')?.addEventListener('click', () => {
-      rows.forEach(row => {
-        row.paidAmount = 0;
-        row.paid = 'none';
-        row.payer = '';
-        row.paidDate = '';
-        row.paidMemo = '';
-        row.paidAuto = false;
-      });
-      saveIntakeDraft();
-      intakeSelection = [];
-      closeDetailModal();
-      renderPlannedModule('settlement');
     });
   }
 

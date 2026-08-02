@@ -509,8 +509,8 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#paidAmount')).toHaveValue('50000');
 
     // 입금 특이사항이 8자 미만이면 입금확인이 되지 않는다
+    await expect(page.locator('[data-paid-save]')).toHaveText('입금확인');
     await page.locator('#paidMemo').fill('짧음');
-    await expect(page.locator('#paidMemoHint')).toContainText('6자 더');
     await page.locator('[data-paid-save]').click();
     await expect(page.locator('#paidMemo')).toBeVisible();
     await expect(page.locator('#moduleView .paid-chip span').first()).toHaveText('미입금');
@@ -527,6 +527,14 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView .paid-chip span').nth(1)).toHaveText('입금');
     await expect(page.locator('#moduleView .ledger-total')).toContainText('입금 50,000');
     await expect(page.locator('#moduleView .ledger-total')).toContainText('미입금 0');
+
+    // 이미 입금된 건을 다시 열면 저장 버튼이 수정으로 바뀐다
+    await page.locator('#moduleView .paid-chip').first().click();
+    await expect(page.locator('[data-paid-save]')).toHaveText('입금내용 수정');
+    // 입금액을 0으로 넣으면 미입금으로 돌아간다
+    await page.locator('#paidAmount').fill('0');
+    await page.locator('[data-paid-save]').click();
+    await expect(page.locator('#moduleView .paid-chip span').first()).toHaveText('미입금');
   });
 
   // 하위 계정 정산서는 대표·김대호·박종원만 연다.
