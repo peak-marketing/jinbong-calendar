@@ -464,6 +464,68 @@ test.describe('Business OS read-only operating data', () => {
     });
   }
 
+  test('filters the ledger by period, client, product and deposit state', async ({ page }) => {
+    await installFirebaseStub(page);
+    await page.route('**/api/**', route => {
+      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+      let payload: unknown = [];
+      if (pathname === '/users/me') {
+        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
+      } else if (pathname === '/chat-rooms/unread') {
+        payload = {};
+      } else if (pathname === '/projects') {
+        payload = { canManageAll: false, projects: [] };
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    });
+
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+    await page.locator('.nav-item[data-view="settlement"]').click();
+
+    const add = async (date: string, client: string, b: string, c: string, sell: string, memo: string) => {
+      await page.locator('[data-intake="date"]').fill(date);
+      await page.locator('[data-intake="a"]').selectOption('블로그');
+      await page.locator('[data-intake="b"]').selectOption(b);
+      await page.locator('[data-intake="c"]').selectOption(c);
+      await page.locator('[data-intake="client"]').fill(client);
+      await page.locator('[data-intake="qty"]').fill('1');
+      await page.locator('[data-intake="sell"]').fill(sell);
+      await page.locator('[data-intake="memo"]').fill(memo);
+      await page.locator('[data-intake-add]').click();
+    };
+    await add('2026-08-01', '한결에이전시', '원고', '프리미엄원고대필', '14000', '예약건');
+    await add('2026-08-03', '명동미용실', '최적화블로그', '최블 B', '25000', '');
+
+    const rows = page.locator('#moduleView .ledger-table tbody tr');
+    await expect(rows).toHaveCount(2);
+    // 접수 특이사항이 표에 나온다
+    await expect(page.locator('#moduleView .ledger-memo').filter({ hasText: '예약건' })).toHaveCount(1);
+
+    // 거래처
+    await page.locator('[data-ledger-filter="client"]').selectOption('명동미용실');
+    await expect(rows).toHaveCount(1);
+    await expect(page.locator('#moduleView .ledger-total')).toContainText('매출 25,000');
+    await page.locator('[data-ledger-filter="client"]').selectOption('');
+
+    // 기간
+    await page.locator('[data-ledger-filter="from"]').fill('2026-08-02');
+    await expect(rows).toHaveCount(1);
+    await page.locator('[data-ledger-filter-reset]').click();
+    await expect(rows).toHaveCount(2);
+
+    // 입금 상태
+    await page.locator('#moduleView .paid-chip').first().click();
+    await page.locator('#paidMemo').fill('국민은행 통장 입금 확인');
+    await page.locator('[data-paid-save]').click();
+    await page.locator('[data-ledger-filter="paid"]').selectOption('unpaid');
+    await expect(rows).toHaveCount(1);
+    await page.locator('[data-ledger-filter="paid"]').selectOption('paid');
+    await expect(rows).toHaveCount(1);
+    await expect(page.locator('#moduleView .paid-chip span').first()).toHaveText('입금');
+  });
+
   test('splits one deposit across several intake rows', async ({ page }) => {
     await installFirebaseStub(page);
     await page.route('**/api/**', route => {

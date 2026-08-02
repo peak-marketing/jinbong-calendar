@@ -1752,6 +1752,9 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .intake-field small { color: #7b8794; font-size: 12.5px; }
 
 /* 단가표에서 자동으로 붙는 칸은 입력칸처럼 보이지 않게 한다 */
+/* 특이사항은 한 줄을 다 쓴다 */
+.intake-field.wide { grid-column: 1 / -1; }
+
 .intake-field.auto input {
   border-color: #e6ecf1;
   background: #f4f7f9;
@@ -1999,6 +2002,62 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   }
   .persona-switch select { max-width: 190px; }
 }
+
+/* ── 정산서 조회 조건 ────────────────────────────── */
+.ledger-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid #e3eaf0;
+  border-radius: 11px;
+  background: #f8fafc;
+}
+
+.ledger-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ledger-filter-field > span {
+  color: #41586c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ledger-filter-field input,
+.ledger-filter-field select {
+  min-height: 40px;
+  padding: 0 11px;
+  border: 1px solid #d5dfe8;
+  border-radius: 9px;
+  background: #fff;
+  color: #24313e;
+  font-family: inherit;
+  font-size: 14.5px;
+}
+
+.ledger-filter-field select { min-width: 132px; }
+.ledger-filter-field input:focus-visible,
+.ledger-filter-field select:focus-visible { outline: 2px solid #348ecd; outline-offset: 1px; }
+
+.ledger-filter-range { display: flex; align-items: center; gap: 7px; }
+.ledger-filter-range em { color: #7b8794; font-style: normal; }
+
+.ledger-filter .module-action { min-height: 40px; }
+
+.ledger-memo {
+  max-width: 220px;
+  color: #41586c;
+  font-size: 13.5px;
+  text-align: left;
+  white-space: normal;
+}
+
+.ledger-memo-empty { color: #b8c2cc; }
 
 /* ── 하위 계정 목록 ──────────────────────────────── */
 .team-roster {

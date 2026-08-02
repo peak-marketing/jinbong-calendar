@@ -51,7 +51,8 @@
   let activeView = 'dashboard';
   // 시트접수 건. 아직 운영 DB에 쓰지 않고 브라우저에만 남는 초안이다.
   let intakeDraft = [];
-  let intakeForm = { a: '', b: '', c: '', unit: '', qty: '', sell: '', client: '', date: '' };
+  let intakeForm = { a: '', b: '', c: '', unit: '', qty: '', sell: '', client: '', date: '', memo: '' };
+  let intakeFilter = { from: '', to: '', client: '', product: '', paid: '' };
   let intakeSelection = [];
   let orgBranchFilter = 'all';
   // 평소에는 갈래로 나뉜 조직도, 수정할 때만 세로로 나열한다
@@ -2088,9 +2089,70 @@
       .sort((a, b) => orgRankOrder(orgRankOf(a)) - orgRankOrder(orgRankOf(b)));
   }
 
+  // 조회 조건에 맞는 접수만 걸러 낸다.
+  function filteredIntake() {
+    const f = intakeFilter;
+    return intakeDraft.filter(row => {
+      if (f.from && String(row.date) < f.from) return false;
+      if (f.to && String(row.date) > f.to) return false;
+      if (f.client && row.client !== f.client) return false;
+      if (f.product && row.a !== f.product) return false;
+      if (f.paid === 'unpaid' && paidStateOf(row) !== 'none') return false;
+      if (f.paid === 'paid' && paidStateOf(row) === 'none') return false;
+      if (f.paid && f.paid !== 'unpaid' && f.paid !== 'paid' && paidStateOf(row) !== f.paid) return false;
+      return true;
+    });
+  }
+
+  function intakeFilterActive() {
+    return Object.values(intakeFilter).some(Boolean);
+  }
+
+  function renderIntakeFilter() {
+    const clients = [...new Set(intakeDraft.map(row => row.client).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
+    const products = [...new Set(intakeDraft.map(row => row.a).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
+    const option = (value, label, selected) => `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(label)}</option>`;
+
+    return `<div class="ledger-filter">
+      <label class="ledger-filter-field">
+        <span>기간</span>
+        <span class="ledger-filter-range">
+          <input type="date" data-ledger-filter="from" value="${esc(intakeFilter.from)}" aria-label="시작일">
+          <em>~</em>
+          <input type="date" data-ledger-filter="to" value="${esc(intakeFilter.to)}" aria-label="종료일">
+        </span>
+      </label>
+      <label class="ledger-filter-field">
+        <span>거래처</span>
+        <select data-ledger-filter="client">
+          ${option('', '전체', intakeFilter.client)}
+          ${clients.map(name => option(name, name, intakeFilter.client)).join('')}
+        </select>
+      </label>
+      <label class="ledger-filter-field">
+        <span>상품</span>
+        <select data-ledger-filter="product">
+          ${option('', '전체', intakeFilter.product)}
+          ${products.map(name => option(name, name, intakeFilter.product)).join('')}
+        </select>
+      </label>
+      <label class="ledger-filter-field">
+        <span>입금</span>
+        <select data-ledger-filter="paid">
+          ${option('', '전체', intakeFilter.paid)}
+          ${option('paid', '입금된 건', intakeFilter.paid)}
+          ${option('unpaid', '미입금', intakeFilter.paid)}
+          ${option('partial', '부분입금', intakeFilter.paid)}
+          ${option('wrong', '오입금', intakeFilter.paid)}
+        </select>
+      </label>
+      ${intakeFilterActive() ? '<button class="module-action" type="button" data-ledger-filter-reset>조건 해제</button>' : ''}
+    </div>`;
+  }
+
   function intakeRowsByDate() {
     const groups = new Map();
-    [...intakeDraft]
+    [...filteredIntake()]
       .sort((x, y) => String(y.date).localeCompare(String(x.date)))
       .forEach(row => {
         if (!groups.has(row.date)) groups.set(row.date, []);
@@ -2221,6 +2283,10 @@
           <label class="intake-field">
             <span>판매 단가</span>
             <input type="number" min="0" data-intake="sell" value="${esc(form.sell)}" placeholder="거래처 판매가">
+          </label>
+          <label class="intake-field wide">
+            <span>접수 특이사항</span>
+            <input type="text" data-intake="memo" value="${esc(form.memo)}" placeholder="선택 입력 · 예약건, 재작업 등">
           </label>
         </div>
 
@@ -2370,13 +2436,17 @@
   function renderIntakeLedger() {
     const groups = intakeRowsByDate();
     const showCost = canSeeCompanyCost();
-    const month = intakeTotals(intakeDraft);
+    const shown = filteredIntake();
+    const month = intakeTotals(shown);
 
     if (!groups.length) {
       return `<section class="module-section">
         <div class="module-section-head"><span><strong>내 개인정산서</strong><small>접수한 건이 일자별로 쌓입니다</small></span></div>
         <div class="module-section-body">
-          <p class="sales-state">아직 접수한 건이 없습니다. 위에서 상품을 접수해 보세요.</p>
+          ${intakeDraft.length ? renderIntakeFilter() : ''}
+          <p class="sales-state">${intakeDraft.length
+            ? '조회 조건에 맞는 접수가 없습니다.'
+            : '아직 접수한 건이 없습니다. 위에서 상품을 접수해 보세요.'}</p>
         </div>
       </section>`;
     }
@@ -2385,10 +2455,13 @@
 
     return `<section class="module-section">
       <div class="module-section-head">
-        <span><strong>내 개인정산서</strong><small>${esc(userDoc?.name || '')} · 접수 ${intakeDraft.length}건</small></span>
+        <span><strong>내 개인정산서</strong><small>${esc(userDoc?.name || '')} · ${intakeFilterActive()
+          ? `조회 ${shown.length}건 / 전체 ${intakeDraft.length}건`
+          : `접수 ${intakeDraft.length}건`}</small></span>
         <span class="module-chip live">매출 ${esc(month.sales.toLocaleString('ko-KR'))}원 · 영업이익 ${esc(month.profit.toLocaleString('ko-KR'))}원</span>
       </div>
       <div class="module-section-body">
+        ${renderIntakeFilter()}
         <div class="pick-bar-slot">${pickBarMarkup()}</div>
         ${groups.map(([date, rows]) => {
           const day = intakeTotals(rows);
@@ -2408,6 +2481,7 @@
                     <th scope="col">수량</th>
                     <th scope="col">영업자단가</th>
                     <th scope="col">판매단가</th>
+                    <th scope="col">특이사항</th>
                     ${showCost ? '<th scope="col">회사원가</th>' : ''}
                     <th scope="col">매출</th>
                     <th scope="col">영업이익</th>
@@ -2426,6 +2500,7 @@
                       <td>${esc(Number(row.qty).toLocaleString('ko-KR'))}</td>
                       <td>${esc(Number(row.unit).toLocaleString('ko-KR'))}</td>
                       <td>${esc(Number(row.sell).toLocaleString('ko-KR'))}</td>
+                      <td class="ledger-memo">${row.memo ? esc(row.memo) : '<span class="ledger-memo-empty">—</span>'}</td>
                       ${showCost ? `<td>${row.cost === null || row.cost === undefined ? '—' : esc((Number(row.cost) * Number(row.qty)).toLocaleString('ko-KR'))}</td>` : ''}
                       <td>${esc(sales.toLocaleString('ko-KR'))}</td>
                       <td class="sales-cell-total">${esc((sales - supply).toLocaleString('ko-KR'))}</td>
@@ -2589,6 +2664,19 @@
       });
     });
 
+    moduleView.querySelectorAll('[data-ledger-filter]').forEach(input => {
+      input.addEventListener('change', () => {
+        intakeFilter[input.dataset.ledgerFilter] = input.value;
+        intakeSelection = [];
+        renderPlannedModule('settlement');
+      });
+    });
+    moduleView.querySelector('[data-ledger-filter-reset]')?.addEventListener('click', () => {
+      intakeFilter = { from: '', to: '', client: '', product: '', paid: '' };
+      intakeSelection = [];
+      renderPlannedModule('settlement');
+    });
+
     moduleView.querySelectorAll('[data-paid-open]').forEach(button => button.addEventListener('click', () => {
       const picked = intakeSelection.length ? intakeSelection : [button.dataset.paidOpen];
       openPaidDialog(picked);
@@ -2623,6 +2711,7 @@
         client: form.client || '',
         a: form.a, b: form.b, c: form.c,
         unit, qty, sell,
+        memo: form.memo || '',
         cost: row[3],
         owner: userDoc?.uid || '',
         // 입금 확인 정보. 통장 연결 전이라 지금은 전부 수기로 채운다.
@@ -2634,7 +2723,7 @@
         paidAuto: false
       });
       saveIntakeDraft();
-      intakeForm = { ...form, client: '', qty: '', sell: '', unit: row[4] === null ? '' : '' };
+      intakeForm = { ...form, client: '', qty: '', sell: '', memo: '', unit: '' };
       renderPlannedModule('settlement');
       showToast('접수를 등록했습니다. 이 브라우저에만 저장되는 초안입니다.');
     });
