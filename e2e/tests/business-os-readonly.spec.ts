@@ -464,6 +464,76 @@ test.describe('Business OS read-only operating data', () => {
     });
   }
 
+  test('caps reservation drawdown and refunds at the original amount', async ({ page }) => {
+    await installFirebaseStub(page);
+    await page.route('**/api/**', route => {
+      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+      let payload: unknown = [];
+      if (pathname === '/users/me') {
+        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
+      } else if (pathname === '/chat-rooms/unread') {
+        payload = {};
+      } else if (pathname === '/projects') {
+        payload = { canManageAll: false, projects: [] };
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    });
+
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+    await page.locator('.nav-item[data-view="settlement"]').click();
+
+    const fillRow = async (qty: string) => {
+      await page.locator('[data-intake="a"]').selectOption('블로그');
+      await page.locator('[data-intake="b"]').selectOption('원고');
+      await page.locator('[data-intake="c"]').selectOption('프리미엄원고대필');
+      await page.locator('[data-intake="client"]').fill('한결에이전시');
+      await page.locator('[data-intake="qty"]').fill(qty);
+      await page.locator('[data-intake="sell"]').fill('5000');
+    };
+    const rows = page.locator('#moduleView .ledger-table tbody tr');
+
+    // 예약최초건 10개를 선입금으로 받는다 — 매출로는 잡히지 않는다
+    await page.locator('[data-intake-kind="reserve"]').click();
+    await fillRow('10');
+    await page.locator('[data-intake-add]').click();
+    await expect(rows).toHaveCount(1);
+    await expect(page.locator('#moduleView .ledger-total')).toContainText('매출 0');
+    await expect(page.locator('#moduleView .ledger-total')).toContainText('예약금 잔여 50,000');
+
+    // 예약건 작업은 잔여 수량을 넘을 수 없다
+    await page.locator('[data-intake-kind="use"]').click();
+    await page.locator('[data-intake="refOf"]').selectOption({ index: 1 });
+    await expect(page.locator('#moduleView .intake-limit')).toContainText('잔여 수량 10');
+    await fillRow('12');
+    await page.locator('[data-intake-add]').click();
+    await expect(rows).toHaveCount(1);
+
+    // 4개만 차감하면 잔여가 6개로 준다
+    await page.locator('[data-intake="qty"]').fill('4');
+    await page.locator('[data-intake-add]').click();
+    await expect(rows).toHaveCount(2);
+    await expect(page.locator('#moduleView .ledger-total')).toContainText('예약금 잔여 30,000');
+    // 예약금에서 충당되므로 미입금이 생기지 않는다
+    await expect(page.locator('#moduleView .ledger-total')).toContainText('미입금 0');
+
+    // 환불은 원래 건수를 넘을 수 없다
+    await page.locator('[data-intake-kind="refund"]').click();
+    await page.locator('[data-intake="refOf"]').selectOption({ index: 1 });
+    await expect(page.locator('#moduleView .intake-limit')).toContainText('환불 가능 수량 4');
+    await fillRow('6');
+    await page.locator('[data-intake-add]').click();
+    await expect(rows).toHaveCount(2);
+
+    // 2개 환불하면 마이너스로 잡힌다
+    await page.locator('[data-intake="qty"]').fill('2');
+    await page.locator('[data-intake-add]').click();
+    await expect(rows).toHaveCount(3);
+    await expect(page.locator('#moduleView .kind-badge.refund')).toHaveCount(1);
+    await expect(page.locator('#moduleView .ledger-total')).toContainText('매출 10,000');
+  });
+
   test('filters the ledger by period, client, product and deposit state', async ({ page }) => {
     await installFirebaseStub(page);
     await page.route('**/api/**', route => {

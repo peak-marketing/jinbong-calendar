@@ -51,7 +51,7 @@
   let activeView = 'dashboard';
   // 시트접수 건. 아직 운영 DB에 쓰지 않고 브라우저에만 남는 초안이다.
   let intakeDraft = [];
-  let intakeForm = { a: '', b: '', c: '', unit: '', qty: '', sell: '', client: '', date: '', memo: '' };
+  let intakeForm = { a: '', b: '', c: '', unit: '', qty: '', sell: '', client: '', date: '', memo: '', kind: 'normal', refOf: '' };
   let intakeFilter = { from: '', to: '', client: '', product: '', paid: '' };
   let intakeSelection = [];
   let orgBranchFilter = 'all';
@@ -2161,6 +2161,67 @@
     return [...groups.entries()];
   }
 
+  // ── 접수 구분 ────────────────────────────────────────────────
+  // 일반 접수 외에 선입금(예약최초건), 그 예약을 쓰는 작업, 환불이 있다.
+  const INTAKE_KINDS = {
+    normal: { label: '일반', badge: '' },
+    reserve: { label: '예약최초건', badge: 'reserve' },
+    use: { label: '예약건 작업', badge: 'use' },
+    refund: { label: '환불', badge: 'refund' }
+  };
+
+  function kindOf(row) {
+    return INTAKE_KINDS[row.kind] ? row.kind : 'normal';
+  }
+
+  // 환불과 예약 차감은 부호를 뒤집어 쓴다.
+  function signOf(row) {
+    return kindOf(row) === 'refund' ? -1 : 1;
+  }
+
+  function reservationRows() {
+    return intakeDraft.filter(row => kindOf(row) === 'reserve');
+  }
+
+  // 예약최초건에서 이미 쓴 수량과 금액
+  function reserveUsed(reserveId) {
+    return intakeDraft
+      .filter(row => kindOf(row) === 'use' && row.refOf === reserveId)
+      .reduce((sum, row) => {
+        sum.qty += Number(row.qty) || 0;
+        sum.amount += (Number(row.sell) || 0) * (Number(row.qty) || 0);
+        return sum;
+      }, { qty: 0, amount: 0 });
+  }
+
+  function reserveRemaining(reserve) {
+    const used = reserveUsed(reserve.id);
+    const paid = Number(reserve.paidAmount) || (Number(reserve.sell) || 0) * (Number(reserve.qty) || 0);
+    return {
+      qty: Math.max(0, (Number(reserve.qty) || 0) - used.qty),
+      amount: Math.max(0, paid - used.amount)
+    };
+  }
+
+  // 환불 가능한 접수와 이미 환불된 수량
+  function refundableRows() {
+    return intakeDraft.filter(row => ['normal', 'use'].includes(kindOf(row)));
+  }
+
+  function refundedQty(rowId) {
+    return intakeDraft
+      .filter(row => kindOf(row) === 'refund' && row.refOf === rowId)
+      .reduce((sum, row) => sum + (Number(row.qty) || 0), 0);
+  }
+
+  function refundableQty(row) {
+    return Math.max(0, (Number(row.qty) || 0) - refundedQty(row.id));
+  }
+
+  function intakeLabel(row) {
+    return `${row.client || '업체 미입력'} · ${row.a} › ${row.c}`;
+  }
+
   // ── 입금 확인 ────────────────────────────────────────────────
   const PAID_STATES = {
     none: { label: '미입금', tone: 'wait' },
@@ -2187,16 +2248,28 @@
 
   function intakeTotals(rows) {
     return rows.reduce((sum, row) => {
-      const supply = (Number(row.unit) || 0) * (Number(row.qty) || 0);
-      const sales = (Number(row.sell) || 0) * (Number(row.qty) || 0);
-      const cost = row.cost === null || row.cost === undefined ? null : Number(row.cost) * (Number(row.qty) || 0);
+      const kind = kindOf(row);
+      const sign = signOf(row);
+      const supply = (Number(row.unit) || 0) * (Number(row.qty) || 0) * sign;
+      const sales = (Number(row.sell) || 0) * (Number(row.qty) || 0) * sign;
+      const cost = row.cost === null || row.cost === undefined
+        ? null
+        : Number(row.cost) * (Number(row.qty) || 0) * sign;
+
+      // 예약최초건은 아직 일한 게 아니라 매출로 잡지 않는다. 받은 돈만 예약금으로 센다.
+      if (kind === 'reserve') {
+        sum.reserve += reserveRemaining(row).amount;
+        return sum;
+      }
+
       sum.supply += supply;
       sum.sales += sales;
       sum.profit += sales - supply;
       if (cost !== null) sum.cost += cost;
-      sum.paid += Number(row.paidAmount) || 0;
+      // 예약건 작업은 예약금에서 충당되므로 그만큼 이미 받은 것으로 본다.
+      sum.paid += kind === 'use' ? sales : (Number(row.paidAmount) || 0) * sign;
       return sum;
-    }, { supply: 0, sales: 0, profit: 0, cost: 0, paid: 0 });
+    }, { supply: 0, sales: 0, profit: 0, cost: 0, paid: 0, reserve: 0 });
   }
 
   // 현재 입력값으로 계산 칸만 다시 만든다. 글자를 칠 때마다 화면 전체를
@@ -2243,12 +2316,52 @@
 
     const option = (value, selected) => `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(value)}</option>`;
 
+    // 예약건 작업과 환불은 어느 건에서 빼는지 골라야 한다.
+    let targetPicker = '';
+    let limitQty = null;
+    if (form.kind === 'use') {
+      const list = reservationRows();
+      const picked = list.find(item => item.id === form.refOf);
+      if (picked) limitQty = reserveRemaining(picked).qty;
+      targetPicker = `<div class="intake-target">
+        <label class="intake-field wide">
+          <span>차감할 예약최초건</span>
+          <select data-intake="refOf">
+            <option value="">${list.length ? '선택하세요' : '등록된 예약최초건이 없습니다'}</option>
+            ${list.map(item => {
+              const left = reserveRemaining(item);
+              return `<option value="${esc(item.id)}" ${item.id === form.refOf ? 'selected' : ''}>${esc(intakeLabel(item))} · 잔여 ${esc(String(left.qty))}개 / ${esc(left.amount.toLocaleString('ko-KR'))}원</option>`;
+            }).join('')}
+          </select>
+        </label>
+        ${picked ? `<p class="intake-limit">잔여 수량 <strong>${esc(String(limitQty))}</strong>개 · 잔여 금액 <strong>${esc(reserveRemaining(picked).amount.toLocaleString('ko-KR'))}</strong>원을 넘을 수 없습니다.</p>` : ''}
+      </div>`;
+    } else if (form.kind === 'refund') {
+      const list = refundableRows().filter(item => refundableQty(item) > 0);
+      const picked = list.find(item => item.id === form.refOf);
+      if (picked) limitQty = refundableQty(picked);
+      targetPicker = `<div class="intake-target">
+        <label class="intake-field wide">
+          <span>환불할 접수건</span>
+          <select data-intake="refOf">
+            <option value="">${list.length ? '선택하세요' : '환불할 수 있는 접수가 없습니다'}</option>
+            ${list.map(item => `<option value="${esc(item.id)}" ${item.id === form.refOf ? 'selected' : ''}>${esc(item.date)} · ${esc(intakeLabel(item))} · 환불가능 ${esc(String(refundableQty(item)))}개</option>`).join('')}
+          </select>
+        </label>
+        ${picked ? `<p class="intake-limit">환불 가능 수량 <strong>${esc(String(limitQty))}</strong>개를 넘을 수 없습니다. 금액은 마이너스로 잡힙니다.</p>` : ''}
+      </div>`;
+    }
+
     return `<section class="module-section">
       <div class="module-section-head">
         <span><strong>상품 접수</strong><small>시트접수 건을 등록합니다. 분류를 고르면 영업자 단가가 자동으로 붙습니다</small></span>
         <span class="module-chip live">시트접수</span>
       </div>
       <div class="module-section-body">
+        <div class="intake-kind">
+          ${Object.entries(INTAKE_KINDS).map(([key, info]) => `<button class="intake-kind-btn ${form.kind === key ? 'active' : ''}" type="button" data-intake-kind="${esc(key)}">${esc(info.label)}</button>`).join('')}
+        </div>
+        ${targetPicker}
         <div class="intake-form">
           <label class="intake-field">
             <span>일자</span>
@@ -2277,8 +2390,8 @@
             <small>${variable ? '상시변동 상품 · 직접 입력' : '단가표에서 자동'}</small>
           </label>
           <label class="intake-field">
-            <span>수량</span>
-            <input type="number" min="0" data-intake="qty" value="${esc(form.qty)}" placeholder="0">
+            <span>수량${limitQty === null ? '' : ` <em class="intake-cap">최대 ${esc(String(limitQty))}</em>`}</span>
+            <input type="number" min="0" ${limitQty === null ? '' : `max="${esc(String(limitQty))}"`} data-intake="qty" value="${esc(form.qty)}" placeholder="0">
           </label>
           <label class="intake-field">
             <span>판매 단가</span>
@@ -2491,17 +2604,19 @@
                 </thead>
                 <tbody>
                   ${rows.map(row => {
-                    const supply = (Number(row.unit) || 0) * (Number(row.qty) || 0);
-                    const sales = (Number(row.sell) || 0) * (Number(row.qty) || 0);
-                    return `<tr class="${intakeSelection.includes(row.id) ? 'picked' : ''}">
+                    const kind = kindOf(row);
+                    const sign = signOf(row);
+                    const supply = (Number(row.unit) || 0) * (Number(row.qty) || 0) * sign;
+                    const sales = (Number(row.sell) || 0) * (Number(row.qty) || 0) * sign;
+                    return `<tr class="${intakeSelection.includes(row.id) ? 'picked' : ''} ${kind !== 'normal' ? `kind-${kind}` : ''}">
                       <td class="ledger-pick"><input type="checkbox" data-intake-pick="${esc(row.id)}" ${intakeSelection.includes(row.id) ? 'checked' : ''} aria-label="${esc(row.client || '')} 선택"></td>
-                      <th scope="row">${esc(row.client || '업체 미입력')}</th>
+                      <th scope="row">${esc(row.client || '업체 미입력')}${kind === 'normal' ? '' : `<span class="kind-badge ${esc(kind)}">${esc(INTAKE_KINDS[kind].label)}</span>`}</th>
                       <td class="ledger-product">${esc(row.a)} › ${esc(row.b)} › ${esc(row.c)}</td>
-                      <td>${esc(Number(row.qty).toLocaleString('ko-KR'))}</td>
+                      <td>${esc((Number(row.qty) * sign).toLocaleString('ko-KR'))}</td>
                       <td>${esc(Number(row.unit).toLocaleString('ko-KR'))}</td>
                       <td>${esc(Number(row.sell).toLocaleString('ko-KR'))}</td>
                       <td class="ledger-memo">${row.memo ? esc(row.memo) : '<span class="ledger-memo-empty">—</span>'}</td>
-                      ${showCost ? `<td>${row.cost === null || row.cost === undefined ? '—' : esc((Number(row.cost) * Number(row.qty)).toLocaleString('ko-KR'))}</td>` : ''}
+                      ${showCost ? `<td>${row.cost === null || row.cost === undefined ? '—' : esc((Number(row.cost) * Number(row.qty) * sign).toLocaleString('ko-KR'))}</td>` : ''}
                       <td>${esc(sales.toLocaleString('ko-KR'))}</td>
                       <td class="sales-cell-total">${esc((sales - supply).toLocaleString('ko-KR'))}</td>
                       <td>${renderPaidCell(row)}</td>
@@ -2521,6 +2636,7 @@
           <span>영업이익 <strong class="profit">${esc(month.profit.toLocaleString('ko-KR'))}</strong></span>
           <span>입금 <strong>${esc(month.paid.toLocaleString('ko-KR'))}</strong></span>
           <span>미입금 <strong class="unpaid">${esc(Math.max(0, month.sales - month.paid).toLocaleString('ko-KR'))}</strong></span>
+          ${month.reserve ? `<span>예약금 잔여 <strong class="reserve">${esc(month.reserve.toLocaleString('ko-KR'))}</strong></span>` : ''}
         </div>
       </div>
     </section>`;
@@ -2647,7 +2763,7 @@
     moduleView.querySelectorAll('[data-intake]').forEach(input => {
       const key = input.dataset.intake;
       if (input.tagName === 'SELECT') {
-        // 분류를 바꾸면 아래 단계 선택지와 단가를 다시 잡아야 하므로 전체를 그린다
+        // 분류나 대상 건을 바꾸면 선택지와 상한을 다시 잡아야 하므로 전체를 그린다
         input.addEventListener('change', () => {
           intakeForm[key] = input.value;
           if (key === 'a') { intakeForm.b = ''; intakeForm.c = ''; intakeForm.unit = ''; }
@@ -2663,6 +2779,12 @@
         updateIntakeCalc();
       });
     });
+
+    moduleView.querySelectorAll('[data-intake-kind]').forEach(button => button.addEventListener('click', () => {
+      intakeForm.kind = button.dataset.intakeKind;
+      intakeForm.refOf = '';
+      renderPlannedModule('settlement');
+    }));
 
     moduleView.querySelectorAll('[data-ledger-filter]').forEach(input => {
       input.addEventListener('change', () => {
@@ -2705,6 +2827,32 @@
         showToast('상품·수량·단가를 채워 주세요.');
         return;
       }
+
+      // 예약 차감과 환불은 원래 건을 넘을 수 없다.
+      if (form.kind === 'use' || form.kind === 'refund') {
+        const target = intakeDraft.find(item => item.id === form.refOf);
+        if (!target) {
+          showToast(form.kind === 'use' ? '차감할 예약최초건을 골라 주세요.' : '환불할 접수건을 골라 주세요.');
+          return;
+        }
+        if (form.kind === 'use') {
+          const left = reserveRemaining(target);
+          if (qty > left.qty) {
+            showToast(`예약 잔여 수량 ${left.qty}개를 넘을 수 없습니다.`);
+            return;
+          }
+          if (sell * qty > left.amount) {
+            showToast(`예약 잔여 금액 ${left.amount.toLocaleString('ko-KR')}원을 넘을 수 없습니다.`);
+            return;
+          }
+        } else {
+          const left = refundableQty(target);
+          if (qty > left) {
+            showToast(`환불 가능 수량 ${left}개를 넘을 수 없습니다.`);
+            return;
+          }
+        }
+      }
       intakeDraft.push({
         id: `intake-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         date: form.date || localDateKey(new Date()),
@@ -2712,6 +2860,8 @@
         a: form.a, b: form.b, c: form.c,
         unit, qty, sell,
         memo: form.memo || '',
+        kind: form.kind || 'normal',
+        refOf: form.refOf || '',
         cost: row[3],
         owner: userDoc?.uid || '',
         // 입금 확인 정보. 통장 연결 전이라 지금은 전부 수기로 채운다.
@@ -2723,7 +2873,7 @@
         paidAuto: false
       });
       saveIntakeDraft();
-      intakeForm = { ...form, client: '', qty: '', sell: '', memo: '', unit: '' };
+      intakeForm = { ...form, client: '', qty: '', sell: '', memo: '', unit: '', refOf: '' };
       renderPlannedModule('settlement');
       showToast('접수를 등록했습니다. 이 브라우저에만 저장되는 초안입니다.');
     });

@@ -1755,6 +1755,86 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 /* 특이사항은 한 줄을 다 쓴다 */
 .intake-field.wide { grid-column: 1 / -1; }
 
+/* ── 접수 구분 ───────────────────────────────────── */
+.intake-kind {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.intake-kind-btn {
+  min-height: 38px;
+  padding: 0 16px;
+  border: 1px solid #d5dfe8;
+  border-radius: 999px;
+  background: #fff;
+  color: #41586c;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.intake-kind-btn:hover { border-color: #9dcced; color: #2674ac; }
+.intake-kind-btn:focus-visible { outline: 2px solid #348ecd; outline-offset: 2px; }
+.intake-kind-btn.active { border-color: #348ecd; background: #348ecd; color: #fff; }
+
+.intake-target {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid #cfe1f0;
+  border-radius: 10px;
+  background: #f5fbff;
+}
+
+.intake-target .intake-field > span { color: #2674ac; }
+.intake-target select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid #b9dcf2;
+  border-radius: 9px;
+  background: #fff;
+  color: #24313e;
+  font-family: inherit;
+  font-size: 15px;
+}
+
+.intake-limit { margin: 10px 0 0; color: #2674ac; font-size: 13.5px; }
+.intake-limit strong { font-weight: 800; }
+
+.intake-cap {
+  margin-left: 5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #eaf4fb;
+  color: #2674ac;
+  font-style: normal;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.kind-badge {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.kind-badge.reserve { background: #ede9fb; color: #5b4bb5; }
+.kind-badge.use { background: #eaf4fb; color: #2674ac; }
+.kind-badge.refund { background: #fbeceb; color: #a8514c; }
+
+.ledger-table tr.kind-refund td,
+.ledger-table tr.kind-refund th { color: #a8514c; }
+.ledger-table tr.kind-reserve { background: #faf8ff; }
+
+.ledger-total strong.reserve { color: #5b4bb5; }
+
 .intake-field.auto input {
   border-color: #e6ecf1;
   background: #f4f7f9;
