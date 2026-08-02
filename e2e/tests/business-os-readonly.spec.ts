@@ -1106,6 +1106,78 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView .ledger-table tbody')).toContainText('최블 B');
   });
 
+  // 표에서 건을 골라 그 건만 정산서로 내고, 접수 없이 새로 만들 수도 있다.
+  test('issues an estimate from picked rows and from scratch', async ({ page }) => {
+    await installFirebaseStub(page);
+    await page.route('**/api/**', route => {
+      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+      let payload: unknown = [];
+      if (pathname === '/users/me') {
+        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
+      } else if (pathname === '/chat-rooms/unread') {
+        payload = {};
+      } else if (pathname === '/projects') {
+        payload = { canManageAll: false, projects: [] };
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    });
+
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openIntake(page);
+
+    for (const [client, b, c, qty, sell] of [
+      ['나스컴퍼니', '최적화블로그', '최블 B', '30', '1800'],
+      ['나스컴퍼니', '원고', '프리미엄원고대필', '5', '20000'],
+      ['나스컴퍼니', '원고', '외주대필', '2', '9000'],
+      ['다른업체', '원고', '프리미엄원고대필', '3', '20000'],
+    ] as [string, string, string, string, string][]) {
+      await page.locator('[data-intake="a"]').selectOption('블로그');
+      await page.locator('[data-intake="b"]').selectOption(b);
+      await page.locator('[data-intake="c"]').selectOption(c);
+      await page.locator('[data-intake="client"]').fill(client);
+      await page.locator('[data-intake="qty"]').fill(qty);
+      await page.locator('[data-intake="sell"]').fill(sell);
+      await page.locator('[data-intake-add]').click();
+    }
+
+    // 같은 업체 두 건을 고르면 그 두 건만 한 장에 담긴다
+    const picks = page.locator('[data-intake-pick]');
+    await picks.nth(0).check();
+    await picks.nth(1).check();
+    await page.locator('[data-estimate-pick]').click();
+    await expect(page.locator('#estClient')).toHaveValue('나스컴퍼니');
+    await expect(page.locator('#estLines tr')).toHaveCount(2);
+    await expect(page.locator('#estSum')).toContainText('합계 169,400원');
+    await page.locator('[data-est-close]').click();
+
+    // 업체가 다른 건이 섞이면 한 장으로 낼 수 없다
+    await picks.nth(3).check();
+    await page.locator('[data-estimate-pick]').click();
+    await expect(page.locator('#estClient')).toBeHidden();
+
+    // 접수 없이 받을 돈은 빈 정산서로 만든다
+    await page.locator('[data-paid-clear-pick]').click();
+    await page.locator('[data-estimate-new]').click();
+    await expect(page.locator('#estClient')).toHaveValue('');
+    await expect(page.locator('#estLines tr')).toHaveCount(1);
+    await page.locator('#estClient').fill('신규거래처');
+    await page.locator('[data-est-line="name"]').first().fill('선입금 건');
+    await page.locator('[data-est-line="unit"]').first().fill('300000');
+    await page.locator('[data-est-line="qty"]').first().fill('1');
+    await expect(page.locator('#estSum')).toContainText('합계 330,000원');
+
+    // 업체 이름을 넣고 접수를 통째로 불러올 수도 있다
+    await page.locator('#estClient').fill('나스컴퍼니');
+    await page.locator('[data-est-load]').click();
+    await expect(page.locator('#estLines tr')).toHaveCount(3);
+    await expect(page.locator('#estSum')).toContainText('합계 189,200원');
+    await page.locator('[data-est-clear]').click();
+    await expect(page.locator('#estLines tr')).toHaveCount(0);
+  });
+
   // 단가는 상품별로 고칠 수 있고, 고친 값이 접수 화면과 영업자 단가표에 함께 간다.
   test('edits a single product price and shares it with sales accounts', async ({ page }) => {
     await installFirebaseStub(page);

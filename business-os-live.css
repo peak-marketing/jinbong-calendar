@@ -3116,6 +3116,7 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .est-supply { font-weight: 700; color: #1d2b38; white-space: nowrap; }
 .est-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px;
   flex-wrap: wrap; margin: 10px 0 4px; }
+.est-tool-buttons { display: inline-flex; gap: 8px; flex-wrap: wrap; }
 .est-sum { font-size: 14px; font-weight: 800; color: #2674ac; }
 .est-preview { margin: 12px 0 4px; padding: 12px; border-radius: 12px; background: #f4f8fb;
   border: 1px solid #dbe6ef; overflow-x: auto; }

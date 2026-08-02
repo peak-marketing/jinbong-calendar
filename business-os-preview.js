@@ -2733,6 +2733,7 @@
       <span><strong>${esc(String(intakeSelection.length))}건</strong> 선택됨 · 한 번에 입금 처리하면 판매액 비율로 나눠 담습니다</span>
       <span class="pick-bar-actions">
         <button class="module-action" type="button" data-paid-clear-pick>선택 해제</button>
+        <button class="module-action" type="button" data-estimate-pick>선택 건 정산서</button>
         <button class="module-action primary" type="button" data-paid-bulk>묶어서 입금 확인</button>
       </span>
     </div>`;
@@ -2748,6 +2749,16 @@
       box.closest('tr')?.classList.toggle('picked', intakeSelection.includes(box.dataset.intakePick));
     });
     slot.querySelector('[data-paid-bulk]')?.addEventListener('click', () => openPaidDialog(intakeSelection));
+    slot.querySelector('[data-estimate-pick]')?.addEventListener('click', () => {
+      const picked = personalRows().filter(row => intakeSelection.includes(row.id));
+      const clients = [...new Set(picked.map(row => row.client || '업체 미입력'))];
+      // 정산서는 한 업체 앞으로 나가는 문서라 여러 업체를 섞을 수 없다.
+      if (clients.length > 1) {
+        showToast(`거래처가 ${clients.length}곳(${clients.join(', ')})이라 한 장으로 낼 수 없습니다.`);
+        return;
+      }
+      openEstimateDialog(clients[0] || '', picked);
+    });
     slot.querySelector('[data-paid-clear-pick]')?.addEventListener('click', () => {
       intakeSelection = [];
       moduleView.querySelectorAll('[data-intake-pick]').forEach(box => { box.checked = false; });
@@ -3112,6 +3123,7 @@
           : `접수 ${personalRows().length}건`}</small></span>
         <span class="intake-head-right">
           <span class="module-chip live">매출 ${esc(month.sales.toLocaleString('ko-KR'))}원 · 영업이익 ${esc(month.profit.toLocaleString('ko-KR'))}원</span>
+          <button class="module-action" type="button" data-estimate-new>＋ 새 정산서</button>
           <button class="module-action primary" type="button" data-estimate-open>정산서 발행</button>
         </span>
       </div>
@@ -3206,18 +3218,25 @@
   }
 
   // 화면에서 고친 값만 들고 있는다. 접수 원본은 건드리지 않는다.
-  function buildEstimateDraft(client) {
+  function estimateLineOf(row) {
     return {
-      client,
+      category: row.a || '',
+      name: row.c || '',
+      unit: (Number(row.sell) || 0) * (kindOf(row) === 'refund' ? -1 : 1),
+      qty: Number(row.qty) || 0
+    };
+  }
+
+  // rows 를 넘기면 그것만, 안 넘기면 그 업체 접수 전부를 담는다.
+  // client 가 비어 있으면 빈 정산서로 새로 시작한다.
+  function buildEstimateDraft(client, rows) {
+    const source = rows || (client ? estimateRowsFor(client) : []);
+    return {
+      client: client || '',
       clientCeo: '',
       manager: String(userDoc?.name || '').trim(),
       date: localDateKey(new Date()),
-      lines: estimateRowsFor(client).map(row => ({
-        category: row.a || '',
-        name: row.c || '',
-        unit: (Number(row.sell) || 0) * (kindOf(row) === 'refund' ? -1 : 1),
-        qty: Number(row.qty) || 0
-      }))
+      lines: source.length ? source.map(estimateLineOf) : [{ category: '', name: '', unit: 0, qty: 0 }]
     };
   }
 
@@ -3358,16 +3377,15 @@
   }
 
   // 거래처 하나에 대해 접수 건을 모아 견적서 한 장으로 만든다.
-  function openEstimateDialog(client) {
-    estimateDraft = buildEstimateDraft(client);
+  function openEstimateDialog(client, rows) {
+    estimateDraft = buildEstimateDraft(client, rows);
     const clients = [...new Set(personalRows().map(row => row.client).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
 
     openDetailModal('정산서 발행 · WORK ESTIMATE', `
       <div class="est-head">
         <label class="paid-field"><span class="paid-label">거래처</span>
-          <select class="paid-input" id="estClient">
-            ${clients.map(name => `<option value="${esc(name)}" ${name === client ? 'selected' : ''}>${esc(name)}</option>`).join('')}
-          </select></label>
+          <input class="paid-input" id="estClient" type="text" list="estClientList" value="${esc(estimateDraft.client)}" placeholder="업체명 직접 입력">
+          <datalist id="estClientList">${clients.map(name => `<option value="${esc(name)}"></option>`).join('')}</datalist></label>
         <label class="paid-field"><span class="paid-label">거래처 대표자</span>
           <input class="paid-input" id="estCeo" type="text" placeholder="대표자명"></label>
         <label class="paid-field"><span class="paid-label">담당자</span>
@@ -3385,7 +3403,11 @@
         </table>
       </div>
       <div class="est-tools">
-        <button class="module-action" type="button" data-est-add>＋ 줄 추가</button>
+        <span class="est-tool-buttons">
+          <button class="module-action" type="button" data-est-add>＋ 줄 추가</button>
+          <button class="module-action" type="button" data-est-load>이 업체 접수 불러오기</button>
+          <button class="module-action" type="button" data-est-clear>비우기</button>
+        </span>
         <span class="est-sum" id="estSum"></span>
       </div>
 
@@ -3440,8 +3462,24 @@
         refreshPreview();
       });
     });
-    document.getElementById('estClient').addEventListener('change', event => {
-      openEstimateDialog(event.target.value);
+    document.getElementById('estClient').addEventListener('input', event => {
+      estimateDraft.client = event.target.value;
+      refreshPreview();
+    });
+    dialog.querySelector('[data-est-load]').addEventListener('click', () => {
+      const name = document.getElementById('estClient').value.trim();
+      const found = estimateRowsFor(name);
+      if (!found.length) {
+        showToast(`${name || '업체'} 이름으로 접수된 건이 없습니다.`);
+        return;
+      }
+      estimateDraft.lines = found.map(estimateLineOf);
+      redrawLines();
+      showToast(`${name} 접수 ${found.length}건을 불러왔습니다.`);
+    });
+    dialog.querySelector('[data-est-clear]').addEventListener('click', () => {
+      estimateDraft.lines = [];
+      redrawLines();
     });
     dialog.querySelector('[data-est-add]').addEventListener('click', () => {
       estimateDraft.lines.push({ category: '', name: '', unit: 0, qty: 0 });
@@ -4167,6 +4205,8 @@
     moduleView.querySelector('[data-final-assign]')?.addEventListener('click', openAssignDialog);
     moduleView.querySelector('[data-cost-fill]')?.addEventListener('click', openCostDialog);
     moduleView.querySelector('[data-price-table]')?.addEventListener('click', openPriceTable);
+    // 접수 없이 받을 돈이 생기기도 해서 빈 정산서로도 시작한다.
+    moduleView.querySelector('[data-estimate-new]')?.addEventListener('click', () => openEstimateDialog('', []));
     moduleView.querySelector('[data-estimate-open]')?.addEventListener('click', () => {
       // 거래처를 골라 뒀으면 그 업체로, 아니면 첫 업체로 연다.
       const clients = [...new Set(personalRows().map(row => row.client).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
