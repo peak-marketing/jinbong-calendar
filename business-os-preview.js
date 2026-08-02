@@ -2423,9 +2423,7 @@
             <span>영업자 단가</span>
             <input type="number" data-intake="unit" value="${esc(unit === '' || unit === null ? '' : unit)}"
               ${(lockBase ? !unitEditable : !variable) ? 'readonly' : 'placeholder="직접 입력"'}>
-            <small>${lockBase
-              ? (unitEditable ? '예약 단가 · 부장 이상 수정 가능' : '예약 단가 · 부장 이상만 수정')
-              : (variable ? '상시변동 상품 · 직접 입력' : '단가표에서 자동')}</small>
+            ${lockBase ? '' : `<small>${variable ? '상시변동 상품 · 직접 입력' : '단가표에서 자동'}</small>`}
           </label>
           <label class="intake-field">
             <span>수량${limitQty === null ? '' : ` <em class="intake-cap">최대 ${esc(String(limitQty))}</em>`}</span>
