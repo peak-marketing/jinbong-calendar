@@ -80,7 +80,7 @@
     services: '서비스',
     company: '회사 자료',
     organization: '조직도',
-    settlement: '정산',
+    settlement: '정산서',
     tax: '세금',
     platform: '플랫폼',
     saas: 'SaaS 허브'
@@ -1959,11 +1959,14 @@
   }
 
   // ── 시트접수 ────────────────────────────────────────────────
-  const INTAKE_STORAGE_KEY = 'peakos.intakeDraft';
+  // 접수 초안은 계정별로 따로 담는다. 한 브라우저를 여러 사람이 써도 섞이지 않는다.
+  function intakeStorageKey() {
+    return `peakos.intakeDraft.${userDoc?.uid || 'anon'}`;
+  }
 
   function loadIntakeDraft() {
     try {
-      const saved = JSON.parse(localStorage.getItem(INTAKE_STORAGE_KEY) || '[]');
+      const saved = JSON.parse(localStorage.getItem(intakeStorageKey()) || '[]');
       intakeDraft = Array.isArray(saved) ? saved : [];
     } catch (error) {
       intakeDraft = [];
@@ -1972,7 +1975,7 @@
 
   function saveIntakeDraft() {
     try {
-      localStorage.setItem(INTAKE_STORAGE_KEY, JSON.stringify(intakeDraft));
+      localStorage.setItem(intakeStorageKey(), JSON.stringify(intakeDraft));
     } catch (error) {
       /* 저장 공간이 막혀 있어도 화면 동작은 유지한다 */
     }
@@ -2198,7 +2201,7 @@
       ${moduleCard({ icon: '♙', tone: 'green', title: '영업자별 개인정산서', description: '소속 또는 허용된 영업자별 매출, 공제, 지급 예정액과 정산 상태를 확인합니다.', chip: '관리직 조회', chipClass: 'visible', footer: '소속·허용 지사 기준', action: '영업자 목록' })}
       ${moduleCard({ icon: '♛', tone: 'violet', title: '최종정산서', description: '전체 정산 검토가 끝난 뒤 확정된 최종 지급 내역과 승인 이력을 관리합니다.', chip: '관리직 전용', chipClass: 'restricted', footer: '대표·팀장만 표시', action: '정산 구조 보기' })}` : '';
     moduleView.innerHTML = `
-      ${moduleStatusbar('정산 모듈', management ? '시트접수와 개인정산서를 관리합니다.' : '로그인한 영업자의 개인정산 범위만 표시합니다.', '접수 초안 · 저장 전')}
+      ${moduleStatusbar('정산서', management ? '시트접수와 개인정산서를 관리합니다.' : '로그인한 영업자의 개인정산 범위만 표시합니다.', '접수 초안 · 저장 전')}
       ${renderIntakeForm()}
       ${renderIntakeLedger()}
       ${managementCards ? `<section class="module-grid">${managementCards}</section>` : ''}
@@ -2510,6 +2513,7 @@
     setAuthStatus('계정 권한과 운영 데이터를 확인하고 있습니다…');
     try {
       userDoc = await readOnlyApi('/users/me');
+      loadIntakeDraft();
       if (userDoc.is_active === false) throw new Error('비활성화된 계정입니다. 관리자에게 문의해 주세요.');
       if (!userDoc.approved) throw new Error('아직 승인되지 않은 계정입니다.');
       await loadLiveData();
@@ -2528,7 +2532,6 @@
 
   function initialize() {
     loadOrgRankDraft();
-    loadIntakeDraft();
     createAuthGate();
     createDetailModal();
     wireNavigation();
