@@ -3058,3 +3058,14 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .cost-input { max-width: 110px; padding: 6px 8px; font-size: 13.5px; }
 .intake-field.need input { border-color: #e6b877; background: #fffaf1; }
 .intake-field.need small { color: #b45309; font-weight: 700; }
+
+/* 단가표 */
+.price-warning { display: flex; align-items: center; gap: 12px; margin: 0 0 16px;
+  padding: 13px 15px; border-radius: 11px; background: #fdecec; border: 1px solid #f3c3c3; }
+.price-warning-icon { flex: none; width: 26px; height: 26px; border-radius: 50%; background: #c5453c;
+  color: #fff; font-weight: 900; display: grid; place-items: center; font-size: 15px; }
+.price-warning strong { color: #b23a31; font-weight: 800; font-size: 15px; }
+.price-warning span:last-child { font-size: 13.5px; line-height: 1.6; color: #7d4440; }
+.price-table-scroll { max-height: 340px; overflow-y: auto; margin: 4px 0 2px; }
+.price-table thead th { position: sticky; top: 0; background: #f4f8fb; z-index: 1; }
+.price-table th[scope="row"] { font-weight: 800; color: #1d2b38; }

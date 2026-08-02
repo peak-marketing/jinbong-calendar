@@ -2580,6 +2580,7 @@
           : '시트접수 건을 등록합니다. 분류를 고르면 영업자 단가가 자동으로 붙습니다'}</small></span>
         <span class="intake-head-right">
           <span class="module-chip ${finalMode ? 'restricted' : 'live'}">${finalMode ? '최종정산서 전용' : '시트접수'}</span>
+          <button class="module-action" type="button" data-price-table>단가표</button>
           <button class="module-action primary intake-toggle" type="button" data-intake-toggle aria-expanded="${intakeOpen ? 'true' : 'false'}">${intakeOpen ? '접기' : '＋ 접수 등록'}</button>
         </span>
       </div>
@@ -3117,6 +3118,71 @@
   // 최종정산서는 실제로 일이 들어간 건만 올린다.
   // 당일접수 / 예약건 작업 / 환불 / 예약건환불 네 가지이며, 선입금만 받아 둔
   // 예약최초건은 매출이 아니므로 올라가지 않는다.
+  // 단가표 — 최종정산서에서는 회사원가까지, 개인정산서에서는 영업자단가만.
+  let priceTableQuery = '';
+
+  function renderPriceTableBody() {
+    const showCost = intakeContext === 'final-settlement' && canSeeCompanyCost();
+    const q = priceTableQuery.trim().toLowerCase().replace(/\s/g, '');
+    const rows = PRICE_TABLE.filter(row => !q || `${row[0]}${row[1]}${row[2]}`.toLowerCase().replace(/\s/g, '').includes(q));
+    const won = value => value === null ? '상시변동' : Number(value).toLocaleString('ko-KR');
+
+    return `<div class="sales-table-scroll price-table-scroll">
+      <table class="sales-table price-table">
+        <thead>
+          <tr>
+            <th scope="col">대분류</th>
+            <th scope="col">중분류</th>
+            <th scope="col">소분류</th>
+            ${showCost ? '<th scope="col">회사원가</th>' : ''}
+            <th scope="col">영업자단가</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.length ? rows.map(row => `<tr>
+            <td>${esc(row[0])}</td>
+            <td>${esc(row[1])}</td>
+            <th scope="row">${esc(row[2])}</th>
+            ${showCost ? `<td class="${row[3] === null ? 'ledger-memo-empty' : ''}">${esc(won(row[3]))}</td>` : ''}
+            <td class="${row[4] === null ? 'ledger-memo-empty' : ''}">${esc(won(row[4]))}</td>
+          </tr>`).join('')
+          : `<tr><td colspan="${showCost ? 5 : 4}" class="ledger-memo-empty">찾는 상품이 없습니다.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+    <p class="paid-hint">${esc(rows.length.toLocaleString('ko-KR'))}건 / 전체 ${esc(PRICE_TABLE.length.toLocaleString('ko-KR'))}건${showCost ? '' : ' · 회사원가는 최종정산서에서만 볼 수 있습니다'}</p>`;
+  }
+
+  function openPriceTable() {
+    priceTableQuery = '';
+    const showCost = intakeContext === 'final-settlement' && canSeeCompanyCost();
+
+    openDetailModal(showCost ? '단가표 · 회사원가 / 영업자단가' : '단가표 · 영업자단가', `
+      <div class="price-warning">
+        <span class="price-warning-icon" aria-hidden="true">!</span>
+        <span><strong>주의 · 대외비</strong><br>피크마케팅 회사 내 타인에게 공유는 절대로 금합니다.</span>
+      </div>
+
+      <div class="paid-field">
+        <label class="paid-label" for="priceSearch">상품 찾기</label>
+        <input class="paid-input" id="priceSearch" type="search" placeholder="대분류 · 중분류 · 소분류로 검색" autocomplete="off">
+      </div>
+
+      <div id="priceTableBody">${renderPriceTableBody()}</div>
+
+      <div class="paid-actions">
+        <button class="module-action" type="button" data-price-close>닫기</button>
+      </div>`, { locked: true });
+
+    const dialog = document.getElementById('readonlyModalBody');
+    const search = document.getElementById('priceSearch');
+    search.addEventListener('input', () => {
+      priceTableQuery = search.value;
+      document.getElementById('priceTableBody').innerHTML = renderPriceTableBody();
+    });
+    dialog.querySelector('[data-price-close]').addEventListener('click', closeDetailModal);
+  }
+
   // 원가가 비어 있으면 회사이익도 공급사 지불액도 계산되지 않는다.
   function missingCostRows() {
     return finalSettlementRows().filter(row => row.cost === null || row.cost === undefined);
@@ -3621,6 +3687,7 @@
 
     moduleView.querySelector('[data-final-assign]')?.addEventListener('click', openAssignDialog);
     moduleView.querySelector('[data-cost-fill]')?.addEventListener('click', openCostDialog);
+    moduleView.querySelector('[data-price-table]')?.addEventListener('click', openPriceTable);
     moduleView.querySelector('[data-intake-toggle]')?.addEventListener('click', () => {
       intakeOpen = !intakeOpen;
       renderPlannedModule(intakeContext);

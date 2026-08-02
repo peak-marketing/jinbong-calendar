@@ -1031,6 +1031,52 @@ test.describe('Business OS read-only operating data', () => {
     await expect(final.locator('.final-total')).toContainText('판매가액 275,000');
   });
 
+  // 단가표는 화면에 따라 열이 다르다. 개인정산서는 영업자단가만.
+  for (const [name, allowed] of [['김대호', true], ['김용일', false]] as [string, boolean][]) {
+    test(`shows the price table scoped to the screen for ${name}`, async ({ page }) => {
+      await installFirebaseStub(page);
+      await page.route('**/api/**', route => {
+        const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+        let payload: unknown = [];
+        if (pathname === '/users/me') {
+          payload = { uid: 'e2e-test-user', name, role: 'manager', approved: true, is_active: true, group_name: '본사 영업팀' };
+        } else if (pathname === '/chat-rooms/unread') {
+          payload = {};
+        } else if (pathname === '/projects') {
+          payload = { canManageAll: false, projects: [] };
+        }
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+      });
+
+      await page.goto('/business-os-preview.html');
+      await expect(page.locator('#authGate')).toBeHidden();
+      await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+      await page.locator('.nav-item[data-view="settlement"]').click();
+
+      // 개인정산서에서는 영업자단가만 보인다
+      await page.locator('[data-price-table]').click();
+      await expect(page.locator('#readonlyModalTitle')).toHaveText('단가표 · 영업자단가');
+      await expect(page.locator('.price-warning')).toContainText('주의 · 대외비');
+      await expect(page.locator('.price-warning')).toContainText('피크마케팅 회사 내 타인에게 공유는 절대로 금합니다.');
+      await expect(page.locator('.price-table thead th')).toHaveText(['대분류', '중분류', '소분류', '영업자단가']);
+
+      // 검색으로 좁힐 수 있다
+      await page.locator('#priceSearch').fill('최블');
+      await expect(page.locator('#priceTableBody .paid-hint')).toContainText('4건 / 전체 165건');
+      await page.locator('#priceSearch').fill('없는상품xyz');
+      await expect(page.locator('.price-table tbody')).toContainText('찾는 상품이 없습니다.');
+      await page.locator('[data-price-close]').click();
+
+      if (!allowed) return;
+
+      // 최종정산서에서는 회사원가까지 나온다
+      await page.locator('.nav-item[data-view="final-settlement"]').click();
+      await page.locator('[data-price-table]').click();
+      await expect(page.locator('#readonlyModalTitle')).toHaveText('단가표 · 회사원가 / 영업자단가');
+      await expect(page.locator('.price-table thead th')).toHaveText(['대분류', '중분류', '소분류', '회사원가', '영업자단가']);
+    });
+  }
+
   // 접수 폼은 접혀 있다가 버튼으로 펼치고, 상시변동 상품은 회사 원가를 직접 넣는다.
   test('collapses the intake form and prompts for missing company cost', async ({ page }) => {
     await installFirebaseStub(page);
