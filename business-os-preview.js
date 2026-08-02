@@ -87,6 +87,7 @@
     company: '회사 자료',
     organization: '조직도',
     settlement: '정산서',
+    'final-settlement': '최종정산서',
     tax: '세금',
     platform: '플랫폼',
     saas: 'SaaS 허브'
@@ -281,10 +282,11 @@
 
   // 최종정산서는 직급 기준이 아니라 지정된 사람만 본다.
   // 같은 팀장이라도 전현우는 보고 김지홍은 보지 못한다.
-  const FINAL_SETTLEMENT_VIEWERS = ['김진봉', '손명아', '김대호', '박종원', '전현우'];
+  // 대표 계정은 구글 표시이름이 '패션TV봉이'라 실명과 함께 넣어 둔다.
+  const FINAL_SETTLEMENT_VIEWERS = ['김진봉', '패션TV봉이', '손명아', '김대호', '박종원', '전현우'];
 
   // 하위 영업자의 개인정산서를 열어볼 수 있는 사람.
-  const TEAM_SETTLEMENT_VIEWERS = ['김진봉', '김대호', '박종원'];
+  const TEAM_SETTLEMENT_VIEWERS = ['김진봉', '패션TV봉이', '김대호', '박종원'];
 
   // 직급은 위에서 아래로 높은 순. 권한 관리는 부장 이상만 가능하다.
   const ORG_RANKS = ['대표', '이사', '부장', '실장', '팀장', '과장', '대리', '주임'];
@@ -596,6 +598,18 @@
         </select>
       </label>`;
     prototypeBar.querySelector('#personaSelect').addEventListener('change', event => applyPersona(event.target.value));
+    applyNavPermissions();
+  }
+
+  // 최종정산서 탭은 지정된 인원에게만 보인다.
+  function applyNavPermissions() {
+    const locks = { 'final-settlement': canSeeFinalSettlement() };
+    Object.entries(locks).forEach(([view, allowed]) => {
+      const button = document.querySelector(`.app-sidebar .nav-item[data-view="${view}"]`);
+      if (!button) return;
+      button.dataset.navLocked = allowed ? 'false' : 'true';
+      button.hidden = !allowed;
+    });
   }
 
   // 다른 사람 화면이 어떻게 보이는지 확인하는 용도. 화면 표시만 바뀌고
@@ -616,7 +630,8 @@
     }
     loadIntakeDraft();
     applyUserIdentity();
-    activateView(activeView);
+    // 권한이 사라진 화면을 보고 있었다면 되돌린다
+    activateView(activeView === 'final-settlement' && !canSeeFinalSettlement() ? 'settlement' : activeView);
   }
 
   function updateNavigationBadges() {
@@ -2776,6 +2791,41 @@
     </section>`;
   }
 
+  function renderFinalSettlementModule() {
+    if (!canSeeFinalSettlement()) {
+      moduleView.innerHTML = `
+        ${moduleStatusbar('최종정산서', '지정된 인원만 볼 수 있습니다.', '접근 제한')}
+        <section class="module-section">
+          <div class="module-section-head">
+            <span><strong>열람 권한이 없습니다</strong><small>최종정산서는 지정된 인원에게만 열립니다</small></span>
+            <span class="module-chip restricted">지정 인원 전용</span>
+          </div>
+          <div class="module-section-body">
+            <p class="sales-state">대표 · 손명아 실장 · 김대호 부장 · 박종원 부장 · 전현우 팀장만 볼 수 있습니다.</p>
+          </div>
+        </section>`;
+      return;
+    }
+    if (!settlementAvailable()) {
+      moduleView.innerHTML = `
+        ${moduleStatusbar('최종정산서', `${currentBranchName()} 정산 체계는 따로 준비합니다.`, '본사 먼저 적용')}
+        <section class="module-section">
+          <div class="module-section-head">
+            <span><strong>${esc(currentBranchName())} 최종정산서</strong><small>지사는 본사와 상품·단가가 달라 따로 만듭니다</small></span>
+            <span class="module-chip">준비 중</span>
+          </div>
+          <div class="module-section-body">
+            <p class="sales-state">본사 최종정산서를 먼저 완성한 뒤 ${esc(currentBranchName())} 기준으로 따로 잡습니다.</p>
+          </div>
+        </section>`;
+      return;
+    }
+    moduleView.innerHTML = `
+      ${moduleStatusbar('최종정산서', '당일접수 · 예약건 작업 · 환불 · 예약건환불만 집계합니다.', '지정 인원 전용')}
+      ${renderFinalSettlement()}
+      <div class="module-security"><span>▣</span><span><strong>볼 수 있는 사람</strong><br>대표 · 손명아 실장 · 김대호 부장 · 박종원 부장 · 전현우 팀장. 예약최초건은 아직 일이 들어가지 않아 집계에서 빠집니다.</span></div>`;
+  }
+
   function renderSettlementModule() {
 
     const teamSection = canSeeTeamSettlement() ? `
@@ -2815,7 +2865,6 @@
       ${moduleStatusbar('정산서', canSeeTeamSettlement() ? '시트접수와 하위 계정 정산서를 관리합니다.' : '로그인한 영업자의 개인정산 범위만 표시합니다.', '접수 초안 · 저장 전')}
       ${renderIntakeForm()}
       ${renderIntakeLedger()}
-      ${renderFinalSettlement()}
       ${teamSection}
       <div class="module-security"><span>▣</span><span><strong>현재 적용 권한: ${esc(currentOrgRank())}</strong><br>${canSeeCompanyCost()
         ? '회사 원가와 회사 기준 영업이익까지 표시됩니다. 부장 이상에게만 보입니다.'
@@ -2882,6 +2931,7 @@
     if (view === 'company') renderCompanyModule();
     if (view === 'organization') renderOrganizationModule();
     if (view === 'settlement') renderSettlementModule();
+    if (view === 'final-settlement') renderFinalSettlementModule();
     if (view === 'tax') renderTaxModule();
     if (view === 'platform') renderPlatformModule();
     if (view === 'saas') renderSaasModule();
@@ -3091,7 +3141,7 @@
     // 조직도는 넓은 화면을 다 써야 트리가 스크롤 없이 들어간다
     body.classList.toggle('org-workspace', view === 'organization');
     // 정산은 접수 칸이 한 줄에 들어가야 해서 전체 폭을 쓴다
-    body.classList.toggle('settlement-workspace', view === 'settlement');
+    body.classList.toggle('settlement-workspace', view === 'settlement' || view === 'final-settlement');
     const isPlannedModule = Object.prototype.hasOwnProperty.call(PLANNED_MODULES, view);
     if (isPlannedModule) renderPlannedModule(view);
     if (view === 'review') renderProjects();
@@ -3136,7 +3186,8 @@
       const query = search.value.trim().toLowerCase().replace(/\s/g, '');
       let visible = 0;
       searchable.forEach(button => {
-        const matches = !query || button.dataset.tabSearch.toLowerCase().replace(/\s/g, '').includes(query);
+        const locked = button.dataset.navLocked === 'true';
+        const matches = !locked && (!query || button.dataset.tabSearch.toLowerCase().replace(/\s/g, '').includes(query));
         button.hidden = !matches;
         if (matches) visible += 1;
       });

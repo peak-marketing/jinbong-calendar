@@ -412,7 +412,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
     await page.locator('.nav-item[data-view="settlement"]').click();
     await expect(page.locator('#moduleView')).toContainText('내 개인정산서');
-    await expect(page.locator('#moduleView .final-settlement')).toHaveCount(0);
+    await expect(page.locator('.nav-item[data-view="final-settlement"]')).toBeHidden();
     // 영업자에게는 회사 원가를 감춘다
     await expect(page.locator('#moduleView .intake-calc .masked')).toContainText('표시 안 함');
     await expect(page.locator('#moduleView')).toContainText('회사 원가는 감춥니다');
@@ -458,9 +458,18 @@ test.describe('Business OS read-only operating data', () => {
       await page.locator('.nav-item[data-view="settlement"]').click();
       // 접수 화면은 누구에게나 열린다
       await expect(page.locator('#moduleView .intake-form')).toHaveCount(1);
-      await expect(
-        page.locator('#moduleView .final-settlement')
-      ).toHaveCount(allowed ? 1 : 0);
+      const tab = page.locator('.nav-item[data-view="final-settlement"]');
+      if (allowed) {
+        await expect(tab).toBeVisible();
+        await tab.click();
+        await expect(page.locator('#moduleView .final-settlement')).toHaveCount(1);
+      } else {
+        // 탭을 감춘 것으로 끝내지 않고 화면 자체도 막혀 있어야 한다
+        await expect(tab).toBeHidden();
+        await page.evaluate(() => (document.querySelector('.nav-item[data-view="final-settlement"]') as HTMLElement)?.click());
+        await expect(page.locator('#moduleView')).toContainText('열람 권한이 없습니다');
+        await expect(page.locator('#moduleView .final-settlement')).toHaveCount(0);
+      }
     });
   }
 
@@ -690,6 +699,7 @@ test.describe('Business OS read-only operating data', () => {
     // 배지로 환불과 예약건환불이 갈린다
     await expect(page.locator('#moduleView .kind-badge', { hasText: '예약건환불' })).toHaveCount(1);
 
+    await page.locator('.nav-item[data-view="final-settlement"]').click();
     const final = page.locator('#moduleView .final-settlement');
     await expect(final).toHaveCount(1);
     const rows = final.locator('.final-table tbody tr');
