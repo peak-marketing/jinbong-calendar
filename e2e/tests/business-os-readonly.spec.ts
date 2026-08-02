@@ -1263,6 +1263,74 @@ test.describe('Business OS read-only operating data', () => {
     await expect(reset.locator('.kind-badge.edited')).toHaveCount(0);
   });
 
+  // 미수금 현황은 대표와 두 부장만 본다.
+  test('shows aged receivables to the three named people only', async ({ page }) => {
+    await installFirebaseStub(page);
+    await page.route('**/api/**', route => {
+      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+      let payload: unknown = [];
+      if (pathname === '/users/me') {
+        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
+      } else if (pathname === '/chat-rooms/unread') {
+        payload = {};
+      } else if (pathname === '/projects') {
+        payload = { canManageAll: false, projects: [] };
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    });
+
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+    const go = (view: string) => page.evaluate(
+      v => (document.querySelector(`.nav-item[data-view="${v}"]`) as HTMLElement)?.click(), view);
+
+    await go('settlement');
+    await openIntake(page);
+    for (const [date, client, qty] of [
+      ['2026-04-10', '오래된업체', '10'],
+      ['2026-08-01', '최근업체', '10'],
+    ]) {
+      await page.locator('[data-intake="date"]').fill(date);
+      await page.locator('[data-intake="a"]').selectOption('블로그');
+      await page.locator('[data-intake="b"]').selectOption('최적화블로그');
+      await page.locator('[data-intake="c"]').selectOption('최블 B');
+      await page.locator('[data-intake="client"]').fill(client);
+      await page.locator('[data-intake="qty"]').fill(qty);
+      await page.locator('[data-intake="sell"]').fill('25000');
+      await page.locator('[data-intake-add]').click();
+    }
+
+    await go('receivable');
+    await expect(page.locator('#moduleView .module-chip').first()).toContainText('총 미수 500,000원');
+
+    // 오래된 건은 90일 초과 칸으로 간다
+    const buckets = page.locator('.ar-bucket');
+    await expect(buckets).toHaveCount(4);
+    await expect(buckets.nth(0)).toContainText('30일 이내');
+    await expect(buckets.nth(3)).toContainText('90일 초과');
+    await expect(buckets.nth(3)).toContainText('250,000');
+
+    // 업체를 누르면 입금체크로 넘어가며 그 업체로 걸린다
+    await page.locator('[data-ar-client]').first().click();
+    await expect(page.locator('[data-deposit-filter="client"]')).not.toHaveValue('');
+
+    // 열람은 대표와 두 부장만
+    for (const [name, allowed] of [
+      ['김진봉', true], ['김대호', true], ['박종원', true],
+      ['손명아', false], ['전현우', false], ['김용일', false],
+    ] as [string, boolean][]) {
+      await page.locator('#personaSelect').selectOption(name);
+      const tab = page.locator('.nav-item[data-view="receivable"]');
+      if (allowed) {
+        await expect(tab).toBeVisible();
+      } else {
+        await expect(tab).toBeHidden();
+        await go('receivable');
+        await expect(page.locator('#moduleView')).toContainText('열람 권한이 없습니다');
+      }
+    }
+  });
+
   // 새로 붙인 다섯 탭. 회사 돈을 다루는 충전금·결산은 지정 인원만 본다.
   test('adds the five new tabs with the right scope', async ({ page }) => {
     await installFirebaseStub(page);

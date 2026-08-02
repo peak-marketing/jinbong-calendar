@@ -3136,3 +3136,12 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .monthly-table th[scope="row"] { font-weight: 700; }
 .intake-foot { display: flex; align-items: center; justify-content: space-between; gap: 14px;
   flex-wrap: wrap; margin-top: 14px; }
+
+/* 미수금 현황 */
+.ar-buckets { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.ar-bucket { padding: 16px 18px; border-radius: 12px; background: #f4f8fb; border: 1px solid #dbe6ef; }
+.ar-bucket span { display: block; font-size: 13.5px; font-weight: 700; color: #6b7a88; }
+.ar-bucket strong { display: block; margin-top: 6px; font-size: 24px; font-weight: 800; color: #1d2b38; }
+.ar-bucket small { display: block; margin-top: 2px; font-size: 13px; color: #8b98a5; font-weight: 600; }
+.ar-bucket.warn { background: #fef6e7; border-color: #f3ddb4; }
+.ar-bucket.warn strong { color: #b45309; }

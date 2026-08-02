@@ -98,6 +98,7 @@
     'monthly-guarantee': '월보장 정산',
     'monthly-manage': '월관리 정산',
     'deposit-check': '입금체크',
+    receivable: '미수금 현황',
     invoice: '입금 및 세금계산서 발행요청',
     credit: '충전금',
     closing: '결산',
@@ -715,7 +716,8 @@
       'monthly-guarantee': canSeeMonthly('monthly-guarantee'),
       'monthly-manage': canSeeMonthly('monthly-manage'),
       credit: canSeeFinalSettlement(),
-      closing: canSeeFinalSettlement()
+      closing: canSeeFinalSettlement(),
+      receivable: canSeeTeamSettlement()
     };
     Object.entries(locks).forEach(([view, allowed]) => {
       const button = document.querySelector(`.app-sidebar .nav-item[data-view="${view}"]`);
@@ -749,7 +751,8 @@
     const lostFinal = activeView === 'final-settlement' && !canSeeFinalSettlement();
     const lostMonthly = Boolean(MONTHLY_TABS[activeView]) && !canSeeMonthly(activeView);
     const lostAdmin = ['credit', 'closing'].includes(activeView) && !canSeeFinalSettlement();
-    activateView(lostFinal || lostMonthly || lostAdmin ? 'settlement' : activeView);
+    const lostAr = activeView === 'receivable' && !canSeeTeamSettlement();
+    activateView(lostFinal || lostMonthly || lostAdmin || lostAr ? 'settlement' : activeView);
   }
 
   function updateNavigationBadges() {
@@ -4930,6 +4933,134 @@
     drawNamecard(document.getElementById('cardCanvas'), form);
   }
 
+  // 미수금 현황 — 오래 묵은 돈부터 보이게 경과일로 나눈다.
+  const AR_BUCKETS = [
+    ['30일 이내', 0, 30],
+    ['31~60일', 31, 60],
+    ['61~90일', 61, 90],
+    ['90일 초과', 91, Infinity]
+  ];
+
+  function arDaysOver(date) {
+    const then = new Date(`${date}T00:00:00`);
+    const now = new Date(`${localDateKey(new Date())}T00:00:00`);
+    return Math.max(0, Math.round((now - then) / 86400000));
+  }
+
+  // 건별 미수. 예약최초건과 예약금에서 충당된 건은 받을 돈이 아니다.
+  function arRows() {
+    return personalRows()
+      .filter(row => kindOf(row) !== 'reserve' && kindOf(row) !== 'use')
+      .map(row => {
+        const sign = signOf(row);
+        const sales = (Number(row.sell) || 0) * (Number(row.qty) || 0) * sign;
+        const paid = (Number(row.paidAmount) || 0) * sign;
+        return { row, sales, paid, due: sales - paid, days: arDaysOver(row.date) };
+      })
+      .filter(item => item.due > 0)
+      .sort((a, b) => b.days - a.days);
+  }
+
+  function arByClient() {
+    const map = new Map();
+    arRows().forEach(item => {
+      const key = item.row.client || '업체 미입력';
+      if (!map.has(key)) map.set(key, { client: key, due: 0, count: 0, days: 0, manager: '' });
+      const group = map.get(key);
+      group.due += item.due;
+      group.count += 1;
+      group.days = Math.max(group.days, item.days);
+      if (!group.manager && item.row.manager) group.manager = item.row.manager;
+    });
+    return [...map.values()].sort((a, b) => b.due - a.due);
+  }
+
+  function renderReceivableModule() {
+    if (!canSeeTeamSettlement()) {
+      moduleView.innerHTML = `
+        ${moduleStatusbar('미수금 현황', '지정된 인원만 볼 수 있습니다.', '접근 제한')}
+        <section class="module-section">
+          <div class="module-section-head"><span><strong>열람 권한이 없습니다</strong><small>회사 전체 미수금은 지정된 세 사람만 봅니다</small></span><span class="module-chip restricted">지정 인원 전용</span></div>
+          <div class="module-section-body"><p class="sales-state">김진봉 대표 · 김대호 부장 · 박종원 부장만 볼 수 있습니다.</p></div>
+        </section>`;
+      return;
+    }
+
+    const rows = arRows();
+    const clients = arByClient();
+    const total = rows.reduce((sum, item) => sum + item.due, 0);
+    const buckets = AR_BUCKETS.map(([label, from, to]) => {
+      const part = rows.filter(item => item.days >= from && item.days <= to);
+      return { label, count: part.length, due: part.reduce((sum, item) => sum + item.due, 0) };
+    });
+
+    moduleView.innerHTML = `
+      ${moduleStatusbar('미수금 현황', '아직 못 받은 돈을 오래된 순으로 봅니다.', `총 ${total.toLocaleString('ko-KR')}원`)}
+
+      <section class="module-section">
+        <div class="module-section-head">
+          <span><strong>경과 기간별</strong><small>접수일 기준으로 며칠 지났는지 나눕니다</small></span>
+          <span class="module-chip ${total ? 'restricted' : 'live'}">총 미수 ${esc(total.toLocaleString('ko-KR'))}원</span>
+        </div>
+        <div class="module-section-body">
+          <div class="ar-buckets">
+            ${buckets.map((bucket, index) => `<article class="ar-bucket ${index >= 2 && bucket.due ? 'warn' : ''}">
+              <span>${esc(bucket.label)}</span>
+              <strong>${esc(bucket.due.toLocaleString('ko-KR'))}</strong>
+              <small>${esc(bucket.count.toLocaleString('ko-KR'))}건</small>
+            </article>`).join('')}
+          </div>
+        </div>
+      </section>
+
+      <section class="module-section">
+        <div class="module-section-head">
+          <span><strong>업체별 미수금</strong><small>${esc(String(clients.length))}개 업체</small></span>
+        </div>
+        <div class="module-section-body">
+          ${clients.length ? `<div class="sales-table-scroll">
+            <table class="sales-table">
+              <thead><tr><th scope="col">업체명</th><th scope="col">담당</th><th scope="col">건수</th><th scope="col">가장 오래된 건</th><th scope="col">미수금</th><th scope="col" aria-label="조회"></th></tr></thead>
+              <tbody>
+                ${clients.map(item => `<tr>
+                  <th scope="row">${esc(item.client)}</th>
+                  <td class="${item.manager ? '' : 'ledger-memo-empty'}">${esc(item.manager || NO_MANAGER)}</td>
+                  <td>${esc(item.count.toLocaleString('ko-KR'))}건</td>
+                  <td class="${item.days > 60 ? 'monthly-minus' : ''}">${esc(String(item.days))}일</td>
+                  <td class="monthly-minus">${esc(item.due.toLocaleString('ko-KR'))}</td>
+                  <td><button class="module-action" type="button" data-ar-client="${esc(item.client)}">입금체크로</button></td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>` : '<p class="sales-state">아직 못 받은 돈이 없습니다.</p>'}
+        </div>
+      </section>
+
+      ${rows.length ? `<section class="module-section">
+        <div class="module-section-head"><span><strong>건별 미수</strong><small>오래된 순 ${esc(String(rows.length))}건</small></span></div>
+        <div class="module-section-body">
+          <div class="sales-table-scroll">
+            <table class="sales-table ledger-table">
+              <thead><tr><th scope="col">접수일</th><th scope="col">경과</th><th scope="col">업체명</th><th scope="col">상품</th><th scope="col">판매액</th><th scope="col">입금</th><th scope="col">미수</th></tr></thead>
+              <tbody>
+                ${rows.map(item => `<tr>
+                  <td>${esc(item.row.date.slice(5).replace('-', '/'))}</td>
+                  <td class="${item.days > 60 ? 'monthly-minus' : ''}">${esc(String(item.days))}일</td>
+                  <th scope="row">${esc(item.row.client || '업체 미입력')}</th>
+                  <td class="ledger-product">${esc(item.row.b)} › ${esc(item.row.c)}</td>
+                  <td>${esc(item.sales.toLocaleString('ko-KR'))}</td>
+                  <td>${esc(item.paid.toLocaleString('ko-KR'))}</td>
+                  <td class="monthly-minus">${esc(item.due.toLocaleString('ko-KR'))}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>` : ''}
+
+      <div class="module-security"><span>▣</span><span><strong>지금은 내 접수만 집계합니다</strong><br>회사 전체 미수금을 보려면 영업자들의 접수가 서버에 있어야 합니다. 서버 저장을 붙이면 전 영업자 기준으로 합산됩니다.</span></div>`;
+  }
+
   function renderTaxModule() {
     moduleView.innerHTML = `
       ${moduleStatusbar('세금관리 모듈', '거래처별 증빙과 세금계산서를 한 단위로 묶어 관리합니다.')}
@@ -4989,6 +5120,7 @@
     if (view === 'final-settlement') renderFinalSettlementModule();
     if (MONTHLY_TABS[view]) renderMonthlyModule(view);
     if (view === 'deposit-check') renderDepositModule();
+    if (view === 'receivable') renderReceivableModule();
     if (view === 'invoice') renderInvoiceModule();
     if (view === 'credit') renderCreditModule();
     if (view === 'closing') renderClosingModule();
@@ -5070,6 +5202,11 @@
     moduleView.querySelectorAll('[data-deposit-client]').forEach(button => button.addEventListener('click', () => {
       depositFilter = { state: '', client: button.dataset.depositClient };
       renderPlannedModule('deposit-check');
+    }));
+
+    moduleView.querySelectorAll('[data-ar-client]').forEach(button => button.addEventListener('click', () => {
+      depositFilter = { state: 'unpaid', client: button.dataset.arClient };
+      activateView('deposit-check');
     }));
 
     // 세금계산서 발행요청
