@@ -635,6 +635,77 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(3);
   });
 
+  // 공급사 정산은 공급처별로 수량을 맞춰 본 뒤에야 지불로 확정된다.
+  test('settles suppliers only when the quantity matches', async ({ page }) => {
+    await installFirebaseStub(page);
+    await page.route('**/api/**', route => {
+      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+      let payload: unknown = [];
+      if (pathname === '/users/me') {
+        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
+      } else if (pathname === '/chat-rooms/unread') {
+        payload = {};
+      } else if (pathname === '/projects') {
+        payload = { canManageAll: false, projects: [] };
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    });
+
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+    await page.locator('.nav-item[data-view="settlement"]').click();
+
+    // 같은 공급처(키지애드)로 붙는 상품 두 건 — 20개 + 30개
+    for (const [client, qty, sell] of [['한결에이전시', '20', '15000'], ['나스컴퍼니', '30', '14000']] as [string, string, string][]) {
+      await page.locator('[data-intake="a"]').selectOption('블로그');
+      await page.locator('[data-intake="b"]').selectOption('원고');
+      await page.locator('[data-intake="c"]').selectOption('프리미엄원고대필');
+      await page.locator('[data-intake="client"]').fill(client);
+      await page.locator('[data-intake="qty"]').fill(qty);
+      await page.locator('[data-intake="sell"]').fill(sell);
+      // 상품을 고르면 시트 기준 공급처가 자동으로 붙는다
+      await expect(page.locator('[data-intake="supplier"]')).toHaveValue('키지애드 (50)');
+      await page.locator('[data-intake-add]').click();
+    }
+
+    await page.locator('.nav-item[data-view="final-settlement"]').click();
+
+    // 일별 취합은 시트와 같은 열로 그린다
+    const head = page.locator('.final-day-table thead').first();
+    for (const col of ['공급처명', '회사 원가', '회사 공급가', '영업자 공급가액', '판매가액', '영업 이익(총)', '공급처 입금']) {
+      await expect(head).toContainText(col);
+    }
+
+    // 공급처별 지불액 = 회사 원가 10,000 x 50개
+    const vendorRow = page.locator('.vendor-table tbody tr', { hasText: '키지애드' });
+    await expect(vendorRow).toContainText('50');
+    await expect(vendorRow).toContainText('500,000');
+
+    await vendorRow.locator('[data-vendor-settle]').click();
+    await expect(page.locator('.paid-summary')).toContainText('500,000');
+
+    // 수량이 다르면 정산되지 않는다
+    await page.locator('#vendorQty').fill('45');
+    await page.locator('#vendorMemo').fill('국민은행에서 송금 완료');
+    await page.locator('[data-vendor-save]').click();
+    await expect(page.locator('#vendorQty')).toBeVisible();
+
+    // 특이사항이 짧아도 막힌다
+    await page.locator('#vendorQty').fill('50');
+    await page.locator('#vendorMemo').fill('송금');
+    await page.locator('[data-vendor-save]').click();
+    await expect(page.locator('#vendorQty')).toBeVisible();
+
+    // 수량이 맞아야 지불로 확정된다
+    await page.locator('#vendorMemo').fill('국민은행에서 송금 완료');
+    await page.locator('[data-vendor-save]').click();
+    await expect(page.locator('#vendorQty')).toBeHidden();
+    await expect(vendorRow).toContainText('내역 보기');
+    await expect(page.locator('.vendor-settlement .module-chip')).toContainText('미지불 0원');
+    await expect(page.locator('.final-day-table .vendor-chip.done')).toHaveCount(2);
+  });
+
   // 최종정산서에는 당일접수·예약건 작업·환불·예약건환불만 올라간다.
   // 예약최초건은 아직 일이 들어가지 않아 매출이 아니므로 빠진다.
   test('final settlement lists only worked rows and drops the reservation', async ({ page }) => {

@@ -280,6 +280,95 @@
     ['블로그', '브랜드블로그', '카카오톡 채널 친구추가', 12000, 12000]
   ];
 
+  // 최종정산서 '공급처명' 열에서 뽑은 목록. 실제 시트에 쓰인 이름 그대로다.
+  const SUPPLIERS = ['HM이노', '기발한마케팅', '김지홍 ( 1 )', '리브리', '마케팅초이 (2)', '바보들이만든회사', '부스팅샾', '애드펌프', '에이치에스', '엠플리파이', '영업자', '올스비실계정', '외주(다빈)', '윙', '이스트나인', '인포플래닛', '키지애드 (50)', '파파컴퍼니', '플랜b', '피크마케팅', '하이프웍스', '헬로우드림'];
+
+  // 중분류|소분류 -> 기본 공급처. 시트에서 가장 많이 쓰인 곳을 기본값으로 두되,
+  // 같은 상품을 여러 공급처에서 받는 경우가 있어 접수할 때 바꿀 수 있다.
+  const SUPPLIER_BY_PRODUCT = {
+    'AI 파라곤|일반배포': '피크마케팅',
+    'AI 파라곤|프리미엄 이미지 생성': '피크마케팅',
+    'Alpha|트래픽': '엠플리파이',
+    'Alpha +|BOOSTER': '파파컴퍼니',
+    'Alpha +|영업자': '영업자',
+    'Alpha +|히든': '파파컴퍼니',
+    'BOOSTER|Alpha': '엠플리파이',
+    'BOOSTER|히든': '파파컴퍼니',
+    'BOOSTER Pro|리워드 파라곤': '에이치에스',
+    'BOOSTER Pro|트래픽': '에이치에스',
+    'HP|25.0': '하이프웍스',
+    'P01|개별세팅옵션': '헬로우드림',
+    'P01|사진 1장': '헬로우드림',
+    'P01|사진 1장 247': '헬로우드림',
+    'P01|사진 3장': '헬로우드림',
+    'P01|사진 3장 247': '헬로우드림',
+    'P01|유입형 사진 3장 247': '헬로우드림',
+    'P02|일반~준최5 이미지 7장 700': '이스트나인',
+    'P02|준최2~준최5 이미지 10장 1000': '이스트나인',
+    'P02|준최2~준최5 이미지 5장 500': '이스트나인',
+    'P02|준최2~준최5 이미지 7장 700': '이스트나인',
+    'P0B|프리미엄 배포(원고 및 사진 지정)': '플랜b',
+    'SA|페이백': '피크마케팅',
+    'T맵|T맵리뷰': '헬로우드림',
+    'T맵|개별옵션': '헬로우드림',
+    '네이버 가구매|기자단': 'HM이노',
+    '네이버 가구매|물품비': 'HM이노',
+    '네이버 가구매|택배대행비': 'HM이노',
+    '당근|단골맺기': '엠플리파이',
+    '당근|단순배포': '엠플리파이',
+    '당근|비즈후기': '엠플리파이',
+    '당근|찜': '엠플리파이',
+    '랭크업|트래픽': '에이치에스',
+    '리뷰삭제|빠른삭제': '리브리',
+    '리워드 파라곤|트래픽': '에이치에스',
+    '맘카페|단순배포': '윙',
+    '맘카페|댓글작업': '윙',
+    '브랜드블로그|연장 스타터 입문형': '피크마케팅',
+    '블로그|블로그': '플랜b',
+    '블로그탭|월보장': '마케팅초이 (2)',
+    '상세페이지|1000PX': '외주(다빈)',
+    '샤오홍슈|스탠다드': '기발한마케팅',
+    '샤오홍슈|프리미엄': '기발한마케팅',
+    '스페이스|[올인원] 1장 일반': '피크마케팅',
+    '스페이스|[올인원] 1장 프리미엄': '피크마케팅',
+    '스페이스|[올인원] 3장 일반': '피크마케팅',
+    '스페이스|[올인원] 3장 프리미엄': '피크마케팅',
+    '스페이스|[올인원] 7장 일반': '피크마케팅',
+    '스페이스|[올인원] 7장 프리미엄': '피크마케팅',
+    '스페이스|[일반] 1장 일반': '피크마케팅',
+    '스페이스|[일반] 3장 일반': '피크마케팅',
+    '스페이스|[일반] 3장 프리미엄': '피크마케팅',
+    '스페이스|[일반] 7장 일반': '피크마케팅',
+    '올데이|리워드 파라곤': '엠플리파이',
+    '올데이|트래픽': '엠플리파이',
+    '올스비실계정|올스비실계정': '올스비실계정',
+    '원고|개인대필': '영업자',
+    '원고|대필프로그램': '피크마케팅',
+    '원고|블로그대필프로그램': '피크마케팅',
+    '원고|프리미엄원고대필': '키지애드 (50)',
+    '유튜브상위노출|건바이': '윙',
+    '카드결제|수수료 1.15%': '영업자',
+    '카카오|카카오맵리뷰': '애드펌프',
+    '카페|건바이': '키지애드 (50)',
+    '캐치테이블|캐치테이블리뷰': '애드펌프',
+    '쿠팡가구매2|기자단2': '바보들이만든회사',
+    '쿠팡가구매2|물품비': '바보들이만든회사',
+    '쿠팡가구매2|택배대행비2': '바보들이만든회사',
+    '클립리뷰|10장 내 슬라이드형': '헬로우드림',
+    '클립리뷰|25초내 영상형': '헬로우드림',
+    '통합검색|건바이': '키지애드 (50)',
+    '통합검색|월보장': '마케팅초이 (2)',
+    '파라곤|트래픽': '에이치에스',
+    '파라곤 (쇼핑)|트래픽': '인포플래닛',
+    '프리저|Alpha': '엠플리파이',
+    '프리저|올데이': '엠플리파이',
+    '프리저|저장하기': '부스팅샾',
+    '프리저|트래픽': '부스팅샾',
+    '프리저 (쇼핑)|트래픽': '부스팅샾',
+    '플레이스|월보장': '김지홍 ( 1 )',
+    '피크마케팅 상품|DB 프로그램': '피크마케팅',
+    '히든|트래픽': '파파컴퍼니',
+  };
   // 최종정산서는 직급 기준이 아니라 지정된 사람만 본다.
   // 같은 팀장이라도 전현우는 보고 김지홍은 보지 못한다.
   // 대표 계정은 구글 표시이름이 '패션TV봉이'라 실명과 함께 넣어 둔다.
@@ -2225,6 +2314,14 @@
     return INTAKE_KINDS[kind].label;
   }
 
+  function defaultSupplier(b, c) {
+    return SUPPLIER_BY_PRODUCT[`${b}|${c}`] || '';
+  }
+
+  function supplierOf(row) {
+    return String(row.supplier || defaultSupplier(row.b, row.c) || '미지정').trim();
+  }
+
   // 최종정산서에 올라가는 건 — 예약최초건은 아직 일한 게 아니라 빠진다.
   function finalSettlementRows() {
     return intakeDraft.filter(row => kindOf(row) !== 'reserve');
@@ -2372,6 +2469,10 @@
     // 영업자 단가는 나중에 바뀔 수 있어 부장 이상만 고칠 수 있다.
     const lockBase = Boolean(source);
     const unitEditable = !lockBase || canSeeCompanyCost();
+    // 공급처는 상품에서 자동으로 붙되 직접 바꿀 수 있다. 되돌림·환불은 원본을 따른다.
+    const suggested = defaultSupplier(form.b, form.c);
+    if (source) form.supplier = source.supplier || '';
+    const supplier = form.supplier || suggested;
 
     const majors = priceLevels('a');
     if (!form.a || !majors.includes(form.a)) form.a = majors[0] || '';
@@ -2464,6 +2565,13 @@
           <label class="intake-field ${lockBase ? 'auto' : ''}">
             <span>소분류</span>
             <select data-intake="c" ${lockBase ? 'disabled' : ''}>${minors.map(v => option(v, form.c)).join('')}</select>
+          </label>
+          <label class="intake-field ${lockBase ? 'auto' : ''}">
+            <span>공급처</span>
+            <select data-intake="supplier" ${lockBase ? 'disabled' : ''}>
+              ${[''].concat(SUPPLIERS).map(v => `<option value="${esc(v)}" ${v === supplier ? 'selected' : ''}>${esc(v || '미지정')}</option>`).join('')}
+            </select>
+            ${lockBase ? '' : `<small>${suggested ? `기본 ${esc(suggested)}` : '상품을 고르면 자동'}</small>`}
           </label>
           <label class="intake-field ${(lockBase ? !unitEditable : !variable) ? 'auto' : ''}">
             <span>영업자 단가</span>
@@ -2629,6 +2737,102 @@
     });
   }
 
+  // 공급사 정산 — 수량이 맞는지 확인하고 지불액을 확정한다.
+  function openVendorDialog(supplier) {
+    const group = vendorGroups().find(item => item.supplier === supplier);
+    if (!group) return;
+    const open = group.rows.filter(row => !row.vendorPaid);
+    const openQty = open.reduce((sum, row) => sum + (Number(row.qty) || 0) * signOf(row), 0);
+
+    openDetailModal(`공급사 정산 · ${supplier}`, `
+      <div class="paid-summary">
+        <article><span>미지불 건수</span><strong>${esc(open.length.toLocaleString('ko-KR'))}건</strong></article>
+        <article><span>총 수량</span><strong>${esc(openQty.toLocaleString('ko-KR'))}</strong></article>
+        <article><span>지불할 금액</span><strong>${esc(group.openDue.toLocaleString('ko-KR'))}</strong></article>
+      </div>
+
+      <div class="sales-table-scroll vendor-detail">
+        <table class="sales-table">
+          <thead><tr><th scope="col">일자</th><th scope="col">업체명</th><th scope="col">상품</th><th scope="col">수량</th><th scope="col">원가</th><th scope="col">공급가</th></tr></thead>
+          <tbody>
+            ${group.rows.map(row => {
+              const qty = (Number(row.qty) || 0) * signOf(row);
+              const hasCost = row.cost !== null && row.cost !== undefined;
+              return `<tr class="${row.vendorPaid ? 'vendor-done' : ''}">
+                <td>${esc(row.date.slice(5).replace('-', '/'))}</td>
+                <th scope="row">${esc(row.client || '업체 미입력')}</th>
+                <td>${esc(row.b)} › ${esc(row.c)}</td>
+                <td>${esc(qty.toLocaleString('ko-KR'))}</td>
+                <td>${hasCost ? esc(Number(row.cost).toLocaleString('ko-KR')) : '상시변동'}</td>
+                <td>${hasCost ? esc((Number(row.cost) * qty).toLocaleString('ko-KR')) : '—'}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      ${group.variable ? `<p class="paid-hint warn">단가가 상시변동인 ${esc(String(group.variable))}건은 원가가 정해져 있지 않아 위 금액에 빠져 있습니다. 실제 지불액을 직접 확인하세요.</p>` : ''}
+
+      <div class="paid-field">
+        <label class="paid-label" for="vendorQty">확인한 수량 <em class="paid-required">필수</em></label>
+        <input class="paid-input" id="vendorQty" type="number" placeholder="공급처에서 확인한 수량">
+        <small class="paid-hint">공급처와 맞춰 본 수량을 넣으세요. ${esc(openQty.toLocaleString('ko-KR'))}과(와) 다르면 정산되지 않습니다.</small>
+      </div>
+      <div class="paid-field">
+        <label class="paid-label" for="vendorAmount">지불 금액</label>
+        <input class="paid-input" id="vendorAmount" type="number" value="${esc(String(group.openDue))}">
+      </div>
+      <div class="paid-field">
+        <label class="paid-label" for="vendorDate">지불일</label>
+        <input class="paid-input" id="vendorDate" type="date" value="${esc(localDateKey(new Date()))}">
+      </div>
+      <div class="paid-field">
+        <label class="paid-label" for="vendorMemo">정산 특이사항 <em class="paid-required">필수</em></label>
+        <input class="paid-input" id="vendorMemo" type="text" placeholder="어느 통장에서 어떻게 보냈는지 적어 주세요">
+      </div>
+
+      <div class="paid-actions">
+        <button class="module-action" type="button" data-vendor-cancel>취소</button>
+        <button class="module-action primary" type="button" data-vendor-save ${open.length ? '' : 'disabled'}>${open.length ? '정산 확정' : '정산 완료됨'}</button>
+      </div>`, { locked: true });
+
+    const dialog = document.getElementById('readonlyModalBody');
+    dialog.querySelector('[data-vendor-cancel]').addEventListener('click', closeDetailModal);
+    dialog.querySelector('[data-vendor-save]')?.addEventListener('click', () => {
+      const qtyInput = document.getElementById('vendorQty');
+      const memoInput = document.getElementById('vendorMemo');
+      const checked = Number(qtyInput.value);
+      // 수량이 맞아야 지불한다. 이게 공급사 정산의 핵심이다.
+      if (!qtyInput.value.trim() || !Number.isFinite(checked)) {
+        qtyInput.focus();
+        showToast('공급처에서 확인한 수량을 넣어 주세요.');
+        return;
+      }
+      if (checked !== openQty) {
+        qtyInput.focus();
+        showToast(`수량이 맞지 않습니다. 접수 ${openQty.toLocaleString('ko-KR')} / 확인 ${checked.toLocaleString('ko-KR')}`);
+        return;
+      }
+      if (memoInput.value.trim().length < 8) {
+        memoInput.focus();
+        showToast('정산 특이사항을 8자 이상 적어 주세요.');
+        return;
+      }
+      const amount = Number(document.getElementById('vendorAmount').value) || 0;
+      const date = document.getElementById('vendorDate').value;
+      const memo = memoInput.value.trim();
+      open.forEach(row => {
+        row.vendorPaid = true;
+        row.vendorPaidDate = date;
+        row.vendorMemo = memo;
+      });
+      saveIntakeDraft();
+      closeDetailModal();
+      renderPlannedModule('final-settlement');
+      showToast(`${supplier}에 ${amount.toLocaleString('ko-KR')}원 지불로 ${open.length}건을 정산했습니다.`);
+    });
+  }
+
   function renderIntakeLedger() {
     const groups = intakeRowsByDate();
     const showCost = canSeeCompanyCost();
@@ -2728,25 +2932,135 @@
   // 최종정산서는 실제로 일이 들어간 건만 올린다.
   // 당일접수 / 예약건 작업 / 환불 / 예약건환불 네 가지이며, 선입금만 받아 둔
   // 예약최초건은 매출이 아니므로 올라가지 않는다.
+  // 공급사별 정산 집계. 수량과 지불액이 맞아야 정산 처리를 할 수 있다.
+  function vendorGroups() {
+    const map = new Map();
+    finalSettlementRows().forEach(row => {
+      const key = supplierOf(row);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(row);
+    });
+    return [...map.entries()].map(([supplier, rows]) => {
+      const sign = row => signOf(row);
+      const qty = rows.reduce((sum, row) => sum + (Number(row.qty) || 0) * sign(row), 0);
+      // 회사 공급가(진봉) = 회사 원가 x 수량. 이게 공급처에 낼 돈이다.
+      const known = rows.filter(row => row.cost !== null && row.cost !== undefined);
+      const due = known.reduce((sum, row) => sum + Number(row.cost) * (Number(row.qty) || 0) * sign(row), 0);
+      const settled = rows.filter(row => row.vendorPaid);
+      const settledDue = settled.reduce((sum, row) => row.cost === null || row.cost === undefined
+        ? sum : sum + Number(row.cost) * (Number(row.qty) || 0) * sign(row), 0);
+      return {
+        supplier, rows, qty, due,
+        variable: rows.length - known.length,
+        settledCount: settled.length,
+        settledDue,
+        open: rows.length - settled.length,
+        openDue: due - settledDue
+      };
+    }).sort((a, b) => b.due - a.due);
+  }
+
+  // 시트의 '최종 정산' 탭과 같은 열 구성으로 하루치를 그린다.
+  function finalDayTable(rows) {
+    const showCost = canSeeCompanyCost();
+    return `<div class="sales-table-scroll">
+      <table class="sales-table final-day-table">
+        <thead>
+          <tr>
+            <th scope="col">접수 담당자</th>
+            <th scope="col">업체명</th>
+            <th scope="col">상품명</th>
+            <th scope="col">분류</th>
+            <th scope="col">공급처명</th>
+            ${showCost ? '<th scope="col">회사 원가</th><th scope="col">회사 공급가</th>' : ''}
+            <th scope="col">영업자 단가</th>
+            <th scope="col">총 수량</th>
+            <th scope="col">영업자 공급가액</th>
+            <th scope="col">판매 단가</th>
+            <th scope="col">판매가액</th>
+            <th scope="col">영업 이익(총)</th>
+            <th scope="col">공급처 입금</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(row => {
+            const sign = signOf(row);
+            const qty = (Number(row.qty) || 0) * sign;
+            const supply = (Number(row.unit) || 0) * qty;
+            const sales = (Number(row.sell) || 0) * qty;
+            const hasCost = row.cost !== null && row.cost !== undefined;
+            const vendorDue = hasCost ? Number(row.cost) * qty : null;
+            const kind = kindOf(row);
+            return `<tr class="${kind !== 'normal' ? `kind-${kind}` : ''}">
+              <td>${esc(row.ownerName || userDoc?.name || '')}${kind === 'normal' ? '' : `<span class="kind-badge ${esc(kind)}">${esc(kindLabel(row))}</span>`}</td>
+              <th scope="row">${esc(row.client || '업체 미입력')}</th>
+              <td>${esc(row.b)}</td>
+              <td>${esc(row.c)}</td>
+              <td>${esc(supplierOf(row))}</td>
+              ${showCost ? `<td>${hasCost ? esc(Number(row.cost).toLocaleString('ko-KR')) : '상시변동'}</td>
+              <td>${vendorDue === null ? '—' : esc(vendorDue.toLocaleString('ko-KR'))}</td>` : ''}
+              <td>${esc(Number(row.unit).toLocaleString('ko-KR'))}</td>
+              <td>${esc(qty.toLocaleString('ko-KR'))}</td>
+              <td>${esc(supply.toLocaleString('ko-KR'))}</td>
+              <td>${esc(Number(row.sell).toLocaleString('ko-KR'))}</td>
+              <td>${esc(sales.toLocaleString('ko-KR'))}</td>
+              <td class="sales-cell-total">${esc((sales - supply).toLocaleString('ko-KR'))}</td>
+              <td>${row.vendorPaid
+                ? `<span class="vendor-chip done">${esc(row.vendorPaidDate || '지불')}</span>`
+                : '<span class="vendor-chip">미지불</span>'}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  }
+
   function renderFinalSettlement() {
     if (!canSeeFinalSettlement()) return '';
     const rows = finalSettlementRows();
     const total = intakeTotals(rows);
+    const showCost = canSeeCompanyCost();
+    const held = intakeDraft.filter(row => kindOf(row) === 'reserve');
+    const heldAmount = held.reduce((sum, row) => sum + reserveRemaining(row).amount, 0);
+
+    const byDate = new Map();
+    rows.forEach(row => {
+      if (!byDate.has(row.date)) byDate.set(row.date, []);
+      byDate.get(row.date).push(row);
+    });
+    const days = [...byDate.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+    const weekday = ['일', '월', '화', '수', '목', '금', '토'];
+
     const buckets = [
       ['당일접수', row => kindOf(row) === 'normal'],
       ['예약건 작업', row => kindOf(row) === 'use'],
       ['환불', row => kindOf(row) === 'refund' && !isReserveRefund(row)],
       ['예약건환불', row => kindOf(row) === 'refund' && isReserveRefund(row)]
     ];
-    const held = intakeDraft.filter(row => kindOf(row) === 'reserve');
-    const heldAmount = held.reduce((sum, row) => sum + reserveRemaining(row).amount, 0);
+
+    const vendors = vendorGroups();
+    const vendorDue = vendors.reduce((sum, group) => sum + group.openDue, 0);
 
     return `<section class="module-section final-settlement">
       <div class="module-section-head">
-        <span><strong>최종정산서</strong><small>당일접수 · 예약건 작업 · 환불 · 예약건환불만 올라갑니다</small></span>
+        <span><strong>일별 취합</strong><small>당일접수 · 예약건 작업 · 환불 · 예약건환불만 올라갑니다</small></span>
         <span class="module-chip restricted">지정 인원 전용</span>
       </div>
       <div class="module-section-body">
+        ${days.length ? days.map(([date, dayRows]) => {
+          const day = intakeTotals(dayRows);
+          const dow = weekday[new Date(`${date}T00:00:00`).getDay()] || '';
+          const dayDue = dayRows.reduce((sum, row) => row.cost === null || row.cost === undefined
+            ? sum : sum + Number(row.cost) * (Number(row.qty) || 0) * signOf(row), 0);
+          return `<div class="ledger-day">
+            <div class="ledger-day-head">
+              <strong>${esc(date.slice(5).replace('-', '/'))} (${esc(dow)}) · ${esc(dayRows.length.toLocaleString('ko-KR'))}건</strong>
+              <span>판매가액 ${esc(day.sales.toLocaleString('ko-KR'))}${showCost ? ` · 공급가 ${esc(dayDue.toLocaleString('ko-KR'))}` : ''} · 영업이익 <em>${esc(day.profit.toLocaleString('ko-KR'))}</em></span>
+            </div>
+            ${finalDayTable(dayRows)}
+          </div>`;
+        }).join('') : '<p class="sales-state">최종정산서에 올릴 접수가 아직 없습니다.</p>'}
+
         ${rows.length ? `
         <div class="sales-table-scroll">
           <table class="sales-table final-table">
@@ -2756,7 +3070,7 @@
                 <th scope="col">건수</th>
                 <th scope="col">수량</th>
                 <th scope="col">매출</th>
-                ${canSeeCompanyCost() ? '<th scope="col">회사원가</th>' : ''}
+                ${showCost ? '<th scope="col">회사원가</th>' : ''}
                 <th scope="col">영업이익</th>
               </tr>
             </thead>
@@ -2770,7 +3084,7 @@
                   <td>${esc(part.length.toLocaleString('ko-KR'))}</td>
                   <td>${esc(qty.toLocaleString('ko-KR'))}</td>
                   <td>${esc(sum.sales.toLocaleString('ko-KR'))}</td>
-                  ${canSeeCompanyCost() ? `<td>${esc(sum.cost.toLocaleString('ko-KR'))}</td>` : ''}
+                  ${showCost ? `<td>${esc(sum.cost.toLocaleString('ko-KR'))}</td>` : ''}
                   <td class="sales-cell-total">${esc(sum.profit.toLocaleString('ko-KR'))}</td>
                 </tr>`;
               }).join('')}
@@ -2780,13 +3094,51 @@
         <div class="final-total">
           <span>합계</span>
           <span>매출 <strong>${esc(total.sales.toLocaleString('ko-KR'))}</strong></span>
-          ${canSeeCompanyCost() ? `<span>회사원가 <strong>${esc(total.cost.toLocaleString('ko-KR'))}</strong></span>` : ''}
+          ${showCost ? `<span>회사원가 <strong>${esc(total.cost.toLocaleString('ko-KR'))}</strong></span>` : ''}
           <span>영업이익 <strong class="profit">${esc(total.profit.toLocaleString('ko-KR'))}</strong></span>
           <span>입금 <strong>${esc(total.paid.toLocaleString('ko-KR'))}</strong></span>
           <span>미입금 <strong class="unpaid">${esc(Math.max(0, total.sales - total.paid).toLocaleString('ko-KR'))}</strong></span>
-        </div>` : '<p class="sales-state">최종정산서에 올릴 접수가 아직 없습니다.</p>'}
+        </div>` : ''}
         <p class="sales-basis">예약최초건 ${esc(held.length.toLocaleString('ko-KR'))}건(예약금 잔여 ${esc(heldAmount.toLocaleString('ko-KR'))}원)은 아직 일이 들어가지 않아 최종정산서에 올리지 않습니다. 예약건 작업으로 넘어갈 때 매출로 잡힙니다.</p>
         <p class="sales-basis">지금은 이 브라우저에 저장된 접수만 집계합니다. 서버 저장을 붙이면 전 영업자 기준으로 합산됩니다.</p>
+      </div>
+    </section>
+
+    <section class="module-section vendor-settlement">
+      <div class="module-section-head">
+        <span><strong>공급사 정산</strong><small>공급처별로 수량을 맞춰 보고 지불할 금액을 확정합니다</small></span>
+        <span class="module-chip ${vendorDue ? 'restricted' : 'live'}">미지불 ${esc(vendorDue.toLocaleString('ko-KR'))}원</span>
+      </div>
+      <div class="module-section-body">
+        ${vendors.length ? `
+        <div class="sales-table-scroll">
+          <table class="sales-table vendor-table">
+            <thead>
+              <tr>
+                <th scope="col">공급처</th>
+                <th scope="col">접수</th>
+                <th scope="col">총 수량</th>
+                <th scope="col">지불할 금액</th>
+                <th scope="col">지불 완료</th>
+                <th scope="col">미지불</th>
+                <th scope="col" aria-label="정산"></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${vendors.map(group => `<tr class="${group.open ? '' : 'vendor-done'}">
+                <th scope="row">${esc(group.supplier)}</th>
+                <td>${esc(group.rows.length.toLocaleString('ko-KR'))}건${group.variable ? `<span class="vendor-note">상시변동 ${esc(String(group.variable))}건</span>` : ''}</td>
+                <td>${esc(group.qty.toLocaleString('ko-KR'))}</td>
+                <td>${esc(group.due.toLocaleString('ko-KR'))}</td>
+                <td>${esc(group.settledDue.toLocaleString('ko-KR'))}</td>
+                <td class="sales-cell-total">${esc(group.openDue.toLocaleString('ko-KR'))}</td>
+                <td><button class="vendor-settle" type="button" data-vendor-settle="${esc(group.supplier)}">${group.open ? '정산하기' : '내역 보기'}</button></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        <p class="sales-basis">지불할 금액은 회사 원가 × 수량입니다. 단가가 상시변동인 상품은 원가가 정해져 있지 않아 금액에서 빠지며, 정산할 때 직접 넣어야 합니다.</p>
+        ` : '<p class="sales-state">공급사 정산할 접수가 아직 없습니다.</p>'}
       </div>
     </section>`;
   }
@@ -2941,6 +3293,7 @@
       renderPlannedModule('reports');
     }));
     moduleView.querySelector('[data-open-permissions]')?.addEventListener('click', () => activateView('permissions'));
+    moduleView.querySelectorAll('[data-vendor-settle]').forEach(button => button.addEventListener('click', () => openVendorDialog(button.dataset.vendorSettle)));
 
     moduleView.querySelectorAll('[data-intake]').forEach(input => {
       const key = input.dataset.intake;
@@ -3077,7 +3430,12 @@
         kind: form.kind || 'normal',
         refOf: form.refOf || '',
         cost: row[3],
+        supplier: form.supplier || defaultSupplier(form.b, form.c) || '',
         owner: userDoc?.uid || '',
+        // 공급사 정산 — 공급처에 우리가 지불하는 쪽. 거래처 입금과 별개다.
+        vendorPaid: false,
+        vendorPaidDate: '',
+        vendorMemo: '',
         // 입금 확인 정보. 통장 연결 전이라 지금은 전부 수기로 채운다.
         paid: 'none',
         paidAmount: 0,
@@ -3087,7 +3445,7 @@
         paidAuto: false
       });
       saveIntakeDraft();
-      intakeForm = { ...form, client: '', qty: '', sell: '', memo: '', unit: '', refOf: '' };
+      intakeForm = { ...form, client: '', qty: '', sell: '', memo: '', unit: '', refOf: '', supplier: '' };
       renderPlannedModule('settlement');
       showToast('접수를 등록했습니다. 이 브라우저에만 저장되는 초안입니다.');
     });
