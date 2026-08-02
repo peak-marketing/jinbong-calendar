@@ -502,11 +502,12 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView .ledger-total')).toContainText('매출 0');
     await expect(page.locator('#moduleView .ledger-total')).toContainText('예약금 잔여 50,000');
 
-    // 예약건 작업은 잔여 수량을 넘을 수 없다
+    // 예약건 작업은 잔여 수량을 넘을 수 없다.
+    // 업체·상품·판매단가는 예약에서 승계되어 잠기므로 수량만 넣는다.
     await page.locator('[data-intake-kind="use"]').click();
     await page.locator('[data-intake="refOf"]').selectOption({ index: 1 });
     await expect(page.locator('#moduleView .intake-limit')).toContainText('잔여 수량 10');
-    await fillRow('12');
+    await page.locator('[data-intake="qty"]').fill('12');
     await page.locator('[data-intake-add]').click();
     await expect(rows).toHaveCount(1);
 
@@ -526,6 +527,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-intake-add]').click();
     await expect(rows).toHaveCount(2);
 
+
     // 2개 환불하면 마이너스로 잡힌다
     await page.locator('[data-intake="qty"]').fill('2');
     await page.locator('[data-intake-add]').click();
@@ -533,6 +535,70 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView .kind-badge.refund')).toHaveCount(1);
     await expect(page.locator('#moduleView .ledger-total')).toContainText('매출 10,000');
   });
+
+  // 예약건 작업은 예약최초건의 업체명·메모·상품·판매단가를 그대로 따른다.
+  // 영업자 단가만 예외이며 부장 이상만 고칠 수 있다.
+  for (const [name, canEditUnit] of [['김대호', true], ['김용일', false]] as [string, boolean][]) {
+    test(`reservation drawdown inherits its terms for ${name}`, async ({ page }) => {
+      await installFirebaseStub(page);
+      await page.route('**/api/**', route => {
+        const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+        let payload: unknown = [];
+        if (pathname === '/users/me') {
+          payload = { uid: 'e2e-test-user', name, role: 'manager', approved: true, is_active: true, group_name: '본사 영업팀' };
+        } else if (pathname === '/chat-rooms/unread') {
+          payload = {};
+        } else if (pathname === '/projects') {
+          payload = { canManageAll: false, projects: [] };
+        }
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+      });
+
+      await page.goto('/business-os-preview.html');
+      await expect(page.locator('#authGate')).toBeHidden();
+      await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+      await page.locator('.nav-item[data-view="settlement"]').click();
+
+      // 같은 업체에 메모만 다른 예약 두 건
+      const addReserve = async (qty: string, sell: string, memo: string) => {
+        await page.locator('[data-intake="a"]').selectOption('블로그');
+        await page.locator('[data-intake="b"]').selectOption('원고');
+        await page.locator('[data-intake="c"]').selectOption('프리미엄원고대필');
+        await page.locator('[data-intake="client"]').fill('한결에이전시');
+        await page.locator('[data-intake="qty"]').fill(qty);
+        await page.locator('[data-intake="sell"]').fill(sell);
+        await page.locator('[data-intake="memo"]').fill(memo);
+        await page.locator('[data-intake-add]').click();
+      };
+      await page.locator('[data-intake-kind="reserve"]').click();
+      await addReserve('10', '5000', '8월 캠페인');
+      await addReserve('6', '7000', '9월 캠페인');
+
+      // 예약최초건은 아직 일한 게 아니라 매출도 영업이익도 잡히지 않는다
+      await expect(page.locator('#moduleView .ledger-total')).toContainText('매출 0');
+      await expect(page.locator('#moduleView .ledger-total')).toContainText('영업이익 0');
+
+      // 목록은 업체명 - 메모로 구분된다
+      await page.locator('[data-intake-kind="use"]').click();
+      await expect(page.locator('[data-intake="refOf"] option').nth(1)).toContainText('한결에이전시 - 8월 캠페인');
+      await page.locator('[data-intake="refOf"]').selectOption({ index: 2 });
+
+      // 업체명·메모·분류·판매단가는 예약에서 가져와 잠긴다
+      await expect(page.locator('[data-intake="client"]')).toHaveValue('한결에이전시');
+      await expect(page.locator('[data-intake="memo"]')).toHaveValue('9월 캠페인');
+      await expect(page.locator('[data-intake="sell"]')).toHaveValue('7000');
+      await expect(page.locator('[data-intake="client"]')).toHaveAttribute('readonly', '');
+      await expect(page.locator('[data-intake="sell"]')).toHaveAttribute('readonly', '');
+      await expect(page.locator('[data-intake="a"]')).toBeDisabled();
+
+      // 영업자 단가만 부장 이상에게 열린다
+      if (canEditUnit) {
+        await expect(page.locator('[data-intake="unit"]')).not.toHaveAttribute('readonly', '');
+      } else {
+        await expect(page.locator('[data-intake="unit"]')).toHaveAttribute('readonly', '');
+      }
+    });
+  }
 
   test('filters the ledger by period, client, product and deposit state', async ({ page }) => {
     await installFirebaseStub(page);

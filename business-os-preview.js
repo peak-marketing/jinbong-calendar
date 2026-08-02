@@ -2218,6 +2218,12 @@
     return Math.max(0, (Number(row.qty) || 0) - refundedQty(row.id));
   }
 
+  // 예약은 업체명과 메모로 구분한다. 같은 업체라도 메모가 다르면 다른 예약이다.
+  function reserveKey(row) {
+    const memo = String(row.memo || '').trim();
+    return `${row.client || '업체 미입력'}${memo ? ` - ${memo}` : ''}`;
+  }
+
   function intakeLabel(row) {
     return `${row.client || '업체 미입력'} · ${row.a} › ${row.c}`;
   }
@@ -2299,6 +2305,25 @@
 
   function renderIntakeForm() {
     const form = intakeForm;
+
+    // 예약건 작업은 예약최초건의 조건을 그대로 따른다. 업체명·메모·상품·
+    // 판매단가를 예약에서 가져와 잠가 두면 서로 어긋날 일이 없다.
+    const pickedReserve = form.kind === 'use'
+      ? reservationRows().find(item => item.id === form.refOf)
+      : null;
+    if (pickedReserve) {
+      form.client = pickedReserve.client || '';
+      form.memo = pickedReserve.memo || '';
+      form.a = pickedReserve.a;
+      form.b = pickedReserve.b;
+      form.c = pickedReserve.c;
+      form.sell = String(pickedReserve.sell ?? '');
+      if (!form.unit) form.unit = String(pickedReserve.unit ?? '');
+    }
+    // 영업자 단가는 나중에 바뀔 수 있어 부장 이상만 고칠 수 있다.
+    const lockBase = Boolean(pickedReserve);
+    const unitEditable = !lockBase || canSeeCompanyCost();
+
     const majors = priceLevels('a');
     if (!form.a || !majors.includes(form.a)) form.a = majors[0] || '';
     const mids = priceLevels('b', form.a);
@@ -2308,7 +2333,7 @@
 
     const row = priceRow(form.a, form.b, form.c);
     const variable = Boolean(row) && row[4] === null;
-    const unit = variable ? form.unit : (row ? row[4] : '');
+    const unit = lockBase ? form.unit : (variable ? form.unit : (row ? row[4] : ''));
     const qty = Number(form.qty) || 0;
     const sell = Number(form.sell) || 0;
     const supply = (Number(unit) || 0) * qty;
@@ -2330,7 +2355,7 @@
             <option value="">${list.length ? '선택하세요' : '등록된 예약최초건이 없습니다'}</option>
             ${list.map(item => {
               const left = reserveRemaining(item);
-              return `<option value="${esc(item.id)}" ${item.id === form.refOf ? 'selected' : ''}>${esc(intakeLabel(item))} · 잔여 ${esc(String(left.qty))}개 / ${esc(left.amount.toLocaleString('ko-KR'))}원</option>`;
+              return `<option value="${esc(item.id)}" ${item.id === form.refOf ? 'selected' : ''}>${esc(reserveKey(item))} · ${esc(item.c)} · 잔여 ${esc(String(left.qty))}개 / ${esc(left.amount.toLocaleString('ko-KR'))}원</option>`;
             }).join('')}
           </select>
         </label>
@@ -2367,39 +2392,42 @@
             <span>일자</span>
             <input type="date" data-intake="date" value="${esc(form.date || localDateKey(new Date()))}">
           </label>
-          <label class="intake-field">
+          <label class="intake-field ${lockBase ? 'auto' : ''}">
             <span>업체명</span>
-            <input type="text" data-intake="client" value="${esc(form.client)}" placeholder="업체명 입력">
+            <input type="text" data-intake="client" value="${esc(form.client)}" placeholder="업체명 입력" ${lockBase ? 'readonly' : ''}>
           </label>
-          <label class="intake-field">
+          <label class="intake-field ${lockBase ? 'auto' : ''}">
             <span>대분류</span>
-            <select data-intake="a">${majors.map(v => option(v, form.a)).join('')}</select>
+            <select data-intake="a" ${lockBase ? 'disabled' : ''}>${majors.map(v => option(v, form.a)).join('')}</select>
           </label>
-          <label class="intake-field">
+          <label class="intake-field ${lockBase ? 'auto' : ''}">
             <span>중분류</span>
-            <select data-intake="b">${mids.map(v => option(v, form.b)).join('')}</select>
+            <select data-intake="b" ${lockBase ? 'disabled' : ''}>${mids.map(v => option(v, form.b)).join('')}</select>
           </label>
-          <label class="intake-field">
+          <label class="intake-field ${lockBase ? 'auto' : ''}">
             <span>소분류</span>
-            <select data-intake="c">${minors.map(v => option(v, form.c)).join('')}</select>
+            <select data-intake="c" ${lockBase ? 'disabled' : ''}>${minors.map(v => option(v, form.c)).join('')}</select>
           </label>
-          <label class="intake-field ${variable ? '' : 'auto'}">
+          <label class="intake-field ${(lockBase ? !unitEditable : !variable) ? 'auto' : ''}">
             <span>영업자 단가</span>
             <input type="number" data-intake="unit" value="${esc(unit === '' || unit === null ? '' : unit)}"
-              ${variable ? 'placeholder="직접 입력"' : 'readonly'}>
-            <small>${variable ? '상시변동 상품 · 직접 입력' : '단가표에서 자동'}</small>
+              ${(lockBase ? !unitEditable : !variable) ? 'readonly' : 'placeholder="직접 입력"'}>
+            <small>${lockBase
+              ? (unitEditable ? '예약 단가 · 부장 이상 수정 가능' : '예약 단가 · 부장 이상만 수정')
+              : (variable ? '상시변동 상품 · 직접 입력' : '단가표에서 자동')}</small>
           </label>
           <label class="intake-field">
             <span>수량${limitQty === null ? '' : ` <em class="intake-cap">최대 ${esc(String(limitQty))}</em>`}</span>
             <input type="number" min="0" ${limitQty === null ? '' : `max="${esc(String(limitQty))}"`} data-intake="qty" value="${esc(form.qty)}" placeholder="0">
           </label>
-          <label class="intake-field">
+          <label class="intake-field ${lockBase ? 'auto' : ''}">
             <span>판매 단가</span>
-            <input type="number" min="0" data-intake="sell" value="${esc(form.sell)}" placeholder="거래처 판매가">
+            <input type="number" min="0" data-intake="sell" value="${esc(form.sell)}" placeholder="거래처 판매가" ${lockBase ? 'readonly' : ''}>
+            ${lockBase ? '<small>예약 단가 고정</small>' : ''}
           </label>
-          <label class="intake-field wide">
-            <span>접수 특이사항</span>
-            <input type="text" data-intake="memo" value="${esc(form.memo)}" placeholder="선택 입력 · 예약건, 재작업 등">
+          <label class="intake-field wide ${lockBase ? 'auto' : ''}">
+            <span>접수 특이사항${lockBase ? ' <em class="intake-cap">예약과 동일</em>' : ''}</span>
+            <input type="text" data-intake="memo" value="${esc(form.memo)}" placeholder="선택 입력 · 예약건, 재작업 등" ${lockBase ? 'readonly' : ''}>
           </label>
         </div>
 
@@ -2616,9 +2644,9 @@
                       <td>${esc(Number(row.unit).toLocaleString('ko-KR'))}</td>
                       <td>${esc(Number(row.sell).toLocaleString('ko-KR'))}</td>
                       <td class="ledger-memo">${row.memo ? esc(row.memo) : '<span class="ledger-memo-empty">—</span>'}</td>
-                      ${showCost ? `<td>${row.cost === null || row.cost === undefined ? '—' : esc((Number(row.cost) * Number(row.qty) * sign).toLocaleString('ko-KR'))}</td>` : ''}
-                      <td>${esc(sales.toLocaleString('ko-KR'))}</td>
-                      <td class="sales-cell-total">${esc((sales - supply).toLocaleString('ko-KR'))}</td>
+                      ${showCost ? `<td>${kind === 'reserve' || row.cost === null || row.cost === undefined ? '—' : esc((Number(row.cost) * Number(row.qty) * sign).toLocaleString('ko-KR'))}</td>` : ''}
+                      <td>${kind === 'reserve' ? '<span class="ledger-memo-empty">—</span>' : esc(sales.toLocaleString('ko-KR'))}</td>
+                      <td class="sales-cell-total">${kind === 'reserve' ? '<span class="ledger-memo-empty">—</span>' : esc((sales - supply).toLocaleString('ko-KR'))}</td>
                       <td>${renderPaidCell(row)}</td>
                       <td><button class="ledger-remove" type="button" data-intake-remove="${esc(row.id)}" aria-label="${esc(row.client || '')} 접수 삭제">✕</button></td>
                     </tr>`;
@@ -2836,6 +2864,14 @@
           return;
         }
         if (form.kind === 'use') {
+          if (reserveKey({ client: form.client, memo: form.memo }) !== reserveKey(target)) {
+            showToast('업체명과 메모가 예약최초건과 같아야 차감할 수 있습니다.');
+            return;
+          }
+          if (Number(form.sell) !== Number(target.sell)) {
+            showToast('판매 단가는 예약최초건과 같아야 합니다.');
+            return;
+          }
           const left = reserveRemaining(target);
           if (qty > left.qty) {
             showToast(`예약 잔여 수량 ${left.qty}개를 넘을 수 없습니다.`);
