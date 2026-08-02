@@ -97,6 +97,11 @@
     'final-settlement': '최종정산서',
     'monthly-guarantee': '월보장 정산',
     'monthly-manage': '월관리 정산',
+    'deposit-check': '입금체크',
+    invoice: '입금 및 세금계산서 발행요청',
+    credit: '충전금',
+    closing: '결산',
+    namecard: '명함',
     tax: '세금',
     platform: '플랫폼',
     saas: 'SaaS 허브'
@@ -708,7 +713,9 @@
     const locks = {
       'final-settlement': canSeeFinalSettlement(),
       'monthly-guarantee': canSeeMonthly('monthly-guarantee'),
-      'monthly-manage': canSeeMonthly('monthly-manage')
+      'monthly-manage': canSeeMonthly('monthly-manage'),
+      credit: canSeeFinalSettlement(),
+      closing: canSeeFinalSettlement()
     };
     Object.entries(locks).forEach(([view, allowed]) => {
       const button = document.querySelector(`.app-sidebar .nav-item[data-view="${view}"]`);
@@ -736,11 +743,13 @@
     }
     loadIntakeDraft();
     loadMonthlyDraft();
+    loadCreditDraft();
     applyUserIdentity();
     // 권한이 사라진 화면을 보고 있었다면 되돌린다
     const lostFinal = activeView === 'final-settlement' && !canSeeFinalSettlement();
     const lostMonthly = Boolean(MONTHLY_TABS[activeView]) && !canSeeMonthly(activeView);
-    activateView(lostFinal || lostMonthly ? 'settlement' : activeView);
+    const lostAdmin = ['credit', 'closing'].includes(activeView) && !canSeeFinalSettlement();
+    activateView(lostFinal || lostMonthly || lostAdmin ? 'settlement' : activeView);
   }
 
   function updateNavigationBadges() {
@@ -4408,6 +4417,519 @@
       <div class="module-security"><span>▣</span><span><strong>표준 정산서와 따로 봅니다</strong><br>${esc(config.label)}은 판매 한 건에 실행 여러 건이 붙는 구조라 개인정산서·최종정산서와 섞지 않습니다.</span></div>`;
   }
 
+  // 입금체크 — 개인정산서에 흩어진 입금 상태를 한 화면에 모은다.
+  let depositFilter = { state: 'unpaid', client: '' };
+
+  function depositRows() {
+    return personalRows()
+      .filter(row => kindOf(row) !== 'reserve')
+      .filter(row => {
+        if (depositFilter.client && row.client !== depositFilter.client) return false;
+        if (!depositFilter.state) return true;
+        if (depositFilter.state === 'unpaid') return paidStateOf(row) !== 'paid';
+        return paidStateOf(row) === depositFilter.state;
+      })
+      .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  }
+
+  // 업체별 미수금. 얼마 받아야 하는지가 제일 급한 숫자다.
+  function depositByClient() {
+    const map = new Map();
+    personalRows().filter(row => kindOf(row) !== 'reserve').forEach(row => {
+      const key = row.client || '업체 미입력';
+      if (!map.has(key)) map.set(key, { client: key, sales: 0, paid: 0, count: 0, open: 0 });
+      const item = map.get(key);
+      const sign = signOf(row);
+      const sales = (Number(row.sell) || 0) * (Number(row.qty) || 0) * sign;
+      item.sales += sales;
+      item.paid += kindOf(row) === 'use' ? sales : (Number(row.paidAmount) || 0) * sign;
+      item.count += 1;
+      if (paidStateOf(row) !== 'paid' && kindOf(row) !== 'use') item.open += 1;
+    });
+    return [...map.values()]
+      .map(item => ({ ...item, due: item.sales - item.paid }))
+      .sort((a, b) => b.due - a.due);
+  }
+
+  function renderDepositModule() {
+    const rows = depositRows();
+    const clients = depositByClient();
+    const totalDue = clients.reduce((sum, item) => sum + Math.max(0, item.due), 0);
+    const option = (value, label, selected) => `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(label)}</option>`;
+
+    moduleView.innerHTML = `
+      ${moduleStatusbar('입금체크', '아직 안 들어온 돈을 업체별로 모아 봅니다.', `미수 ${totalDue.toLocaleString('ko-KR')}원`)}
+
+      <section class="module-section">
+        <div class="module-section-head">
+          <span><strong>업체별 미수금</strong><small>판매액에서 들어온 금액을 뺀 값입니다</small></span>
+          <span class="module-chip ${totalDue ? 'restricted' : 'live'}">미수 ${esc(totalDue.toLocaleString('ko-KR'))}원</span>
+        </div>
+        <div class="module-section-body">
+          ${clients.length ? `<div class="sales-table-scroll">
+            <table class="sales-table">
+              <thead><tr><th scope="col">업체명</th><th scope="col">접수</th><th scope="col">미입금 건</th><th scope="col">판매액</th><th scope="col">입금</th><th scope="col">미수금</th><th scope="col" aria-label="조회"></th></tr></thead>
+              <tbody>
+                ${clients.map(item => `<tr class="${item.due > 0 ? '' : 'vendor-done'}">
+                  <th scope="row">${esc(item.client)}</th>
+                  <td>${esc(item.count.toLocaleString('ko-KR'))}건</td>
+                  <td>${esc(item.open.toLocaleString('ko-KR'))}건</td>
+                  <td>${esc(item.sales.toLocaleString('ko-KR'))}</td>
+                  <td>${esc(item.paid.toLocaleString('ko-KR'))}</td>
+                  <td class="${item.due > 0 ? 'monthly-minus' : 'sales-cell-total'}">${esc(item.due.toLocaleString('ko-KR'))}</td>
+                  <td><button class="module-action" type="button" data-deposit-client="${esc(item.client)}">건별 보기</button></td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>` : '<p class="sales-state">접수한 건이 아직 없습니다.</p>'}
+        </div>
+      </section>
+
+      <section class="module-section">
+        <div class="module-section-head">
+          <span><strong>건별 입금 확인</strong><small>${depositFilter.client ? `${esc(depositFilter.client)} · ` : ''}${esc(String(rows.length))}건</small></span>
+          <span class="module-chip live">묶어서 처리 가능</span>
+        </div>
+        <div class="module-section-body">
+          <div class="ledger-filter">
+            <label class="ledger-filter-field">
+              <span>입금 상태</span>
+              <select data-deposit-filter="state">
+                ${option('unpaid', '아직 안 들어온 건', depositFilter.state)}
+                ${option('', '전체', depositFilter.state)}
+                ${option('none', '미입금', depositFilter.state)}
+                ${option('partial', '부분입금', depositFilter.state)}
+                ${option('wrong', '오입금', depositFilter.state)}
+                ${option('paid', '입금 완료', depositFilter.state)}
+              </select>
+            </label>
+            <label class="ledger-filter-field">
+              <span>거래처</span>
+              <select data-deposit-filter="client">
+                ${option('', '전체', depositFilter.client)}
+                ${clients.map(item => option(item.client, item.client, depositFilter.client)).join('')}
+              </select>
+            </label>
+          </div>
+          <div class="pick-bar-slot">${pickBarMarkup()}</div>
+          ${rows.length ? `<div class="sales-table-scroll">
+            <table class="sales-table ledger-table">
+              <thead><tr>
+                <th scope="col" aria-label="선택"></th><th scope="col">일자</th><th scope="col">업체명</th>
+                <th scope="col">상품</th><th scope="col">판매액</th><th scope="col">입금액</th>
+                <th scope="col">미수</th><th scope="col">입금</th>
+              </tr></thead>
+              <tbody>
+                ${rows.map(row => {
+                  const sign = signOf(row);
+                  const sales = (Number(row.sell) || 0) * (Number(row.qty) || 0) * sign;
+                  const paid = kindOf(row) === 'use' ? sales : (Number(row.paidAmount) || 0) * sign;
+                  return `<tr class="${intakeSelection.includes(row.id) ? 'picked' : ''}">
+                    <td class="ledger-pick"><input type="checkbox" data-intake-pick="${esc(row.id)}" ${intakeSelection.includes(row.id) ? 'checked' : ''} aria-label="${esc(row.client || '')} 선택"></td>
+                    <td>${esc(row.date.slice(5).replace('-', '/'))}</td>
+                    <th scope="row">${esc(row.client || '업체 미입력')}${kindOf(row) === 'normal' ? '' : `<span class="kind-badge ${esc(kindOf(row))}">${esc(kindLabel(row))}</span>`}</th>
+                    <td class="ledger-product">${esc(row.b)} › ${esc(row.c)}</td>
+                    <td>${esc(sales.toLocaleString('ko-KR'))}</td>
+                    <td>${esc(paid.toLocaleString('ko-KR'))}</td>
+                    <td class="${sales - paid > 0 ? 'monthly-minus' : ''}">${esc((sales - paid).toLocaleString('ko-KR'))}</td>
+                    <td>${renderPaidCell(row)}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>` : '<p class="sales-state">조회 조건에 맞는 건이 없습니다.</p>'}
+        </div>
+      </section>
+
+      <div class="module-security"><span>▣</span><span><strong>통장 자동 매칭은 아직입니다</strong><br>지금은 수기로 입금을 확인합니다. 통장 거래내역을 넣을 방법이 정해지면 자동 대조를 붙입니다.</span></div>`;
+  }
+
+  // 충전금 — 포인트로 받는 업체는 얼마 입금했고 얼마 충전했는지를 따로 적는다.
+  // 시트의 '충전금 입금내역'·'스페이스 충전금' 탭 구조를 그대로 옮겼다.
+  const CREDIT_KINDS = { charge: '충전', use: '차감', refund: '환불' };
+  let creditDraft = [];
+  let creditForm = { date: '', client: '', product: '', vendor: '', kind: 'charge', paid: '', point: '', memo: '' };
+
+  function creditStorageKey() {
+    return `peakos.credit.${previewPersona || userDoc?.uid || 'anon'}`;
+  }
+
+  function loadCreditDraft() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(creditStorageKey()) || '[]');
+      creditDraft = Array.isArray(saved) ? saved : [];
+    } catch (error) {
+      creditDraft = [];
+    }
+  }
+
+  function saveCreditDraft() {
+    try {
+      localStorage.setItem(creditStorageKey(), JSON.stringify(creditDraft));
+    } catch (error) {
+      /* 저장 공간이 막혀 있어도 화면 동작은 유지한다 */
+    }
+  }
+
+  function creditSign(row) {
+    return row.kind === 'charge' ? 1 : -1;
+  }
+
+  // 업체별 잔여 포인트와 입금액. 충전은 더하고 차감·환불은 뺀다.
+  function creditByClient() {
+    const map = new Map();
+    creditDraft.forEach(row => {
+      const key = row.client || '업체 미입력';
+      if (!map.has(key)) map.set(key, { client: key, paid: 0, point: 0, rows: [] });
+      const item = map.get(key);
+      const sign = creditSign(row);
+      item.paid += (Number(row.paid) || 0) * sign;
+      item.point += (Number(row.point) || 0) * sign;
+      item.rows.push(row);
+    });
+    return [...map.values()].sort((a, b) => b.point - a.point);
+  }
+
+  function renderCreditModule() {
+    if (!canSeeFinalSettlement()) {
+      moduleView.innerHTML = `
+        ${moduleStatusbar('충전금', '지정된 인원만 볼 수 있습니다.', '접근 제한')}
+        <section class="module-section">
+          <div class="module-section-head"><span><strong>열람 권한이 없습니다</strong><small>회사 충전금은 최종정산서 열람자만 봅니다</small></span><span class="module-chip restricted">지정 인원 전용</span></div>
+          <div class="module-section-body"><p class="sales-state">대표 · 손명아 실장 · 김대호 부장 · 박종원 부장 · 전현우 팀장만 볼 수 있습니다.</p></div>
+        </section>`;
+      return;
+    }
+
+    const clients = creditByClient();
+    const totalPoint = clients.reduce((sum, item) => sum + item.point, 0);
+    const totalPaid = clients.reduce((sum, item) => sum + item.paid, 0);
+    const form = creditForm;
+    const majors = priceLevels('a');
+    const option = (value, label, selected) => `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(label)}</option>`;
+
+    moduleView.innerHTML = `
+      ${moduleStatusbar('충전금', '포인트로 받는 업체의 충전·차감과 잔여 포인트를 관리합니다.', `잔여 ${totalPoint.toLocaleString('ko-KR')}P`)}
+
+      <section class="module-section">
+        <div class="module-section-head">
+          <span><strong>충전금 기입</strong><small>입금한 금액과 실제 충전한 포인트를 따로 적습니다</small></span>
+          <span class="module-chip live">${esc(CREDIT_KINDS[form.kind])}</span>
+        </div>
+        <div class="module-section-body">
+          <div class="intake-kind">
+            ${Object.entries(CREDIT_KINDS).map(([key, label]) => `<button class="intake-kind-btn ${form.kind === key ? 'active' : ''}" type="button" data-credit-kind="${esc(key)}">${esc(label)}</button>`).join('')}
+          </div>
+          <div class="intake-form">
+            <label class="intake-field"><span>일자</span>
+              <input type="date" data-credit="date" value="${esc(form.date || localDateKey(new Date()))}"></label>
+            <label class="intake-field"><span>업체명</span>
+              <input type="text" data-credit="client" value="${esc(form.client)}" placeholder="업체명"></label>
+            <label class="intake-field"><span>상품</span>
+              <select data-credit="product">${[''].concat(majors).map(v => option(v, v || '선택', form.product)).join('')}</select></label>
+            <label class="intake-field"><span>공급처</span>
+              <select data-credit="vendor">${[''].concat(SUPPLIERS).map(v => option(v, v || '선택', form.vendor)).join('')}</select></label>
+            <label class="intake-field"><span>입금액</span>
+              <input type="number" min="0" data-credit="paid" value="${esc(form.paid)}" placeholder="통장에 들어온 돈"></label>
+            <label class="intake-field"><span>충전 포인트</span>
+              <input type="number" min="0" data-credit="point" value="${esc(form.point)}" placeholder="실제 충전한 포인트"></label>
+          </div>
+          <label class="intake-field wide"><span>특이사항</span>
+            <input type="text" data-credit="memo" value="${esc(form.memo)}" placeholder="예: 잔여 8,200P → 500,000 충전"></label>
+          <div class="intake-foot">
+            <p class="sales-basis">입금액과 충전 포인트가 다를 수 있어 따로 받습니다. 차이는 아래 표에서 바로 보입니다.</p>
+            <button class="module-action primary" type="button" data-credit-add>${esc(CREDIT_KINDS[form.kind])} 기입</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="module-section">
+        <div class="module-section-head">
+          <span><strong>업체별 잔여 포인트</strong><small>충전에서 차감·환불을 뺀 값입니다</small></span>
+          <span class="module-chip live">입금 ${esc(totalPaid.toLocaleString('ko-KR'))}원 · 잔여 ${esc(totalPoint.toLocaleString('ko-KR'))}P</span>
+        </div>
+        <div class="module-section-body">
+          ${clients.length ? `<div class="sales-table-scroll">
+            <table class="sales-table">
+              <thead><tr><th scope="col">업체명</th><th scope="col">건수</th><th scope="col">입금액</th><th scope="col">충전 포인트</th><th scope="col">차이</th></tr></thead>
+              <tbody>
+                ${clients.map(item => `<tr>
+                  <th scope="row">${esc(item.client)}</th>
+                  <td>${esc(item.rows.length.toLocaleString('ko-KR'))}건</td>
+                  <td>${esc(item.paid.toLocaleString('ko-KR'))}</td>
+                  <td class="sales-cell-total">${esc(item.point.toLocaleString('ko-KR'))}</td>
+                  <td class="${item.point - item.paid ? '' : 'ledger-memo-empty'}">${esc((item.point - item.paid).toLocaleString('ko-KR'))}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>` : '<p class="sales-state">아직 기입한 충전금이 없습니다.</p>'}
+        </div>
+      </section>
+
+      ${creditDraft.length ? `<section class="module-section">
+        <div class="module-section-head"><span><strong>충전금 내역</strong><small>${esc(String(creditDraft.length))}건</small></span></div>
+        <div class="module-section-body">
+          <div class="sales-table-scroll">
+            <table class="sales-table ledger-table">
+              <thead><tr><th scope="col">일자</th><th scope="col">업체명</th><th scope="col">상품</th><th scope="col">공급처</th><th scope="col">내용</th><th scope="col">입금액</th><th scope="col">포인트</th><th scope="col">특이사항</th><th scope="col" aria-label="삭제"></th></tr></thead>
+              <tbody>
+                ${[...creditDraft].sort((a, b) => String(b.date).localeCompare(String(a.date))).map(row => `<tr>
+                  <td>${esc(row.date.slice(5).replace('-', '/'))}</td>
+                  <th scope="row">${esc(row.client || '업체 미입력')}</th>
+                  <td>${esc(row.product || '—')}</td>
+                  <td>${esc(row.vendor || '—')}</td>
+                  <td><span class="kind-badge ${row.kind === 'charge' ? 'added' : 'refund'}">${esc(CREDIT_KINDS[row.kind])}</span></td>
+                  <td>${esc(((Number(row.paid) || 0) * creditSign(row)).toLocaleString('ko-KR'))}</td>
+                  <td>${esc(((Number(row.point) || 0) * creditSign(row)).toLocaleString('ko-KR'))}</td>
+                  <td class="ledger-memo">${row.memo ? esc(row.memo) : '<span class="ledger-memo-empty">—</span>'}</td>
+                  <td><button class="ledger-remove" type="button" data-credit-remove="${esc(row.id)}" aria-label="삭제">✕</button></td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>` : ''}
+
+      <div class="module-security"><span>▣</span><span><strong>접수 대조는 다음 단계입니다</strong><br>충전한 포인트로 실제 접수가 얼마나 빠졌는지 맞추려면 접수와 공급처 사용량이 한곳에 있어야 합니다. 서버 저장을 붙일 때 함께 잇습니다.</span></div>`;
+  }
+
+  // 세금계산서 발행요청 — 업체별로 기간을 잡아 공급가액과 세액을 뽑는다.
+  let invoiceMonth = '';
+
+  function invoiceGroups() {
+    const month = invoiceMonth;
+    const map = new Map();
+    personalRows()
+      .filter(row => kindOf(row) !== 'reserve')
+      .filter(row => !month || String(row.date).slice(0, 7) === month)
+      .forEach(row => {
+        const key = row.client || '업체 미입력';
+        if (!map.has(key)) map.set(key, { client: key, supply: 0, count: 0, paid: 0 });
+        const item = map.get(key);
+        const sign = signOf(row);
+        const sales = (Number(row.sell) || 0) * (Number(row.qty) || 0) * sign;
+        item.supply += sales;
+        item.paid += kindOf(row) === 'use' ? sales : (Number(row.paidAmount) || 0) * sign;
+        item.count += 1;
+      });
+    return [...map.values()]
+      .map(item => ({ ...item, tax: Math.round(item.supply * 0.1) }))
+      .sort((a, b) => b.supply - a.supply);
+  }
+
+  function renderInvoiceModule() {
+    const groups = invoiceGroups();
+    const months = [...new Set(personalRows().map(row => String(row.date).slice(0, 7)))].sort().reverse();
+    const total = groups.reduce((sum, item) => ({ supply: sum.supply + item.supply, tax: sum.tax + item.tax }), { supply: 0, tax: 0 });
+
+    moduleView.innerHTML = `
+      ${moduleStatusbar('입금 및 세금계산서 발행요청', '업체별 공급가액과 세액을 뽑아 발행을 요청합니다.', `${groups.length}개 업체`)}
+
+      <section class="module-section">
+        <div class="module-section-head">
+          <span><strong>발행 대상</strong><small>${invoiceMonth ? esc(invoiceMonth.replace('-', '년 ') + '월') : '전체 기간'} · ${esc(String(groups.length))}개 업체</small></span>
+          <span class="module-chip live">공급가액 ${esc(total.supply.toLocaleString('ko-KR'))} · 세액 ${esc(total.tax.toLocaleString('ko-KR'))}</span>
+        </div>
+        <div class="module-section-body">
+          <div class="ledger-filter">
+            <label class="ledger-filter-field">
+              <span>귀속 월</span>
+              <select data-invoice-month>
+                <option value="">전체 기간</option>
+                ${months.map(m => `<option value="${esc(m)}" ${m === invoiceMonth ? 'selected' : ''}>${esc(m.replace('-', '년 '))}월</option>`).join('')}
+              </select>
+            </label>
+          </div>
+          ${groups.length ? `<div class="sales-table-scroll">
+            <table class="sales-table">
+              <thead><tr><th scope="col">업체명</th><th scope="col">건수</th><th scope="col">공급가액</th><th scope="col">세액</th><th scope="col">합계</th><th scope="col">입금</th><th scope="col" aria-label="발행"></th></tr></thead>
+              <tbody>
+                ${groups.map(item => `<tr>
+                  <th scope="row">${esc(item.client)}</th>
+                  <td>${esc(item.count.toLocaleString('ko-KR'))}건</td>
+                  <td>${esc(item.supply.toLocaleString('ko-KR'))}</td>
+                  <td>${esc(item.tax.toLocaleString('ko-KR'))}</td>
+                  <td class="sales-cell-total">${esc((item.supply + item.tax).toLocaleString('ko-KR'))}</td>
+                  <td>${item.paid >= item.supply ? '<span class="vendor-chip done">입금</span>' : `<span class="vendor-chip">미수 ${esc((item.supply - item.paid).toLocaleString('ko-KR'))}</span>`}</td>
+                  <td><button class="module-action" type="button" data-invoice-estimate="${esc(item.client)}">정산서 보기</button></td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>` : '<p class="sales-state">발행할 건이 아직 없습니다.</p>'}
+        </div>
+      </section>
+
+      <div class="module-security"><span>▣</span><span><strong>발행 요청 흐름을 정해야 합니다</strong><br>지금은 금액만 뽑아 둡니다. 요청을 누가 받고 어디로 보내는지(세무 담당 지정, 스페이스 세금발행 API) 정해지면 요청 상태와 이력을 붙입니다.</span></div>`;
+  }
+
+  // 결산 — 지금 들고 있는 숫자로 만들 수 있는 월별 요약.
+  function closingMonths() {
+    const map = new Map();
+    personalRows().filter(row => kindOf(row) !== 'reserve').forEach(row => {
+      const key = String(row.date).slice(0, 7);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(row);
+    });
+    return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }
+
+  function renderClosingModule() {
+    if (!canSeeFinalSettlement()) {
+      moduleView.innerHTML = `
+        ${moduleStatusbar('결산', '지정된 인원만 볼 수 있습니다.', '접근 제한')}
+        <section class="module-section">
+          <div class="module-section-head"><span><strong>열람 권한이 없습니다</strong><small>결산은 최종정산서 열람자만 봅니다</small></span><span class="module-chip restricted">지정 인원 전용</span></div>
+          <div class="module-section-body"><p class="sales-state">대표 · 손명아 실장 · 김대호 부장 · 박종원 부장 · 전현우 팀장만 볼 수 있습니다.</p></div>
+        </section>`;
+      return;
+    }
+
+    const months = closingMonths();
+    const all = finalTotals(personalRows().filter(row => kindOf(row) !== 'reserve'));
+
+    moduleView.innerHTML = `
+      ${moduleStatusbar('결산', '월별로 매출과 이익, 아직 못 받은 돈과 못 준 돈을 봅니다.', '월 마감 기준')}
+
+      <section class="module-section">
+        <div class="module-section-head">
+          <span><strong>월별 결산</strong><small>${esc(String(months.length))}개월</small></span>
+          <span class="module-chip live">회사이익 ${esc(all.companyProfit.toLocaleString('ko-KR'))}원</span>
+        </div>
+        <div class="module-section-body">
+          ${months.length ? `<div class="sales-table-scroll">
+            <table class="sales-table">
+              <thead><tr><th scope="col">귀속 월</th><th scope="col">건수</th><th scope="col">판매가액</th><th scope="col">회사 공급가</th><th scope="col">영업자이익</th><th scope="col">회사이익</th><th scope="col">미수금</th><th scope="col">공급사 미정산</th></tr></thead>
+              <tbody>
+                ${months.map(([month, rows]) => {
+                  const sum = finalTotals(rows);
+                  const paid = intakeTotals(rows).paid;
+                  return `<tr>
+                    <th scope="row">${esc(month.replace('-', '년 '))}월</th>
+                    <td>${esc(rows.length.toLocaleString('ko-KR'))}건</td>
+                    <td>${esc(sum.sales.toLocaleString('ko-KR'))}</td>
+                    <td>${esc(sum.vendorDue.toLocaleString('ko-KR'))}</td>
+                    <td>${esc(sum.salesProfit.toLocaleString('ko-KR'))}</td>
+                    <td class="sales-cell-total">${esc(sum.companyProfit.toLocaleString('ko-KR'))}</td>
+                    <td class="${sum.sales - paid > 0 ? 'monthly-minus' : ''}">${esc(Math.max(0, sum.sales - paid).toLocaleString('ko-KR'))}</td>
+                    <td class="${sum.vendorUnpaid ? 'monthly-minus' : ''}">${esc(sum.vendorUnpaid.toLocaleString('ko-KR'))}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div class="final-total">
+            <span>전체</span>
+            <span>판매가액 <strong>${esc(all.sales.toLocaleString('ko-KR'))}</strong></span>
+            <span>회사 공급가 <strong>${esc(all.vendorDue.toLocaleString('ko-KR'))}</strong></span>
+            <span>회사이익 <strong class="profit">${esc(all.companyProfit.toLocaleString('ko-KR'))}</strong></span>
+            <span>공급사 미정산 <strong class="unpaid">${esc(all.vendorUnpaid.toLocaleString('ko-KR'))}</strong></span>
+          </div>` : '<p class="sales-state">결산할 접수가 아직 없습니다.</p>'}
+        </div>
+      </section>
+
+      <div class="module-security"><span>▣</span><span><strong>지금은 접수 기준 요약입니다</strong><br>고정비·인건비·세금처럼 접수 밖에서 나가는 돈은 아직 들어 있지 않습니다. 결산에 무엇까지 넣을지 정해 주시면 그 항목을 붙입니다.</span></div>`;
+  }
+
+  // 명함 — 조직도 정보로 명함을 만들어 이미지로 내려받는다.
+  let namecardForm = { name: '', rank: '', team: '', phone: '', email: '' };
+
+  function drawNamecard(canvas, data) {
+    const W = 900;
+    const H = 520;
+    const scale = 2;
+    canvas.width = W * scale;
+    canvas.height = H * scale;
+    canvas.style.width = '100%';
+    canvas.style.height = 'auto';
+    const g = canvas.getContext('2d');
+    g.scale(scale, scale);
+    const font = (size, weight = '400') => `${weight} ${size}px "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif`;
+
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, W, H);
+    g.strokeStyle = '#e3e9ef';
+    g.strokeRect(0.5, 0.5, W - 1, H - 1);
+    g.fillStyle = '#348ecd';
+    g.fillRect(0, 0, 14, H);
+
+    // 로고는 글자 폭을 재서 그 왼쪽에 놓는다. 안 그러면 글자를 덮는다.
+    g.font = font(21, '700');
+    g.textBaseline = 'middle';
+    const brand = 'PEAK MARKETING';
+    const brandWidth = g.measureText(brand).width;
+    const markX = W - 44 - brandWidth - 48;
+    g.fillStyle = '#e8734a';
+    g.fillRect(markX, 44, 34, 34);
+    g.fillStyle = '#ffffff';
+    [50, 59, 68].forEach(y => g.fillRect(markX + 5, y, 24, 5));
+    g.fillStyle = '#3f3f46';
+    g.textAlign = 'right';
+    g.fillText(brand, W - 44, 61);
+
+    g.textAlign = 'left';
+    g.fillStyle = '#1d2b38';
+    g.font = font(46, '800');
+    g.fillText(data.name || '이름', 64, 214);
+    g.fillStyle = '#2674ac';
+    g.font = font(21, '700');
+    g.fillText([data.team, data.rank].filter(Boolean).join(' · ') || '소속 · 직급', 64, 262);
+
+    g.strokeStyle = '#e3e9ef';
+    g.beginPath();
+    g.moveTo(64, 300);
+    g.lineTo(W - 64, 300);
+    g.stroke();
+
+    g.font = font(17, '600');
+    [['M', data.phone || ''], ['E', data.email || ''], ['A', '주식회사 피크마케팅']].forEach((row, i) => {
+      const y = 340 + i * 34;
+      g.fillStyle = '#8b98a5';
+      g.fillText(row[0], 64, y);
+      g.fillStyle = '#35434f';
+      g.fillText(row[1], 92, y);
+    });
+  }
+
+  function renderNamecardModule() {
+    const roster = orgRoster();
+    const me = roster.find(row => row.name === String(userDoc?.name || '').trim());
+    if (!namecardForm.name) {
+      namecardForm = {
+        name: String(userDoc?.name || '').trim(),
+        rank: me ? orgRankOf(me) : '',
+        team: me ? orgDisplayName(me.teamName || me.divisionName) : '',
+        phone: '',
+        email: ''
+      };
+    }
+    const form = namecardForm;
+
+    moduleView.innerHTML = `
+      ${moduleStatusbar('명함', '조직도 정보로 명함을 만들어 이미지로 내려받습니다.', '이미지 저장')}
+      <section class="module-section">
+        <div class="module-section-head">
+          <span><strong>명함 만들기</strong><small>이름과 직급은 조직도에서 가져왔습니다. 연락처만 넣으세요</small></span>
+          <span class="module-chip live">PNG 저장</span>
+        </div>
+        <div class="module-section-body">
+          <div class="intake-form">
+            <label class="intake-field"><span>이름</span><input type="text" data-card="name" value="${esc(form.name)}"></label>
+            <label class="intake-field"><span>직급</span><input type="text" data-card="rank" value="${esc(form.rank)}"></label>
+            <label class="intake-field"><span>소속</span><input type="text" data-card="team" value="${esc(form.team)}"></label>
+            <label class="intake-field"><span>휴대폰</span><input type="text" data-card="phone" value="${esc(form.phone)}" placeholder="010-0000-0000"></label>
+            <label class="intake-field"><span>이메일</span><input type="text" data-card="email" value="${esc(form.email)}" placeholder="name@peak.kr"></label>
+          </div>
+          <div class="est-preview"><canvas id="cardCanvas"></canvas></div>
+          <div class="intake-foot">
+            <p class="sales-basis">회사 로고와 배치는 임시입니다. 실제 명함 디자인을 주시면 그대로 맞춥니다.</p>
+            <button class="module-action primary" type="button" data-card-download>이미지 저장</button>
+          </div>
+        </div>
+      </section>`;
+
+    drawNamecard(document.getElementById('cardCanvas'), form);
+  }
+
   function renderTaxModule() {
     moduleView.innerHTML = `
       ${moduleStatusbar('세금관리 모듈', '거래처별 증빙과 세금계산서를 한 단위로 묶어 관리합니다.')}
@@ -4466,6 +4988,11 @@
     if (view === 'settlement') renderSettlementModule();
     if (view === 'final-settlement') renderFinalSettlementModule();
     if (MONTHLY_TABS[view]) renderMonthlyModule(view);
+    if (view === 'deposit-check') renderDepositModule();
+    if (view === 'invoice') renderInvoiceModule();
+    if (view === 'credit') renderCreditModule();
+    if (view === 'closing') renderClosingModule();
+    if (view === 'namecard') renderNamecardModule();
     if (view === 'tax') renderTaxModule();
     if (view === 'platform') renderPlatformModule();
     if (view === 'saas') renderSaasModule();
@@ -4533,6 +5060,95 @@
       monthlyForm = { ...form, amount: '', qty: '', memo: '', period: '' };
       renderPlannedModule(view);
       showToast(form.parentId ? '실행 건을 붙였습니다.' : `${MONTHLY_TABS[view].saleLabel}을 등록했습니다.`);
+    });
+
+    // 입금체크
+    moduleView.querySelectorAll('[data-deposit-filter]').forEach(input => input.addEventListener('change', () => {
+      depositFilter[input.dataset.depositFilter] = input.value;
+      renderPlannedModule('deposit-check');
+    }));
+    moduleView.querySelectorAll('[data-deposit-client]').forEach(button => button.addEventListener('click', () => {
+      depositFilter = { state: '', client: button.dataset.depositClient };
+      renderPlannedModule('deposit-check');
+    }));
+
+    // 세금계산서 발행요청
+    moduleView.querySelector('[data-invoice-month]')?.addEventListener('change', event => {
+      invoiceMonth = event.target.value;
+      renderPlannedModule('invoice');
+    });
+    moduleView.querySelectorAll('[data-invoice-estimate]').forEach(button => button.addEventListener('click', () => {
+      openEstimateDialog(button.dataset.invoiceEstimate);
+    }));
+
+    // 충전금
+    moduleView.querySelectorAll('[data-credit-kind]').forEach(button => button.addEventListener('click', () => {
+      creditForm.kind = button.dataset.creditKind;
+      renderPlannedModule('credit');
+    }));
+    moduleView.querySelectorAll('[data-credit]').forEach(input => {
+      const key = input.dataset.credit;
+      const handler = () => { creditForm[key] = input.value; };
+      if (input.tagName === 'SELECT') {
+        input.addEventListener('change', () => { handler(); renderPlannedModule('credit'); });
+      } else {
+        input.addEventListener('input', handler);
+      }
+    });
+    moduleView.querySelector('[data-credit-add]')?.addEventListener('click', () => {
+      const form = creditForm;
+      if (!form.client.trim()) {
+        showToast('업체명을 넣어 주세요.');
+        return;
+      }
+      const paid = Number(form.paid) || 0;
+      const point = Number(form.point) || 0;
+      if (!paid && !point) {
+        showToast('입금액이나 충전 포인트 중 하나는 넣어야 합니다.');
+        return;
+      }
+      creditDraft.push({
+        id: `credit-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        date: form.date || localDateKey(new Date()),
+        client: form.client.trim(),
+        product: form.product || '',
+        vendor: form.vendor || '',
+        kind: form.kind || 'charge',
+        paid, point,
+        memo: form.memo || ''
+      });
+      saveCreditDraft();
+      creditForm = { ...form, client: '', paid: '', point: '', memo: '' };
+      renderPlannedModule('credit');
+      showToast(`${CREDIT_KINDS[form.kind]} 내역을 기입했습니다.`);
+    });
+    moduleView.querySelectorAll('[data-credit-remove]').forEach(button => button.addEventListener('click', () => {
+      creditDraft = creditDraft.filter(row => row.id !== button.dataset.creditRemove);
+      saveCreditDraft();
+      renderPlannedModule('credit');
+    }));
+
+    // 명함 — 글자를 칠 때마다 미리보기만 다시 그린다
+    moduleView.querySelectorAll('[data-card]').forEach(input => input.addEventListener('input', () => {
+      namecardForm[input.dataset.card] = input.value;
+      drawNamecard(document.getElementById('cardCanvas'), namecardForm);
+    }));
+    moduleView.querySelector('[data-card-download]')?.addEventListener('click', () => {
+      document.getElementById('cardCanvas').toBlob(blob => {
+        if (!blob) {
+          showToast('이미지를 만들지 못했습니다.');
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `명함_${(namecardForm.name || '이름').replace(/[\\/:*?"<>|]/g, '')}.png`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        showToast('명함 이미지를 저장했습니다.');
+      }, 'image/png');
     });
 
     moduleView.querySelectorAll('[data-monthly-remove]').forEach(button => button.addEventListener('click', () => {
@@ -4930,6 +5546,7 @@
       loadIntakeDraft();
       loadCustomPrices();
       loadMonthlyDraft();
+      loadCreditDraft();
       if (userDoc.is_active === false) throw new Error('비활성화된 계정입니다. 관리자에게 문의해 주세요.');
       if (!userDoc.approved) throw new Error('아직 승인되지 않은 계정입니다.');
       await loadLiveData();

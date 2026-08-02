@@ -1263,6 +1263,91 @@ test.describe('Business OS read-only operating data', () => {
     await expect(reset.locator('.kind-badge.edited')).toHaveCount(0);
   });
 
+  // 새로 붙인 다섯 탭. 회사 돈을 다루는 충전금·결산은 지정 인원만 본다.
+  test('adds the five new tabs with the right scope', async ({ page }) => {
+    await installFirebaseStub(page);
+    await page.route('**/api/**', route => {
+      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+      let payload: unknown = [];
+      if (pathname === '/users/me') {
+        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
+      } else if (pathname === '/chat-rooms/unread') {
+        payload = {};
+      } else if (pathname === '/projects') {
+        payload = { canManageAll: false, projects: [] };
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    });
+
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+    const go = (view: string) => page.evaluate(
+      v => (document.querySelector(`.nav-item[data-view="${v}"]`) as HTMLElement)?.click(), view);
+
+    await go('settlement');
+    await openIntake(page);
+    for (const [client, qty, sell] of [['한결에이전시', '10', '25000'], ['나스컴퍼니', '20', '15000']]) {
+      await page.locator('[data-intake="a"]').selectOption('블로그');
+      await page.locator('[data-intake="b"]').selectOption('최적화블로그');
+      await page.locator('[data-intake="c"]').selectOption('최블 B');
+      await page.locator('[data-intake="client"]').fill(client);
+      await page.locator('[data-intake="qty"]').fill(qty);
+      await page.locator('[data-intake="sell"]').fill(sell);
+      await page.locator('[data-intake-add]').click();
+    }
+
+    // 입금체크 — 업체별 미수금 (250,000 + 300,000)
+    await go('deposit-check');
+    await expect(page.locator('#moduleView .module-chip').first()).toContainText('미수 550,000원');
+
+    // 세금계산서 — 공급가액과 세액
+    await go('invoice');
+    const invoiceRow = page.locator('#moduleView .sales-table tbody tr', { hasText: '나스컴퍼니' });
+    await expect(invoiceRow).toContainText('300,000');
+    await expect(invoiceRow).toContainText('30,000');
+
+    // 결산 — 월별 합계
+    await go('closing');
+    await expect(page.locator('#moduleView .sales-table tbody tr').first()).toContainText('2026년 08월');
+    await expect(page.locator('#moduleView .final-total')).toContainText('판매가액 550,000');
+
+    // 충전금 — 입금액과 충전 포인트를 따로 적는다
+    await go('credit');
+    await page.locator('[data-credit="client"]').fill('원앤온리컴퍼니');
+    await page.locator('[data-credit="paid"]').fill('300000');
+    await page.locator('[data-credit="point"]').fill('330000');
+    await page.locator('[data-credit-add]').click();
+    const creditRow = page.locator('#moduleView .sales-table tbody tr').first();
+    await expect(creditRow).toContainText('300,000');
+    await expect(creditRow).toContainText('330,000');
+    await expect(creditRow).toContainText('30,000');
+
+    // 명함 — 조직도에서 이름·직급을 가져오고 이미지로 받는다
+    await go('namecard');
+    await expect(page.locator('[data-card="name"]')).toHaveValue('김대호');
+    await expect(page.locator('[data-card="rank"]')).toHaveValue('부장');
+    await page.locator('[data-card="phone"]').fill('010-1234-5678');
+    const download = page.waitForEvent('download');
+    await page.locator('[data-card-download]').click();
+    expect((await download).suggestedFilename()).toBe('명함_김대호.png');
+
+    // 영업자에게는 충전금·결산이 잠긴다
+    await page.locator('#personaSelect').selectOption('김용일');
+    for (const [view, visible] of [
+      ['credit', false], ['closing', false],
+      ['deposit-check', true], ['invoice', true], ['namecard', true],
+    ] as [string, boolean][]) {
+      const tab = page.locator(`.nav-item[data-view="${view}"]`);
+      if (visible) {
+        await expect(tab).toBeVisible();
+      } else {
+        await expect(tab).toBeHidden();
+        await go(view);
+        await expect(page.locator('#moduleView')).toContainText('열람 권한이 없습니다');
+      }
+    }
+  });
+
   // 김지홍 월보장과 박우진 월관리는 판매 한 건에 실행 여러 건이 붙어
   // 표준 정산서로 담기지 않는다. 각자 별도 탭으로 둔다.
   for (const [name, guarantee, manage] of [
