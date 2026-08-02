@@ -1263,6 +1263,103 @@ test.describe('Business OS read-only operating data', () => {
     await expect(reset.locator('.kind-badge.edited')).toHaveCount(0);
   });
 
+  // 김지홍 월보장과 박우진 월관리는 판매 한 건에 실행 여러 건이 붙어
+  // 표준 정산서로 담기지 않는다. 각자 별도 탭으로 둔다.
+  for (const [name, guarantee, manage] of [
+    ['김대호', true, true], ['김진봉', true, true],
+    ['김지홍', true, false], ['박우진', false, true],
+    ['김용일', false, false], ['은시후', false, false],
+  ] as [string, boolean, boolean][]) {
+    test(`monthly settlement tabs are scoped for ${name}`, async ({ page }) => {
+      await installFirebaseStub(page);
+      await page.route('**/api/**', route => {
+        const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+        let payload: unknown = [];
+        if (pathname === '/users/me') {
+          payload = { uid: 'e2e-test-user', name, role: 'manager', approved: true, is_active: true, group_name: '본사 영업팀' };
+        } else if (pathname === '/chat-rooms/unread') {
+          payload = {};
+        } else if (pathname === '/projects') {
+          payload = { canManageAll: false, projects: [] };
+        }
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+      });
+
+      await page.goto('/business-os-preview.html');
+      await expect(page.locator('#authGate')).toBeHidden();
+      await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+
+      for (const [view, allowed] of [['monthly-guarantee', guarantee], ['monthly-manage', manage]] as [string, boolean][]) {
+        const tab = page.locator(`.nav-item[data-view="${view}"]`);
+        if (allowed) {
+          await expect(tab).toBeVisible();
+        } else {
+          // 탭을 감추는 것으로 끝내지 않고 화면도 막는다
+          await expect(tab).toBeHidden();
+          await page.evaluate(v => (document.querySelector(`.nav-item[data-view="${v}"]`) as HTMLElement)?.click(), view);
+          await expect(page.locator('#moduleView')).toContainText('열람 권한이 없습니다');
+        }
+      }
+    });
+  }
+
+  // 판매 한 건에 실행 비용을 붙여 묶음별 손익을 낸다.
+  test('nests run costs under a monthly sale and nets the profit', async ({ page }) => {
+    await installFirebaseStub(page);
+    await page.route('**/api/**', route => {
+      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+      let payload: unknown = [];
+      if (pathname === '/users/me') {
+        payload = { uid: 'e2e-test-user', name: '김지홍', role: 'manager', approved: true, is_active: true, group_name: '본사 영업팀' };
+      } else if (pathname === '/chat-rooms/unread') {
+        payload = {};
+      } else if (pathname === '/projects') {
+        payload = { canManageAll: false, projects: [] };
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    });
+
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+    await page.locator('.nav-item[data-view="monthly-guarantee"]').click();
+
+    const pick = async (a: string, b: string, c: string) => {
+      await page.locator('[data-monthly="a"]').selectOption(a);
+      await page.locator('[data-monthly="b"]').selectOption(b);
+      await page.locator('[data-monthly="c"]').selectOption(c);
+    };
+
+    // 월보장 320,000 한 줄
+    await page.locator('[data-monthly="client"]').fill('김지홍월보장_명동미용실');
+    await pick('플레이스', '상위노출', '월보장');
+    await page.locator('[data-monthly="amount"]').fill('320000');
+    await page.locator('[data-monthly="qty"]').fill('1');
+    await page.locator('[data-monthly-add]').click();
+
+    const head = page.locator('.monthly-head').first();
+    await expect(head).toContainText('판매 320,000');
+    await expect(head).toContainText('영업이익 320,000');
+
+    // 거기에 원고 대필 11,000 을 붙인다 — 업체는 판매 건에서 따라온다
+    await page.locator('[data-monthly="parentId"]').selectOption({ index: 1 });
+    await expect(page.locator('[data-monthly="client"]')).toHaveValue('김지홍월보장_명동미용실');
+    await pick('블로그', '원고', '프리미엄원고대필');
+    await page.locator('[data-monthly="amount"]').fill('11000');
+    await page.locator('[data-monthly="qty"]').fill('1');
+    await page.locator('[data-monthly-add]').click();
+
+    await expect(head).toContainText('실행 11,000');
+    await expect(head).toContainText('영업이익 309,000');
+    await expect(page.locator('.monthly-table tbody tr').first()).toContainText('-11,000');
+    await expect(page.locator('.ledger-total')).toContainText('영업이익 309,000');
+
+    // 판매 건을 지우면 붙어 있던 실행 건도 같이 사라진다
+    await page.locator('.monthly-head [data-monthly-remove]').first().click();
+    await expect(page.locator('.monthly-group')).toHaveCount(0);
+    await expect(page.locator('.monthly-table tbody tr')).toHaveCount(0);
+  });
+
   // 회사 원가는 직급이 아니라 지정된 다섯 사람만 본다.
   for (const [name, allowed] of [
     ['김진봉', true], ['손명아', true], ['김대호', true], ['박종원', true], ['전현우', true],

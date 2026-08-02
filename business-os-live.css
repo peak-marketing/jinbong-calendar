@@ -3121,3 +3121,18 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .est-preview { margin: 12px 0 4px; padding: 12px; border-radius: 12px; background: #f4f8fb;
   border: 1px solid #dbe6ef; overflow-x: auto; }
 .est-preview canvas { display: block; min-width: 620px; border: 1px solid #e3e9ef; background: #fff; }
+
+/* 월보장 · 월관리 정산 */
+.monthly-group { margin-bottom: 18px; border: 1px solid #e3e9ef; border-radius: 12px; overflow: hidden; }
+.monthly-head { display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  flex-wrap: wrap; padding: 12px 16px; background: #f4f8fb; border-bottom: 1px solid #e3e9ef; }
+.monthly-title strong { display: block; font-size: 16px; font-weight: 800; color: #1d2b38; }
+.monthly-title small { display: block; margin-top: 2px; font-size: 13px; color: #6b7a88; font-weight: 600; }
+.monthly-sums { display: inline-flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 13.5px; color: #5a6b7a; }
+.monthly-sums strong { color: #1d2b38; font-weight: 800; font-size: 15px; }
+.monthly-sums strong.profit { color: #2674ac; }
+.monthly-minus { color: #b23a31; font-weight: 700; }
+.monthly-empty { margin: 14px 16px; }
+.monthly-table th[scope="row"] { font-weight: 700; }
+.intake-foot { display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  flex-wrap: wrap; margin-top: 14px; }

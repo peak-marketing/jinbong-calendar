@@ -95,6 +95,8 @@
     organization: '조직도',
     settlement: '정산서',
     'final-settlement': '최종정산서',
+    'monthly-guarantee': '월보장 정산',
+    'monthly-manage': '월관리 정산',
     tax: '세금',
     platform: '플랫폼',
     saas: 'SaaS 허브'
@@ -703,7 +705,11 @@
 
   // 최종정산서 탭은 지정된 인원에게만 보인다.
   function applyNavPermissions() {
-    const locks = { 'final-settlement': canSeeFinalSettlement() };
+    const locks = {
+      'final-settlement': canSeeFinalSettlement(),
+      'monthly-guarantee': canSeeMonthly('monthly-guarantee'),
+      'monthly-manage': canSeeMonthly('monthly-manage')
+    };
     Object.entries(locks).forEach(([view, allowed]) => {
       const button = document.querySelector(`.app-sidebar .nav-item[data-view="${view}"]`);
       if (!button) return;
@@ -729,9 +735,12 @@
       };
     }
     loadIntakeDraft();
+    loadMonthlyDraft();
     applyUserIdentity();
     // 권한이 사라진 화면을 보고 있었다면 되돌린다
-    activateView(activeView === 'final-settlement' && !canSeeFinalSettlement() ? 'settlement' : activeView);
+    const lostFinal = activeView === 'final-settlement' && !canSeeFinalSettlement();
+    const lostMonthly = Boolean(MONTHLY_TABS[activeView]) && !canSeeMonthly(activeView);
+    activateView(lostFinal || lostMonthly ? 'settlement' : activeView);
   }
 
   function updateNavigationBadges() {
@@ -4156,6 +4165,249 @@
         : ''}</span></div>`;
   }
 
+  // 김지홍 월보장과 박우진 월관리는 표준 정산서로 안 담긴다.
+  // 판매 한 줄에 실행 여러 줄이 마이너스로 붙는 구조라 따로 둔다.
+  const MONTHLY_TABS = {
+    'monthly-guarantee': {
+      label: '월보장 정산',
+      owner: '김지홍',
+      saleLabel: '월보장 판매',
+      saleHint: '월보장으로 받은 금액을 한 줄로 넣습니다',
+      runHint: '그 월보장에 들어간 원고·작업 비용을 붙입니다',
+      period: false
+    },
+    'monthly-manage': {
+      label: '월관리 정산',
+      owner: '박우진',
+      saleLabel: '월관리 판매',
+      saleHint: '월 관리비를 한 줄로 넣습니다',
+      runHint: '주차별로 실행한 리워드·블로그 비용을 붙입니다',
+      period: true
+    }
+  };
+
+  let monthlyDraft = {};
+  let monthlyForm = { view: '', parentId: '', date: '', client: '', a: '', b: '', c: '', qty: '', amount: '', period: '', memo: '' };
+
+  function monthlyStorageKey(view) {
+    return `peakos.monthly.${view}.${previewPersona || userDoc?.uid || 'anon'}`;
+  }
+
+  function loadMonthlyDraft() {
+    monthlyDraft = {};
+    Object.keys(MONTHLY_TABS).forEach(view => {
+      try {
+        const saved = JSON.parse(localStorage.getItem(monthlyStorageKey(view)) || '[]');
+        monthlyDraft[view] = Array.isArray(saved) ? saved : [];
+      } catch (error) {
+        monthlyDraft[view] = [];
+      }
+    });
+  }
+
+  function saveMonthlyDraft(view) {
+    try {
+      localStorage.setItem(monthlyStorageKey(view), JSON.stringify(monthlyDraft[view] || []));
+    } catch (error) {
+      /* 저장 공간이 막혀 있어도 화면 동작은 유지한다 */
+    }
+  }
+
+  // 본인과 최종정산서 열람자만 본다.
+  function canSeeMonthly(view) {
+    const config = MONTHLY_TABS[view];
+    if (!config) return false;
+    if (canSeeFinalSettlement()) return true;
+    return String(userDoc?.name || '').trim() === config.owner;
+  }
+
+  function monthlyRows(view) {
+    return monthlyDraft[view] || [];
+  }
+
+  function monthlySales(view) {
+    return monthlyRows(view).filter(row => row.kind === 'sale');
+  }
+
+  function monthlyRuns(view, saleId) {
+    return monthlyRows(view).filter(row => row.kind === 'run' && row.parentId === saleId);
+  }
+
+  // 묶음 하나의 손익. 판매액에서 실행분을 뺀다.
+  function monthlyGroupTotals(view, sale) {
+    const runs = monthlyRuns(view, sale.id);
+    const cost = runs.reduce((sum, row) => sum + (Number(row.amount) || 0) * (Number(row.qty) || 0), 0);
+    const sales = Number(sale.amount) || 0;
+    return { runs, cost, sales, profit: sales - cost };
+  }
+
+  function monthlyTotals(view) {
+    return monthlySales(view).reduce((sum, sale) => {
+      const group = monthlyGroupTotals(view, sale);
+      sum.sales += group.sales;
+      sum.cost += group.cost;
+      sum.profit += group.profit;
+      sum.runs += group.runs.length;
+      return sum;
+    }, { sales: 0, cost: 0, profit: 0, runs: 0 });
+  }
+
+  function renderMonthlyForm(view) {
+    const config = MONTHLY_TABS[view];
+    const form = monthlyForm.view === view ? monthlyForm : { ...monthlyForm, view, parentId: '', a: '', b: '', c: '' };
+    monthlyForm = form;
+    const sales = monthlySales(view);
+    const isRun = Boolean(form.parentId);
+    const majors = priceLevels('a');
+    const middles = form.a ? priceLevels('b', form.a) : [];
+    const minors = form.a && form.b ? priceLevels('c', form.a, form.b) : [];
+    const option = (value, selected) => `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(value)}</option>`;
+
+    return `<section class="module-section">
+      <div class="module-section-head">
+        <span><strong>${esc(config.label)} 등록</strong><small>${esc(isRun ? config.runHint : config.saleHint)}</small></span>
+        <span class="module-chip live">${esc(isRun ? '실행 건' : config.saleLabel)}</span>
+      </div>
+      <div class="module-section-body">
+        <div class="intake-target">
+          <label class="intake-field wide">
+            <span>어디에 붙일까요</span>
+            <select data-monthly="parentId">
+              <option value="">${esc(config.saleLabel)}으로 새로 등록</option>
+              ${sales.map(sale => `<option value="${esc(sale.id)}" ${sale.id === form.parentId ? 'selected' : ''}>${esc(sale.client || '업체 미입력')} · ${esc(sale.date.slice(5).replace('-', '/'))} · ${esc(Number(sale.amount).toLocaleString('ko-KR'))}원에 실행 건 붙이기</option>`).join('')}
+            </select>
+          </label>
+        </div>
+        <div class="intake-form">
+          <label class="intake-field">
+            <span>일자</span>
+            <input type="date" data-monthly="date" value="${esc(form.date || localDateKey(new Date()))}">
+          </label>
+          <label class="intake-field ${isRun ? 'auto' : ''}">
+            <span>업체명</span>
+            <input type="text" data-monthly="client" value="${esc(form.client)}" placeholder="업체명" ${isRun ? 'readonly' : ''}>
+          </label>
+          <label class="intake-field">
+            <span>대분류</span>
+            <select data-monthly="a">${[''].concat(majors).map(v => option(v, form.a)).join('')}</select>
+          </label>
+          <label class="intake-field">
+            <span>중분류</span>
+            <select data-monthly="b">${[''].concat(middles).map(v => option(v, form.b)).join('')}</select>
+          </label>
+          <label class="intake-field">
+            <span>소분류</span>
+            <select data-monthly="c">${[''].concat(minors).map(v => option(v, form.c)).join('')}</select>
+          </label>
+          <label class="intake-field">
+            <span>${isRun ? '실행가' : '판매가액'}</span>
+            <input type="number" min="0" data-monthly="amount" value="${esc(form.amount)}" placeholder="0">
+          </label>
+          <label class="intake-field">
+            <span>수량</span>
+            <input type="number" min="1" data-monthly="qty" value="${esc(form.qty)}" placeholder="${isRun ? '0' : '1'}">
+          </label>
+          ${config.period ? `<label class="intake-field">
+            <span>구동 기간</span>
+            <input type="text" data-monthly="period" value="${esc(form.period)}" placeholder="${isRun ? '1주차 : 05/08 ~ 05/14' : '05/08 ~ 06/04 구동'}">
+          </label>` : ''}
+        </div>
+        <label class="intake-field wide">
+          <span>특이사항</span>
+          <input type="text" data-monthly="memo" value="${esc(form.memo)}" placeholder="메모">
+        </label>
+        <div class="intake-foot">
+          <p class="sales-basis">${esc(isRun ? '실행 건은 영업이익에서 빠집니다.' : `${config.saleLabel}은 영업이익에 더해집니다.`)} 이 브라우저에만 저장되는 초안입니다.</p>
+          <button class="module-action primary" type="button" data-monthly-add>${esc(isRun ? '실행 건 추가' : `${config.saleLabel} 등록`)}</button>
+        </div>
+      </div>
+    </section>`;
+  }
+
+  function renderMonthlyLedger(view) {
+    const config = MONTHLY_TABS[view];
+    const sales = monthlySales(view);
+    const total = monthlyTotals(view);
+    if (!sales.length) {
+      return `<section class="module-section">
+        <div class="module-section-head"><span><strong>${esc(config.label)}</strong><small>${esc(config.owner)} 기준</small></span></div>
+        <div class="module-section-body"><p class="sales-state">아직 등록한 ${esc(config.saleLabel)}이 없습니다. 위에서 등록해 보세요.</p></div>
+      </section>`;
+    }
+
+    return `<section class="module-section monthly-ledger">
+      <div class="module-section-head">
+        <span><strong>${esc(config.label)}</strong><small>${esc(config.owner)} · ${esc(String(sales.length))}건 · 실행 ${esc(String(total.runs))}건</small></span>
+        <span class="module-chip live">판매 ${esc(total.sales.toLocaleString('ko-KR'))}원 · 영업이익 ${esc(total.profit.toLocaleString('ko-KR'))}원</span>
+      </div>
+      <div class="module-section-body">
+        ${sales.map(sale => {
+          const group = monthlyGroupTotals(view, sale);
+          return `<div class="monthly-group">
+            <div class="monthly-head">
+              <span class="monthly-title"><strong>${esc(sale.client || '업체 미입력')}</strong><small>${esc(sale.date.slice(5).replace('-', '/'))} · ${esc(sale.a)} › ${esc(sale.b)} › ${esc(sale.c)}${sale.period ? ` · ${esc(sale.period)}` : ''}</small></span>
+              <span class="monthly-sums">
+                <span>판매 <strong>${esc(group.sales.toLocaleString('ko-KR'))}</strong></span>
+                <span>실행 <strong>${esc(group.cost.toLocaleString('ko-KR'))}</strong></span>
+                <span>영업이익 <strong class="profit">${esc(group.profit.toLocaleString('ko-KR'))}</strong></span>
+                <button class="ledger-remove" type="button" data-monthly-remove="${esc(sale.id)}" aria-label="${esc(sale.client || '')} 묶음 삭제">✕</button>
+              </span>
+            </div>
+            ${group.runs.length ? `<div class="sales-table-scroll">
+              <table class="sales-table monthly-table">
+                <thead><tr>
+                  <th scope="col">일자</th><th scope="col">상품</th><th scope="col">실행가</th>
+                  <th scope="col">수량</th><th scope="col">실행 공급가액</th>
+                  ${config.period ? '<th scope="col">구동 기간</th>' : ''}
+                  <th scope="col">특이사항</th><th scope="col" aria-label="삭제"></th>
+                </tr></thead>
+                <tbody>
+                  ${group.runs.map(run => `<tr>
+                    <td>${esc(run.date.slice(5).replace('-', '/'))}</td>
+                    <th scope="row">${esc(run.b)} › ${esc(run.c)}</th>
+                    <td>${esc(Number(run.amount).toLocaleString('ko-KR'))}</td>
+                    <td>${esc(Number(run.qty).toLocaleString('ko-KR'))}</td>
+                    <td class="monthly-minus">-${esc(((Number(run.amount) || 0) * (Number(run.qty) || 0)).toLocaleString('ko-KR'))}</td>
+                    ${config.period ? `<td>${run.period ? esc(run.period) : '<span class="ledger-memo-empty">—</span>'}</td>` : ''}
+                    <td class="ledger-memo">${run.memo ? esc(run.memo) : '<span class="ledger-memo-empty">—</span>'}</td>
+                    <td><button class="ledger-remove" type="button" data-monthly-remove="${esc(run.id)}" aria-label="실행 건 삭제">✕</button></td>
+                  </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>` : '<p class="sales-basis monthly-empty">붙은 실행 건이 없습니다. 위에서 이 건을 골라 실행 비용을 넣으세요.</p>'}
+          </div>`;
+        }).join('')}
+        <div class="ledger-total">
+          <span>합계</span>
+          <span>판매 <strong>${esc(total.sales.toLocaleString('ko-KR'))}</strong></span>
+          <span>실행 <strong>${esc(total.cost.toLocaleString('ko-KR'))}</strong></span>
+          <span>영업이익 <strong class="profit">${esc(total.profit.toLocaleString('ko-KR'))}</strong></span>
+        </div>
+      </div>
+    </section>`;
+  }
+
+  function renderMonthlyModule(view) {
+    const config = MONTHLY_TABS[view];
+    if (!canSeeMonthly(view)) {
+      moduleView.innerHTML = `
+        ${moduleStatusbar(config.label, '지정된 인원만 볼 수 있습니다.', '접근 제한')}
+        <section class="module-section">
+          <div class="module-section-head">
+            <span><strong>열람 권한이 없습니다</strong><small>${esc(config.owner)} 본인과 최종정산서 열람자만 볼 수 있습니다</small></span>
+            <span class="module-chip restricted">지정 인원 전용</span>
+          </div>
+          <div class="module-section-body"><p class="sales-state">${esc(config.owner)} · 대표 · 손명아 실장 · 김대호 부장 · 박종원 부장 · 전현우 팀장만 볼 수 있습니다.</p></div>
+        </section>`;
+      return;
+    }
+    moduleView.innerHTML = `
+      ${moduleStatusbar(config.label, `${config.saleLabel} 한 건에 실행 비용을 붙여 묶음별로 손익을 봅니다.`, `${config.owner} 전용`)}
+      ${renderMonthlyForm(view)}
+      ${renderMonthlyLedger(view)}
+      <div class="module-security"><span>▣</span><span><strong>표준 정산서와 따로 봅니다</strong><br>${esc(config.label)}은 판매 한 건에 실행 여러 건이 붙는 구조라 개인정산서·최종정산서와 섞지 않습니다.</span></div>`;
+  }
+
   function renderTaxModule() {
     moduleView.innerHTML = `
       ${moduleStatusbar('세금관리 모듈', '거래처별 증빙과 세금계산서를 한 단위로 묶어 관리합니다.')}
@@ -4213,6 +4465,7 @@
     if (view === 'organization') renderOrganizationModule();
     if (view === 'settlement') renderSettlementModule();
     if (view === 'final-settlement') renderFinalSettlementModule();
+    if (MONTHLY_TABS[view]) renderMonthlyModule(view);
     if (view === 'tax') renderTaxModule();
     if (view === 'platform') renderPlatformModule();
     if (view === 'saas') renderSaasModule();
@@ -4227,6 +4480,69 @@
     moduleView.querySelector('[data-final-assign]')?.addEventListener('click', openAssignDialog);
     moduleView.querySelector('[data-cost-fill]')?.addEventListener('click', openCostDialog);
     moduleView.querySelector('[data-price-table]')?.addEventListener('click', openPriceTable);
+
+    // 월보장·월관리 등록. 분류 선택은 다시 그리고 글자 입력은 상태만 바꾼다.
+    moduleView.querySelectorAll('[data-monthly]').forEach(input => {
+      const key = input.dataset.monthly;
+      if (input.tagName === 'SELECT') {
+        input.addEventListener('change', () => {
+          monthlyForm[key] = input.value;
+          if (key === 'a') { monthlyForm.b = ''; monthlyForm.c = ''; }
+          if (key === 'b') monthlyForm.c = '';
+          if (key === 'parentId') {
+            const parent = monthlyRows(monthlyForm.view).find(row => row.id === input.value);
+            // 실행 건은 판매 건의 업체를 그대로 따른다
+            if (parent) monthlyForm.client = parent.client || '';
+          }
+          renderPlannedModule(monthlyForm.view);
+        });
+      } else {
+        input.addEventListener('input', () => { monthlyForm[key] = input.value; });
+      }
+    });
+
+    moduleView.querySelector('[data-monthly-add]')?.addEventListener('click', () => {
+      const view = monthlyForm.view;
+      const form = monthlyForm;
+      const amount = Number(form.amount);
+      const qty = Number(form.qty) || (form.parentId ? 0 : 1);
+      if (!form.client.trim() || !form.a || !form.b || !form.c) {
+        showToast('업체명과 분류를 채워 주세요.');
+        return;
+      }
+      if (!Number.isFinite(amount) || amount < 0) {
+        showToast(form.parentId ? '실행가를 넣어 주세요.' : '판매가액을 넣어 주세요.');
+        return;
+      }
+      if (!qty || qty < 0) {
+        showToast('수량은 1 이상이어야 합니다.');
+        return;
+      }
+      monthlyDraft[view] = monthlyRows(view).concat([{
+        id: `monthly-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        kind: form.parentId ? 'run' : 'sale',
+        parentId: form.parentId || '',
+        date: form.date || localDateKey(new Date()),
+        client: form.client.trim(),
+        a: form.a, b: form.b, c: form.c,
+        amount, qty,
+        period: form.period || '',
+        memo: form.memo || ''
+      }]);
+      saveMonthlyDraft(view);
+      monthlyForm = { ...form, amount: '', qty: '', memo: '', period: '' };
+      renderPlannedModule(view);
+      showToast(form.parentId ? '실행 건을 붙였습니다.' : `${MONTHLY_TABS[view].saleLabel}을 등록했습니다.`);
+    });
+
+    moduleView.querySelectorAll('[data-monthly-remove]').forEach(button => button.addEventListener('click', () => {
+      const view = monthlyForm.view;
+      const id = button.dataset.monthlyRemove;
+      // 판매 건을 지우면 거기 붙은 실행 건도 같이 사라진다
+      monthlyDraft[view] = monthlyRows(view).filter(row => row.id !== id && row.parentId !== id);
+      saveMonthlyDraft(view);
+      renderPlannedModule(view);
+    }));
     // 접수 없이 받을 돈이 생기기도 해서 빈 정산서로도 시작한다.
     moduleView.querySelector('[data-estimate-new]')?.addEventListener('click', () => openEstimateDialog('', []));
     moduleView.querySelector('[data-estimate-open]')?.addEventListener('click', () => {
@@ -4613,6 +4929,7 @@
       realUserDoc = userDoc;
       loadIntakeDraft();
       loadCustomPrices();
+      loadMonthlyDraft();
       if (userDoc.is_active === false) throw new Error('비활성화된 계정입니다. 관리자에게 문의해 주세요.');
       if (!userDoc.approved) throw new Error('아직 승인되지 않은 계정입니다.');
       await loadLiveData();
