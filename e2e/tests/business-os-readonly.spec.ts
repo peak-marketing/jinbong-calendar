@@ -464,6 +464,39 @@ test.describe('Business OS read-only operating data', () => {
     });
   }
 
+  // 정산서는 본사 기준으로 먼저 잡는다. 지사는 접수 경로와 상품이 달라 따로 만든다.
+  for (const [name, group, branch, open] of [
+    ['김용일', '본사 영업팀', '본사', true],
+    ['진영석', '대구지사', '대구지사', false],
+    ['손지호', '전주지사', '전주지사', false],
+  ] as [string, string, string, boolean][]) {
+    test(`intake is ${open ? 'open' : 'closed'} for ${branch}`, async ({ page }) => {
+      await installFirebaseStub(page);
+      await page.route('**/api/**', route => {
+        const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+        let payload: unknown = [];
+        if (pathname === '/users/me') {
+          payload = { uid: 'e2e-test-user', name, role: 'manager', approved: true, is_active: true, group_name: group };
+        } else if (pathname === '/chat-rooms/unread') {
+          payload = {};
+        } else if (pathname === '/projects') {
+          payload = { canManageAll: false, projects: [] };
+        }
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+      });
+
+      await page.goto('/business-os-preview.html');
+      await expect(page.locator('#authGate')).toBeHidden();
+      await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+      await page.locator('.nav-item[data-view="settlement"]').click();
+      await expect(page.locator('#moduleView .intake-form')).toHaveCount(open ? 1 : 0);
+      if (!open) {
+        await expect(page.locator('#moduleView')).toContainText(`${branch} 정산서`);
+        await expect(page.locator('#moduleView')).toContainText('지사는 따로 봅니다');
+      }
+    });
+  }
+
   test('shows no invented amounts when the account has no sales rows', async ({ page }) => {
     await installFirebaseStub(page);
     await page.route('**/api/**', route => {

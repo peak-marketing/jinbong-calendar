@@ -2001,6 +2001,29 @@
     return orgRankOrder(currentOrgRank()) <= ORG_RANK_MANAGE_FROM;
   }
 
+  // 로그인 계정이 어느 지사인지. 조직도에 이름이 있으면 그것을 따르고,
+  // 없으면 소속 그룹명으로 가른다.
+  function currentBranchId() {
+    const myName = String(userDoc?.name || '').trim();
+    const mine = orgRoster().find(row => row.name === myName);
+    if (mine) return mine.branch.id;
+    const group = String(userDoc?.group_name || '');
+    if (group.startsWith('대구')) return 'daegu';
+    if (group.startsWith('전주')) return 'jeonju';
+    return 'hq';
+  }
+
+  function currentBranchName() {
+    const branch = ORG_STRUCTURE.find(item => item.id === currentBranchId());
+    return branch ? branch.name : '본사';
+  }
+
+  // 정산서는 본사 기준으로 먼저 잡는다. 지사는 접수 경로와 상품이 달라
+  // 별도 체계로 따로 만든다.
+  function settlementAvailable() {
+    return currentBranchId() === 'hq';
+  }
+
   // 대표 마스터 계정(패션TV봉이)은 이름이 달라 role로도 확인한다.
   function canSeeFinalSettlement() {
     if (userDoc?.role === 'admin') return true;
@@ -2210,6 +2233,22 @@
     const managementCards = `
       ${management ? moduleCard({ icon: '♙', tone: 'green', title: '영업자별 개인정산서', description: '소속 또는 허용된 영업자별 매출, 공제, 지급 예정액과 정산 상태를 확인합니다.', chip: '관리직 조회', chipClass: 'visible', footer: '소속·허용 지사 기준', action: '영업자 목록' }) : ''}
       ${canSeeFinalSettlement() ? moduleCard({ icon: '♛', tone: 'violet', title: '최종정산서', description: '전체 정산 검토가 끝난 뒤 확정된 최종 지급 내역과 승인 이력을 관리합니다.', chip: '지정 인원 전용', chipClass: 'restricted', footer: '대표·손명아·김대호·박종원·전현우', action: '정산 구조 보기' }) : ''}`.trim();
+    if (!settlementAvailable()) {
+      moduleView.innerHTML = `
+        ${moduleStatusbar('정산서', `${currentBranchName()} 정산 체계는 따로 준비합니다.`, '본사 먼저 적용')}
+        <section class="module-section">
+          <div class="module-section-head">
+            <span><strong>${esc(currentBranchName())} 정산서</strong><small>지사는 접수 경로와 취급 상품이 본사와 달라 별도로 만듭니다</small></span>
+            <span class="module-chip">준비 중</span>
+          </div>
+          <div class="module-section-body">
+            <p class="sales-state">본사 정산서를 먼저 완성한 뒤 ${esc(currentBranchName())} 기준으로 따로 잡습니다. 지금은 본사 접수 화면이 열리지 않습니다.</p>
+          </div>
+        </section>
+        <div class="module-security"><span>▣</span><span><strong>지사는 따로 봅니다</strong><br>본사·대구지사·전주지사의 상품과 단가가 서로 달라 정산 체계를 분리합니다.</span></div>`;
+      return;
+    }
+
     moduleView.innerHTML = `
       ${moduleStatusbar('정산서', management ? '시트접수와 개인정산서를 관리합니다.' : '로그인한 영업자의 개인정산 범위만 표시합니다.', '접수 초안 · 저장 전')}
       ${renderIntakeForm()}
