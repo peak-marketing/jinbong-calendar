@@ -2188,8 +2188,11 @@
   }
 
   // 회사 원가는 부장 이상만 본다. 지금 구글 정산서와 같은 경계.
+  // 회사 원가는 직급이 아니라 지정된 사람만 본다. 직급 기준으로 두면
+  // 지사 이사처럼 명단 밖의 사람이 열리고, 손명아 실장·전현우 팀장은 막힌다.
   function canSeeCompanyCost() {
-    return orgRankOrder(currentOrgRank()) <= ORG_RANK_MANAGE_FROM;
+    if (userDoc?.role === 'admin') return true;
+    return FINAL_SETTLEMENT_VIEWERS.includes(String(userDoc?.name || '').trim());
   }
 
   // 로그인 계정이 어느 지사인지. 조직도에 이름이 있으면 그것을 따르고,
@@ -3693,7 +3696,7 @@
       ${renderIntakeLedger()}
       ${teamSection}
       <div class="module-security"><span>▣</span><span><strong>현재 적용 권한: ${esc(currentOrgRank())}</strong><br>${canSeeCompanyCost()
-        ? '회사 원가와 회사 기준 영업이익까지 표시됩니다. 부장 이상에게만 보입니다.'
+        ? '회사 원가와 회사 기준 영업이익까지 표시됩니다. 대표·손명아·김대호·박종원·전현우만 볼 수 있습니다.'
         : '영업자 단가 기준으로만 표시되며 회사 원가는 감춥니다. 지금 구글 정산서와 같은 기준입니다.'}${canSeeFinalSettlement()
         ? ' 최종정산서는 지정된 인원에게만 열립니다.'
         : ' 최종정산서는 지정된 인원만 볼 수 있어 표시하지 않습니다.'}${canSeeTeamSettlement()

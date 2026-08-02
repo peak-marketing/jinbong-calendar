@@ -1031,6 +1031,67 @@ test.describe('Business OS read-only operating data', () => {
     await expect(final.locator('.final-total')).toContainText('판매가액 275,000');
   });
 
+  // 회사 원가는 직급이 아니라 지정된 다섯 사람만 본다.
+  for (const [name, allowed] of [
+    ['김진봉', true], ['손명아', true], ['김대호', true], ['박종원', true], ['전현우', true],
+    ['김지홍', false], ['박우진', false], ['김주현', false], ['김용일', false], ['은시후', false],
+    ['이종혁', false], ['김동우', false],
+  ] as [string, boolean][]) {
+    test(`company cost stays hidden unless named — ${name}`, async ({ page }) => {
+      await installFirebaseStub(page);
+      await page.route('**/api/**', route => {
+        const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+        let payload: unknown = [];
+        if (pathname === '/users/me') {
+          payload = { uid: 'e2e-test-user', name, role: 'manager', approved: true, is_active: true, group_name: '본사 영업팀' };
+        } else if (pathname === '/chat-rooms/unread') {
+          payload = {};
+        } else if (pathname === '/projects') {
+          payload = { canManageAll: false, projects: [] };
+        }
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+      });
+
+      await page.goto('/business-os-preview.html');
+      await expect(page.locator('#authGate')).toBeHidden();
+      await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+      await page.locator('.nav-item[data-view="settlement"]').click();
+
+      await openIntake(page);
+      await page.locator('[data-intake="a"]').selectOption('블로그');
+      await page.locator('[data-intake="b"]').selectOption('원고');
+      await page.locator('[data-intake="c"]').selectOption('프리미엄원고대필');
+      await page.locator('[data-intake="client"]').fill('한결에이전시');
+      await page.locator('[data-intake="qty"]').fill('10');
+      await page.locator('[data-intake="sell"]').fill('15000');
+      await page.locator('[data-intake-add]').click();
+
+      // 명단 밖이면 개인정산서 표에도 회사원가 열이 없다
+      const ledgerHead = page.locator('#moduleView .ledger-table thead').first();
+      if (allowed) {
+        await expect(ledgerHead).toContainText('회사원가');
+      } else {
+        await expect(ledgerHead).not.toContainText('회사원가');
+      }
+
+      const banner = page.locator('#moduleView .module-security');
+      if (allowed) {
+        await expect(banner).toContainText('회사 원가와 회사 기준 영업이익까지');
+        // 단가표에서도 회사원가가 보인다
+        await page.locator('.nav-item[data-view="final-settlement"]').click();
+        await page.locator('[data-price-table]').click();
+        await expect(page.locator('.price-table thead th')).toHaveText(['대분류', '중분류', '소분류', '회사원가', '영업자단가']);
+      } else {
+        await expect(banner).toContainText('영업자 단가 기준으로만 표시되며 회사 원가는 감춥니다');
+        // 최종정산서 자체가 열리지 않으니 회사원가에 닿을 길이 없다
+        await expect(page.locator('.nav-item[data-view="final-settlement"]')).toBeHidden();
+        await page.locator('[data-price-table]').click();
+        await expect(page.locator('.price-table thead th')).toHaveText(['대분류', '중분류', '소분류', '영업자단가']);
+        await expect(page.locator('.price-table')).not.toContainText('회사원가');
+      }
+    });
+  }
+
   // 단가표는 화면에 따라 열이 다르다. 개인정산서는 영업자단가만.
   for (const [name, allowed] of [['김대호', true], ['김용일', false]] as [string, boolean][]) {
     test(`shows the price table scoped to the screen for ${name}`, async ({ page }) => {

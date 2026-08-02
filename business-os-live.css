@@ -3079,3 +3079,22 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .price-form .paid-actions { margin-top: 12px; }
 .price-added { background: #f6f3ff; }
 .kind-badge.added { background: #ede9fb; color: #5b4bb5; }
+
+/* 단가표는 값이 짧아 가운데로 모으고, 머리글만 위에 고정한다.
+   .sales-table 의 tbody th[scope=row] 가로 고정이 머리글을 덮어 여기서 푼다. */
+.price-table th,
+.price-table td,
+.price-table thead th:first-child,
+.price-table thead th:nth-child(2),
+.price-table tbody th[scope="row"] { text-align: center; }
+
+.price-table tbody th[scope="row"] { position: static; left: auto; z-index: auto; background: transparent; }
+
+.price-table thead th,
+.price-table thead th:first-child {
+  position: sticky;
+  top: 0;
+  left: auto;
+  z-index: 3;
+  background: #f4f8fb;
+}
