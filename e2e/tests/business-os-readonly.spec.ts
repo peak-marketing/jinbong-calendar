@@ -1263,8 +1263,9 @@ test.describe('Business OS read-only operating data', () => {
     await expect(reset.locator('.kind-badge.edited')).toHaveCount(0);
   });
 
-  // 미수금 현황은 대표와 두 부장만 본다.
-  test('shows aged receivables to the three named people only', async ({ page }) => {
+  // 미수금 현황은 자금 현황판이다. 대표님 시트의 계산식을 그대로 따른다.
+  //   현잔고 + 영업자 미수금 − (공급처 입금 + 선결제) = 실질적으로 남은 금액
+  test('adds up the fund board exactly like the owner sheet', async ({ page }) => {
     await installFirebaseStub(page);
     await page.route('**/api/**', route => {
       const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
@@ -1283,36 +1284,47 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#authGate')).toBeHidden();
     const go = (view: string) => page.evaluate(
       v => (document.querySelector(`.nav-item[data-view="${v}"]`) as HTMLElement)?.click(), view);
+    await go('receivable');
 
-    await go('settlement');
-    await openIntake(page);
-    for (const [date, client, qty] of [
-      ['2026-04-10', '오래된업체', '10'],
-      ['2026-08-01', '최근업체', '10'],
-    ]) {
-      await page.locator('[data-intake="date"]').fill(date);
-      await page.locator('[data-intake="a"]').selectOption('블로그');
-      await page.locator('[data-intake="b"]').selectOption('최적화블로그');
-      await page.locator('[data-intake="c"]').selectOption('최블 B');
-      await page.locator('[data-intake="client"]').fill(client);
-      await page.locator('[data-intake="qty"]').fill(qty);
-      await page.locator('[data-intake="sell"]').fill('25000');
-      await page.locator('[data-intake-add]').click();
+    // 26-07 기준 실제 숫자
+    for (const [name, value] of [
+      ['리워드스페이스', '58665140'], ['리뷰스페이스', '57833010'],
+      ['매출', '54190495'], ['공급처', '18259725'], ['고정비용', '24954829'],
+    ] as [string, string][]) {
+      await page.locator(`[data-fund-bank="${name}"]`).fill(value);
+    }
+    for (const [name, value] of [
+      ['회사', '3406700'], ['박종원', '16088325'], ['김대호', '0'],
+      ['김지홍', '211640'], ['박우진', '0'], ['김주현', '770000'], ['김용일', '194700'],
+    ] as [string, string][]) {
+      await page.locator(`[data-fund-money="ar"][data-fund-name="${name}"][data-fund-field="total"]`).fill(value);
+    }
+    for (const [name, value] of [
+      ['헬로우드림', '1997380'], ['엠플리파이', '19008880'], ['윙', '1996500'], ['키지애드', '957000'],
+      ['H2 C&C', '165000'], ['아바티', '14321530'], ['기발한마케팅', '1925000'], ['데이터봇', '572000'],
+    ] as [string, string][]) {
+      await page.locator('[data-fund-vendor-add]').click();
+      const index = (await page.locator('[data-fund-vendor="name"]').count()) - 1;
+      await page.locator(`[data-fund-vendor="name"][data-fund-index="${index}"]`).fill(name);
+      await page.locator(`[data-fund-vendor="total"][data-fund-index="${index}"]`).fill(value);
     }
 
+    const out = (key: string) => page.locator(`[data-fund-out="${key}"]`).first();
+    await expect(out('bank')).toHaveText('213,903,199');
+    await expect(out('ar')).toHaveText('20,671,365');
+    await expect(out('vendor')).toHaveText('40,943,290');
+    await expect(out('real')).toHaveText('193,631,274');
+
+    // 월급을 넣으면 실제 통장 잔여가 그만큼 줄어든다
+    await page.locator('[data-fund-payroll="박종원"]').fill('3000000');
+    await expect(out('payroll')).toHaveText('3,000,000');
+    await expect(out('after')).toHaveText('190,631,274');
+
+    // 새로고침해도 남는다
+    await page.reload();
+    await expect(page.locator('#authGate')).toBeHidden();
     await go('receivable');
-    await expect(page.locator('#moduleView .module-chip').first()).toContainText('총 미수 500,000원');
-
-    // 오래된 건은 90일 초과 칸으로 간다
-    const buckets = page.locator('.ar-bucket');
-    await expect(buckets).toHaveCount(4);
-    await expect(buckets.nth(0)).toContainText('30일 이내');
-    await expect(buckets.nth(3)).toContainText('90일 초과');
-    await expect(buckets.nth(3)).toContainText('250,000');
-
-    // 업체를 누르면 입금체크로 넘어가며 그 업체로 걸린다
-    await page.locator('[data-ar-client]').first().click();
-    await expect(page.locator('[data-deposit-filter="client"]')).not.toHaveValue('');
+    await expect(out('real')).toHaveText('193,631,274');
 
     // 열람은 대표와 두 부장만
     for (const [name, allowed] of [

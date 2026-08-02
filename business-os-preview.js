@@ -4933,46 +4933,91 @@
     drawNamecard(document.getElementById('cardCanvas'), form);
   }
 
-  // 미수금 현황 — 오래 묵은 돈부터 보이게 경과일로 나눈다.
-  const AR_BUCKETS = [
-    ['30일 이내', 0, 30],
-    ['31~60일', 31, 60],
-    ['61~90일', 61, 90],
-    ['90일 초과', 91, Infinity]
-  ];
+  // 자금 현황판. 대표님 시트를 그대로 옮겼다.
+  //   현잔고 + 영업자 미수금 - (공급처 입금 + 선결제) = 실질적으로 남은 금액
+  //   여기서 월급을 빼면 실제 통장 잔여 금액이 된다.
+  const FUND_MEMBERS = ['회사', '박종원', '김대호', '김지홍', '박우진', '김주현', '김용일', '은시후'];
+  const FUND_BANKS = ['리워드스페이스', '리뷰스페이스', '매출', '공급처', '고정비용'];
+  const FUND_KEY = 'peakos.fundBoard';
 
-  function arDaysOver(date) {
-    const then = new Date(`${date}T00:00:00`);
-    const now = new Date(`${localDateKey(new Date())}T00:00:00`);
-    return Math.max(0, Math.round((now - then) / 86400000));
+  let fundBoard = null;
+
+  function emptyFundBoard() {
+    const perMember = () => FUND_MEMBERS.reduce((acc, name) => ({ ...acc, [name]: { total: '', cur: '', prev: '' } }), {});
+    return {
+      // 26-07 처럼 시트에 쓰던 표기를 그대로 둔다
+      curLabel: '',
+      prevLabel: '',
+      banks: FUND_BANKS.reduce((acc, name) => ({ ...acc, [name]: '' }), {}),
+      ar: perMember(),
+      prepaid: perMember(),
+      payroll: FUND_MEMBERS.reduce((acc, name) => ({ ...acc, [name]: '' }), {}),
+      vendors: []
+    };
   }
 
-  // 건별 미수. 예약최초건과 예약금에서 충당된 건은 받을 돈이 아니다.
-  function arRows() {
-    return personalRows()
-      .filter(row => kindOf(row) !== 'reserve' && kindOf(row) !== 'use')
-      .map(row => {
-        const sign = signOf(row);
-        const sales = (Number(row.sell) || 0) * (Number(row.qty) || 0) * sign;
-        const paid = (Number(row.paidAmount) || 0) * sign;
-        return { row, sales, paid, due: sales - paid, days: arDaysOver(row.date) };
-      })
-      .filter(item => item.due > 0)
-      .sort((a, b) => b.days - a.days);
+  function loadFundBoard() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(FUND_KEY) || 'null');
+      fundBoard = saved && typeof saved === 'object' ? { ...emptyFundBoard(), ...saved } : emptyFundBoard();
+      // 사람이 늘어도 칸이 비지 않게 채운다
+      ['ar', 'prepaid'].forEach(key => {
+        FUND_MEMBERS.forEach(name => {
+          if (!fundBoard[key][name]) fundBoard[key][name] = { total: '', cur: '', prev: '' };
+        });
+      });
+      FUND_MEMBERS.forEach(name => {
+        if (fundBoard.payroll[name] === undefined) fundBoard.payroll[name] = '';
+      });
+      FUND_BANKS.forEach(name => {
+        if (fundBoard.banks[name] === undefined) fundBoard.banks[name] = '';
+      });
+    } catch (error) {
+      fundBoard = emptyFundBoard();
+    }
   }
 
-  function arByClient() {
-    const map = new Map();
-    arRows().forEach(item => {
-      const key = item.row.client || '업체 미입력';
-      if (!map.has(key)) map.set(key, { client: key, due: 0, count: 0, days: 0, manager: '' });
-      const group = map.get(key);
-      group.due += item.due;
-      group.count += 1;
-      group.days = Math.max(group.days, item.days);
-      if (!group.manager && item.row.manager) group.manager = item.row.manager;
+  function saveFundBoard() {
+    try {
+      localStorage.setItem(FUND_KEY, JSON.stringify(fundBoard));
+    } catch (error) {
+      /* 저장 공간이 막혀 있어도 화면 동작은 유지한다 */
+    }
+  }
+
+  const won = value => (Number(value) || 0).toLocaleString('ko-KR');
+  const sumOf = (obj, field) => Object.values(obj).reduce((sum, item) => sum + (Number(field ? item[field] : item) || 0), 0);
+
+  function fundSummary() {
+    const bank = sumOf(fundBoard.banks);
+    const ar = sumOf(fundBoard.ar, 'total');
+    const prepaid = sumOf(fundBoard.prepaid, 'total');
+    const vendor = fundBoard.vendors.reduce((sum, row) => sum + (Number(row.total) || 0), 0);
+    const payroll = sumOf(fundBoard.payroll);
+    const real = bank + ar - (vendor + prepaid);
+    return { bank, ar, prepaid, vendor, payroll, real, afterPayroll: real - payroll };
+  }
+
+  function fundMoneyRow(group, name, fields) {
+    return fields.map(field => `<td><input class="fund-input" type="number" data-fund-money="${esc(group)}" data-fund-name="${esc(name)}" data-fund-field="${esc(field)}" value="${esc(String(fundBoard[group][name][field] ?? ''))}" placeholder="0" aria-label="${esc(name)} ${esc(field)}"></td>`).join('');
+  }
+
+  // 숫자를 칠 때마다 화면 전체를 다시 그리면 아직 change 가 안 난 칸의 값이
+  // 날아간다. 합계 칸만 갈아 끼운다.
+  function fundSync() {
+    const sum = fundSummary();
+    const out = {
+      bank: sum.bank, ar: sumOf(fundBoard.ar, 'total'), 'ar-cur': sumOf(fundBoard.ar, 'cur'), 'ar-prev': sumOf(fundBoard.ar, 'prev'),
+      prepaid: sumOf(fundBoard.prepaid, 'total'), 'prepaid-cur': sumOf(fundBoard.prepaid, 'cur'), 'prepaid-prev': sumOf(fundBoard.prepaid, 'prev'),
+      vendor: sum.vendor,
+      'vendor-cur': fundBoard.vendors.reduce((acc, row) => acc + (Number(row.cur) || 0), 0),
+      'vendor-prev': fundBoard.vendors.reduce((acc, row) => acc + (Number(row.prev) || 0), 0),
+      payroll: sum.payroll, real: sum.real, after: sum.afterPayroll
+    };
+    moduleView.querySelectorAll('[data-fund-out]').forEach(node => {
+      const key = node.dataset.fundOut;
+      if (out[key] !== undefined) node.textContent = won(out[key]);
     });
-    return [...map.values()].sort((a, b) => b.due - a.due);
   }
 
   function renderReceivableModule() {
@@ -4980,85 +5025,143 @@
       moduleView.innerHTML = `
         ${moduleStatusbar('미수금 현황', '지정된 인원만 볼 수 있습니다.', '접근 제한')}
         <section class="module-section">
-          <div class="module-section-head"><span><strong>열람 권한이 없습니다</strong><small>회사 전체 미수금은 지정된 세 사람만 봅니다</small></span><span class="module-chip restricted">지정 인원 전용</span></div>
+          <div class="module-section-head"><span><strong>열람 권한이 없습니다</strong><small>회사 자금 현황은 지정된 세 사람만 봅니다</small></span><span class="module-chip restricted">지정 인원 전용</span></div>
           <div class="module-section-body"><p class="sales-state">김진봉 대표 · 김대호 부장 · 박종원 부장만 볼 수 있습니다.</p></div>
         </section>`;
       return;
     }
+    if (!fundBoard) loadFundBoard();
 
-    const rows = arRows();
-    const clients = arByClient();
-    const total = rows.reduce((sum, item) => sum + item.due, 0);
-    const buckets = AR_BUCKETS.map(([label, from, to]) => {
-      const part = rows.filter(item => item.days >= from && item.days <= to);
-      return { label, count: part.length, due: part.reduce((sum, item) => sum + item.due, 0) };
-    });
+    const sum = fundSummary();
+    const cur = fundBoard.curLabel || '당월';
+    const prev = fundBoard.prevLabel || '전월';
 
     moduleView.innerHTML = `
-      ${moduleStatusbar('미수금 현황', '아직 못 받은 돈을 오래된 순으로 봅니다.', `총 ${total.toLocaleString('ko-KR')}원`)}
+      ${moduleStatusbar('미수금 현황', '통장 잔고와 받을 돈, 줄 돈을 모아 실제로 남는 금액을 봅니다.', `실질 ${won(sum.real)}원`)}
 
       <section class="module-section">
         <div class="module-section-head">
-          <span><strong>경과 기간별</strong><small>접수일 기준으로 며칠 지났는지 나눕니다</small></span>
-          <span class="module-chip ${total ? 'restricted' : 'live'}">총 미수 ${esc(total.toLocaleString('ko-KR'))}원</span>
+          <span><strong>요약</strong><small>현잔고 + 영업자 미수금 − (공급처 입금 + 선결제) = 실질적으로 남은 금액</small></span>
+          <span class="module-chip live">총 통장 잔고 ${esc(won(sum.bank))}원</span>
         </div>
         <div class="module-section-body">
-          <div class="ar-buckets">
-            ${buckets.map((bucket, index) => `<article class="ar-bucket ${index >= 2 && bucket.due ? 'warn' : ''}">
-              <span>${esc(bucket.label)}</span>
-              <strong>${esc(bucket.due.toLocaleString('ko-KR'))}</strong>
-              <small>${esc(bucket.count.toLocaleString('ko-KR'))}건</small>
-            </article>`).join('')}
+          <div class="fund-cards">
+            <article class="fund-card"><span>총 통장 잔고</span><strong data-fund-out="bank">${esc(won(sum.bank))}</strong></article>
+            <article class="fund-card"><span>영업자 총 미수금</span><strong data-fund-out="ar">${esc(won(sum.ar))}</strong></article>
+            <article class="fund-card warn"><span>공급처 입금 해야할 예상 금액</span><strong data-fund-out="vendor">${esc(won(sum.vendor))}</strong></article>
+            <article class="fund-card warn"><span>선결제 금액</span><strong data-fund-out="prepaid">${esc(won(sum.prepaid))}</strong></article>
+            <article class="fund-card strong"><span>실질적으로 남은 금액</span><strong data-fund-out="real">${esc(won(sum.real))}</strong></article>
+            <article class="fund-card"><span>월급 뺀 실제 잔여</span><strong data-fund-out="after">${esc(won(sum.afterPayroll))}</strong><small>급여 <em data-fund-out="payroll">${esc(won(sum.payroll))}</em></small></article>
+          </div>
+          <div class="fund-period">
+            <label class="ledger-filter-field"><span>당월 표기</span>
+              <input type="text" data-fund-label="curLabel" value="${esc(fundBoard.curLabel)}" placeholder="26-07"></label>
+            <label class="ledger-filter-field"><span>전월 표기</span>
+              <input type="text" data-fund-label="prevLabel" value="${esc(fundBoard.prevLabel)}" placeholder="26-06"></label>
           </div>
         </div>
       </section>
 
       <section class="module-section">
-        <div class="module-section-head">
-          <span><strong>업체별 미수금</strong><small>${esc(String(clients.length))}개 업체</small></span>
-        </div>
-        <div class="module-section-body">
-          ${clients.length ? `<div class="sales-table-scroll">
-            <table class="sales-table">
-              <thead><tr><th scope="col">업체명</th><th scope="col">담당</th><th scope="col">건수</th><th scope="col">가장 오래된 건</th><th scope="col">미수금</th><th scope="col" aria-label="조회"></th></tr></thead>
-              <tbody>
-                ${clients.map(item => `<tr>
-                  <th scope="row">${esc(item.client)}</th>
-                  <td class="${item.manager ? '' : 'ledger-memo-empty'}">${esc(item.manager || NO_MANAGER)}</td>
-                  <td>${esc(item.count.toLocaleString('ko-KR'))}건</td>
-                  <td class="${item.days > 60 ? 'monthly-minus' : ''}">${esc(String(item.days))}일</td>
-                  <td class="monthly-minus">${esc(item.due.toLocaleString('ko-KR'))}</td>
-                  <td><button class="module-action" type="button" data-ar-client="${esc(item.client)}">입금체크로</button></td>
-                </tr>`).join('')}
-              </tbody>
-            </table>
-          </div>` : '<p class="sales-state">아직 못 받은 돈이 없습니다.</p>'}
-        </div>
-      </section>
-
-      ${rows.length ? `<section class="module-section">
-        <div class="module-section-head"><span><strong>건별 미수</strong><small>오래된 순 ${esc(String(rows.length))}건</small></span></div>
+        <div class="module-section-head"><span><strong>통장 잔고</strong><small>통장별로 현재 잔고를 넣습니다</small></span></div>
         <div class="module-section-body">
           <div class="sales-table-scroll">
-            <table class="sales-table ledger-table">
-              <thead><tr><th scope="col">접수일</th><th scope="col">경과</th><th scope="col">업체명</th><th scope="col">상품</th><th scope="col">판매액</th><th scope="col">입금</th><th scope="col">미수</th></tr></thead>
+            <table class="sales-table fund-table">
+              <thead><tr>${FUND_BANKS.map(name => `<th scope="col">${esc(name)}통장</th>`).join('')}<th scope="col">총 잔고</th></tr></thead>
+              <tbody><tr>
+                ${FUND_BANKS.map(name => `<td><input class="fund-input" type="number" data-fund-bank="${esc(name)}" value="${esc(String(fundBoard.banks[name] ?? ''))}" placeholder="0" aria-label="${esc(name)}통장 잔고"></td>`).join('')}
+                <td class="sales-cell-total" data-fund-out="bank">${esc(won(sum.bank))}</td>
+              </tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="module-section">
+        <div class="module-section-head">
+          <span><strong>영업자 미수금</strong><small>영업자별로 아직 못 받은 돈</small></span>
+          <span class="module-chip ${sum.ar ? 'restricted' : 'live'}">총 ${esc(won(sum.ar))}원</span>
+        </div>
+        <div class="module-section-body">
+          <div class="sales-table-scroll">
+            <table class="sales-table fund-table">
+              <thead><tr><th scope="col">영업자</th><th scope="col">총합 미수금</th><th scope="col">${esc(cur)} 미수금</th><th scope="col">${esc(prev)} 미수금</th></tr></thead>
               <tbody>
-                ${rows.map(item => `<tr>
-                  <td>${esc(item.row.date.slice(5).replace('-', '/'))}</td>
-                  <td class="${item.days > 60 ? 'monthly-minus' : ''}">${esc(String(item.days))}일</td>
-                  <th scope="row">${esc(item.row.client || '업체 미입력')}</th>
-                  <td class="ledger-product">${esc(item.row.b)} › ${esc(item.row.c)}</td>
-                  <td>${esc(item.sales.toLocaleString('ko-KR'))}</td>
-                  <td>${esc(item.paid.toLocaleString('ko-KR'))}</td>
-                  <td class="monthly-minus">${esc(item.due.toLocaleString('ko-KR'))}</td>
-                </tr>`).join('')}
+                ${FUND_MEMBERS.map(name => `<tr><th scope="row">${esc(name)}</th>${fundMoneyRow('ar', name, ['total', 'cur', 'prev'])}</tr>`).join('')}
+                <tr class="fund-sum"><th scope="row">합계</th><td data-fund-out="ar">${esc(won(sumOf(fundBoard.ar, 'total')))}</td><td data-fund-out="ar-cur">${esc(won(sumOf(fundBoard.ar, 'cur')))}</td><td data-fund-out="ar-prev">${esc(won(sumOf(fundBoard.ar, 'prev')))}</td></tr>
               </tbody>
             </table>
           </div>
         </div>
-      </section>` : ''}
+      </section>
 
-      <div class="module-security"><span>▣</span><span><strong>지금은 내 접수만 집계합니다</strong><br>회사 전체 미수금을 보려면 영업자들의 접수가 서버에 있어야 합니다. 서버 저장을 붙이면 전 영업자 기준으로 합산됩니다.</span></div>`;
+      <section class="module-section">
+        <div class="module-section-head"><span><strong>선결제 금액</strong><small>미리 받아 둔 돈이라 남은 금액에서 뺍니다</small></span></div>
+        <div class="module-section-body">
+          <div class="sales-table-scroll">
+            <table class="sales-table fund-table">
+              <thead><tr><th scope="col">영업자</th><th scope="col">총합 선결제</th><th scope="col">${esc(cur)} 선결제</th><th scope="col">${esc(prev)} 선결제</th></tr></thead>
+              <tbody>
+                ${FUND_MEMBERS.map(name => `<tr><th scope="row">${esc(name)}</th>${fundMoneyRow('prepaid', name, ['total', 'cur', 'prev'])}</tr>`).join('')}
+                <tr class="fund-sum"><th scope="row">합계</th><td data-fund-out="prepaid">${esc(won(sumOf(fundBoard.prepaid, 'total')))}</td><td data-fund-out="prepaid-cur">${esc(won(sumOf(fundBoard.prepaid, 'cur')))}</td><td data-fund-out="prepaid-prev">${esc(won(sumOf(fundBoard.prepaid, 'prev')))}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="module-section">
+        <div class="module-section-head">
+          <span><strong>공급처 입금 예정 금액</strong><small>대행사별로 우리가 보내야 할 돈</small></span>
+          <span class="module-chip ${sum.vendor ? 'restricted' : 'live'}">총 ${esc(won(sum.vendor))}원</span>
+        </div>
+        <div class="module-section-body">
+          <div class="sales-table-scroll">
+            <table class="sales-table fund-table">
+              <thead><tr><th scope="col">대행사</th><th scope="col">총합</th><th scope="col">${esc(cur)}</th><th scope="col">${esc(prev)}</th><th scope="col" aria-label="삭제"></th></tr></thead>
+              <tbody>
+                ${fundBoard.vendors.length ? fundBoard.vendors.map((row, index) => `<tr>
+                  <th scope="row"><input class="fund-input wide" type="text" list="fundVendorList" data-fund-vendor="name" data-fund-index="${index}" value="${esc(row.name || '')}" placeholder="대행사명" aria-label="대행사명"></th>
+                  <td><input class="fund-input" type="number" data-fund-vendor="total" data-fund-index="${index}" value="${esc(String(row.total ?? ''))}" placeholder="0" aria-label="총합"></td>
+                  <td><input class="fund-input" type="number" data-fund-vendor="cur" data-fund-index="${index}" value="${esc(String(row.cur ?? ''))}" placeholder="0" aria-label="당월"></td>
+                  <td><input class="fund-input" type="number" data-fund-vendor="prev" data-fund-index="${index}" value="${esc(String(row.prev ?? ''))}" placeholder="0" aria-label="전월"></td>
+                  <td><button class="ledger-remove" type="button" data-fund-vendor-remove="${index}" aria-label="줄 삭제">✕</button></td>
+                </tr>`).join('') : '<tr><td colspan="5" class="ledger-memo-empty">아래 버튼으로 대행사를 추가하세요.</td></tr>'}
+                <tr class="fund-sum"><th scope="row">합계</th>
+                  <td data-fund-out="vendor">${esc(won(sum.vendor))}</td>
+                  <td data-fund-out="vendor-cur">${esc(won(fundBoard.vendors.reduce((acc, row) => acc + (Number(row.cur) || 0), 0)))}</td>
+                  <td data-fund-out="vendor-prev">${esc(won(fundBoard.vendors.reduce((acc, row) => acc + (Number(row.prev) || 0), 0)))}</td><td></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <datalist id="fundVendorList">${SUPPLIERS.map(name => `<option value="${esc(name)}"></option>`).join('')}</datalist>
+          <div class="intake-foot">
+            <p class="sales-basis">공급사 정산 탭에서 아직 지불하지 않은 금액이 여기로 오게 잇는 것은 서버 저장이 붙은 뒤에 합니다.</p>
+            <button class="module-action" type="button" data-fund-vendor-add>＋ 대행사 추가</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="module-section">
+        <div class="module-section-head">
+          <span><strong>급여 정산 예정 금액</strong><small>대표님 작성란 · 월급 결산 후</small></span>
+          <span class="module-chip restricted">대표 작성</span>
+        </div>
+        <div class="module-section-body">
+          <div class="sales-table-scroll">
+            <table class="sales-table fund-table">
+              <thead><tr><th scope="col">영업자</th><th scope="col">정산 금액</th></tr></thead>
+              <tbody>
+                ${FUND_MEMBERS.map(name => `<tr><th scope="row">${esc(name)}</th>
+                  <td><input class="fund-input" type="number" data-fund-payroll="${esc(name)}" value="${esc(String(fundBoard.payroll[name] ?? ''))}" placeholder="0" aria-label="${esc(name)} 정산 금액"></td></tr>`).join('')}
+                <tr class="fund-sum"><th scope="row">합계</th><td data-fund-out="payroll">${esc(won(sum.payroll))}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <div class="module-security"><span>▣</span><span><strong>계산식</strong><br>현잔고 <em data-fund-out="bank">${esc(won(sum.bank))}</em> + 영업자 미수금 <em data-fund-out="ar">${esc(won(sum.ar))}</em> − (공급처 입금 <em data-fund-out="vendor">${esc(won(sum.vendor))}</em> + 선결제 <em data-fund-out="prepaid">${esc(won(sum.prepaid))}</em>) = <strong>실질적으로 남은 금액 <em data-fund-out="real">${esc(won(sum.real))}</em></strong> − 월급 <em data-fund-out="payroll">${esc(won(sum.payroll))}</em> = 실제 통장 잔여 <em data-fund-out="after">${esc(won(sum.afterPayroll))}</em></span></div>`;
   }
 
   function renderTaxModule() {
@@ -5204,9 +5307,35 @@
       renderPlannedModule('deposit-check');
     }));
 
-    moduleView.querySelectorAll('[data-ar-client]').forEach(button => button.addEventListener('click', () => {
-      depositFilter = { state: 'unpaid', client: button.dataset.arClient };
-      activateView('deposit-check');
+    // 자금 현황판 — 숫자를 칠 때마다 전체를 다시 그리면 커서가 튀므로
+    // 입력은 상태만 바꾸고, 합계는 칸을 벗어날 때 다시 그린다.
+    // 값 반영과 다시 그리기를 change 한 곳에서 한다. input 만 믿고 나눠 두면
+    // 다시 그리는 사이에 방금 친 값이 날아간다.
+    const fundRedraw = () => { saveFundBoard(); renderPlannedModule('receivable'); };
+    const fundBind = (selector, apply) => {
+      moduleView.querySelectorAll(selector).forEach(input => {
+        const handle = () => { apply(input, input.value); saveFundBoard(); fundSync(); };
+        input.addEventListener('input', handle);
+        input.addEventListener('change', handle);
+      });
+    };
+    fundBind('[data-fund-bank]', (input, value) => { fundBoard.banks[input.dataset.fundBank] = value; });
+    fundBind('[data-fund-money]', (input, value) => {
+      fundBoard[input.dataset.fundMoney][input.dataset.fundName][input.dataset.fundField] = value;
+    });
+    fundBind('[data-fund-payroll]', (input, value) => { fundBoard.payroll[input.dataset.fundPayroll] = value; });
+    fundBind('[data-fund-label]', (input, value) => { fundBoard[input.dataset.fundLabel] = value; });
+    fundBind('[data-fund-vendor]', (input, value) => {
+      const row = fundBoard.vendors[Number(input.dataset.fundIndex)];
+      if (row) row[input.dataset.fundVendor] = value;
+    });
+    moduleView.querySelector('[data-fund-vendor-add]')?.addEventListener('click', () => {
+      fundBoard.vendors.push({ name: '', total: '', cur: '', prev: '' });
+      fundRedraw();
+    });
+    moduleView.querySelectorAll('[data-fund-vendor-remove]').forEach(button => button.addEventListener('click', () => {
+      fundBoard.vendors.splice(Number(button.dataset.fundVendorRemove), 1);
+      fundRedraw();
     }));
 
     // 세금계산서 발행요청
