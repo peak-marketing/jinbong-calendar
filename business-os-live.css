@@ -3104,3 +3104,19 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .price-edit-input { max-width: 96px; padding: 6px 8px; font-size: 13.5px; text-align: center; }
 .price-editing { background: #eef6fb; }
 .kind-badge.edited { background: #e3f0f8; color: #2674ac; }
+
+/* 정산서 발행 */
+.est-head { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 4px; }
+.est-lines { max-height: 240px; overflow-y: auto; margin: 6px 0 0; }
+.est-lines .sales-table th, .est-lines .sales-table td { padding: 6px 8px; text-align: center; }
+.est-lines .sales-table tbody th[scope="row"] { position: static; }
+.est-input { padding: 6px 8px; font-size: 13.5px; max-width: 108px; text-align: center; }
+.est-input.wide { max-width: 220px; text-align: left; }
+.est-input.num { max-width: 92px; }
+.est-supply { font-weight: 700; color: #1d2b38; white-space: nowrap; }
+.est-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  flex-wrap: wrap; margin: 10px 0 4px; }
+.est-sum { font-size: 14px; font-weight: 800; color: #2674ac; }
+.est-preview { margin: 12px 0 4px; padding: 12px; border-radius: 12px; background: #f4f8fb;
+  border: 1px solid #dbe6ef; overflow-x: auto; }
+.est-preview canvas { display: block; min-width: 620px; border: 1px solid #e3e9ef; background: #fff; }

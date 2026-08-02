@@ -1040,6 +1040,72 @@ test.describe('Business OS read-only operating data', () => {
     await expect(final.locator('.final-total')).toContainText('판매가액 275,000');
   });
 
+  // 거래처에 보낼 견적서를 접수 건에서 뽑는다. 상품명·카테고리는 자유롭게 고친다.
+  test('issues one work estimate per client and downloads it as an image', async ({ page }) => {
+    await installFirebaseStub(page);
+    await page.route('**/api/**', route => {
+      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+      let payload: unknown = [];
+      if (pathname === '/users/me') {
+        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
+      } else if (pathname === '/chat-rooms/unread') {
+        payload = {};
+      } else if (pathname === '/projects') {
+        payload = { canManageAll: false, projects: [] };
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    });
+
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openIntake(page);
+
+    for (const [client, b, c, qty, sell] of [
+      ['장면을만드는사람들', '최적화블로그', '최블 B', '30', '1800'],
+      ['장면을만드는사람들', '원고', '프리미엄원고대필', '5', '20000'],
+      ['다른업체', '원고', '프리미엄원고대필', '3', '20000'],
+    ] as [string, string, string, string, string][]) {
+      await page.locator('[data-intake="a"]').selectOption('블로그');
+      await page.locator('[data-intake="b"]').selectOption(b);
+      await page.locator('[data-intake="c"]').selectOption(c);
+      await page.locator('[data-intake="client"]').fill(client);
+      await page.locator('[data-intake="qty"]').fill(qty);
+      await page.locator('[data-intake="sell"]').fill(sell);
+      await page.locator('[data-intake-add]').click();
+    }
+
+    // 거래처를 골라 두면 그 업체 건만 한 장으로 묶인다
+    await page.locator('[data-ledger-filter="client"]').selectOption('장면을만드는사람들');
+    await page.locator('[data-estimate-open]').click();
+    await expect(page.locator('#estClient')).toHaveValue('장면을만드는사람들');
+    await expect(page.locator('#estLines tr')).toHaveCount(2);
+    await expect(page.locator('#estSum')).toContainText('합계 169,400원');
+
+    // 보낼 이름으로 고쳐 쓴다
+    await page.locator('[data-est-line="name"]').first().fill('후기성 준최 2');
+    await page.locator('[data-est-line="category"]').first().fill('블로그');
+    await page.locator('#estCeo').fill('김정후');
+
+    // 필요 없는 줄은 뺀다 — 30 x 1,800 = 54,000 / VAT 5,400
+    await page.locator('[data-est-remove]').nth(1).click();
+    await expect(page.locator('#estLines tr')).toHaveCount(1);
+    await expect(page.locator('#estSum')).toContainText('공급가액 54,000');
+    await expect(page.locator('#estSum')).toContainText('세액 5,400');
+    await expect(page.locator('#estSum')).toContainText('합계 59,400원');
+
+    // 접수 원본은 그대로다
+    const download = page.waitForEvent('download');
+    await page.locator('[data-est-download]').click();
+    expect((await download).suggestedFilename()).toMatch(/^견적서_장면을만드는사람들_\d{8}\.png$/);
+
+    await page.locator('[data-est-close]').click();
+    await page.locator('[data-ledger-filter-reset]').click();
+    await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(3);
+    await expect(page.locator('#moduleView .ledger-table tbody')).toContainText('최블 B');
+  });
+
   // 단가는 상품별로 고칠 수 있고, 고친 값이 접수 화면과 영업자 단가표에 함께 간다.
   test('edits a single product price and shares it with sales accounts', async ({ page }) => {
     await installFirebaseStub(page);

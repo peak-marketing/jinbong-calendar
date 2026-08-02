@@ -3110,7 +3110,10 @@
         <span><strong>내 개인정산서</strong><small>${esc(userDoc?.name || '')} · ${intakeFilterActive()
           ? `조회 ${shown.length}건 / 전체 ${personalRows().length}건`
           : `접수 ${personalRows().length}건`}</small></span>
-        <span class="module-chip live">매출 ${esc(month.sales.toLocaleString('ko-KR'))}원 · 영업이익 ${esc(month.profit.toLocaleString('ko-KR'))}원</span>
+        <span class="intake-head-right">
+          <span class="module-chip live">매출 ${esc(month.sales.toLocaleString('ko-KR'))}원 · 영업이익 ${esc(month.profit.toLocaleString('ko-KR'))}원</span>
+          <button class="module-action primary" type="button" data-estimate-open>정산서 발행</button>
+        </span>
       </div>
       <div class="module-section-body">
         ${renderIntakeFilter()}
@@ -3184,6 +3187,289 @@
   // 최종정산서는 실제로 일이 들어간 건만 올린다.
   // 당일접수 / 예약건 작업 / 환불 / 예약건환불 네 가지이며, 선입금만 받아 둔
   // 예약최초건은 매출이 아니므로 올라가지 않는다.
+  // 거래처에 보내는 작업 견적서. 우리 회사 정보는 고정이고 나머지는 그때그때 고친다.
+  const ESTIMATE_ISSUER = {
+    company: '주식회사 피크마케팅',
+    ceo: '김진봉',
+    bizNo: '812-86-03331',
+    bank: '기업은행 568-048256-04-017'
+  };
+  const ESTIMATE_MIN_ROWS = 8;
+  const ESTIMATE_NOTE = '*입금자명이 업체명과 다를 시 세금계산서발행이 누락될 수 있습니다. 업체명으로 입금확인 부탁드립니다 :)';
+
+  let estimateDraft = null;
+
+  function estimateRowsFor(client) {
+    return personalRows()
+      .filter(row => (row.client || '') === client)
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  }
+
+  // 화면에서 고친 값만 들고 있는다. 접수 원본은 건드리지 않는다.
+  function buildEstimateDraft(client) {
+    return {
+      client,
+      clientCeo: '',
+      manager: String(userDoc?.name || '').trim(),
+      date: localDateKey(new Date()),
+      lines: estimateRowsFor(client).map(row => ({
+        category: row.a || '',
+        name: row.c || '',
+        unit: (Number(row.sell) || 0) * (kindOf(row) === 'refund' ? -1 : 1),
+        qty: Number(row.qty) || 0
+      }))
+    };
+  }
+
+  function estimateTotals(draft) {
+    const supply = draft.lines.reduce((sum, line) => sum + Math.round((Number(line.unit) || 0) * (Number(line.qty) || 0)), 0);
+    const tax = Math.round(supply * 0.1);
+    return { supply, tax, total: supply + tax };
+  }
+
+  function estimateFileName(draft) {
+    const safe = String(draft.client || '거래처').replace(/[\\/:*?"<>|]/g, '');
+    return `견적서_${safe}_${draft.date.replace(/-/g, '')}.png`;
+  }
+
+  // 캔버스에 직접 그린다. 외부 라이브러리 없이 저장까지 되어야 해서 이렇게 한다.
+  function drawEstimate(canvas, draft) {
+    const W = 1160;
+    const rowH = 30;
+    const lineCount = Math.max(ESTIMATE_MIN_ROWS, draft.lines.length);
+    const H = 96 + 4 * 32 + 16 + 32 + lineCount * rowH + 2 * 32 + 64;
+    const scale = 2;
+    canvas.width = W * scale;
+    canvas.height = H * scale;
+    canvas.style.width = '100%';
+    canvas.style.height = 'auto';
+
+    const g = canvas.getContext('2d');
+    g.scale(scale, scale);
+    const font = (size, weight = '400') => `${weight} ${size}px "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif`;
+    const won = value => Number(value || 0).toLocaleString('ko-KR');
+
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, W, H);
+
+    const cell = (x, y, w, h, fill) => {
+      if (fill) { g.fillStyle = fill; g.fillRect(x, y, w, h); }
+      g.strokeStyle = '#b7bcc4';
+      g.lineWidth = 1;
+      g.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    };
+    const text = (value, x, y, { align = 'center', size = 13, weight = '400', color = '#111827' } = {}) => {
+      g.fillStyle = color;
+      g.font = font(size, weight);
+      g.textAlign = align;
+      g.textBaseline = 'middle';
+      g.fillText(String(value ?? ''), x, y);
+    };
+
+    // 제목과 로고
+    text('WORK ESTIMATE', W / 2, 34, { size: 20, weight: '700' });
+    g.fillStyle = '#e8734a';
+    g.fillRect(W - 232, 22, 26, 26);
+    g.fillStyle = '#ffffff';
+    g.fillRect(W - 228, 27, 18, 4);
+    g.fillRect(W - 228, 34, 18, 4);
+    g.fillRect(W - 228, 41, 18, 4);
+    text('PEAK MARKETING', W - 12, 36, { align: 'right', size: 17, weight: '700', color: '#3f3f46' });
+
+    // 파란 띠
+    g.fillStyle = '#2b35d8';
+    g.fillRect(0, 62, W, 10);
+
+    // 발행자 / 거래처 정보
+    const infoTop = 82;
+    const cols = [0, 135, 610, 765, W];
+    const info = [
+      ['회사명', ESTIMATE_ISSUER.company, '거래처명', draft.client || ''],
+      ['대표자', ESTIMATE_ISSUER.ceo, '대표자', draft.clientCeo || ''],
+      ['사업자등록번호', ESTIMATE_ISSUER.bizNo, '발행일자', draft.date.replace(/-0?/g, '. ').replace(/^\. /, '')],
+      ['담당자', draft.manager || '', '입금 계좌번호', ESTIMATE_ISSUER.bank]
+    ];
+    info.forEach((row, i) => {
+      const y = infoTop + i * 32;
+      [0, 2].forEach(k => {
+        const cx = cols[k];
+        cell(cx, y, cols[k + 1] - cx, 32, '#ededed');
+        text(row[k], cx + (cols[k + 1] - cx) / 2, y + 16, { size: 13, weight: '700', color: '#1f2937' });
+        cell(cols[k + 1], y, cols[k + 2] - cols[k + 1], 32, '#ffffff');
+        text(row[k + 1], cols[k + 1] + (cols[k + 2] - cols[k + 1]) / 2, y + 16, { size: 13, weight: '700' });
+      });
+    });
+
+    // 품목 표
+    const tableTop = infoTop + 4 * 32 + 16;
+    const c = [0, 160, 620, 755, 890, 1025, W];
+    const heads = ['카테고리', '상품명', '단가', '수량', '공급가액', '세액'];
+    heads.forEach((label, i) => {
+      cell(c[i], tableTop, c[i + 1] - c[i], 32, '#ededed');
+      text(label, c[i] + (c[i + 1] - c[i]) / 2, tableTop + 16, { size: 13, weight: '700', color: '#1f2937' });
+    });
+
+    const bodyTop = tableTop + 32;
+    // 카테고리는 세로로 병합한 것처럼 한 칸으로 둔다
+    cell(c[0], bodyTop, c[1] - c[0], lineCount * rowH, '#f3f3f3');
+    const categories = [...new Set(draft.lines.map(line => line.category).filter(Boolean))];
+    text(categories.join(' · ') || '', c[0] + (c[1] - c[0]) / 2, bodyTop + (lineCount * rowH) / 2, { size: 13, weight: '700', color: '#1f2937' });
+
+    for (let i = 0; i < lineCount; i += 1) {
+      const y = bodyTop + i * rowH;
+      const line = draft.lines[i];
+      for (let k = 1; k < 6; k += 1) cell(c[k], y, c[k + 1] - c[k], rowH, '#ffffff');
+      if (!line) continue;
+      const supply = Math.round((Number(line.unit) || 0) * (Number(line.qty) || 0));
+      text(line.name, c[1] + (c[2] - c[1]) / 2, y + rowH / 2, { size: 12.5, weight: '700' });
+      text(won(line.unit), c[2] + (c[3] - c[2]) / 2, y + rowH / 2, { size: 12.5, weight: '700' });
+      text(won(line.qty), c[3] + (c[4] - c[3]) / 2, y + rowH / 2, { size: 12.5, weight: '700' });
+      text(won(supply), c[4] + (c[5] - c[4]) / 2, y + rowH / 2, { size: 12.5, weight: '700' });
+      text(won(Math.round(supply * 0.1)), c[5] + (c[6] - c[5]) / 2, y + rowH / 2, { size: 12.5, weight: '700' });
+    }
+
+    // 합계
+    const sums = estimateTotals(draft);
+    const sumTop = bodyTop + lineCount * rowH;
+    [['소계', won(sums.supply), won(sums.tax)], ['합계(VAT 포함)', '', `${won(sums.total)}원`]].forEach((row, i) => {
+      const y = sumTop + i * 32;
+      cell(c[2], y, c[3] - c[2], 32, '#ededed');
+      text(row[0], c[2] + (c[3] - c[2]) / 2, y + 16, { size: 13, weight: '700', color: '#1f2937' });
+      cell(c[3], y, c[4] - c[3], 32, '#ffffff');
+      cell(c[4], y, c[5] - c[4], 32, '#ffffff');
+      text(row[1], c[4] + (c[5] - c[4]) / 2, y + 16, { size: 12.5, weight: '700' });
+      cell(c[5], y, c[6] - c[5], 32, '#ffffff');
+      text(row[2], c[5] + (c[6] - c[5]) / 2, y + 16, { size: 12.5, weight: '700' });
+    });
+
+    text(ESTIMATE_NOTE, W - 8, sumTop + 2 * 32 + 34, { align: 'right', size: 12.5, weight: '700', color: '#d93025' });
+  }
+
+  function renderEstimateLines() {
+    const draft = estimateDraft;
+    return draft.lines.map((line, index) => `<tr>
+      <td><input class="paid-input est-input" data-est-line="category" data-est-index="${index}" type="text" value="${esc(line.category)}" aria-label="카테고리"></td>
+      <td><input class="paid-input est-input wide" data-est-line="name" data-est-index="${index}" type="text" value="${esc(line.name)}" aria-label="상품명"></td>
+      <td><input class="paid-input est-input num" data-est-line="unit" data-est-index="${index}" type="number" value="${esc(String(line.unit))}" aria-label="단가"></td>
+      <td><input class="paid-input est-input num" data-est-line="qty" data-est-index="${index}" type="number" value="${esc(String(line.qty))}" aria-label="수량"></td>
+      <td class="est-supply">${esc(Math.round((Number(line.unit) || 0) * (Number(line.qty) || 0)).toLocaleString('ko-KR'))}</td>
+      <td><button class="module-action" type="button" data-est-remove="${index}" aria-label="줄 삭제">✕</button></td>
+    </tr>`).join('');
+  }
+
+  // 거래처 하나에 대해 접수 건을 모아 견적서 한 장으로 만든다.
+  function openEstimateDialog(client) {
+    estimateDraft = buildEstimateDraft(client);
+    const clients = [...new Set(personalRows().map(row => row.client).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
+
+    openDetailModal('정산서 발행 · WORK ESTIMATE', `
+      <div class="est-head">
+        <label class="paid-field"><span class="paid-label">거래처</span>
+          <select class="paid-input" id="estClient">
+            ${clients.map(name => `<option value="${esc(name)}" ${name === client ? 'selected' : ''}>${esc(name)}</option>`).join('')}
+          </select></label>
+        <label class="paid-field"><span class="paid-label">거래처 대표자</span>
+          <input class="paid-input" id="estCeo" type="text" placeholder="대표자명"></label>
+        <label class="paid-field"><span class="paid-label">담당자</span>
+          <input class="paid-input" id="estManager" type="text" value="${esc(estimateDraft.manager)}"></label>
+        <label class="paid-field"><span class="paid-label">발행일자</span>
+          <input class="paid-input" id="estDate" type="date" value="${esc(estimateDraft.date)}"></label>
+      </div>
+
+      <p class="paid-hint">카테고리와 상품명은 거래처에 보낼 이름으로 고쳐 쓰세요. 접수 원본은 바뀌지 않습니다.</p>
+
+      <div class="sales-table-scroll est-lines">
+        <table class="sales-table">
+          <thead><tr><th scope="col">카테고리</th><th scope="col">상품명</th><th scope="col">단가</th><th scope="col">수량</th><th scope="col">공급가액</th><th scope="col" aria-label="삭제"></th></tr></thead>
+          <tbody id="estLines">${renderEstimateLines()}</tbody>
+        </table>
+      </div>
+      <div class="est-tools">
+        <button class="module-action" type="button" data-est-add>＋ 줄 추가</button>
+        <span class="est-sum" id="estSum"></span>
+      </div>
+
+      <div class="est-preview"><canvas id="estCanvas"></canvas></div>
+
+      <div class="paid-actions">
+        <button class="module-action" type="button" data-est-close>닫기</button>
+        <button class="module-action primary" type="button" data-est-download>이미지 저장</button>
+      </div>`, { locked: true });
+
+    const dialog = document.getElementById('readonlyModalBody');
+    const canvas = document.getElementById('estCanvas');
+    const linesBody = document.getElementById('estLines');
+
+    function refreshPreview() {
+      const sums = estimateTotals(estimateDraft);
+      document.getElementById('estSum').textContent =
+        `공급가액 ${sums.supply.toLocaleString('ko-KR')} · 세액 ${sums.tax.toLocaleString('ko-KR')} · 합계 ${sums.total.toLocaleString('ko-KR')}원`;
+      drawEstimate(canvas, estimateDraft);
+    }
+
+    function redrawLines() {
+      linesBody.innerHTML = renderEstimateLines();
+      wireLines();
+      refreshPreview();
+    }
+
+    function wireLines() {
+      linesBody.querySelectorAll('[data-est-line]').forEach(input => {
+        // 글자를 칠 때마다 줄을 다시 그리면 커서가 튀므로 미리보기만 갱신한다
+        input.addEventListener('input', () => {
+          const line = estimateDraft.lines[Number(input.dataset.estIndex)];
+          if (!line) return;
+          const key = input.dataset.estLine;
+          line[key] = (key === 'unit' || key === 'qty') ? Number(input.value) || 0 : input.value;
+          const cellEl = input.closest('tr').querySelector('.est-supply');
+          if (cellEl) cellEl.textContent = Math.round((Number(line.unit) || 0) * (Number(line.qty) || 0)).toLocaleString('ko-KR');
+          refreshPreview();
+        });
+      });
+      linesBody.querySelectorAll('[data-est-remove]').forEach(button => button.addEventListener('click', () => {
+        estimateDraft.lines.splice(Number(button.dataset.estRemove), 1);
+        redrawLines();
+      }));
+    }
+
+    ['estCeo', 'estManager', 'estDate'].forEach(id => {
+      document.getElementById(id).addEventListener('input', () => {
+        estimateDraft.clientCeo = document.getElementById('estCeo').value;
+        estimateDraft.manager = document.getElementById('estManager').value;
+        estimateDraft.date = document.getElementById('estDate').value || estimateDraft.date;
+        refreshPreview();
+      });
+    });
+    document.getElementById('estClient').addEventListener('change', event => {
+      openEstimateDialog(event.target.value);
+    });
+    dialog.querySelector('[data-est-add]').addEventListener('click', () => {
+      estimateDraft.lines.push({ category: '', name: '', unit: 0, qty: 0 });
+      redrawLines();
+    });
+    dialog.querySelector('[data-est-close]').addEventListener('click', closeDetailModal);
+    dialog.querySelector('[data-est-download]').addEventListener('click', () => {
+      canvas.toBlob(blob => {
+        if (!blob) {
+          showToast('이미지를 만들지 못했습니다.');
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = estimateFileName(estimateDraft);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        showToast(`${estimateDraft.client} 정산서를 저장했습니다.`);
+      }, 'image/png');
+    });
+
+    wireLines();
+    refreshPreview();
+  }
+
   // 단가표 — 최종정산서에서는 회사원가까지, 개인정산서에서는 영업자단가만.
   let priceTableQuery = '';
 
@@ -3881,6 +4167,15 @@
     moduleView.querySelector('[data-final-assign]')?.addEventListener('click', openAssignDialog);
     moduleView.querySelector('[data-cost-fill]')?.addEventListener('click', openCostDialog);
     moduleView.querySelector('[data-price-table]')?.addEventListener('click', openPriceTable);
+    moduleView.querySelector('[data-estimate-open]')?.addEventListener('click', () => {
+      // 거래처를 골라 뒀으면 그 업체로, 아니면 첫 업체로 연다.
+      const clients = [...new Set(personalRows().map(row => row.client).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
+      if (!clients.length) {
+        showToast('정산서를 낼 접수가 아직 없습니다.');
+        return;
+      }
+      openEstimateDialog(clients.includes(intakeFilter.client) ? intakeFilter.client : clients[0]);
+    });
     moduleView.querySelector('[data-intake-toggle]')?.addEventListener('click', () => {
       intakeOpen = !intakeOpen;
       renderPlannedModule(intakeContext);
