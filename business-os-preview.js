@@ -273,6 +273,10 @@
     ['블로그', '브랜드블로그', '카카오톡 채널 친구추가', 12000, 12000]
   ];
 
+  // 최종정산서는 직급 기준이 아니라 지정된 사람만 본다.
+  // 같은 팀장이라도 전현우는 보고 김지홍은 보지 못한다.
+  const FINAL_SETTLEMENT_VIEWERS = ['김진봉', '손명아', '김대호', '박종원', '전현우'];
+
   // 직급은 위에서 아래로 높은 순. 권한 관리는 부장 이상만 가능하다.
   const ORG_RANKS = ['대표', '이사', '부장', '실장', '팀장', '과장', '대리', '주임'];
   const ORG_RANK_MANAGE_FROM = ORG_RANKS.indexOf('부장');
@@ -1997,6 +2001,12 @@
     return orgRankOrder(currentOrgRank()) <= ORG_RANK_MANAGE_FROM;
   }
 
+  // 대표 마스터 계정(패션TV봉이)은 이름이 달라 role로도 확인한다.
+  function canSeeFinalSettlement() {
+    if (userDoc?.role === 'admin') return true;
+    return FINAL_SETTLEMENT_VIEWERS.includes(String(userDoc?.name || '').trim());
+  }
+
   function intakeRowsByDate() {
     const groups = new Map();
     [...intakeDraft]
@@ -2197,9 +2207,9 @@
 
   function renderSettlementModule() {
     const management = ['admin', 'manager'].includes(userDoc?.role);
-    const managementCards = management ? `
-      ${moduleCard({ icon: '♙', tone: 'green', title: '영업자별 개인정산서', description: '소속 또는 허용된 영업자별 매출, 공제, 지급 예정액과 정산 상태를 확인합니다.', chip: '관리직 조회', chipClass: 'visible', footer: '소속·허용 지사 기준', action: '영업자 목록' })}
-      ${moduleCard({ icon: '♛', tone: 'violet', title: '최종정산서', description: '전체 정산 검토가 끝난 뒤 확정된 최종 지급 내역과 승인 이력을 관리합니다.', chip: '관리직 전용', chipClass: 'restricted', footer: '대표·팀장만 표시', action: '정산 구조 보기' })}` : '';
+    const managementCards = `
+      ${management ? moduleCard({ icon: '♙', tone: 'green', title: '영업자별 개인정산서', description: '소속 또는 허용된 영업자별 매출, 공제, 지급 예정액과 정산 상태를 확인합니다.', chip: '관리직 조회', chipClass: 'visible', footer: '소속·허용 지사 기준', action: '영업자 목록' }) : ''}
+      ${canSeeFinalSettlement() ? moduleCard({ icon: '♛', tone: 'violet', title: '최종정산서', description: '전체 정산 검토가 끝난 뒤 확정된 최종 지급 내역과 승인 이력을 관리합니다.', chip: '지정 인원 전용', chipClass: 'restricted', footer: '대표·손명아·김대호·박종원·전현우', action: '정산 구조 보기' }) : ''}`.trim();
     moduleView.innerHTML = `
       ${moduleStatusbar('정산서', management ? '시트접수와 개인정산서를 관리합니다.' : '로그인한 영업자의 개인정산 범위만 표시합니다.', '접수 초안 · 저장 전')}
       ${renderIntakeForm()}
@@ -2207,7 +2217,9 @@
       ${managementCards ? `<section class="module-grid">${managementCards}</section>` : ''}
       <div class="module-security"><span>▣</span><span><strong>현재 적용 권한: ${esc(currentOrgRank())}</strong><br>${canSeeCompanyCost()
         ? '회사 원가와 회사 기준 영업이익까지 표시됩니다. 부장 이상에게만 보입니다.'
-        : '영업자 단가 기준으로만 표시되며 회사 원가는 감춥니다. 지금 구글 정산서와 같은 기준입니다.'}</span></div>`;
+        : '영업자 단가 기준으로만 표시되며 회사 원가는 감춥니다. 지금 구글 정산서와 같은 기준입니다.'}${canSeeFinalSettlement()
+        ? ' 최종정산서는 지정된 인원에게만 열립니다.'
+        : ' 최종정산서는 지정된 인원만 볼 수 있어 표시하지 않습니다.'}</span></div>`;
   }
 
   function renderTaxModule() {

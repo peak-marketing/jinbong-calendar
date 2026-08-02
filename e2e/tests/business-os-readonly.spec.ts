@@ -412,7 +412,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
     await page.locator('.nav-item[data-view="settlement"]').click();
     await expect(page.locator('#moduleView')).toContainText('내 개인정산서');
-    await expect(page.locator('#moduleView')).not.toContainText('최종정산서');
+    await expect(page.locator('#moduleView .module-card h2', { hasText: '최종정산서' })).toHaveCount(0);
     // 영업자에게는 회사 원가를 감춘다
     await expect(page.locator('#moduleView .intake-calc .masked')).toContainText('표시 안 함');
     await expect(page.locator('#moduleView')).toContainText('회사 원가는 감춥니다');
@@ -426,6 +426,43 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView')).toContainText('부장 이상만 수정할 수 있으며');
     await expect(page.locator('#moduleView')).toContainText('현재 계정은 조회만 가능합니다');
   });
+
+  // 최종정산서는 직급이 아니라 지정된 사람만 본다.
+  // 같은 팀장이라도 전현우는 보고 김지홍은 보지 못한다.
+  for (const [name, role, allowed] of [
+    ['전현우', 'manager', true],
+    ['손명아', 'member', true],
+    ['박종원', 'manager', true],
+    ['김지홍', 'manager', false],
+    ['김주현', 'manager', false],
+    ['김용일', 'manager', false],
+  ] as [string, string, boolean][]) {
+    test(`final settlement is ${allowed ? 'visible' : 'hidden'} for ${name}`, async ({ page }) => {
+      await installFirebaseStub(page);
+      await page.route('**/api/**', route => {
+        const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+        let payload: unknown = [];
+        if (pathname === '/users/me') {
+          payload = { uid: 'e2e-test-user', name, role, approved: true, is_active: true, group_name: '본사 영업팀' };
+        } else if (pathname === '/chat-rooms/unread') {
+          payload = {};
+        } else if (pathname === '/projects') {
+          payload = { canManageAll: false, projects: [] };
+        }
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+      });
+
+      await page.goto('/business-os-preview.html');
+      await expect(page.locator('#authGate')).toBeHidden();
+      await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+      await page.locator('.nav-item[data-view="settlement"]').click();
+      // 접수 화면은 누구에게나 열린다
+      await expect(page.locator('#moduleView .intake-form')).toHaveCount(1);
+      await expect(
+        page.locator('#moduleView .module-card h2', { hasText: '최종정산서' })
+      ).toHaveCount(allowed ? 1 : 0);
+    });
+  }
 
   test('shows no invented amounts when the account has no sales rows', async ({ page }) => {
     await installFirebaseStub(page);
