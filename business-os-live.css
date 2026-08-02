@@ -1855,6 +1855,97 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   color: #41586c;
 }
 
+/* ── 입금 확인 ───────────────────────────────────── */
+.paid-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.paid-chip.wait { background: #fbf1e2; color: #9d6a24; }
+.paid-chip.ok { background: #e7f4ed; color: #2f7a57; }
+.paid-chip.hold { background: #fbeceb; color: #a8514c; }
+.paid-chip:hover { border-color: currentColor; }
+.paid-chip:focus-visible { outline: 2px solid #348ecd; outline-offset: 2px; }
+.paid-chip small { font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 600; opacity: .85; }
+.paid-chip em { font-style: normal; font-size: 11px; opacity: .7; }
+
+.ledger-pick { width: 34px; text-align: center; }
+.ledger-pick input { width: 17px; height: 17px; accent-color: #348ecd; cursor: pointer; }
+.ledger-table tr.picked { background: #f2f9fe; }
+
+.pick-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-bottom: 16px;
+  padding: 13px 16px;
+  border: 1px solid #9dcced;
+  border-radius: 10px;
+  background: #f2f9fe;
+  color: #2674ac;
+  font-size: 14px;
+}
+
+.pick-bar strong { font-weight: 800; }
+.pick-bar-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.ledger-total strong.unpaid { color: #9d6a24; }
+
+/* 입금 확인 창 */
+.paid-modal-sub { margin: 0 0 16px; color: #6d7b89; font-size: 14.5px; }
+
+.paid-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin-bottom: 18px;
+  border: 1px solid #e3eaf0;
+  border-radius: 10px;
+  background: #e3eaf0;
+  overflow: hidden;
+}
+
+.paid-summary article { display: flex; flex-direction: column; gap: 3px; padding: 13px 15px; background: #fff; }
+.paid-summary span { color: #6d7b89; font-size: 12.5px; font-weight: 600; }
+.paid-summary strong { color: #1d2b38; font-size: 18px; font-weight: 800; }
+
+.paid-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.paid-label { color: #41586c; font-size: 14px; font-weight: 700; }
+
+.paid-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid #d5dfe8;
+  border-radius: 9px;
+  background: #fff;
+  color: #24313e;
+  font-family: inherit;
+  font-size: 15px;
+}
+
+.paid-input:focus-visible { outline: 2px solid #348ecd; outline-offset: 1px; }
+.paid-hint { margin: 0; color: #7b8794; font-size: 13px; line-height: 1.6; }
+
+.paid-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
 /* ── 계정 미리보기 전환 ──────────────────────────── */
 .prototype-bar { flex-wrap: wrap; }
 

@@ -464,6 +464,58 @@ test.describe('Business OS read-only operating data', () => {
     });
   }
 
+  test('splits one deposit across several intake rows', async ({ page }) => {
+    await installFirebaseStub(page);
+    await page.route('**/api/**', route => {
+      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+      let payload: unknown = [];
+      if (pathname === '/users/me') {
+        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
+      } else if (pathname === '/chat-rooms/unread') {
+        payload = {};
+      } else if (pathname === '/projects') {
+        payload = { canManageAll: false, projects: [] };
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    });
+
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+    await page.locator('.nav-item[data-view="settlement"]').click();
+
+    // 같은 업체로 두 건 접수 — 판매액 20,000 + 30,000
+    for (const [b, c, qty, sell] of [
+      ['최적화블로그', '최블 B', '4', '5000'],
+      ['원고', '프리미엄원고대필', '2', '15000'],
+    ] as [string, string, string, string][]) {
+      await page.locator('[data-intake="a"]').selectOption('블로그');
+      await page.locator('[data-intake="b"]').selectOption(b);
+      await page.locator('[data-intake="c"]').selectOption(c);
+      await page.locator('[data-intake="client"]').fill('한결에이전시');
+      await page.locator('[data-intake="qty"]').fill(qty);
+      await page.locator('[data-intake="sell"]').fill(sell);
+      await page.locator('[data-intake-add]').click();
+    }
+    await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(2);
+    await expect(page.locator('#moduleView .paid-chip span').first()).toHaveText('미입금');
+
+    // 두 건을 묶어 한 번에 입금 처리
+    await page.locator('[data-intake-pick]').nth(0).check();
+    await page.locator('[data-intake-pick]').nth(1).check();
+    await expect(page.locator('#moduleView .pick-bar')).toContainText('2건');
+    await page.locator('[data-paid-bulk]').click();
+    // 판매액 합계가 기본값으로 채워진다
+    await expect(page.locator('#paidAmount')).toHaveValue('50000');
+    await page.locator('[data-paid-save]').click();
+
+    // 합계만큼 들어왔으니 두 건 모두 입금 완료
+    await expect(page.locator('#moduleView .paid-chip span').nth(0)).toHaveText('입금');
+    await expect(page.locator('#moduleView .paid-chip span').nth(1)).toHaveText('입금');
+    await expect(page.locator('#moduleView .ledger-total')).toContainText('입금 50,000');
+    await expect(page.locator('#moduleView .ledger-total')).toContainText('미입금 0');
+  });
+
   // 하위 계정 정산서는 대표·김대호·박종원만 연다.
   for (const [name, allowed] of [
     ['김대호', true],

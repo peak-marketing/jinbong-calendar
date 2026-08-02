@@ -52,6 +52,7 @@
   // 시트접수 건. 아직 운영 DB에 쓰지 않고 브라우저에만 남는 초안이다.
   let intakeDraft = [];
   let intakeForm = { a: '', b: '', c: '', unit: '', qty: '', sell: '', client: '', date: '' };
+  let intakeSelection = [];
   let orgBranchFilter = 'all';
   // 평소에는 갈래로 나뉜 조직도, 수정할 때만 세로로 나열한다
   let orgEditMode = false;
@@ -2093,6 +2094,30 @@
     return [...groups.entries()];
   }
 
+  // ── 입금 확인 ────────────────────────────────────────────────
+  const PAID_STATES = {
+    none: { label: '미입금', tone: 'wait' },
+    paid: { label: '입금', tone: 'ok' },
+    partial: { label: '부분입금', tone: 'wait' },
+    wrong: { label: '오입금', tone: 'hold' }
+  };
+
+  function paidStateOf(row) {
+    return PAID_STATES[row.paid] ? row.paid : 'none';
+  }
+
+  function rowSales(row) {
+    return (Number(row.sell) || 0) * (Number(row.qty) || 0);
+  }
+
+  // 입금액이 판매액과 다르면 상태를 자동으로 맞춘다.
+  function resolvePaidState(row, amount) {
+    const sales = rowSales(row);
+    if (!amount) return 'none';
+    if (amount === sales) return 'paid';
+    return amount < sales ? 'partial' : 'wrong';
+  }
+
   function intakeTotals(rows) {
     return rows.reduce((sum, row) => {
       const supply = (Number(row.unit) || 0) * (Number(row.qty) || 0);
@@ -2102,8 +2127,9 @@
       sum.sales += sales;
       sum.profit += sales - supply;
       if (cost !== null) sum.cost += cost;
+      sum.paid += Number(row.paidAmount) || 0;
       return sum;
-    }, { supply: 0, sales: 0, profit: 0, cost: 0 });
+    }, { supply: 0, sales: 0, profit: 0, cost: 0, paid: 0 });
   }
 
   // 현재 입력값으로 계산 칸만 다시 만든다. 글자를 칠 때마다 화면 전체를
@@ -2203,6 +2229,133 @@
     </section>`;
   }
 
+  function pickBarMarkup() {
+    if (!intakeSelection.length) return '';
+    return `<div class="pick-bar">
+      <span><strong>${esc(String(intakeSelection.length))}건</strong> 선택됨 · 한 번에 입금 처리하면 판매액 비율로 나눠 담습니다</span>
+      <span class="pick-bar-actions">
+        <button class="module-action" type="button" data-paid-clear-pick>선택 해제</button>
+        <button class="module-action primary" type="button" data-paid-bulk>묶어서 입금 확인</button>
+      </span>
+    </div>`;
+  }
+
+  // 체크박스마다 전체를 다시 그리면 무겁고 포커스가 튄다. 선택 바와
+  // 행 표시만 갈아 끼운다.
+  function refreshPickBar() {
+    const slot = moduleView.querySelector('.pick-bar-slot');
+    if (!slot) return;
+    slot.innerHTML = pickBarMarkup();
+    moduleView.querySelectorAll('[data-intake-pick]').forEach(box => {
+      box.closest('tr')?.classList.toggle('picked', intakeSelection.includes(box.dataset.intakePick));
+    });
+    slot.querySelector('[data-paid-bulk]')?.addEventListener('click', () => openPaidDialog(intakeSelection));
+    slot.querySelector('[data-paid-clear-pick]')?.addEventListener('click', () => {
+      intakeSelection = [];
+      moduleView.querySelectorAll('[data-intake-pick]').forEach(box => { box.checked = false; });
+      refreshPickBar();
+    });
+  }
+
+  function renderPaidCell(row) {
+    const state = paidStateOf(row);
+    const info = PAID_STATES[state];
+    const amount = Number(row.paidAmount) || 0;
+    return `<button class="paid-chip ${esc(info.tone)}" type="button" data-paid-open="${esc(row.id)}"
+      aria-label="${esc(row.client || '')} 입금 확인">
+      <span>${esc(info.label)}</span>
+      ${amount ? `<small>${esc(amount.toLocaleString('ko-KR'))}</small>` : ''}
+      ${row.paidAuto ? '<em>자동</em>' : ''}
+    </button>`;
+  }
+
+  // 입금 확인 창. 여러 건을 골랐으면 총 입금액을 판매액 비율로 나눠 담는다.
+  function openPaidDialog(ids) {
+    const rows = intakeDraft.filter(row => ids.includes(row.id));
+    if (!rows.length) return;
+    const totalSales = rows.reduce((sum, row) => sum + rowSales(row), 0);
+    const already = rows.reduce((sum, row) => sum + (Number(row.paidAmount) || 0), 0);
+    const single = rows.length === 1;
+
+    openDetailModal('입금 확인', `
+      <p class="paid-modal-sub">${single
+        ? `${esc(rows[0].client || '업체 미입력')} · ${esc(rows[0].a)} › ${esc(rows[0].c)}`
+        : `${esc(String(rows.length))}건 묶음 · ${esc(rows.map(r => r.client || '업체 미입력').filter((v, i, arr) => arr.indexOf(v) === i).join(', '))}`}</p>
+
+      <div class="paid-summary">
+        <article><span>판매액 합계</span><strong>${esc(totalSales.toLocaleString('ko-KR'))}</strong></article>
+        <article><span>기존 입금액</span><strong>${esc(already.toLocaleString('ko-KR'))}</strong></article>
+      </div>
+
+      <div class="paid-field">
+        <label class="paid-label" for="paidAmount">입금액</label>
+        <input class="paid-input" id="paidAmount" type="number" min="0" value="${esc(String(totalSales))}">
+        <small class="paid-hint">통장에 찍힌 금액을 넣으세요. 판매액과 다르면 부분입금·오입금으로 잡힙니다.</small>
+      </div>
+      <div class="paid-field">
+        <label class="paid-label" for="paidPayer">실제 입금자명</label>
+        <input class="paid-input" id="paidPayer" type="text" value="${esc(rows[0].payer || rows[0].client || '')}" placeholder="통장에 찍힌 이름">
+      </div>
+      <div class="paid-field">
+        <label class="paid-label" for="paidDate">입금일</label>
+        <input class="paid-input" id="paidDate" type="date" value="${esc(rows[0].paidDate || localDateKey(new Date()))}">
+      </div>
+      <div class="paid-field">
+        <label class="paid-label" for="paidMemo">입금 특이사항</label>
+        <input class="paid-input" id="paidMemo" type="text" value="${esc(rows[0].paidMemo || '')}" placeholder="선택 입력">
+      </div>
+
+      ${single ? '' : '<p class="paid-hint">묶음은 판매액 비율로 나눠 담습니다.</p>'}
+
+      <div class="paid-actions">
+        <button class="module-action" type="button" data-paid-clear>입금 취소</button>
+        <button class="module-action primary" type="button" data-paid-save>확인</button>
+      </div>`);
+
+    const dialog = document.getElementById('readonlyModalBody');
+
+    dialog.querySelector('[data-paid-save]').addEventListener('click', () => {
+      const amount = Number(document.getElementById('paidAmount').value) || 0;
+      const payer = document.getElementById('paidPayer').value.trim();
+      const paidDate = document.getElementById('paidDate').value;
+      const paidMemo = document.getElementById('paidMemo').value.trim();
+
+      let left = amount;
+      rows.forEach((row, index) => {
+        const share = index === rows.length - 1
+          ? left
+          : (totalSales ? Math.round(amount * (rowSales(row) / totalSales)) : 0);
+        left -= share;
+        row.paidAmount = share;
+        row.paid = resolvePaidState(row, share);
+        row.payer = payer;
+        row.paidDate = paidDate;
+        row.paidMemo = paidMemo;
+        row.paidAuto = false;
+      });
+      saveIntakeDraft();
+      intakeSelection = [];
+      closeDetailModal();
+      renderPlannedModule('settlement');
+      showToast(`입금 ${amount.toLocaleString('ko-KR')}원을 ${rows.length}건에 반영했습니다.`);
+    });
+
+    dialog.querySelector('[data-paid-clear]').addEventListener('click', () => {
+      rows.forEach(row => {
+        row.paidAmount = 0;
+        row.paid = 'none';
+        row.payer = '';
+        row.paidDate = '';
+        row.paidMemo = '';
+        row.paidAuto = false;
+      });
+      saveIntakeDraft();
+      intakeSelection = [];
+      closeDetailModal();
+      renderPlannedModule('settlement');
+    });
+  }
+
   function renderIntakeLedger() {
     const groups = intakeRowsByDate();
     const showCost = canSeeCompanyCost();
@@ -2225,6 +2378,7 @@
         <span class="module-chip live">매출 ${esc(month.sales.toLocaleString('ko-KR'))}원 · 영업이익 ${esc(month.profit.toLocaleString('ko-KR'))}원</span>
       </div>
       <div class="module-section-body">
+        <div class="pick-bar-slot">${pickBarMarkup()}</div>
         ${groups.map(([date, rows]) => {
           const day = intakeTotals(rows);
           const dow = weekday[new Date(`${date}T00:00:00`).getDay()] || '';
@@ -2237,6 +2391,7 @@
               <table class="sales-table ledger-table">
                 <thead>
                   <tr>
+                    <th scope="col" aria-label="선택"></th>
                     <th scope="col">업체명</th>
                     <th scope="col">상품</th>
                     <th scope="col">수량</th>
@@ -2245,6 +2400,7 @@
                     ${showCost ? '<th scope="col">회사원가</th>' : ''}
                     <th scope="col">매출</th>
                     <th scope="col">영업이익</th>
+                    <th scope="col">입금</th>
                     <th scope="col" aria-label="삭제"></th>
                   </tr>
                 </thead>
@@ -2252,7 +2408,8 @@
                   ${rows.map(row => {
                     const supply = (Number(row.unit) || 0) * (Number(row.qty) || 0);
                     const sales = (Number(row.sell) || 0) * (Number(row.qty) || 0);
-                    return `<tr>
+                    return `<tr class="${intakeSelection.includes(row.id) ? 'picked' : ''}">
+                      <td class="ledger-pick"><input type="checkbox" data-intake-pick="${esc(row.id)}" ${intakeSelection.includes(row.id) ? 'checked' : ''} aria-label="${esc(row.client || '')} 선택"></td>
                       <th scope="row">${esc(row.client || '업체 미입력')}</th>
                       <td class="ledger-product">${esc(row.a)} › ${esc(row.b)} › ${esc(row.c)}</td>
                       <td>${esc(Number(row.qty).toLocaleString('ko-KR'))}</td>
@@ -2261,6 +2418,7 @@
                       ${showCost ? `<td>${row.cost === null || row.cost === undefined ? '—' : esc((Number(row.cost) * Number(row.qty)).toLocaleString('ko-KR'))}</td>` : ''}
                       <td>${esc(sales.toLocaleString('ko-KR'))}</td>
                       <td class="sales-cell-total">${esc((sales - supply).toLocaleString('ko-KR'))}</td>
+                      <td>${renderPaidCell(row)}</td>
                       <td><button class="ledger-remove" type="button" data-intake-remove="${esc(row.id)}" aria-label="${esc(row.client || '')} 접수 삭제">✕</button></td>
                     </tr>`;
                   }).join('')}
@@ -2275,6 +2433,8 @@
           <span>매출 <strong>${esc(month.sales.toLocaleString('ko-KR'))}</strong></span>
           ${showCost ? `<span>회사원가 <strong>${esc(month.cost.toLocaleString('ko-KR'))}</strong></span>` : ''}
           <span>영업이익 <strong class="profit">${esc(month.profit.toLocaleString('ko-KR'))}</strong></span>
+          <span>입금 <strong>${esc(month.paid.toLocaleString('ko-KR'))}</strong></span>
+          <span>미입금 <strong class="unpaid">${esc(Math.max(0, month.sales - month.paid).toLocaleString('ko-KR'))}</strong></span>
         </div>
       </div>
     </section>`;
@@ -2418,6 +2578,20 @@
       });
     });
 
+    moduleView.querySelectorAll('[data-paid-open]').forEach(button => button.addEventListener('click', () => {
+      const picked = intakeSelection.length ? intakeSelection : [button.dataset.paidOpen];
+      openPaidDialog(picked);
+    }));
+
+    moduleView.querySelectorAll('[data-intake-pick]').forEach(box => box.addEventListener('change', () => {
+      const id = box.dataset.intakePick;
+      intakeSelection = box.checked
+        ? [...new Set([...intakeSelection, id])]
+        : intakeSelection.filter(item => item !== id);
+      refreshPickBar();
+    }));
+    refreshPickBar();
+
     moduleView.querySelectorAll('[data-team-member]').forEach(button => button.addEventListener('click', () => {
       showToast(`${button.dataset.teamMember} 님 정산서는 접수를 서버에 저장한 뒤에 열립니다.`);
     }));
@@ -2439,7 +2613,14 @@
         a: form.a, b: form.b, c: form.c,
         unit, qty, sell,
         cost: row[3],
-        owner: userDoc?.uid || ''
+        owner: userDoc?.uid || '',
+        // 입금 확인 정보. 통장 연결 전이라 지금은 전부 수기로 채운다.
+        paid: 'none',
+        paidAmount: 0,
+        payer: '',
+        paidDate: '',
+        paidMemo: '',
+        paidAuto: false
       });
       saveIntakeDraft();
       intakeForm = { ...form, client: '', qty: '', sell: '', unit: row[4] === null ? '' : '' };
