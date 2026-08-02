@@ -2765,6 +2765,80 @@
     });
   }
 
+  // 담당자 지정 — 접수가 많아 한 건씩 고르기 어려우니 기간으로 묶어 배정한다.
+  function openAssignDialog() {
+    const today = localDateKey(new Date());
+    const from = finalFilter.from || '';
+    const to = finalFilter.to || '';
+    const inRange = (row, a, b) => (!a || String(row.date) >= a) && (!b || String(row.date) <= b);
+    const rows = finalSettlementRows();
+
+    openDetailModal('접수담당자 지정', `
+      <p class="paid-hint">고른 기간의 접수에 담당자를 한 번에 배정합니다. 이미 담당자가 있는 건도 덮어씁니다.</p>
+
+      <div class="paid-field">
+        <label class="paid-label" for="assignFrom">적용 기간</label>
+        <span class="ledger-filter-range">
+          <input class="paid-input" id="assignFrom" type="date" value="${esc(from)}" aria-label="시작일">
+          <em>~</em>
+          <input class="paid-input" id="assignTo" type="date" value="${esc(to)}" aria-label="종료일">
+        </span>
+        <small class="paid-hint">비워 두면 전체 기간입니다. 하루만 지정하려면 같은 날짜를 양쪽에 넣으세요.</small>
+      </div>
+
+      <div class="paid-field">
+        <label class="paid-label" for="assignManager">담당자</label>
+        <select class="paid-input" id="assignManager">
+          ${[''].concat(managerRoster()).map(v => `<option value="${esc(v)}">${esc(v || NO_MANAGER)}</option>`).join('')}
+        </select>
+      </div>
+
+      <div class="assign-preview" id="assignPreview"></div>
+
+      <div class="paid-actions">
+        <button class="module-action" type="button" data-assign-cancel>취소</button>
+        <button class="module-action primary" type="button" data-assign-save>배정하기</button>
+      </div>`, { locked: true });
+
+    const dialog = document.getElementById('readonlyModalBody');
+    const fromInput = document.getElementById('assignFrom');
+    const toInput = document.getElementById('assignTo');
+    const managerInput = document.getElementById('assignManager');
+    const preview = document.getElementById('assignPreview');
+    const saveButton = dialog.querySelector('[data-assign-save]');
+
+    function targets() {
+      return rows.filter(row => inRange(row, fromInput.value, toInput.value));
+    }
+
+    // 몇 건이 어느 날짜에 걸리는지 먼저 보여 준다.
+    function syncPreview() {
+      const list = targets();
+      const days = [...new Set(list.map(row => row.date))].sort();
+      const label = managerInput.value || NO_MANAGER;
+      saveButton.disabled = list.length === 0;
+      preview.innerHTML = list.length
+        ? `<strong>${esc(list.length.toLocaleString('ko-KR'))}건</strong>을 <strong>${esc(label)}</strong>(으)로 배정합니다.
+           <span>${esc(days[0].replace(/-/g, '.'))}${days.length > 1 ? ` ~ ${esc(days[days.length - 1].replace(/-/g, '.'))}` : ''} · ${esc(String(days.length))}일치</span>`
+        : '<span>고른 기간에 접수가 없습니다.</span>';
+    }
+
+    [fromInput, toInput, managerInput].forEach(input => input.addEventListener('change', syncPreview));
+    syncPreview();
+
+    dialog.querySelector('[data-assign-cancel]').addEventListener('click', closeDetailModal);
+    dialog.querySelector('[data-assign-save]').addEventListener('click', () => {
+      const list = targets();
+      if (!list.length) return;
+      const manager = managerInput.value;
+      list.forEach(row => { row.manager = manager; });
+      saveIntakeDraft();
+      closeDetailModal();
+      renderPlannedModule('final-settlement');
+      showToast(`${list.length.toLocaleString('ko-KR')}건을 ${manager || NO_MANAGER}(으)로 배정했습니다.`);
+    });
+  }
+
   // 공급사 정산 — 수량이 맞는지 확인하고 지불액을 확정한다.
   function openVendorDialog(supplier) {
     const group = vendorGroups().find(item => item.supplier === supplier);
@@ -2809,6 +2883,11 @@
       <div class="paid-field">
         <label class="paid-label" for="vendorAmount">지불 금액</label>
         <input class="paid-input" id="vendorAmount" type="number" value="${esc(String(group.openDue))}">
+      </div>
+      <div class="paid-field">
+        <label class="paid-label" for="vendorBy">정산자 <em class="paid-required">필수</em></label>
+        <input class="paid-input" id="vendorBy" type="text" value="${esc(group.settledBy[0] || userDoc?.name || '')}" placeholder="정산을 처리한 사람">
+        <small class="paid-hint">공급처에 실제로 돈을 보낸 사람을 적으세요.</small>
       </div>
       <div class="paid-field">
         <label class="paid-label" for="vendorBank">통장 종류 <em class="paid-required">필수</em></label>
@@ -2856,17 +2935,25 @@
       const amount = Number(document.getElementById('vendorAmount').value) || 0;
       const date = document.getElementById('vendorDate').value;
       const bank = document.getElementById('vendorBank').value;
+      const byInput = document.getElementById('vendorBy');
+      const settledBy = byInput.value.trim();
+      if (!settledBy) {
+        byInput.focus();
+        showToast('정산자 이름을 적어 주세요.');
+        return;
+      }
       const memo = memoInput.value.trim();
       open.forEach(row => {
         row.vendorPaid = true;
         row.vendorPaidDate = date;
         row.vendorBank = bank;
+        row.vendorBy = settledBy;
         row.vendorMemo = memo;
       });
       saveIntakeDraft();
       closeDetailModal();
       renderPlannedModule('final-settlement');
-      showToast(`${bank}에서 ${supplier}에 ${amount.toLocaleString('ko-KR')}원 지불로 ${open.length}건을 정산했습니다.`);
+      showToast(`${settledBy}님이 ${bank}에서 ${supplier}에 ${amount.toLocaleString('ko-KR')}원을 지불해 ${open.length}건을 정산했습니다.`);
     });
   }
 
@@ -2989,6 +3076,7 @@
       return {
         supplier, rows, qty, due,
         banks: [...new Set(settled.map(row => row.vendorBank).filter(Boolean))],
+        settledBy: [...new Set(settled.map(row => row.vendorBy).filter(Boolean))],
         variable: rows.length - known.length,
         settledCount: settled.length,
         settledDue,
@@ -3031,11 +3119,7 @@
             const vendorDue = hasCost ? Number(row.cost) * qty : null;
             const kind = kindOf(row);
             return `<tr class="${kind !== 'normal' ? `kind-${kind}` : ''}">
-              <td class="final-manager">
-                <select data-final-manager="${esc(row.id)}" aria-label="${esc(row.client || '')} 접수담당자">
-                  ${[''].concat(managerRoster()).map(v => `<option value="${esc(v)}" ${v === (row.manager || '') ? 'selected' : ''}>${esc(v || NO_MANAGER)}</option>`).join('')}
-                </select>
-              </td>
+              <td class="${row.manager ? '' : 'ledger-memo-empty'}">${esc(managerOf(row))}</td>
               <td>${esc(row.ownerName || userDoc?.name || '')}${kind === 'normal' ? '' : `<span class="kind-badge ${esc(kind)}">${esc(kindLabel(row))}</span>`}</td>
               <th scope="row">${esc(row.client || '업체 미입력')}</th>
               <td>${esc(row.b)}</td>
@@ -3112,6 +3196,7 @@
             </span>
           </label>
           ${finalFilterActive() ? '<button class="module-action" type="button" data-final-filter-reset>조건 해제</button>' : ''}
+          <button class="module-action primary" type="button" data-final-assign ${rows.length ? '' : 'disabled'}>담당자 지정</button>
         </div>
         ${days.length ? days.map(([date, dayRows]) => {
           const day = intakeTotals(dayRows);
@@ -3186,6 +3271,7 @@
                 <th scope="col">총 수량</th>
                 <th scope="col">지불할 금액</th>
                 <th scope="col">지불 완료</th>
+                <th scope="col">정산자</th>
                 <th scope="col">미지불</th>
                 <th scope="col" aria-label="정산"></th>
               </tr>
@@ -3197,6 +3283,7 @@
                 <td>${esc(group.qty.toLocaleString('ko-KR'))}</td>
                 <td>${esc(group.due.toLocaleString('ko-KR'))}</td>
                 <td>${esc(group.settledDue.toLocaleString('ko-KR'))}${group.banks.length ? `<span class="vendor-note">${esc(group.banks.join(' · '))}</span>` : ''}</td>
+                <td class="${group.settledBy.length ? '' : 'ledger-memo-empty'}">${group.settledBy.length ? esc(group.settledBy.join(' · ')) : '—'}</td>
                 <td class="sales-cell-total">${esc(group.openDue.toLocaleString('ko-KR'))}</td>
                 <td><button class="vendor-settle" type="button" data-vendor-settle="${esc(group.supplier)}">${group.open ? '정산하기' : '내역 보기'}</button></td>
               </tr>`).join('')}
@@ -3361,14 +3448,7 @@
     moduleView.querySelector('[data-open-permissions]')?.addEventListener('click', () => activateView('permissions'));
     moduleView.querySelectorAll('[data-vendor-settle]').forEach(button => button.addEventListener('click', () => openVendorDialog(button.dataset.vendorSettle)));
 
-    // 담당자는 나중에 바뀔 수 있어 최종정산서에서 바로 고친다.
-    moduleView.querySelectorAll('[data-final-manager]').forEach(select => select.addEventListener('change', () => {
-      const row = intakeDraft.find(item => item.id === select.dataset.finalManager);
-      if (!row) return;
-      row.manager = select.value;
-      saveIntakeDraft();
-      showToast(`${row.client || '업체 미입력'} 접수담당자를 ${select.value || NO_MANAGER}(으)로 바꿨습니다.`);
-    }));
+    moduleView.querySelector('[data-final-assign]')?.addEventListener('click', openAssignDialog);
 
     moduleView.querySelectorAll('[data-final-filter]').forEach(input => input.addEventListener('change', () => {
       finalFilter[input.dataset.finalFilter] = input.value;
@@ -3522,6 +3602,7 @@
         vendorPaid: false,
         vendorPaidDate: '',
         vendorBank: '',
+        vendorBy: '',
         vendorMemo: '',
         // 입금 확인 정보. 통장 연결 전이라 지금은 전부 수기로 채운다.
         paid: 'none',

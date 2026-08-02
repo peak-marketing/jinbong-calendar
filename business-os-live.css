@@ -3036,6 +3036,7 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .final-day-table th[scope="row"] { font-weight: 800; color: #1d2b38; }
 .paid-hint.warn { color: #b45309; font-weight: 600; }
 
-.final-manager select { border: 1px solid #dbe6ef; background: #fff; border-radius: 8px;
-  padding: 5px 8px; font-size: 13px; font-weight: 700; color: #1d2b38; max-width: 118px; }
-.final-manager select:focus { outline: 2px solid #348ecd; outline-offset: 1px; }
+.assign-preview { margin: 14px 0 4px; padding: 12px 14px; border-radius: 10px; background: #f2f8fc;
+  border: 1px solid #dbeaf5; font-size: 14px; color: #1d2b38; line-height: 1.6; }
+.assign-preview strong { font-weight: 800; color: #2674ac; }
+.assign-preview span { display: block; margin-top: 2px; font-size: 13px; color: #6b7a88; font-weight: 600; }

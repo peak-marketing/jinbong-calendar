@@ -682,16 +682,10 @@ test.describe('Business OS read-only operating data', () => {
     await expect(head).toContainText('접수자');
 
     const rows = page.locator('.final-day-table tbody tr');
-    await expect(rows.nth(0).locator('[data-final-manager]')).toHaveValue('박종원');
+    await expect(rows.nth(0).locator('td').nth(0)).toHaveText('박종원');
     await expect(rows.nth(0).locator('td').nth(1)).toHaveText('김대호');
-    await expect(rows.nth(1).locator('[data-final-manager]')).toHaveValue('');
+    await expect(rows.nth(1).locator('td').nth(0)).toHaveText('담당 없음');
     await expect(rows.nth(1).locator('td').nth(1)).toHaveText('김대호');
-
-    // 담당자는 나중에 바뀔 수 있어 최종정산서에서 바로 고친다
-    await rows.nth(1).locator('[data-final-manager]').selectOption('김용일');
-    await page.locator('.nav-item[data-view="settlement"]').click();
-    await page.locator('.nav-item[data-view="final-settlement"]').click();
-    await expect(page.locator('.final-day-table tbody tr').nth(1).locator('[data-final-manager]')).toHaveValue('김용일');
   });
 
   // 최종정산서는 담당자를 정리할 수 있게 기간으로도 조회한다.
@@ -741,6 +735,23 @@ test.describe('Business OS read-only operating data', () => {
 
     await page.locator('[data-final-filter-reset]').click();
     await expect(rows).toHaveCount(3);
+
+    // 접수가 많아 한 건씩 고르기 어려우니 기간으로 묶어 배정한다.
+    // 행마다 선택 상자를 두지 않는다.
+    await expect(page.locator('[data-final-manager]')).toHaveCount(0);
+    await page.locator('[data-final-assign]').click();
+    await page.locator('#assignFrom').fill('2026-08-02');
+    await page.locator('#assignTo').fill('2026-08-02');
+    await page.locator('#assignManager').selectOption('박종원');
+    await expect(page.locator('#assignPreview')).toContainText('1건');
+    await expect(page.locator('#assignPreview')).toContainText('박종원');
+    await page.locator('[data-assign-save]').click();
+    await expect(page.locator('#assignPreview')).toBeHidden();
+
+    // 고른 날짜만 바뀌고 나머지는 그대로다 (최신 날짜부터 내림차순)
+    await expect(rows.nth(0).locator('td').nth(0)).toHaveText('담당 없음');
+    await expect(rows.nth(1).locator('td').nth(0)).toHaveText('박종원');
+    await expect(rows.nth(2).locator('td').nth(0)).toHaveText('담당 없음');
   });
 
   // 공급사 정산은 공급처별로 수량을 맞춰 본 뒤에야 지불로 확정된다.
@@ -812,6 +823,13 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#vendorBank')).toHaveValue('공급처통장');
     await page.locator('#vendorBank').selectOption('리워드스페이스통장');
 
+    // 정산자는 기본이 로그인한 사람이고, 비우면 확정되지 않는다
+    await expect(page.locator('#vendorBy')).toHaveValue('김대호');
+    await page.locator('#vendorBy').fill('');
+    await page.locator('[data-vendor-save]').click();
+    await expect(page.locator('#vendorBy')).toBeVisible();
+    await page.locator('#vendorBy').fill('손명아');
+
     // 수량이 맞아야 지불로 확정된다
     await page.locator('#vendorMemo').fill('국민은행에서 송금 완료');
     await page.locator('[data-vendor-save]').click();
@@ -819,6 +837,7 @@ test.describe('Business OS read-only operating data', () => {
     await expect(vendorRow).toContainText('내역 보기');
     await expect(page.locator('.vendor-settlement .module-chip')).toContainText('미지불 0원');
     await expect(vendorRow).toContainText('리워드스페이스통장');
+    await expect(vendorRow).toContainText('손명아');
     await expect(page.locator('.final-day-table .vendor-chip.done').first()).toContainText('리워드스페이스통장');
     // 다시 열면 지난번 통장이 잡혀 있다
     await vendorRow.locator('[data-vendor-settle]').click();
