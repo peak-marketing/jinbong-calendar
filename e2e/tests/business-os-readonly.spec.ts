@@ -464,6 +464,42 @@ test.describe('Business OS read-only operating data', () => {
     });
   }
 
+  // 하위 계정 정산서는 대표·김대호·박종원만 연다.
+  for (const [name, allowed] of [
+    ['김대호', true],
+    ['박종원', true],
+    ['전현우', false],
+    ['김지홍', false],
+  ] as [string, boolean][]) {
+    test(`team ledger is ${allowed ? 'open' : 'closed'} for ${name}`, async ({ page }) => {
+      await installFirebaseStub(page);
+      await page.route('**/api/**', route => {
+        const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+        let payload: unknown = [];
+        if (pathname === '/users/me') {
+          payload = { uid: 'e2e-test-user', name, role: 'manager', approved: true, is_active: true, group_name: '본사 영업팀' };
+        } else if (pathname === '/chat-rooms/unread') {
+          payload = {};
+        } else if (pathname === '/projects') {
+          payload = { canManageAll: false, projects: [] };
+        }
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+      });
+
+      await page.goto('/business-os-preview.html');
+      await expect(page.locator('#authGate')).toBeHidden();
+      await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+      await page.locator('.nav-item[data-view="settlement"]').click();
+      await expect(page.locator('#moduleView .team-roster')).toHaveCount(allowed ? 1 : 0);
+      if (allowed) {
+        // 본사에서 대표와 자기 자신을 뺀 나머지가 목록에 오른다
+        await expect(page.locator('#moduleView .team-member')).toHaveCount(10);
+        await expect(page.locator('#moduleView .team-member', { hasText: name })).toHaveCount(0);
+        await expect(page.locator('#moduleView .team-member', { hasText: '김진봉' })).toHaveCount(0);
+      }
+    });
+  }
+
   // 정산서는 본사 기준으로 먼저 잡는다. 지사는 접수 경로와 상품이 달라 따로 만든다.
   for (const [name, group, branch, open] of [
     ['김용일', '본사 영업팀', '본사', true],

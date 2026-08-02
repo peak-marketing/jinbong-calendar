@@ -277,6 +277,9 @@
   // 같은 팀장이라도 전현우는 보고 김지홍은 보지 못한다.
   const FINAL_SETTLEMENT_VIEWERS = ['김진봉', '손명아', '김대호', '박종원', '전현우'];
 
+  // 하위 영업자의 개인정산서를 열어볼 수 있는 사람.
+  const TEAM_SETTLEMENT_VIEWERS = ['김진봉', '김대호', '박종원'];
+
   // 직급은 위에서 아래로 높은 순. 권한 관리는 부장 이상만 가능하다.
   const ORG_RANKS = ['대표', '이사', '부장', '실장', '팀장', '과장', '대리', '주임'];
   const ORG_RANK_MANAGE_FROM = ORG_RANKS.indexOf('부장');
@@ -2030,6 +2033,19 @@
     return FINAL_SETTLEMENT_VIEWERS.includes(String(userDoc?.name || '').trim());
   }
 
+  function canSeeTeamSettlement() {
+    if (userDoc?.role === 'admin') return true;
+    return TEAM_SETTLEMENT_VIEWERS.includes(String(userDoc?.name || '').trim());
+  }
+
+  // 하위 계정 목록. 본사에서 자기를 뺀 나머지를 직급 순으로 보여 준다.
+  function subordinateRoster() {
+    const myName = String(userDoc?.name || '').trim();
+    return orgRoster()
+      .filter(row => row.branch.id === 'hq' && row.name !== myName && row.rank !== '대표')
+      .sort((a, b) => orgRankOrder(orgRankOf(a)) - orgRankOrder(orgRankOf(b)));
+  }
+
   function intakeRowsByDate() {
     const groups = new Map();
     [...intakeDraft]
@@ -2229,10 +2245,26 @@
   }
 
   function renderSettlementModule() {
-    const management = ['admin', 'manager'].includes(userDoc?.role);
     const managementCards = `
-      ${management ? moduleCard({ icon: '♙', tone: 'green', title: '영업자별 개인정산서', description: '소속 또는 허용된 영업자별 매출, 공제, 지급 예정액과 정산 상태를 확인합니다.', chip: '관리직 조회', chipClass: 'visible', footer: '소속·허용 지사 기준', action: '영업자 목록' }) : ''}
       ${canSeeFinalSettlement() ? moduleCard({ icon: '♛', tone: 'violet', title: '최종정산서', description: '전체 정산 검토가 끝난 뒤 확정된 최종 지급 내역과 승인 이력을 관리합니다.', chip: '지정 인원 전용', chipClass: 'restricted', footer: '대표·손명아·김대호·박종원·전현우', action: '정산 구조 보기' }) : ''}`.trim();
+
+    const teamSection = canSeeTeamSettlement() ? `
+      <section class="module-section">
+        <div class="module-section-head">
+          <span><strong>하위 계정 정산서</strong><small>본사 영업자의 개인정산서를 열어 봅니다</small></span>
+          <span class="module-chip restricted">대표 · 김대호 · 박종원</span>
+        </div>
+        <div class="module-section-body">
+          <div class="team-roster">
+            ${subordinateRoster().map(row => `<button class="team-member" type="button" data-team-member="${esc(row.name)}">
+              <span class="team-member-name">${esc(row.name)}</span>
+              <span class="team-member-rank">${esc(orgRankOf(row))}</span>
+              <span class="team-member-team">${esc(orgDisplayName(row.teamName || row.divisionName))}</span>
+            </button>`).join('')}
+          </div>
+          <p class="sales-basis">접수 건이 각자 브라우저에만 저장되고 있어 아직 남의 정산서를 불러올 수 없습니다. 서버 저장을 붙이면 이 목록에서 바로 열립니다.</p>
+        </div>
+      </section>` : '';
     if (!settlementAvailable()) {
       moduleView.innerHTML = `
         ${moduleStatusbar('정산서', `${currentBranchName()} 정산 체계는 따로 준비합니다.`, '본사 먼저 적용')}
@@ -2250,15 +2282,18 @@
     }
 
     moduleView.innerHTML = `
-      ${moduleStatusbar('정산서', management ? '시트접수와 개인정산서를 관리합니다.' : '로그인한 영업자의 개인정산 범위만 표시합니다.', '접수 초안 · 저장 전')}
+      ${moduleStatusbar('정산서', canSeeTeamSettlement() ? '시트접수와 하위 계정 정산서를 관리합니다.' : '로그인한 영업자의 개인정산 범위만 표시합니다.', '접수 초안 · 저장 전')}
       ${renderIntakeForm()}
       ${renderIntakeLedger()}
-      ${managementCards ? `<section class="module-grid">${managementCards}</section>` : ''}
+      ${teamSection}
+      ${managementCards ? `<section class="module-grid single">${managementCards}</section>` : ''}
       <div class="module-security"><span>▣</span><span><strong>현재 적용 권한: ${esc(currentOrgRank())}</strong><br>${canSeeCompanyCost()
         ? '회사 원가와 회사 기준 영업이익까지 표시됩니다. 부장 이상에게만 보입니다.'
         : '영업자 단가 기준으로만 표시되며 회사 원가는 감춥니다. 지금 구글 정산서와 같은 기준입니다.'}${canSeeFinalSettlement()
         ? ' 최종정산서는 지정된 인원에게만 열립니다.'
-        : ' 최종정산서는 지정된 인원만 볼 수 있어 표시하지 않습니다.'}</span></div>`;
+        : ' 최종정산서는 지정된 인원만 볼 수 있어 표시하지 않습니다.'}${canSeeTeamSettlement()
+        ? ' 하위 계정 정산서도 열 수 있습니다.'
+        : ''}</span></div>`;
   }
 
   function renderTaxModule() {
@@ -2346,6 +2381,10 @@
         updateIntakeCalc();
       });
     });
+
+    moduleView.querySelectorAll('[data-team-member]').forEach(button => button.addEventListener('click', () => {
+      showToast(`${button.dataset.teamMember} 님 정산서는 접수를 서버에 저장한 뒤에 열립니다.`);
+    }));
 
     moduleView.querySelector('[data-intake-add]')?.addEventListener('click', () => {
       const form = intakeForm;
