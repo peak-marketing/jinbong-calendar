@@ -54,7 +54,10 @@
   let intakeForm = { a: '', b: '', c: '', unit: '', qty: '', sell: '', client: '', date: '', memo: '', kind: 'normal', refOf: '' };
   let intakeFilter = { from: '', to: '', client: '', product: '', paid: '' };
   // 최종정산서는 담당자 정리용으로 따로 기간을 잡는다.
-  let finalFilter = { from: '', to: '' };
+  let finalFilter = { from: '', to: '', manager: '' };
+  // 접수 폼이 정산서/최종정산서 양쪽에 뜬다. 최종정산서에서 넣은 건은
+  // 개인정산서에 올라가지 않는다.
+  let intakeContext = 'settlement';
   let intakeSelection = [];
   let orgBranchFilter = 'all';
   // 평소에는 갈래로 나뉜 조직도, 수정할 때만 세로로 나열한다
@@ -2199,10 +2202,15 @@
       .sort((a, b) => orgRankOrder(orgRankOf(a)) - orgRankOrder(orgRankOf(b)));
   }
 
+  // 개인정산서에 올라가는 건. 최종정산서에서만 적는 건은 빠진다.
+  function personalRows() {
+    return intakeDraft.filter(row => !row.finalOnly);
+  }
+
   // 조회 조건에 맞는 접수만 걸러 낸다.
   function filteredIntake() {
     const f = intakeFilter;
-    return intakeDraft.filter(row => {
+    return personalRows().filter(row => {
       if (f.from && String(row.date) < f.from) return false;
       if (f.to && String(row.date) > f.to) return false;
       if (f.client && row.client !== f.client) return false;
@@ -2219,8 +2227,8 @@
   }
 
   function renderIntakeFilter() {
-    const clients = [...new Set(intakeDraft.map(row => row.client).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
-    const products = [...new Set(intakeDraft.map(row => row.a).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
+    const clients = [...new Set(personalRows().map(row => row.client).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
+    const products = [...new Set(personalRows().map(row => row.a).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
     const option = (value, label, selected) => `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(label)}</option>`;
 
     return `<div class="ledger-filter">
@@ -2289,8 +2297,14 @@
     return kindOf(row) === 'refund' ? -1 : 1;
   }
 
+  // 예약 차감과 환불은 같은 화면에서 넣은 건끼리만 묶는다.
+  // 최종정산서 전용 건과 개인정산서 건이 섞이면 어느 쪽 숫자도 맞지 않는다.
+  function contextRows() {
+    return intakeDraft.filter(row => Boolean(row.finalOnly) === (intakeContext === 'final-settlement'));
+  }
+
   function reservationRows() {
-    return intakeDraft.filter(row => kindOf(row) === 'reserve');
+    return contextRows().filter(row => kindOf(row) === 'reserve');
   }
 
   // 입금이 정확히 확인된 예약만 차감할 수 있다.
@@ -2367,7 +2381,7 @@
 
   // 환불 가능한 접수와 이미 환불된 수량
   function refundableRows() {
-    return intakeDraft.filter(row => ['normal', 'use'].includes(kindOf(row)));
+    return contextRows().filter(row => ['normal', 'use'].includes(kindOf(row)));
   }
 
   function refundedQty(rowId) {
@@ -2556,10 +2570,13 @@
       </div>`;
     }
 
+    const finalMode = intakeContext === 'final-settlement';
     return `<section class="module-section">
       <div class="module-section-head">
-        <span><strong>상품 접수</strong><small>시트접수 건을 등록합니다. 분류를 고르면 영업자 단가가 자동으로 붙습니다</small></span>
-        <span class="module-chip live">시트접수</span>
+        <span><strong>${finalMode ? '최종정산서 접수' : '상품 접수'}</strong><small>${finalMode
+          ? '여기서 넣은 건은 최종정산서에만 올라가고 개인정산서에는 나오지 않습니다'
+          : '시트접수 건을 등록합니다. 분류를 고르면 영업자 단가가 자동으로 붙습니다'}</small></span>
+        <span class="module-chip ${finalMode ? 'restricted' : 'live'}">${finalMode ? '최종정산서 전용' : '시트접수'}</span>
       </div>
       <div class="module-section-body">
         <div class="intake-kind">
@@ -2625,7 +2642,9 @@
         <div class="intake-calc">${intakeCalcMarkup()}</div>
 
         <div class="intake-actions">
-          <p class="sales-basis">등록한 건은 이 브라우저에만 저장되는 초안이며 운영 DB에는 쓰지 않습니다.</p>
+          <p class="sales-basis">${finalMode
+            ? '최종정산서에만 올라갑니다. 각 영업자의 개인정산서에는 나오지 않습니다. 이 브라우저에만 저장되는 초안입니다.'
+            : '등록한 건은 이 브라우저에만 저장되는 초안이며 운영 DB에는 쓰지 않습니다.'}</p>
           <button class="module-action primary" type="button" data-intake-add>접수 등록</button>
         </div>
       </div>
@@ -2760,7 +2779,7 @@
       saveIntakeDraft();
       intakeSelection = [];
       closeDetailModal();
-      renderPlannedModule('settlement');
+      renderPlannedModule(intakeContext);
       showToast(`입금 ${amount.toLocaleString('ko-KR')}원을 ${rows.length}건에 반영했습니다.`);
     });
   }
@@ -2999,8 +3018,8 @@
       return `<section class="module-section">
         <div class="module-section-head"><span><strong>내 개인정산서</strong><small>접수한 건이 일자별로 쌓입니다</small></span></div>
         <div class="module-section-body">
-          ${intakeDraft.length ? renderIntakeFilter() : ''}
-          <p class="sales-state">${intakeDraft.length
+          ${personalRows().length ? renderIntakeFilter() : ''}
+          <p class="sales-state">${personalRows().length
             ? '조회 조건에 맞는 접수가 없습니다.'
             : '아직 접수한 건이 없습니다. 위에서 상품을 접수해 보세요.'}</p>
         </div>
@@ -3012,8 +3031,8 @@
     return `<section class="module-section">
       <div class="module-section-head">
         <span><strong>내 개인정산서</strong><small>${esc(userDoc?.name || '')} · ${intakeFilterActive()
-          ? `조회 ${shown.length}건 / 전체 ${intakeDraft.length}건`
-          : `접수 ${intakeDraft.length}건`}</small></span>
+          ? `조회 ${shown.length}건 / 전체 ${personalRows().length}건`
+          : `접수 ${personalRows().length}건`}</small></span>
         <span class="module-chip live">매출 ${esc(month.sales.toLocaleString('ko-KR'))}원 · 영업이익 ${esc(month.profit.toLocaleString('ko-KR'))}원</span>
       </div>
       <div class="module-section-body">
@@ -3152,7 +3171,7 @@
             const kind = kindOf(row);
             return `<tr class="${kind !== 'normal' ? `kind-${kind}` : ''}">
               <td class="${row.manager ? '' : 'ledger-memo-empty'}">${esc(managerOf(row))}</td>
-              <td>${esc(row.ownerName || userDoc?.name || '')}${kind === 'normal' ? '' : `<span class="kind-badge ${esc(kind)}">${esc(kindLabel(row))}</span>`}</td>
+              <td>${esc(row.ownerName || userDoc?.name || '')}${row.finalOnly ? '<span class="kind-badge final-only">최종전용</span>' : ''}${kind === 'normal' ? '' : `<span class="kind-badge ${esc(kind)}">${esc(kindLabel(row))}</span>`}</td>
               <th scope="row">${esc(row.client || '업체 미입력')}</th>
               <td>${esc(row.b)}</td>
               <td>${esc(row.c)}</td>
@@ -3176,7 +3195,7 @@
   }
 
   function finalFilterActive() {
-    return Boolean(finalFilter.from || finalFilter.to);
+    return Boolean(finalFilter.from || finalFilter.to || finalFilter.manager);
   }
 
   function renderFinalSettlement() {
@@ -3185,8 +3204,12 @@
     const rows = all.filter(row => {
       if (finalFilter.from && String(row.date) < finalFilter.from) return false;
       if (finalFilter.to && String(row.date) > finalFilter.to) return false;
+      // '담당 없음'만 따로 보고 싶을 때가 있어 none 값을 따로 둔다
+      if (finalFilter.manager === 'none' && row.manager) return false;
+      if (finalFilter.manager && finalFilter.manager !== 'none' && row.manager !== finalFilter.manager) return false;
       return true;
     });
+    const managers = [...new Set(all.map(row => row.manager).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
     const total = intakeTotals(rows);
     const showCost = canSeeCompanyCost();
     const held = intakeDraft.filter(row => kindOf(row) === 'reserve');
@@ -3226,6 +3249,14 @@
               <em>~</em>
               <input type="date" data-final-filter="to" value="${esc(finalFilter.to)}" aria-label="종료일">
             </span>
+          </label>
+          <label class="ledger-filter-field">
+            <span>영업자</span>
+            <select data-final-filter="manager">
+              <option value="">전체</option>
+              ${managers.map(name => `<option value="${esc(name)}" ${name === finalFilter.manager ? 'selected' : ''}>${esc(name)}</option>`).join('')}
+              <option value="none" ${finalFilter.manager === 'none' ? 'selected' : ''}>${esc(NO_MANAGER)}</option>
+            </select>
           </label>
           ${finalFilterActive() ? '<button class="module-action" type="button" data-final-filter-reset>조건 해제</button>' : ''}
           <button class="module-action primary" type="button" data-final-assign ${rows.length ? '' : 'disabled'}>담당자 지정</button>
@@ -3357,8 +3388,10 @@
         </section>`;
       return;
     }
+    intakeContext = 'final-settlement';
     moduleView.innerHTML = `
       ${moduleStatusbar('최종정산서', '당일접수 · 예약건 작업 · 환불 · 예약건환불만 집계합니다.', '지정 인원 전용')}
+      ${renderIntakeForm()}
       ${renderFinalSettlement()}
       <div class="module-security"><span>▣</span><span><strong>볼 수 있는 사람</strong><br>대표 · 손명아 실장 · 김대호 부장 · 박종원 부장 · 전현우 팀장. 예약최초건은 아직 일이 들어가지 않아 집계에서 빠집니다.</span></div>`;
   }
@@ -3398,6 +3431,7 @@
       return;
     }
 
+    intakeContext = 'settlement';
     moduleView.innerHTML = `
       ${moduleStatusbar('정산서', canSeeTeamSettlement() ? '시트접수와 하위 계정 정산서를 관리합니다.' : '로그인한 영업자의 개인정산 범위만 표시합니다.', '접수 초안 · 저장 전')}
       ${renderIntakeForm()}
@@ -3487,7 +3521,7 @@
       renderPlannedModule('final-settlement');
     }));
     moduleView.querySelector('[data-final-filter-reset]')?.addEventListener('click', () => {
-      finalFilter = { from: '', to: '' };
+      finalFilter = { from: '', to: '', manager: '' };
       renderPlannedModule('final-settlement');
     });
 
@@ -3500,7 +3534,7 @@
           if (key === 'a') { intakeForm.b = ''; intakeForm.c = ''; intakeForm.unit = ''; }
           if (key === 'b') { intakeForm.c = ''; intakeForm.unit = ''; }
           if (key === 'c') intakeForm.unit = '';
-          renderPlannedModule('settlement');
+          renderPlannedModule(intakeContext);
         });
         return;
       }
@@ -3514,20 +3548,20 @@
     moduleView.querySelectorAll('[data-intake-kind]').forEach(button => button.addEventListener('click', () => {
       intakeForm.kind = button.dataset.intakeKind;
       intakeForm.refOf = '';
-      renderPlannedModule('settlement');
+      renderPlannedModule(intakeContext);
     }));
 
     moduleView.querySelectorAll('[data-ledger-filter]').forEach(input => {
       input.addEventListener('change', () => {
         intakeFilter[input.dataset.ledgerFilter] = input.value;
         intakeSelection = [];
-        renderPlannedModule('settlement');
+        renderPlannedModule(intakeContext);
       });
     });
     moduleView.querySelector('[data-ledger-filter-reset]')?.addEventListener('click', () => {
       intakeFilter = { from: '', to: '', client: '', product: '', paid: '' };
       intakeSelection = [];
-      renderPlannedModule('settlement');
+      renderPlannedModule(intakeContext);
     });
 
     moduleView.querySelectorAll('[data-paid-open]').forEach(button => button.addEventListener('click', () => {
@@ -3628,6 +3662,8 @@
         cost: row[3],
         supplier: form.supplier || defaultSupplier(form.b, form.c) || '',
         manager: form.manager || '',
+        // 최종정산서에서 넣은 건은 개인정산서에 올리지 않는다.
+        finalOnly: intakeContext === 'final-settlement',
         owner: userDoc?.uid || '',
         ownerName: userDoc?.name || '',
         // 공급사 정산 — 공급처에 우리가 지불하는 쪽. 거래처 입금과 별개다.
@@ -3646,14 +3682,16 @@
       });
       saveIntakeDraft();
       intakeForm = { ...form, client: '', qty: '', sell: '', memo: '', unit: '', refOf: '', supplier: '' };
-      renderPlannedModule('settlement');
-      showToast('접수를 등록했습니다. 이 브라우저에만 저장되는 초안입니다.');
+      renderPlannedModule(intakeContext);
+      showToast(intakeContext === 'final-settlement'
+        ? '최종정산서에만 올라가는 건으로 등록했습니다.'
+        : '접수를 등록했습니다. 이 브라우저에만 저장되는 초안입니다.');
     });
 
     moduleView.querySelectorAll('[data-intake-remove]').forEach(button => button.addEventListener('click', () => {
       intakeDraft = intakeDraft.filter(row => row.id !== button.dataset.intakeRemove);
       saveIntakeDraft();
-      renderPlannedModule('settlement');
+      renderPlannedModule(intakeContext);
     }));
 
     moduleView.querySelector('[data-org-edit-toggle]')?.addEventListener('click', () => {

@@ -766,6 +766,72 @@ test.describe('Business OS read-only operating data', () => {
     await expect(rows.nth(2).locator('td').nth(0)).toHaveText('담당 없음');
   });
 
+  // 최종정산서에만 적는 건이 있어 거기서도 접수할 수 있고, 그 건은
+  // 개인정산서에 올라가지 않는다. 영업자별로도 추려 본다.
+  test('records final-only intakes and filters them by salesperson', async ({ page }) => {
+    await installFirebaseStub(page);
+    await page.route('**/api/**', route => {
+      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+      let payload: unknown = [];
+      if (pathname === '/users/me') {
+        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
+      } else if (pathname === '/chat-rooms/unread') {
+        payload = {};
+      } else if (pathname === '/projects') {
+        payload = { canManageAll: false, projects: [] };
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    });
+
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+
+    const fill = async (client: string, manager: string) => {
+      await page.locator('[data-intake="manager"]').selectOption(manager);
+      await page.locator('[data-intake="a"]').selectOption('블로그');
+      await page.locator('[data-intake="b"]').selectOption('원고');
+      await page.locator('[data-intake="c"]').selectOption('프리미엄원고대필');
+      await page.locator('[data-intake="client"]').fill(client);
+      await page.locator('[data-intake="qty"]').fill('10');
+      await page.locator('[data-intake="sell"]').fill('15000');
+      await page.locator('[data-intake-add]').click();
+    };
+
+    await page.locator('.nav-item[data-view="settlement"]').click();
+    await fill('한결에이전시', '박종원');
+    await fill('나스컴퍼니', '김용일');
+    await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(2);
+
+    // 최종정산서에도 접수 폼이 있고, 전용 건임을 알린다
+    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await expect(page.locator('#moduleView .module-section-head strong').first()).toHaveText('최종정산서 접수');
+    await expect(page.locator('#moduleView .module-section-head .module-chip').first()).toHaveText('최종정산서 전용');
+    const finalRows = page.locator('.final-day-table tbody tr');
+    await expect(finalRows).toHaveCount(2);
+
+    await fill('퍼플페퍼', '박종원');
+    await expect(finalRows).toHaveCount(3);
+    await expect(page.locator('.kind-badge.final-only')).toHaveCount(1);
+
+    // 개인정산서에는 올라가지 않는다
+    await page.locator('.nav-item[data-view="settlement"]').click();
+    await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(2);
+    await expect(page.locator('#moduleView')).not.toContainText('퍼플페퍼');
+
+    // 영업자로 추리면 그 사람 건만 남는다
+    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await page.locator('[data-final-filter="manager"]').selectOption('박종원');
+    await expect(finalRows).toHaveCount(2);
+    await expect(page.locator('.final-settlement .module-section-head small')).toHaveText('조회 2건 / 전체 3건');
+    await page.locator('[data-final-filter="manager"]').selectOption('김용일');
+    await expect(finalRows).toHaveCount(1);
+    await page.locator('[data-final-filter="manager"]').selectOption('none');
+    await expect(finalRows).toHaveCount(0);
+    await page.locator('[data-final-filter-reset]').click();
+    await expect(finalRows).toHaveCount(3);
+  });
+
   // 공급사 정산은 공급처별로 수량을 맞춰 본 뒤에야 지불로 확정된다.
   test('settles suppliers only when the quantity matches', async ({ page }) => {
     await installFirebaseStub(page);

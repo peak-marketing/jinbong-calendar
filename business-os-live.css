@@ -3040,3 +3040,4 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   border: 1px solid #dbeaf5; font-size: 14px; color: #1d2b38; line-height: 1.6; }
 .assign-preview strong { font-weight: 800; color: #2674ac; }
 .assign-preview span { display: block; margin-top: 2px; font-size: 13px; color: #6b7a88; font-weight: 600; }
+.kind-badge.final-only { background: #ede9fb; color: #5b4bb5; }
