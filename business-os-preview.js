@@ -453,23 +453,28 @@
       </article>`;
     body.append(modal);
     modal.querySelector('#readonlyModalClose').addEventListener('click', closeDetailModal);
+    // 입력 중인 창은 바깥을 눌러도 닫지 않는다. 실수로 내용이 날아간다.
     modal.addEventListener('click', event => {
-      if (event.target === modal) closeDetailModal();
+      if (event.target === modal && modal.dataset.locked !== 'true') closeDetailModal();
     });
     document.addEventListener('keydown', event => {
       if (event.key === 'Escape' && !modal.hidden) closeDetailModal();
     });
   }
 
-  function openDetailModal(title, content) {
+  function openDetailModal(title, content, { locked = false } = {}) {
+    const modal = document.getElementById('readonlyDetailModal');
     document.getElementById('readonlyModalTitle').textContent = title;
     document.getElementById('readonlyModalBody').innerHTML = content;
-    document.getElementById('readonlyDetailModal').hidden = false;
+    modal.dataset.locked = locked ? 'true' : 'false';
+    modal.hidden = false;
     body.style.overflow = 'hidden';
   }
 
   function closeDetailModal() {
-    document.getElementById('readonlyDetailModal').hidden = true;
+    const modal = document.getElementById('readonlyDetailModal');
+    modal.dataset.locked = 'false';
+    modal.hidden = true;
     body.style.overflow = '';
   }
 
@@ -2301,24 +2306,50 @@
         <input class="paid-input" id="paidDate" type="date" value="${esc(rows[0].paidDate || localDateKey(new Date()))}">
       </div>
       <div class="paid-field">
-        <label class="paid-label" for="paidMemo">입금 특이사항</label>
-        <input class="paid-input" id="paidMemo" type="text" value="${esc(rows[0].paidMemo || '')}" placeholder="선택 입력">
+        <label class="paid-label" for="paidMemo">입금 특이사항 <em class="paid-required">필수</em></label>
+        <input class="paid-input" id="paidMemo" type="text" value="${esc(rows[0].paidMemo || '')}" placeholder="어느 통장에 어떻게 들어왔는지 적어 주세요">
+        <small class="paid-hint" id="paidMemoHint">8자 이상 적어야 입금확인이 됩니다.</small>
       </div>
 
       ${single ? '' : '<p class="paid-hint">묶음은 판매액 비율로 나눠 담습니다.</p>'}
 
       <div class="paid-actions">
-        <button class="module-action" type="button" data-paid-clear>입금 취소</button>
-        <button class="module-action primary" type="button" data-paid-save>확인</button>
-      </div>`);
+        ${already ? '<button class="module-action danger" type="button" data-paid-clear>입금 해제</button>' : ''}
+        <button class="module-action" type="button" data-paid-cancel>취소</button>
+        <button class="module-action primary" type="button" data-paid-save>입금확인</button>
+      </div>`, { locked: true });
 
     const dialog = document.getElementById('readonlyModalBody');
 
+    const MEMO_MIN = 8;
+    const memoInput = document.getElementById('paidMemo');
+    const memoHint = document.getElementById('paidMemoHint');
+
+    function checkMemo() {
+      const left = MEMO_MIN - memoInput.value.trim().length;
+      const short = left > 0;
+      memoHint.textContent = short
+        ? `${left}자 더 적어야 입금확인이 됩니다.`
+        : '입금확인할 수 있습니다.';
+      memoHint.classList.toggle('warn', short);
+      return !short;
+    }
+
+    memoInput.addEventListener('input', checkMemo);
+    checkMemo();
+
+    dialog.querySelector('[data-paid-cancel]').addEventListener('click', closeDetailModal);
+
     dialog.querySelector('[data-paid-save]').addEventListener('click', () => {
+      if (!checkMemo()) {
+        memoInput.focus();
+        showToast(`입금 특이사항을 ${MEMO_MIN}자 이상 적어 주세요.`);
+        return;
+      }
       const amount = Number(document.getElementById('paidAmount').value) || 0;
       const payer = document.getElementById('paidPayer').value.trim();
       const paidDate = document.getElementById('paidDate').value;
-      const paidMemo = document.getElementById('paidMemo').value.trim();
+      const paidMemo = memoInput.value.trim();
 
       let left = amount;
       rows.forEach((row, index) => {
@@ -2340,7 +2371,7 @@
       showToast(`입금 ${amount.toLocaleString('ko-KR')}원을 ${rows.length}건에 반영했습니다.`);
     });
 
-    dialog.querySelector('[data-paid-clear]').addEventListener('click', () => {
+    dialog.querySelector('[data-paid-clear]')?.addEventListener('click', () => {
       rows.forEach(row => {
         row.paidAmount = 0;
         row.paid = 'none';

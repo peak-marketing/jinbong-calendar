@@ -507,6 +507,19 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-paid-bulk]').click();
     // 판매액 합계가 기본값으로 채워진다
     await expect(page.locator('#paidAmount')).toHaveValue('50000');
+
+    // 입금 특이사항이 8자 미만이면 입금확인이 되지 않는다
+    await page.locator('#paidMemo').fill('짧음');
+    await expect(page.locator('#paidMemoHint')).toContainText('6자 더');
+    await page.locator('[data-paid-save]').click();
+    await expect(page.locator('#paidMemo')).toBeVisible();
+    await expect(page.locator('#moduleView .paid-chip span').first()).toHaveText('미입금');
+
+    // 창 바깥을 눌러도 닫히지 않는다
+    await page.mouse.click(60, 400);
+    await expect(page.locator('#paidMemo')).toBeVisible();
+
+    await page.locator('#paidMemo').fill('국민은행 통장 입금 확인');
     await page.locator('[data-paid-save]').click();
 
     // 합계만큼 들어왔으니 두 건 모두 입금 완료
