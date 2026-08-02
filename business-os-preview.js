@@ -2183,6 +2183,11 @@
     return intakeDraft.filter(row => kindOf(row) === 'reserve');
   }
 
+  // 입금이 정확히 확인된 예약만 차감할 수 있다.
+  function usableReservations() {
+    return reservationRows().filter(row => paidStateOf(row) === 'paid');
+  }
+
   // 예약최초건에서 이미 쓴 수량과 금액
   function reserveUsed(reserveId) {
     return intakeDraft
@@ -2196,7 +2201,7 @@
 
   function reserveRemaining(reserve) {
     const used = reserveUsed(reserve.id);
-    const paid = Number(reserve.paidAmount) || (Number(reserve.sell) || 0) * (Number(reserve.qty) || 0);
+    const paid = Number(reserve.paidAmount) || 0;
     return {
       qty: Math.max(0, (Number(reserve.qty) || 0) - used.qty),
       amount: Math.max(0, paid - used.amount)
@@ -2309,7 +2314,7 @@
     // 예약건 작업은 예약최초건의 조건을 그대로 따른다. 업체명·메모·상품·
     // 판매단가를 예약에서 가져와 잠가 두면 서로 어긋날 일이 없다.
     const pickedReserve = form.kind === 'use'
-      ? reservationRows().find(item => item.id === form.refOf)
+      ? usableReservations().find(item => item.id === form.refOf)
       : null;
     if (pickedReserve) {
       form.client = pickedReserve.client || '';
@@ -2345,21 +2350,27 @@
     let targetPicker = '';
     let limitQty = null;
     if (form.kind === 'use') {
-      const list = reservationRows();
+      const list = usableReservations();
+      const waiting = reservationRows().length - list.length;
       const picked = list.find(item => item.id === form.refOf);
       if (picked) limitQty = reserveRemaining(picked).qty;
+      const emptyLabel = waiting > 0
+        ? `입금 확인된 예약최초건이 없습니다 (입금 대기 ${waiting}건)`
+        : '등록된 예약최초건이 없습니다';
       targetPicker = `<div class="intake-target">
         <label class="intake-field wide">
           <span>차감할 예약최초건</span>
           <select data-intake="refOf">
-            <option value="">${list.length ? '선택하세요' : '등록된 예약최초건이 없습니다'}</option>
+            <option value="">${list.length ? '선택하세요' : emptyLabel}</option>
             ${list.map(item => {
               const left = reserveRemaining(item);
               return `<option value="${esc(item.id)}" ${item.id === form.refOf ? 'selected' : ''}>${esc(reserveKey(item))} · ${esc(item.c)} · 잔여 ${esc(String(left.qty))}개 / ${esc(left.amount.toLocaleString('ko-KR'))}원</option>`;
             }).join('')}
           </select>
         </label>
-        ${picked ? `<p class="intake-limit">잔여 수량 <strong>${esc(String(limitQty))}</strong>개 · 잔여 금액 <strong>${esc(reserveRemaining(picked).amount.toLocaleString('ko-KR'))}</strong>원을 넘을 수 없습니다.</p>` : ''}
+        ${picked
+          ? `<p class="intake-limit">잔여 수량 <strong>${esc(String(limitQty))}</strong>개 · 잔여 금액 <strong>${esc(reserveRemaining(picked).amount.toLocaleString('ko-KR'))}</strong>원을 넘을 수 없습니다.</p>`
+          : (waiting > 0 ? `<p class="intake-limit warn">예약최초건에 <strong>입금 확인</strong>이 된 뒤에야 예약건 작업으로 넘길 수 있습니다. 현재 입금 대기 <strong>${esc(String(waiting))}</strong>건.</p>` : '')}
       </div>`;
     } else if (form.kind === 'refund') {
       const list = refundableRows().filter(item => refundableQty(item) > 0);
@@ -2418,7 +2429,7 @@
           </label>
           <label class="intake-field">
             <span>수량${limitQty === null ? '' : ` <em class="intake-cap">최대 ${esc(String(limitQty))}</em>`}</span>
-            <input type="number" min="0" ${limitQty === null ? '' : `max="${esc(String(limitQty))}"`} data-intake="qty" value="${esc(form.qty)}" placeholder="0">
+            <input type="number" min="1" ${limitQty === null ? '' : `max="${esc(String(limitQty))}"`} data-intake="qty" value="${esc(form.qty)}" placeholder="0">
           </label>
           <label class="intake-field ${lockBase ? 'auto' : ''}">
             <span>판매 단가</span>
@@ -2855,6 +2866,11 @@
         showToast('상품·수량·단가를 채워 주세요.');
         return;
       }
+      // 음수 수량이 들어가면 차감이 거꾸로 돌아 예약 잔여가 늘어난다.
+      if (qty < 0 || !Number.isFinite(qty)) {
+        showToast('수량은 1 이상이어야 합니다.');
+        return;
+      }
 
       // 예약 차감과 환불은 원래 건을 넘을 수 없다.
       if (form.kind === 'use' || form.kind === 'refund') {
@@ -2864,6 +2880,10 @@
           return;
         }
         if (form.kind === 'use') {
+          if (paidStateOf(target) !== 'paid') {
+            showToast('예약최초건의 입금이 확인되어야 예약건 작업을 등록할 수 있습니다.');
+            return;
+          }
           if (reserveKey({ client: form.client, memo: form.memo }) !== reserveKey(target)) {
             showToast('업체명과 메모가 예약최초건과 같아야 차감할 수 있습니다.');
             return;

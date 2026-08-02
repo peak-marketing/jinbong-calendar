@@ -500,6 +500,19 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-intake-add]').click();
     await expect(rows).toHaveCount(1);
     await expect(page.locator('#moduleView .ledger-total')).toContainText('매출 0');
+
+    // 입금 전에는 예약금 잔여가 잡히지 않고 차감도 막힌다
+    await expect(page.locator('#moduleView .ledger-total')).not.toContainText('예약금 잔여');
+    await page.locator('[data-intake-kind="use"]').click();
+    await expect(page.locator('[data-intake="refOf"] option')).toHaveCount(1);
+    await expect(page.locator('#moduleView .intake-limit')).toContainText('입금 대기 1건');
+
+    // 예약금을 받고 나서야 차감할 수 있다
+    await page.locator('[data-intake-kind="reserve"]').click();
+    await page.locator('#moduleView .paid-chip').first().click();
+    await expect(page.locator('#paidAmount')).toHaveValue('50000');
+    await page.locator('#paidMemo').fill('국민은행 선입금 확인');
+    await page.locator('[data-paid-save]').click();
     await expect(page.locator('#moduleView .ledger-total')).toContainText('예약금 잔여 50,000');
 
     // 예약건 작업은 잔여 수량을 넘을 수 없다.
@@ -510,6 +523,12 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-intake="qty"]').fill('12');
     await page.locator('[data-intake-add]').click();
     await expect(rows).toHaveCount(1);
+
+    // 음수 수량은 차감을 거꾸로 돌려 잔여를 늘리므로 막는다
+    await page.locator('[data-intake="qty"]').fill('-1');
+    await page.locator('[data-intake-add]').click();
+    await expect(rows).toHaveCount(1);
+    await expect(page.locator('#moduleView .ledger-total')).toContainText('예약금 잔여 50,000');
 
     // 4개만 차감하면 잔여가 6개로 준다
     await page.locator('[data-intake="qty"]').fill('4');
@@ -577,6 +596,13 @@ test.describe('Business OS read-only operating data', () => {
       // 예약최초건은 아직 일한 게 아니라 매출도 영업이익도 잡히지 않는다
       await expect(page.locator('#moduleView .ledger-total')).toContainText('매출 0');
       await expect(page.locator('#moduleView .ledger-total')).toContainText('영업이익 0');
+
+      // 입금이 확인된 예약만 차감 목록에 오른다
+      for (const [index, memo] of [[0, '국민은행 8월 선입금'], [1, '국민은행 9월 선입금']] as [number, string][]) {
+        await page.locator('#moduleView .paid-chip').nth(index).click();
+        await page.locator('#paidMemo').fill(memo);
+        await page.locator('[data-paid-save]').click();
+      }
 
       // 목록은 업체명 - 메모로 구분된다
       await page.locator('[data-intake-kind="use"]').click();

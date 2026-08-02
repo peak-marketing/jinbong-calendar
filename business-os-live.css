@@ -1803,6 +1803,7 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 
 .intake-limit { margin: 10px 0 0; color: #2674ac; font-size: 13.5px; }
 .intake-limit strong { font-weight: 800; }
+.intake-limit.warn { color: #b45309; }
 
 .intake-cap {
   margin-left: 5px;
