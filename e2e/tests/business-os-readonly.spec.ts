@@ -524,7 +524,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-intake-add]').click();
     await expect(rows).toHaveCount(1);
 
-    // 음수 수량은 차감을 거꾸로 돌려 잔여를 늘리므로 막는다
+    // 쓴 것보다 많이 되돌릴 수는 없다 (아직 0개 사용)
     await page.locator('[data-intake="qty"]').fill('-1');
     await page.locator('[data-intake-add]').click();
     await expect(rows).toHaveCount(1);
@@ -556,6 +556,74 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView .ledger-total')).toContainText('매출 10,000');
     await expect(page.locator('#moduleView .ledger-total')).toContainText('예약금 잔여 40,000');
     await expect(page.locator('#moduleView .ledger-total')).toContainText('미입금 0');
+  });
+
+  // 공급사 정산에서도 원가를 같이 빼야 하므로 음수 수량으로 되돌릴 수 있다.
+  test('reverses a drawdown with a negative quantity and restores the reserve', async ({ page }) => {
+    await installFirebaseStub(page);
+    await page.route('**/api/**', route => {
+      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+      let payload: unknown = [];
+      if (pathname === '/users/me') {
+        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
+      } else if (pathname === '/chat-rooms/unread') {
+        payload = {};
+      } else if (pathname === '/projects') {
+        payload = { canManageAll: false, projects: [] };
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    });
+
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+    await page.locator('.nav-item[data-view="settlement"]').click();
+
+    // 원고 100개 선입금 — 회사원가 10,000짜리 상품
+    await page.locator('[data-intake-kind="reserve"]').click();
+    await page.locator('[data-intake="a"]').selectOption('블로그');
+    await page.locator('[data-intake="b"]').selectOption('원고');
+    await page.locator('[data-intake="c"]').selectOption('프리미엄원고대필');
+    await page.locator('[data-intake="client"]').fill('나스컴퍼니');
+    await page.locator('[data-intake="qty"]').fill('100');
+    await page.locator('[data-intake="sell"]').fill('50000');
+    await page.locator('[data-intake-add]').click();
+    await page.locator('#moduleView .paid-chip').first().click();
+    await page.locator('#paidMemo').fill('국민은행 선입금 확인');
+    await page.locator('[data-paid-save]').click();
+
+    await page.locator('[data-intake-kind="use"]').click();
+    await page.locator('[data-intake="refOf"]').selectOption({ index: 1 });
+    await page.locator('[data-intake="qty"]').fill('40');
+    await page.locator('[data-intake-add]').click();
+    await expect(page.locator('#moduleView .ledger-total')).toContainText('회사원가 400,000');
+
+    // -10으로 되돌리면 매출·회사원가가 함께 빠지고 예약 잔여가 돌아온다
+    await page.locator('[data-intake="refOf"]').selectOption({ index: 1 });
+    await page.locator('[data-intake="qty"]').fill('-10');
+    await page.locator('[data-intake-add]').click();
+    await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(3);
+    await expect(page.locator('#moduleView .ledger-total')).toContainText('매출 1,500,000');
+    await expect(page.locator('#moduleView .ledger-total')).toContainText('회사원가 300,000');
+    await expect(page.locator('#moduleView .ledger-total')).toContainText('예약금 잔여 3,500,000');
+    await expect(page.locator('[data-intake="refOf"] option').nth(1)).toContainText('잔여 70개');
+
+    // 실제로 쓴 30개보다 많이 되돌릴 수는 없다
+    await page.locator('[data-intake="refOf"]').selectOption({ index: 1 });
+    await page.locator('[data-intake="qty"]').fill('-50');
+    await page.locator('[data-intake-add]').click();
+    await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(3);
+
+    // 예약최초건은 음수로 넣을 수 없다
+    await page.locator('[data-intake-kind="reserve"]').click();
+    await page.locator('[data-intake="a"]').selectOption('블로그');
+    await page.locator('[data-intake="b"]').selectOption('원고');
+    await page.locator('[data-intake="c"]').selectOption('프리미엄원고대필');
+    await page.locator('[data-intake="client"]').fill('테스트');
+    await page.locator('[data-intake="qty"]').fill('-5');
+    await page.locator('[data-intake="sell"]').fill('1000');
+    await page.locator('[data-intake-add]').click();
+    await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(3);
   });
 
   // 예약건 작업은 예약최초건의 업체명·메모·상품·판매단가를 그대로 따른다.

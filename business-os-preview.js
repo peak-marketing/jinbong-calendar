@@ -2193,9 +2193,10 @@
     return intakeDraft
       .filter(row => kindOf(row) === 'use' && row.refOf === reserveId)
       .reduce((sum, row) => {
-        // 예약건 작업을 환불하면 돈은 그대로 맡아 둔 채 예약 잔여로 되돌아간다.
+        // 예약건 작업을 되돌리면 돈은 그대로 맡아 둔 채 예약 잔여로 돌아온다.
         // 나중에 재접수할 몫이므로 업체에 돌려주는 환불과는 다르다.
-        const net = refundableQty(row);
+        // 음수 수량으로 직접 되돌린 건도 같은 방식으로 잔여에 반영된다.
+        const net = (Number(row.qty) || 0) - refundedQty(row.id);
         sum.qty += net;
         sum.amount += (Number(row.sell) || 0) * net;
         return sum;
@@ -2212,9 +2213,10 @@
   function reserveRemaining(reserve) {
     const used = reserveUsed(reserve.id);
     const paid = Number(reserve.paidAmount) || 0;
+    // 되돌린 수량이 쌓여도 처음 받은 예약보다 잔여가 많아질 수는 없다.
     return {
-      qty: Math.max(0, (Number(reserve.qty) || 0) - used.qty),
-      amount: Math.max(0, paid - used.amount)
+      qty: Math.min(Number(reserve.qty) || 0, Math.max(0, (Number(reserve.qty) || 0) - used.qty)),
+      amount: Math.min(paid, Math.max(0, paid - used.amount))
     };
   }
 
@@ -2384,7 +2386,7 @@
           </select>
         </label>
         ${picked
-          ? `<p class="intake-limit">잔여 수량 <strong>${esc(String(limitQty))}</strong>개 · 잔여 금액 <strong>${esc(reserveRemaining(picked).amount.toLocaleString('ko-KR'))}</strong>원을 넘을 수 없습니다.</p>`
+          ? `<p class="intake-limit">잔여 수량 <strong>${esc(String(limitQty))}</strong>개 · 잔여 금액 <strong>${esc(reserveRemaining(picked).amount.toLocaleString('ko-KR'))}</strong>원을 넘을 수 없습니다. 되돌릴 때는 수량을 <strong>마이너스</strong>로 넣으면 공급사 원가까지 함께 빠집니다.</p>`
           : (waiting > 0 ? `<p class="intake-limit warn">예약최초건에 <strong>입금 확인</strong>이 된 뒤에야 예약건 작업으로 넘길 수 있습니다. 현재 입금 대기 <strong>${esc(String(waiting))}</strong>건.</p>` : '')}
       </div>`;
     } else if (form.kind === 'refund') {
@@ -2444,7 +2446,7 @@
           </label>
           <label class="intake-field">
             <span>수량${limitQty === null ? '' : ` <em class="intake-cap">최대 ${esc(String(limitQty))}</em>`}</span>
-            <input type="number" min="1" ${limitQty === null ? '' : `max="${esc(String(limitQty))}"`} data-intake="qty" value="${esc(form.qty)}" placeholder="0">
+            <input type="number" ${form.kind === 'reserve' || form.kind === 'refund' ? 'min="1"' : ''} ${limitQty === null ? '' : `max="${esc(String(limitQty))}"`} data-intake="qty" value="${esc(form.qty)}" placeholder="0">
           </label>
           <label class="intake-field ${lockBase ? 'auto' : ''}">
             <span>판매 단가</span>
@@ -2881,9 +2883,16 @@
         showToast('상품·수량·단가를 채워 주세요.');
         return;
       }
-      // 음수 수량이 들어가면 차감이 거꾸로 돌아 예약 잔여가 늘어난다.
-      if (qty < 0 || !Number.isFinite(qty)) {
-        showToast('수량은 1 이상이어야 합니다.');
+      if (!Number.isFinite(qty)) {
+        showToast('수량을 숫자로 넣어 주세요.');
+        return;
+      }
+      // 당일접수·예약건 작업은 음수로 되돌릴 수 있다. 공급사 정산에서도
+      // 원가를 같이 빼야 하기 때문이다. 예약최초건과 환불은 뜻이 뒤집히므로 막는다.
+      if (qty < 0 && (form.kind === 'reserve' || form.kind === 'refund')) {
+        showToast(form.kind === 'reserve'
+          ? '예약최초건은 수량을 1 이상으로 넣어 주세요.'
+          : '환불은 수량을 1 이상으로 넣으면 자동으로 마이너스가 됩니다.');
         return;
       }
 
@@ -2906,6 +2915,14 @@
           if (Number(form.sell) !== Number(target.sell)) {
             showToast('판매 단가는 예약최초건과 같아야 합니다.');
             return;
+          }
+          // 되돌림은 실제로 쓴 수량까지만. 그래야 잔여가 원 예약을 못 넘는다.
+          if (qty < 0) {
+            const used = reserveUsed(target.id);
+            if (used.qty + qty < 0) {
+              showToast(`되돌릴 수 있는 수량은 ${used.qty}개까지입니다.`);
+              return;
+            }
           }
           const left = reserveRemaining(target);
           if (qty > left.qty) {
