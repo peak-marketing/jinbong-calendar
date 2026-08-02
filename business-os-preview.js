@@ -2164,7 +2164,7 @@
   // ── 접수 구분 ────────────────────────────────────────────────
   // 일반 접수 외에 선입금(예약최초건), 그 예약을 쓰는 작업, 환불이 있다.
   const INTAKE_KINDS = {
-    normal: { label: '일반', badge: '' },
+    normal: { label: '당일접수', badge: '' },
     reserve: { label: '예약최초건', badge: 'reserve' },
     use: { label: '예약건 작업', badge: 'use' },
     refund: { label: '환불', badge: 'refund' }
@@ -2193,10 +2193,20 @@
     return intakeDraft
       .filter(row => kindOf(row) === 'use' && row.refOf === reserveId)
       .reduce((sum, row) => {
-        sum.qty += Number(row.qty) || 0;
-        sum.amount += (Number(row.sell) || 0) * (Number(row.qty) || 0);
+        // 예약건 작업을 환불하면 돈은 그대로 맡아 둔 채 예약 잔여로 되돌아간다.
+        // 나중에 재접수할 몫이므로 업체에 돌려주는 환불과는 다르다.
+        const net = refundableQty(row);
+        sum.qty += net;
+        sum.amount += (Number(row.sell) || 0) * net;
         return sum;
       }, { qty: 0, amount: 0 });
+  }
+
+  // 예약건 작업을 되돌린 환불인지 — 이 경우 돈이 나가지 않는다.
+  function isReserveRefund(row) {
+    if (kindOf(row) !== 'refund') return false;
+    const target = intakeDraft.find(item => item.id === row.refOf);
+    return Boolean(target) && kindOf(target) === 'use';
   }
 
   function reserveRemaining(reserve) {
@@ -2278,7 +2288,10 @@
       sum.profit += sales - supply;
       if (cost !== null) sum.cost += cost;
       // 예약건 작업은 예약금에서 충당되므로 그만큼 이미 받은 것으로 본다.
-      sum.paid += kind === 'use' ? sales : (Number(row.paidAmount) || 0) * sign;
+      // 예약금에서 충당된 건은 그만큼 이미 받은 것으로 보고, 되돌릴 때도 같이 뺀다.
+      sum.paid += (kind === 'use' || isReserveRefund(row))
+        ? sales
+        : (Number(row.paidAmount) || 0) * sign;
       return sum;
     }, { supply: 0, sales: 0, profit: 0, cost: 0, paid: 0, reserve: 0 });
   }
@@ -2311,22 +2324,24 @@
   function renderIntakeForm() {
     const form = intakeForm;
 
-    // 예약건 작업은 예약최초건의 조건을 그대로 따른다. 업체명·메모·상품·
-    // 판매단가를 예약에서 가져와 잠가 두면 서로 어긋날 일이 없다.
-    const pickedReserve = form.kind === 'use'
+    // 예약건 작업은 예약최초건의, 환불은 원래 접수건의 조건을 그대로 따른다.
+    // 업체명·메모·상품·판매단가를 원본에서 가져와 잠가 두면 서로 어긋날 일이 없다.
+    const source = form.kind === 'use'
       ? usableReservations().find(item => item.id === form.refOf)
-      : null;
-    if (pickedReserve) {
-      form.client = pickedReserve.client || '';
-      form.memo = pickedReserve.memo || '';
-      form.a = pickedReserve.a;
-      form.b = pickedReserve.b;
-      form.c = pickedReserve.c;
-      form.sell = String(pickedReserve.sell ?? '');
-      if (!form.unit) form.unit = String(pickedReserve.unit ?? '');
+      : (form.kind === 'refund'
+        ? refundableRows().find(item => item.id === form.refOf)
+        : null);
+    if (source) {
+      form.client = source.client || '';
+      form.memo = source.memo || '';
+      form.a = source.a;
+      form.b = source.b;
+      form.c = source.c;
+      form.sell = String(source.sell ?? '');
+      if (!form.unit) form.unit = String(source.unit ?? '');
     }
     // 영업자 단가는 나중에 바뀔 수 있어 부장 이상만 고칠 수 있다.
-    const lockBase = Boolean(pickedReserve);
+    const lockBase = Boolean(source);
     const unitEditable = !lockBase || canSeeCompanyCost();
 
     const majors = priceLevels('a');
@@ -2384,7 +2399,9 @@
             ${list.map(item => `<option value="${esc(item.id)}" ${item.id === form.refOf ? 'selected' : ''}>${esc(item.date)} · ${esc(intakeLabel(item))} · 환불가능 ${esc(String(refundableQty(item)))}개</option>`).join('')}
           </select>
         </label>
-        ${picked ? `<p class="intake-limit">환불 가능 수량 <strong>${esc(String(limitQty))}</strong>개를 넘을 수 없습니다. 금액은 마이너스로 잡힙니다.</p>` : ''}
+        ${picked ? `<p class="intake-limit">환불 가능 수량 <strong>${esc(String(limitQty))}</strong>개를 넘을 수 없습니다. 금액은 마이너스로 잡힙니다.${
+          kindOf(picked) === 'use' ? ' 예약건 작업이라 돈은 나가지 않고 <strong>예약 잔여로 되돌아갑니다.</strong>' : ''
+        }</p>` : ''}
       </div>`;
     }
 
@@ -2432,10 +2449,10 @@
           <label class="intake-field ${lockBase ? 'auto' : ''}">
             <span>판매 단가</span>
             <input type="number" min="0" data-intake="sell" value="${esc(form.sell)}" placeholder="거래처 판매가" ${lockBase ? 'readonly' : ''}>
-            ${lockBase ? '<small>예약 단가 고정</small>' : ''}
+            ${lockBase ? `<small>${form.kind === 'refund' ? '원접수 단가 고정' : '예약 단가 고정'}</small>` : ''}
           </label>
           <label class="intake-field wide ${lockBase ? 'auto' : ''}">
-            <span>접수 특이사항${lockBase ? ' <em class="intake-cap">예약과 동일</em>' : ''}</span>
+            <span>접수 특이사항${lockBase ? ` <em class="intake-cap">${form.kind === 'refund' ? '원접수와 동일' : '예약과 동일'}</em>` : ''}</span>
             <input type="text" data-intake="memo" value="${esc(form.memo)}" placeholder="선택 입력 · 예약건, 재작업 등" ${lockBase ? 'readonly' : ''}>
           </label>
         </div>

@@ -542,17 +542,20 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-intake-kind="refund"]').click();
     await page.locator('[data-intake="refOf"]').selectOption({ index: 1 });
     await expect(page.locator('#moduleView .intake-limit')).toContainText('환불 가능 수량 4');
-    await fillRow('6');
+    await expect(page.locator('#moduleView .intake-limit')).toContainText('예약 잔여로 되돌아갑니다');
+    await page.locator('[data-intake="qty"]').fill('6');
     await page.locator('[data-intake-add]').click();
     await expect(rows).toHaveCount(2);
 
-
-    // 2개 환불하면 마이너스로 잡힌다
+    // 2개 환불하면 마이너스로 잡히고, 그만큼 예약 잔여로 되돌아간다.
+    // 돈은 우리가 그대로 들고 있으므로 미입금이 생기지 않는다.
     await page.locator('[data-intake="qty"]').fill('2');
     await page.locator('[data-intake-add]').click();
     await expect(rows).toHaveCount(3);
     await expect(page.locator('#moduleView .kind-badge.refund')).toHaveCount(1);
     await expect(page.locator('#moduleView .ledger-total')).toContainText('매출 10,000');
+    await expect(page.locator('#moduleView .ledger-total')).toContainText('예약금 잔여 40,000');
+    await expect(page.locator('#moduleView .ledger-total')).toContainText('미입금 0');
   });
 
   // 예약건 작업은 예약최초건의 업체명·메모·상품·판매단가를 그대로 따른다.
