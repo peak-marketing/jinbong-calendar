@@ -192,7 +192,8 @@
 }
 
 body.calendar-workspace .page,
-body.org-workspace .page {
+body.org-workspace .page,
+body.settlement-workspace .page {
   width: calc(100% - 40px);
   max-width: none;
 }
@@ -1719,7 +1720,8 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 /* ── 시트접수 폼 ─────────────────────────────────── */
 .intake-form {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  /* 넓은 화면에서는 여덟 칸이 한 줄에 들어간다 */
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 14px;
 }
 

@@ -75,15 +75,15 @@
   ];
 
   const PLANNED_MODULES = {
-    reports: 'REPORTS',
-    documents: 'DOCUMENTS',
-    services: 'SERVICES',
-    company: 'COMPANY',
-    organization: 'ORGANIZATION',
-    settlement: 'SETTLEMENT',
-    tax: 'TAX',
-    platform: 'PLATFORM',
-    saas: 'SAAS HUB'
+    reports: '보고서',
+    documents: '문서',
+    services: '서비스',
+    company: '회사 자료',
+    organization: '조직도',
+    settlement: '정산',
+    tax: '세금',
+    platform: '플랫폼',
+    saas: 'SaaS 허브'
   };
 
   const PROJECT_STATUS = {
@@ -2018,6 +2018,31 @@
     }, { supply: 0, sales: 0, profit: 0, cost: 0 });
   }
 
+  // 현재 입력값으로 계산 칸만 다시 만든다. 글자를 칠 때마다 화면 전체를
+  // 다시 그리면 커서가 맨 앞으로 튀므로 이 부분만 갈아 끼운다.
+  function intakeCalcMarkup() {
+    const form = intakeForm;
+    const row = priceRow(form.a, form.b, form.c);
+    const variable = Boolean(row) && row[4] === null;
+    const unit = Number(variable ? form.unit : (row ? row[4] : 0)) || 0;
+    const qty = Number(form.qty) || 0;
+    const sell = Number(form.sell) || 0;
+    const supply = unit * qty;
+    const sales = sell * qty;
+    return `
+      <article><span>영업자 공급가액</span><strong>${supply ? esc(supply.toLocaleString('ko-KR')) : '—'}</strong></article>
+      <article><span>판매액 (매출)</span><strong>${sales ? esc(sales.toLocaleString('ko-KR')) : '—'}</strong></article>
+      <article class="profit"><span>영업이익</span><strong>${unit && qty ? esc((sales - supply).toLocaleString('ko-KR')) : '—'}</strong></article>
+      ${canSeeCompanyCost()
+        ? `<article><span>회사 원가</span><strong>${row && row[3] !== null && qty ? esc((row[3] * qty).toLocaleString('ko-KR')) : '—'}</strong></article>`
+        : '<article class="masked"><span>회사 원가</span><strong>표시 안 함</strong></article>'}`;
+  }
+
+  function updateIntakeCalc() {
+    const box = moduleView.querySelector('.intake-calc');
+    if (box) box.innerHTML = intakeCalcMarkup();
+  }
+
   function renderIntakeForm() {
     const form = intakeForm;
     const majors = priceLevels('a');
@@ -2080,14 +2105,7 @@
           </label>
         </div>
 
-        <div class="intake-calc">
-          <article><span>영업자 공급가액</span><strong>${supply ? esc(supply.toLocaleString('ko-KR')) : '—'}</strong></article>
-          <article><span>판매액 (매출)</span><strong>${sales ? esc(sales.toLocaleString('ko-KR')) : '—'}</strong></article>
-          <article class="profit"><span>영업이익</span><strong>${(sales || supply) ? esc((sales - supply).toLocaleString('ko-KR')) : '—'}</strong></article>
-          ${canSeeCompanyCost()
-            ? `<article><span>회사 원가</span><strong>${row && row[3] !== null && qty ? esc((row[3] * qty).toLocaleString('ko-KR')) : '—'}</strong></article>`
-            : '<article class="masked"><span>회사 원가</span><strong>표시 안 함</strong></article>'}
-        </div>
+        <div class="intake-calc">${intakeCalcMarkup()}</div>
 
         <div class="intake-actions">
           <p class="sales-basis">등록한 건은 이 브라우저에만 저장되는 초안이며 운영 DB에는 쓰지 않습니다.</p>
@@ -2257,20 +2275,21 @@
 
     moduleView.querySelectorAll('[data-intake]').forEach(input => {
       const key = input.dataset.intake;
-      const event = input.tagName === 'SELECT' ? 'change' : 'input';
-      input.addEventListener(event, () => {
+      if (input.tagName === 'SELECT') {
+        // 분류를 바꾸면 아래 단계 선택지와 단가를 다시 잡아야 하므로 전체를 그린다
+        input.addEventListener('change', () => {
+          intakeForm[key] = input.value;
+          if (key === 'a') { intakeForm.b = ''; intakeForm.c = ''; intakeForm.unit = ''; }
+          if (key === 'b') { intakeForm.c = ''; intakeForm.unit = ''; }
+          if (key === 'c') intakeForm.unit = '';
+          renderPlannedModule('settlement');
+        });
+        return;
+      }
+      // 글자 입력은 상태와 계산 칸만 갱신한다. 다시 그리면 커서가 튄다.
+      input.addEventListener('input', () => {
         intakeForm[key] = input.value;
-        // 분류를 바꾸면 아래 단계와 단가를 다시 잡아야 한다
-        if (key === 'a') { intakeForm.b = ''; intakeForm.c = ''; intakeForm.unit = ''; }
-        if (key === 'b') { intakeForm.c = ''; intakeForm.unit = ''; }
-        if (key === 'c') intakeForm.unit = '';
-        renderPlannedModule('settlement');
-        const next = moduleView.querySelector(`[data-intake="${key}"]`);
-        if (next && event === 'input') {
-          next.focus();
-          const end = String(next.value).length;
-          if (next.type !== 'date' && next.type !== 'number') next.setSelectionRange(end, end);
-        }
+        updateIntakeCalc();
       });
     });
 
@@ -2346,6 +2365,8 @@
     body.classList.toggle('calendar-workspace', view === 'calendar');
     // 조직도는 넓은 화면을 다 써야 트리가 스크롤 없이 들어간다
     body.classList.toggle('org-workspace', view === 'organization');
+    // 정산은 접수 칸이 한 줄에 들어가야 해서 전체 폭을 쓴다
+    body.classList.toggle('settlement-workspace', view === 'settlement');
     const isPlannedModule = Object.prototype.hasOwnProperty.call(PLANNED_MODULES, view);
     if (isPlannedModule) renderPlannedModule(view);
     if (view === 'review') renderProjects();
@@ -2356,8 +2377,8 @@
     reviewView.hidden = view !== 'review';
     moduleView.hidden = !isPlannedModule;
     permissionsView.hidden = view !== 'permissions';
-    const labels = { dashboard: 'PEAKMARKETING', calendar: 'CALENDAR', chat: 'CHAT', todo: 'TO DO LIST', review: 'PROJECTS', permissions: '조직 및 권한', ...PLANNED_MODULES };
-    pageCrumb.textContent = labels[view] || 'PEAKMARKETING';
+    const labels = { dashboard: '피크마케팅', calendar: '캘린더', chat: '채팅', todo: '할 일', review: '프로젝트', permissions: '조직 및 권한', ...PLANNED_MODULES };
+    pageCrumb.textContent = labels[view] || '피크마케팅';
     document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === view));
     const activeNav = document.querySelector(`.app-sidebar .nav-item[data-view="${view}"]`);
     if (activeNav) setNavClusterClosed(activeNav.closest('[data-nav-cluster]'), false);
