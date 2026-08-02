@@ -3041,3 +3041,20 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .assign-preview strong { font-weight: 800; color: #2674ac; }
 .assign-preview span { display: block; margin-top: 2px; font-size: 13px; color: #6b7a88; font-weight: 600; }
 .kind-badge.final-only { background: #ede9fb; color: #5b4bb5; }
+
+/* 접수 폼 접기 */
+.intake-head-right { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.intake-toggle { white-space: nowrap; }
+.intake-section.closed .module-section-head { border-bottom: 0; }
+
+/* 회사 원가 입력 알림 */
+.cost-alert { display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin: 0 0 16px; padding: 14px 16px; border-radius: 12px;
+  background: #fef6e7; border: 1px solid #f3ddb4; }
+.cost-alert-icon { flex: none; width: 26px; height: 26px; border-radius: 50%; background: #d98324;
+  color: #fff; font-weight: 900; display: grid; place-items: center; font-size: 15px; }
+.cost-alert-copy { flex: 1 1 260px; font-size: 14px; line-height: 1.6; color: #6b5326; }
+.cost-alert-copy strong { color: #9d6a24; font-weight: 800; font-size: 15px; }
+.cost-input { max-width: 110px; padding: 6px 8px; font-size: 13.5px; }
+.intake-field.need input { border-color: #e6b877; background: #fffaf1; }
+.intake-field.need small { color: #b45309; font-weight: 700; }

@@ -58,6 +58,8 @@
   // 접수 폼이 정산서/최종정산서 양쪽에 뜬다. 최종정산서에서 넣은 건은
   // 개인정산서에 올라가지 않는다.
   let intakeContext = 'settlement';
+  // 접수 폼은 접어 두고 버튼을 눌러야 펼친다. 정산서를 볼 때 방해되지 않게.
+  let intakeOpen = false;
   let intakeSelection = [];
   let orgBranchFilter = 'all';
   // 평소에는 갈래로 나뉜 조직도, 수정할 때만 세로로 나열한다
@@ -2571,14 +2573,17 @@
     }
 
     const finalMode = intakeContext === 'final-settlement';
-    return `<section class="module-section">
+    return `<section class="module-section intake-section ${intakeOpen ? 'open' : 'closed'}">
       <div class="module-section-head">
         <span><strong>${finalMode ? '최종정산서 접수' : '상품 접수'}</strong><small>${finalMode
           ? '여기서 넣은 건은 최종정산서에만 올라가고 개인정산서에는 나오지 않습니다'
           : '시트접수 건을 등록합니다. 분류를 고르면 영업자 단가가 자동으로 붙습니다'}</small></span>
-        <span class="module-chip ${finalMode ? 'restricted' : 'live'}">${finalMode ? '최종정산서 전용' : '시트접수'}</span>
+        <span class="intake-head-right">
+          <span class="module-chip ${finalMode ? 'restricted' : 'live'}">${finalMode ? '최종정산서 전용' : '시트접수'}</span>
+          <button class="module-action primary intake-toggle" type="button" data-intake-toggle aria-expanded="${intakeOpen ? 'true' : 'false'}">${intakeOpen ? '접기' : '＋ 접수 등록'}</button>
+        </span>
       </div>
-      <div class="module-section-body">
+      <div class="module-section-body" ${intakeOpen ? '' : 'hidden'}>
         <div class="intake-kind">
           ${Object.entries(INTAKE_KINDS).map(([key, info]) => `<button class="intake-kind-btn ${form.kind === key ? 'active' : ''}" type="button" data-intake-kind="${esc(key)}">${esc(info.label)}</button>`).join('')}
         </div>
@@ -2618,6 +2623,11 @@
             </select>
             ${lockBase ? '' : `<small>${suggested ? `기본 ${esc(suggested)}` : '상품을 고르면 자동'}</small>`}
           </label>
+          ${variable && canSeeCompanyCost() ? `<label class="intake-field ${form.cost ? '' : 'need'}">
+            <span>회사 원가</span>
+            <input type="number" min="0" data-intake="cost" value="${esc(form.cost ?? '')}" placeholder="직접 입력">
+            <small>${form.cost ? '상시변동 · 직접 입력' : '상시변동 · 입력 필요'}</small>
+          </label>` : ''}
           <label class="intake-field ${(lockBase ? !unitEditable : !variable) ? 'auto' : ''}">
             <span>영업자 단가</span>
             <input type="number" data-intake="unit" value="${esc(unit === '' || unit === null ? '' : unit)}"
@@ -3107,6 +3117,63 @@
   // 최종정산서는 실제로 일이 들어간 건만 올린다.
   // 당일접수 / 예약건 작업 / 환불 / 예약건환불 네 가지이며, 선입금만 받아 둔
   // 예약최초건은 매출이 아니므로 올라가지 않는다.
+  // 원가가 비어 있으면 회사이익도 공급사 지불액도 계산되지 않는다.
+  function missingCostRows() {
+    return finalSettlementRows().filter(row => row.cost === null || row.cost === undefined);
+  }
+
+  function openCostDialog() {
+    const rows = missingCostRows();
+    if (!rows.length) return;
+
+    openDetailModal('회사 원가 입력', `
+      <p class="paid-hint warn">원가가 상시변동인 상품이라 단가표에 값이 없습니다. 넣어야 회사 영업이익과 공급사 지불액이 잡힙니다.</p>
+
+      <div class="sales-table-scroll vendor-detail">
+        <table class="sales-table">
+          <thead><tr><th scope="col">일자</th><th scope="col">업체명</th><th scope="col">상품</th><th scope="col">수량</th><th scope="col">회사 원가</th></tr></thead>
+          <tbody>
+            ${rows.map(row => `<tr>
+              <td>${esc(row.date.slice(5).replace('-', '/'))}</td>
+              <th scope="row">${esc(row.client || '업체 미입력')}</th>
+              <td>${esc(row.b)} › ${esc(row.c)}</td>
+              <td>${esc(((Number(row.qty) || 0) * signOf(row)).toLocaleString('ko-KR'))}</td>
+              <td><input class="paid-input cost-input" type="number" min="0" data-cost-for="${esc(row.id)}" placeholder="원가" aria-label="${esc(row.client || '')} 회사 원가"></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <p class="paid-hint">비워 둔 건은 그대로 둡니다. 나중에 다시 넣을 수 있습니다.</p>
+
+      <div class="paid-actions">
+        <button class="module-action" type="button" data-cost-cancel>취소</button>
+        <button class="module-action primary" type="button" data-cost-save>원가 저장</button>
+      </div>`, { locked: true });
+
+    const dialog = document.getElementById('readonlyModalBody');
+    dialog.querySelector('[data-cost-cancel]').addEventListener('click', closeDetailModal);
+    dialog.querySelector('[data-cost-save]').addEventListener('click', () => {
+      let filled = 0;
+      dialog.querySelectorAll('[data-cost-for]').forEach(input => {
+        const value = input.value.trim();
+        if (!value) return;
+        const row = intakeDraft.find(item => item.id === input.dataset.costFor);
+        if (!row) return;
+        row.cost = Number(value);
+        filled += 1;
+      });
+      if (!filled) {
+        showToast('넣을 원가를 하나 이상 적어 주세요.');
+        return;
+      }
+      saveIntakeDraft();
+      closeDetailModal();
+      renderPlannedModule('final-settlement');
+      showToast(`${filled}건의 회사 원가를 넣었습니다.`);
+    });
+  }
+
   // 최종정산서는 이익을 두 가지로 본다.
   //  영업자 영업이익 = 판매가액 - 영업자 공급가액  (영업자가 남긴 몫)
   //  회사   영업이익 = 판매가액 - 회사 공급가       (회사가 실제로 남긴 몫)
@@ -3239,6 +3306,7 @@
     const total = intakeTotals(rows);
     const final = finalTotals(rows);
     const showCost = canSeeCompanyCost();
+    const missing = missingCostRows();
     const held = intakeDraft.filter(row => kindOf(row) === 'reserve');
     const heldAmount = held.reduce((sum, row) => sum + reserveRemaining(row).amount, 0);
 
@@ -3268,6 +3336,11 @@
         <span class="module-chip restricted">지정 인원 전용</span>
       </div>
       <div class="module-section-body">
+        ${showCost && missing.length ? `<div class="cost-alert">
+          <span class="cost-alert-icon" aria-hidden="true">!</span>
+          <span class="cost-alert-copy"><strong>회사 원가를 넣어야 할 접수 ${esc(missing.length.toLocaleString('ko-KR'))}건</strong><br>상시변동 상품이라 단가표에 원가가 없습니다. 넣기 전까지 회사 영업이익과 공급사 지불액에서 빠집니다.</span>
+          <button class="module-action primary" type="button" data-cost-fill>원가 입력</button>
+        </div>` : ''}
         <div class="ledger-filter">
           <label class="ledger-filter-field">
             <span>기간</span>
@@ -3547,6 +3620,11 @@
     moduleView.querySelectorAll('[data-vendor-settle]').forEach(button => button.addEventListener('click', () => openVendorDialog(button.dataset.vendorSettle)));
 
     moduleView.querySelector('[data-final-assign]')?.addEventListener('click', openAssignDialog);
+    moduleView.querySelector('[data-cost-fill]')?.addEventListener('click', openCostDialog);
+    moduleView.querySelector('[data-intake-toggle]')?.addEventListener('click', () => {
+      intakeOpen = !intakeOpen;
+      renderPlannedModule(intakeContext);
+    });
 
     moduleView.querySelectorAll('[data-final-filter]').forEach(input => input.addEventListener('change', () => {
       finalFilter[input.dataset.finalFilter] = input.value;
@@ -3691,7 +3769,8 @@
         memo: form.memo || '',
         kind: form.kind || 'normal',
         refOf: form.refOf || '',
-        cost: row[3],
+        // 상시변동 상품은 단가표에 원가가 없어 직접 넣은 값을 쓴다.
+        cost: row[3] === null ? (form.cost === '' || form.cost === undefined ? null : Number(form.cost)) : row[3],
         supplier: form.supplier || defaultSupplier(form.b, form.c) || '',
         manager: form.manager || '',
         // 최종정산서에서 넣은 건은 개인정산서에 올리지 않는다.
@@ -3713,7 +3792,7 @@
         paidAuto: false
       });
       saveIntakeDraft();
-      intakeForm = { ...form, client: '', qty: '', sell: '', memo: '', unit: '', refOf: '', supplier: '' };
+      intakeForm = { ...form, client: '', qty: '', sell: '', memo: '', unit: '', refOf: '', supplier: '', cost: '' };
       renderPlannedModule(intakeContext);
       showToast(intakeContext === 'final-settlement'
         ? '최종정산서에만 올라가는 건으로 등록했습니다.'
