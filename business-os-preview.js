@@ -3104,7 +3104,12 @@
 
     if (!groups.length) {
       return `<section class="module-section">
-        <div class="module-section-head"><span><strong>내 개인정산서</strong><small>접수한 건이 일자별로 쌓입니다</small></span></div>
+        <div class="module-section-head">
+          <span><strong>내 개인정산서</strong><small>접수한 건이 일자별로 쌓입니다</small></span>
+          <span class="intake-head-right">
+            <button class="module-action" type="button" data-estimate-new>＋ 새 정산서</button>
+          </span>
+        </div>
         <div class="module-section-body">
           ${personalRows().length ? renderIntakeFilter() : ''}
           <p class="sales-state">${personalRows().length
@@ -3203,9 +3208,15 @@
   const ESTIMATE_ISSUER = {
     company: '주식회사 피크마케팅',
     ceo: '김진봉',
-    bizNo: '812-86-03331',
-    bank: '기업은행 568-048256-04-017'
+    bizNo: '812-86-03331'
   };
+
+  // 받는 통장이 상품에 따라 다르다. 정산서마다 골라서 찍는다.
+  const ESTIMATE_BANKS = [
+    ['피크마케팅', '기업은행 568-048256-04-017'],
+    ['리워드스페이스', '기업은행 076-507041-04-022'],
+    ['리뷰스페이스', '기업은행 076-507041-04-015']
+  ];
   const ESTIMATE_MIN_ROWS = 8;
   const ESTIMATE_NOTE = '*입금자명이 업체명과 다를 시 세금계산서발행이 누락될 수 있습니다. 업체명으로 입금확인 부탁드립니다 :)';
 
@@ -3236,8 +3247,14 @@
       clientCeo: '',
       manager: String(userDoc?.name || '').trim(),
       date: localDateKey(new Date()),
+      bank: ESTIMATE_BANKS[0][0],
       lines: source.length ? source.map(estimateLineOf) : [{ category: '', name: '', unit: 0, qty: 0 }]
     };
+  }
+
+  function estimateBankNumber(draft) {
+    const found = ESTIMATE_BANKS.find(([name]) => name === draft.bank);
+    return (found || ESTIMATE_BANKS[0])[1];
   }
 
   function estimateTotals(draft) {
@@ -3306,7 +3323,7 @@
       ['회사명', ESTIMATE_ISSUER.company, '거래처명', draft.client || ''],
       ['대표자', ESTIMATE_ISSUER.ceo, '대표자', draft.clientCeo || ''],
       ['사업자등록번호', ESTIMATE_ISSUER.bizNo, '발행일자', draft.date.replace(/-0?/g, '. ').replace(/^\. /, '')],
-      ['담당자', draft.manager || '', '입금 계좌번호', ESTIMATE_ISSUER.bank]
+      ['담당자', draft.manager || '', '입금 계좌번호', estimateBankNumber(draft)]
     ];
     info.forEach((row, i) => {
       const y = infoTop + i * 32;
@@ -3392,6 +3409,10 @@
           <input class="paid-input" id="estManager" type="text" value="${esc(estimateDraft.manager)}"></label>
         <label class="paid-field"><span class="paid-label">발행일자</span>
           <input class="paid-input" id="estDate" type="date" value="${esc(estimateDraft.date)}"></label>
+        <label class="paid-field"><span class="paid-label">입금 통장</span>
+          <select class="paid-input" id="estBank">
+            ${ESTIMATE_BANKS.map(([name, number]) => `<option value="${esc(name)}" ${name === estimateDraft.bank ? 'selected' : ''}>${esc(name)} · ${esc(number)}</option>`).join('')}
+          </select></label>
       </div>
 
       <p class="paid-hint">카테고리와 상품명은 거래처에 보낼 이름으로 고쳐 쓰세요. 접수 원본은 바뀌지 않습니다.</p>
@@ -3454,11 +3475,12 @@
       }));
     }
 
-    ['estCeo', 'estManager', 'estDate'].forEach(id => {
+    ['estCeo', 'estManager', 'estDate', 'estBank'].forEach(id => {
       document.getElementById(id).addEventListener('input', () => {
         estimateDraft.clientCeo = document.getElementById('estCeo').value;
         estimateDraft.manager = document.getElementById('estManager').value;
         estimateDraft.date = document.getElementById('estDate').value || estimateDraft.date;
+        estimateDraft.bank = document.getElementById('estBank').value;
         refreshPreview();
       });
     });

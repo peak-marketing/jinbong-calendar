@@ -1164,6 +1164,16 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#estClient')).toHaveValue('');
     await expect(page.locator('#estLines tr')).toHaveCount(1);
     await page.locator('#estClient').fill('신규거래처');
+
+    // 받는 통장이 상품에 따라 달라 정산서마다 고른다
+    await expect(page.locator('#estBank option')).toHaveText([
+      '피크마케팅 · 기업은행 568-048256-04-017',
+      '리워드스페이스 · 기업은행 076-507041-04-022',
+      '리뷰스페이스 · 기업은행 076-507041-04-015',
+    ]);
+    await expect(page.locator('#estBank')).toHaveValue('피크마케팅');
+    await page.locator('#estBank').selectOption('리워드스페이스');
+
     await page.locator('[data-est-line="name"]').first().fill('선입금 건');
     await page.locator('[data-est-line="unit"]').first().fill('300000');
     await page.locator('[data-est-line="qty"]').first().fill('1');
