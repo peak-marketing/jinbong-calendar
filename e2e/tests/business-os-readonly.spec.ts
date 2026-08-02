@@ -697,12 +697,24 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-vendor-save]').click();
     await expect(page.locator('#vendorQty')).toBeVisible();
 
+    // 어느 통장에서 나갔는지 남긴다
+    await expect(page.locator('#vendorBank option')).toHaveText(
+      ['매출통장', '공급처통장', '고정비용통장', '리워드스페이스통장', '리뷰스페이스통장']
+    );
+    await expect(page.locator('#vendorBank')).toHaveValue('공급처통장');
+    await page.locator('#vendorBank').selectOption('리워드스페이스통장');
+
     // 수량이 맞아야 지불로 확정된다
     await page.locator('#vendorMemo').fill('국민은행에서 송금 완료');
     await page.locator('[data-vendor-save]').click();
     await expect(page.locator('#vendorQty')).toBeHidden();
     await expect(vendorRow).toContainText('내역 보기');
     await expect(page.locator('.vendor-settlement .module-chip')).toContainText('미지불 0원');
+    await expect(vendorRow).toContainText('리워드스페이스통장');
+    await expect(page.locator('.final-day-table .vendor-chip.done').first()).toContainText('리워드스페이스통장');
+    // 다시 열면 지난번 통장이 잡혀 있다
+    await vendorRow.locator('[data-vendor-settle]').click();
+    await expect(page.locator('#vendorBank')).toHaveValue('리워드스페이스통장');
     await expect(page.locator('.final-day-table .vendor-chip.done')).toHaveCount(2);
   });
 

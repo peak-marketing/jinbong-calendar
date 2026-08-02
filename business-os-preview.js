@@ -280,6 +280,10 @@
     ['블로그', '브랜드블로그', '카카오톡 채널 친구추가', 12000, 12000]
   ];
 
+  // 돈이 오가는 통장. 공급사 정산에서 어느 통장으로 보냈는지 남긴다.
+  const BANK_ACCOUNTS = ['매출통장', '공급처통장', '고정비용통장', '리워드스페이스통장', '리뷰스페이스통장'];
+  const BANK_DEFAULT = '공급처통장';
+
   // 최종정산서 '공급처명' 열에서 뽑은 목록. 실제 시트에 쓰인 이름 그대로다.
   const SUPPLIERS = ['HM이노', '기발한마케팅', '김지홍 ( 1 )', '리브리', '마케팅초이 (2)', '바보들이만든회사', '부스팅샾', '애드펌프', '에이치에스', '엠플리파이', '영업자', '올스비실계정', '외주(다빈)', '윙', '이스트나인', '인포플래닛', '키지애드 (50)', '파파컴퍼니', '플랜b', '피크마케팅', '하이프웍스', '헬로우드림'];
 
@@ -2783,6 +2787,13 @@
         <input class="paid-input" id="vendorAmount" type="number" value="${esc(String(group.openDue))}">
       </div>
       <div class="paid-field">
+        <label class="paid-label" for="vendorBank">통장 종류 <em class="paid-required">필수</em></label>
+        <select class="paid-input" id="vendorBank">
+          ${BANK_ACCOUNTS.map(v => `<option value="${esc(v)}" ${v === (group.banks[0] || BANK_DEFAULT) ? 'selected' : ''}>${esc(v)}</option>`).join('')}
+        </select>
+        <small class="paid-hint">어느 통장에서 나갔는지 고르세요.</small>
+      </div>
+      <div class="paid-field">
         <label class="paid-label" for="vendorDate">지불일</label>
         <input class="paid-input" id="vendorDate" type="date" value="${esc(localDateKey(new Date()))}">
       </div>
@@ -2820,16 +2831,18 @@
       }
       const amount = Number(document.getElementById('vendorAmount').value) || 0;
       const date = document.getElementById('vendorDate').value;
+      const bank = document.getElementById('vendorBank').value;
       const memo = memoInput.value.trim();
       open.forEach(row => {
         row.vendorPaid = true;
         row.vendorPaidDate = date;
+        row.vendorBank = bank;
         row.vendorMemo = memo;
       });
       saveIntakeDraft();
       closeDetailModal();
       renderPlannedModule('final-settlement');
-      showToast(`${supplier}에 ${amount.toLocaleString('ko-KR')}원 지불로 ${open.length}건을 정산했습니다.`);
+      showToast(`${bank}에서 ${supplier}에 ${amount.toLocaleString('ko-KR')}원 지불로 ${open.length}건을 정산했습니다.`);
     });
   }
 
@@ -2951,6 +2964,7 @@
         ? sum : sum + Number(row.cost) * (Number(row.qty) || 0) * sign(row), 0);
       return {
         supplier, rows, qty, due,
+        banks: [...new Set(settled.map(row => row.vendorBank).filter(Boolean))],
         variable: rows.length - known.length,
         settledCount: settled.length,
         settledDue,
@@ -3006,7 +3020,7 @@
               <td>${esc(sales.toLocaleString('ko-KR'))}</td>
               <td class="sales-cell-total">${esc((sales - supply).toLocaleString('ko-KR'))}</td>
               <td>${row.vendorPaid
-                ? `<span class="vendor-chip done">${esc(row.vendorPaidDate || '지불')}</span>`
+                ? `<span class="vendor-chip done" title="${esc(row.vendorBank || '')}">${esc(row.vendorPaidDate || '지불')}${row.vendorBank ? ` · ${esc(row.vendorBank)}` : ''}</span>`
                 : '<span class="vendor-chip">미지불</span>'}</td>
             </tr>`;
           }).join('')}
@@ -3130,7 +3144,7 @@
                 <td>${esc(group.rows.length.toLocaleString('ko-KR'))}건${group.variable ? `<span class="vendor-note">상시변동 ${esc(String(group.variable))}건</span>` : ''}</td>
                 <td>${esc(group.qty.toLocaleString('ko-KR'))}</td>
                 <td>${esc(group.due.toLocaleString('ko-KR'))}</td>
-                <td>${esc(group.settledDue.toLocaleString('ko-KR'))}</td>
+                <td>${esc(group.settledDue.toLocaleString('ko-KR'))}${group.banks.length ? `<span class="vendor-note">${esc(group.banks.join(' · '))}</span>` : ''}</td>
                 <td class="sales-cell-total">${esc(group.openDue.toLocaleString('ko-KR'))}</td>
                 <td><button class="vendor-settle" type="button" data-vendor-settle="${esc(group.supplier)}">${group.open ? '정산하기' : '내역 보기'}</button></td>
               </tr>`).join('')}
@@ -3435,6 +3449,7 @@
         // 공급사 정산 — 공급처에 우리가 지불하는 쪽. 거래처 입금과 별개다.
         vendorPaid: false,
         vendorPaidDate: '',
+        vendorBank: '',
         vendorMemo: '',
         // 입금 확인 정보. 통장 연결 전이라 지금은 전부 수기로 채운다.
         paid: 'none',
