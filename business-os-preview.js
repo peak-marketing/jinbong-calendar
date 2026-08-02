@@ -2314,13 +2314,24 @@
 
       <div class="paid-actions">
         <button class="module-action" type="button" data-paid-cancel>취소</button>
-        <button class="module-action primary" type="button" data-paid-save>${already ? '입금내용 수정' : '입금확인'}</button>
+        <button class="module-action primary" type="button" data-paid-save>${already || !totalSales ? '입금내용 수정' : '입금확인'}</button>
       </div>`, { locked: true });
 
     const dialog = document.getElementById('readonlyModalBody');
 
     const MEMO_MIN = 8;
     const memoInput = document.getElementById('paidMemo');
+    const amountInput = document.getElementById('paidAmount');
+    const saveButton = dialog.querySelector('[data-paid-save]');
+
+    // 0원이면 입금을 확인하는 게 아니라 내용을 고치는 것이다.
+    function syncSaveLabel() {
+      const amount = Number(amountInput.value) || 0;
+      saveButton.textContent = (already || !amount) ? '입금내용 수정' : '입금확인';
+    }
+
+    amountInput.addEventListener('input', syncSaveLabel);
+    syncSaveLabel();
 
     dialog.querySelector('[data-paid-cancel]').addEventListener('click', closeDetailModal);
 

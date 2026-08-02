@@ -508,8 +508,14 @@ test.describe('Business OS read-only operating data', () => {
     // 판매액 합계가 기본값으로 채워진다
     await expect(page.locator('#paidAmount')).toHaveValue('50000');
 
-    // 입금 특이사항이 8자 미만이면 입금확인이 되지 않는다
+    // 저장 버튼은 입력한 금액을 따라간다. 0원이면 확인이 아니라 수정이다.
     await expect(page.locator('[data-paid-save]')).toHaveText('입금확인');
+    await page.locator('#paidAmount').fill('0');
+    await expect(page.locator('[data-paid-save]')).toHaveText('입금내용 수정');
+    await page.locator('#paidAmount').fill('50000');
+    await expect(page.locator('[data-paid-save]')).toHaveText('입금확인');
+
+    // 입금 특이사항이 8자 미만이면 입금확인이 되지 않는다
     await page.locator('#paidMemo').fill('짧음');
     await page.locator('[data-paid-save]').click();
     await expect(page.locator('#paidMemo')).toBeVisible();
