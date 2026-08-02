@@ -3107,6 +3107,30 @@
   // 최종정산서는 실제로 일이 들어간 건만 올린다.
   // 당일접수 / 예약건 작업 / 환불 / 예약건환불 네 가지이며, 선입금만 받아 둔
   // 예약최초건은 매출이 아니므로 올라가지 않는다.
+  // 최종정산서는 이익을 두 가지로 본다.
+  //  영업자 영업이익 = 판매가액 - 영업자 공급가액  (영업자가 남긴 몫)
+  //  회사   영업이익 = 판매가액 - 회사 공급가       (회사가 실제로 남긴 몫)
+  // 원가가 상시변동인 상품은 회사 공급가를 모르므로 회사 이익에서 뺀다.
+  function finalTotals(rows) {
+    return rows.reduce((sum, row) => {
+      const sign = signOf(row);
+      const qty = (Number(row.qty) || 0) * sign;
+      const sales = (Number(row.sell) || 0) * qty;
+      const supply = (Number(row.unit) || 0) * qty;
+      const hasCost = row.cost !== null && row.cost !== undefined;
+      const vendorDue = hasCost ? Number(row.cost) * qty : 0;
+
+      sum.sales += sales;
+      sum.supply += supply;
+      sum.salesProfit += sales - supply;
+      sum.vendorDue += vendorDue;
+      if (hasCost) sum.companyProfit += sales - vendorDue;
+      else sum.variable += 1;
+      if (!row.vendorPaid) sum.vendorUnpaid += vendorDue;
+      return sum;
+    }, { sales: 0, supply: 0, salesProfit: 0, vendorDue: 0, companyProfit: 0, vendorUnpaid: 0, variable: 0 });
+  }
+
   // 공급사별 정산 집계. 수량과 지불액이 맞아야 정산 처리를 할 수 있다.
   function vendorGroups() {
     const map = new Map();
@@ -3156,7 +3180,8 @@
             <th scope="col">영업자 공급가액</th>
             <th scope="col">판매 단가</th>
             <th scope="col">판매가액</th>
-            <th scope="col">영업 이익(총)</th>
+            <th scope="col">영업이익(영업자)</th>
+            ${showCost ? '<th scope="col">영업이익(회사)</th>' : ''}
             <th scope="col">공급처 입금</th>
           </tr>
         </thead>
@@ -3184,6 +3209,7 @@
               <td>${esc(Number(row.sell).toLocaleString('ko-KR'))}</td>
               <td>${esc(sales.toLocaleString('ko-KR'))}</td>
               <td class="sales-cell-total">${esc((sales - supply).toLocaleString('ko-KR'))}</td>
+              ${showCost ? `<td class="sales-cell-total">${vendorDue === null ? '<span class="ledger-memo-empty">—</span>' : esc((sales - vendorDue).toLocaleString('ko-KR'))}</td>` : ''}
               <td>${row.vendorPaid
                 ? `<span class="vendor-chip done" title="${esc(row.vendorBank || '')}">${esc(row.vendorPaidDate || '지불')}${row.vendorBank ? ` · ${esc(row.vendorBank)}` : ''}</span>`
                 : '<span class="vendor-chip">미지불</span>'}</td>
@@ -3211,6 +3237,7 @@
     });
     const managers = [...new Set(all.map(row => row.manager).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
     const total = intakeTotals(rows);
+    const final = finalTotals(rows);
     const showCost = canSeeCompanyCost();
     const held = intakeDraft.filter(row => kindOf(row) === 'reserve');
     const heldAmount = held.reduce((sum, row) => sum + reserveRemaining(row).amount, 0);
@@ -3262,14 +3289,14 @@
           <button class="module-action primary" type="button" data-final-assign ${rows.length ? '' : 'disabled'}>담당자 지정</button>
         </div>
         ${days.length ? days.map(([date, dayRows]) => {
-          const day = intakeTotals(dayRows);
+          const day = finalTotals(dayRows);
           const dow = weekday[new Date(`${date}T00:00:00`).getDay()] || '';
-          const dayDue = dayRows.reduce((sum, row) => row.cost === null || row.cost === undefined
-            ? sum : sum + Number(row.cost) * (Number(row.qty) || 0) * signOf(row), 0);
           return `<div class="ledger-day">
             <div class="ledger-day-head">
               <strong>${esc(date.slice(5).replace('-', '/'))} (${esc(dow)}) · ${esc(dayRows.length.toLocaleString('ko-KR'))}건</strong>
-              <span>판매가액 ${esc(day.sales.toLocaleString('ko-KR'))}${showCost ? ` · 공급가 ${esc(dayDue.toLocaleString('ko-KR'))}` : ''} · 영업이익 <em>${esc(day.profit.toLocaleString('ko-KR'))}</em></span>
+              <span>판매가액 ${esc(day.sales.toLocaleString('ko-KR'))} · 영업자이익 <em>${esc(day.salesProfit.toLocaleString('ko-KR'))}</em>${showCost
+                ? ` · 회사이익 <em>${esc(day.companyProfit.toLocaleString('ko-KR'))}</em>${day.vendorUnpaid ? ` · 공급사 미정산 <em class="unpaid">${esc(day.vendorUnpaid.toLocaleString('ko-KR'))}</em>` : ' · 공급사 정산완료'}`
+                : ''}</span>
             </div>
             ${finalDayTable(dayRows)}
           </div>`;
@@ -3284,35 +3311,40 @@
                 <th scope="col">건수</th>
                 <th scope="col">수량</th>
                 <th scope="col">매출</th>
-                ${showCost ? '<th scope="col">회사원가</th>' : ''}
-                <th scope="col">영업이익</th>
+                ${showCost ? '<th scope="col">회사 공급가</th>' : ''}
+                <th scope="col">영업이익(영업자)</th>
+                ${showCost ? '<th scope="col">영업이익(회사)</th>' : ''}
               </tr>
             </thead>
             <tbody>
               ${buckets.map(([label, match]) => {
                 const part = rows.filter(match);
-                const sum = intakeTotals(part);
+                const sum = finalTotals(part);
                 const qty = part.reduce((acc, row) => acc + (Number(row.qty) || 0) * signOf(row), 0);
                 return `<tr class="${part.length ? '' : 'ledger-empty-row'}">
                   <th scope="row">${esc(label)}</th>
                   <td>${esc(part.length.toLocaleString('ko-KR'))}</td>
                   <td>${esc(qty.toLocaleString('ko-KR'))}</td>
                   <td>${esc(sum.sales.toLocaleString('ko-KR'))}</td>
-                  ${showCost ? `<td>${esc(sum.cost.toLocaleString('ko-KR'))}</td>` : ''}
-                  <td class="sales-cell-total">${esc(sum.profit.toLocaleString('ko-KR'))}</td>
+                  ${showCost ? `<td>${esc(sum.vendorDue.toLocaleString('ko-KR'))}</td>` : ''}
+                  <td class="sales-cell-total">${esc(sum.salesProfit.toLocaleString('ko-KR'))}</td>
+                  ${showCost ? `<td class="sales-cell-total">${esc(sum.companyProfit.toLocaleString('ko-KR'))}</td>` : ''}
                 </tr>`;
               }).join('')}
             </tbody>
           </table>
         </div>
         <div class="final-total">
-          <span>합계</span>
-          <span>매출 <strong>${esc(total.sales.toLocaleString('ko-KR'))}</strong></span>
-          ${showCost ? `<span>회사원가 <strong>${esc(total.cost.toLocaleString('ko-KR'))}</strong></span>` : ''}
-          <span>영업이익 <strong class="profit">${esc(total.profit.toLocaleString('ko-KR'))}</strong></span>
+          <span>${finalFilterActive() ? '조회 합계' : '전체 합계'}</span>
+          <span>판매가액 <strong>${esc(final.sales.toLocaleString('ko-KR'))}</strong></span>
+          ${showCost ? `<span>회사 공급가 <strong>${esc(final.vendorDue.toLocaleString('ko-KR'))}</strong></span>` : ''}
+          <span>영업자이익 <strong class="profit">${esc(final.salesProfit.toLocaleString('ko-KR'))}</strong></span>
+          ${showCost ? `<span>회사이익 <strong class="profit">${esc(final.companyProfit.toLocaleString('ko-KR'))}</strong></span>` : ''}
           <span>입금 <strong>${esc(total.paid.toLocaleString('ko-KR'))}</strong></span>
           <span>미입금 <strong class="unpaid">${esc(Math.max(0, total.sales - total.paid).toLocaleString('ko-KR'))}</strong></span>
-        </div>` : ''}
+          ${showCost ? `<span>공급사 미정산 <strong class="unpaid">${esc(final.vendorUnpaid.toLocaleString('ko-KR'))}</strong></span>` : ''}
+        </div>
+        ${showCost && final.variable ? `<p class="sales-basis">원가가 상시변동인 ${esc(String(final.variable))}건은 회사 공급가를 알 수 없어 회사이익과 공급사 미정산에서 빠져 있습니다.</p>` : ''}` : ''}
         <p class="sales-basis">예약최초건 ${esc(held.length.toLocaleString('ko-KR'))}건(예약금 잔여 ${esc(heldAmount.toLocaleString('ko-KR'))}원)은 아직 일이 들어가지 않아 최종정산서에 올리지 않습니다. 예약건 작업으로 넘어갈 때 매출로 잡힙니다.</p>
         <p class="sales-basis">지금은 이 브라우저에 저장된 접수만 집계합니다. 서버 저장을 붙이면 전 영업자 기준으로 합산됩니다.</p>
       </div>

@@ -870,7 +870,7 @@ test.describe('Business OS read-only operating data', () => {
 
     // 일별 취합은 시트와 같은 열로 그린다
     const head = page.locator('.final-day-table thead').first();
-    for (const col of ['공급처명', '회사 원가', '회사 공급가', '영업자 공급가액', '판매가액', '영업 이익(총)', '공급처 입금']) {
+    for (const col of ['공급처명', '회사 원가', '회사 공급가', '영업자 공급가액', '판매가액', '영업이익(영업자)', '영업이익(회사)', '공급처 입금']) {
       await expect(head).toContainText(col);
     }
 
@@ -1003,7 +1003,77 @@ test.describe('Business OS read-only operating data', () => {
     await expect(final).toContainText('최종정산서에 올리지 않습니다');
 
     // 당일 3건(75,000) + 예약건 작업 4건(200,000) = 275,000
-    await expect(final.locator('.final-total')).toContainText('매출 275,000');
+    await expect(final.locator('.final-total')).toContainText('판매가액 275,000');
+  });
+
+  // 이익을 영업자 기준과 회사 기준으로 나눠 보고, 공급사 미정산도 함께 본다.
+  test('splits salesperson and company profit and shows unsettled supplier amounts', async ({ page }) => {
+    await installFirebaseStub(page);
+    await page.route('**/api/**', route => {
+      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+      let payload: unknown = [];
+      if (pathname === '/users/me') {
+        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
+      } else if (pathname === '/chat-rooms/unread') {
+        payload = {};
+      } else if (pathname === '/projects') {
+        payload = { canManageAll: false, projects: [] };
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    });
+
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+    await page.locator('.nav-item[data-view="settlement"]').click();
+
+    // 프리미엄원고대필 — 회사원가 10,000 / 영업자단가 11,000 / 판매 15,000
+    for (const [date, client, qty] of [['2026-08-01', '한결에이전시', '10'], ['2026-08-02', '나스컴퍼니', '20']]) {
+      await page.locator('[data-intake="date"]').fill(date);
+      await page.locator('[data-intake="a"]').selectOption('블로그');
+      await page.locator('[data-intake="b"]').selectOption('원고');
+      await page.locator('[data-intake="c"]').selectOption('프리미엄원고대필');
+      await page.locator('[data-intake="client"]').fill(client);
+      await page.locator('[data-intake="qty"]').fill(qty);
+      await page.locator('[data-intake="sell"]').fill('15000');
+      await page.locator('[data-intake-add]').click();
+    }
+
+    await page.locator('.nav-item[data-view="final-settlement"]').click();
+
+    const head = page.locator('.final-day-table thead').first();
+    await expect(head).toContainText('영업이익(영업자)');
+    await expect(head).toContainText('영업이익(회사)');
+
+    // 8/02 20개: 판매 300,000 / 영업자공급 220,000 / 회사공급 200,000
+    const day = page.locator('.ledger-day-head').first();
+    await expect(day).toContainText('판매가액 300,000');
+    await expect(day).toContainText('영업자이익 80,000');
+    await expect(day).toContainText('회사이익 100,000');
+    await expect(day).toContainText('공급사 미정산 200,000');
+
+    const total = page.locator('.final-total');
+    await expect(total).toContainText('전체 합계');
+    await expect(total).toContainText('영업자이익 120,000');
+    await expect(total).toContainText('회사이익 150,000');
+    await expect(total).toContainText('공급사 미정산 300,000');
+
+    // 공급사에 지불하면 미정산이 사라진다
+    await page.locator('.vendor-table tbody tr').first().locator('[data-vendor-settle]').click();
+    await page.locator('#vendorQty').fill('30');
+    await page.locator('#vendorMemo').fill('국민은행에서 송금 완료');
+    await page.locator('[data-vendor-save]').click();
+    await expect(page.locator('#vendorQty')).toBeHidden();
+    await expect(page.locator('.ledger-day-head').first()).toContainText('공급사 정산완료');
+    await expect(total).toContainText('공급사 미정산 0');
+
+    // 기간을 걸면 그 기간 취합값으로 바뀐다
+    await page.locator('[data-final-filter="from"]').fill('2026-08-02');
+    await page.locator('[data-final-filter="to"]').fill('2026-08-02');
+    await expect(total).toContainText('조회 합계');
+    await expect(total).toContainText('판매가액 300,000');
+    await expect(total).toContainText('영업자이익 80,000');
+    await expect(total).toContainText('회사이익 100,000');
   });
 
   // 예약건 작업은 예약최초건의 업체명·메모·상품·판매단가를 그대로 따른다.
