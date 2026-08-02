@@ -2318,6 +2318,21 @@
     return INTAKE_KINDS[kind].label;
   }
 
+  // 접수담당자 — 실제로 접수를 넣은 사람(접수자)과 별개로,
+  // 이 건의 담당이 누구인지 최종정산서에만 표기한다.
+  const NO_MANAGER = '담당 없음';
+
+  function managerRoster() {
+    return orgRoster()
+      .filter(row => row.branch.id === 'hq' && row.rank !== '대표')
+      .sort((a, b) => orgRankOrder(orgRankOf(a)) - orgRankOrder(orgRankOf(b)))
+      .map(row => row.name);
+  }
+
+  function managerOf(row) {
+    return String(row.manager || '').trim() || NO_MANAGER;
+  }
+
   function defaultSupplier(b, c) {
     return SUPPLIER_BY_PRODUCT[`${b}|${c}`] || '';
   }
@@ -2569,6 +2584,13 @@
           <label class="intake-field ${lockBase ? 'auto' : ''}">
             <span>소분류</span>
             <select data-intake="c" ${lockBase ? 'disabled' : ''}>${minors.map(v => option(v, form.c)).join('')}</select>
+          </label>
+          <label class="intake-field">
+            <span>접수담당자</span>
+            <select data-intake="manager">
+              ${[''].concat(managerRoster()).map(v => `<option value="${esc(v)}" ${v === (form.manager || '') ? 'selected' : ''}>${esc(v || NO_MANAGER)}</option>`).join('')}
+            </select>
+            <small>최종정산서에만 반영</small>
           </label>
           <label class="intake-field ${lockBase ? 'auto' : ''}">
             <span>공급처</span>
@@ -2981,7 +3003,8 @@
       <table class="sales-table final-day-table">
         <thead>
           <tr>
-            <th scope="col">접수 담당자</th>
+            <th scope="col">접수담당자</th>
+            <th scope="col">접수자</th>
             <th scope="col">업체명</th>
             <th scope="col">상품명</th>
             <th scope="col">분류</th>
@@ -3006,6 +3029,7 @@
             const vendorDue = hasCost ? Number(row.cost) * qty : null;
             const kind = kindOf(row);
             return `<tr class="${kind !== 'normal' ? `kind-${kind}` : ''}">
+              <td class="${row.manager ? '' : 'ledger-memo-empty'}">${esc(managerOf(row))}</td>
               <td>${esc(row.ownerName || userDoc?.name || '')}${kind === 'normal' ? '' : `<span class="kind-badge ${esc(kind)}">${esc(kindLabel(row))}</span>`}</td>
               <th scope="row">${esc(row.client || '업체 미입력')}</th>
               <td>${esc(row.b)}</td>
@@ -3445,7 +3469,9 @@
         refOf: form.refOf || '',
         cost: row[3],
         supplier: form.supplier || defaultSupplier(form.b, form.c) || '',
+        manager: form.manager || '',
         owner: userDoc?.uid || '',
+        ownerName: userDoc?.name || '',
         // 공급사 정산 — 공급처에 우리가 지불하는 쪽. 거래처 입금과 별개다.
         vendorPaid: false,
         vendorPaidDate: '',
