@@ -45,6 +45,10 @@
   let reportType = 'attendance';
   let salesSummary = { key: '', status: 'idle', data: null, error: '' };
   const salesSummaryCache = new Map();
+  // 실제 로그인 계정. 미리보기로 다른 사람 화면을 볼 때 되돌릴 기준이 된다.
+  let realUserDoc = null;
+  let previewPersona = '';
+  let activeView = 'dashboard';
   // 시트접수 건. 아직 운영 DB에 쓰지 않고 브라우저에만 남는 초안이다.
   let intakeDraft = [];
   let intakeForm = { a: '', b: '', c: '', unit: '', qty: '', sell: '', client: '', date: '' };
@@ -567,14 +571,45 @@
     const initials = name.slice(-2);
     member.innerHTML = `
       <div class="avatar">${esc(initials)}</div>
-      <div class="member-copy"><strong>${esc(name)}</strong><small>${esc(userDoc.group_name || '소속 미지정')} · ${esc(roleLabel(userDoc.role))}</small></div>
+      <div class="member-copy"><strong>${esc(name)}</strong><small>${esc(userDoc.group_name || '소속 미지정')} · ${esc(currentOrgRank() === ORG_RANK_UNSET ? roleLabel(userDoc.role) : currentOrgRank())}</small></div>
       <button class="member-signout" id="memberSignout" type="button" title="로그아웃" aria-label="로그아웃">↪</button>`;
     member.querySelector('#memberSignout').addEventListener('click', async () => {
       await auth.signOut();
       location.reload();
     });
     prototypeBar.classList.add('live');
-    prototypeBar.innerHTML = `<i aria-hidden="true"></i> 운영 데이터 · 읽기 전용 · ${esc(name)} 계정 권한으로 조회 중`;
+    prototypeBar.innerHTML = `
+      <i aria-hidden="true"></i>
+      <span>운영 데이터 · 읽기 전용 · ${esc(name)} 계정 권한으로 조회 중</span>
+      <label class="persona-switch">
+        <span>계정 미리보기</span>
+        <select id="personaSelect">
+          <option value="">내 계정 (${esc(realUserDoc?.name || name)})</option>
+          ${orgRoster().map(row => `<option value="${esc(row.name)}" ${previewPersona === row.name ? 'selected' : ''}>${esc(row.name)} · ${esc(orgRankOf(row))} · ${esc(row.branch.name)}</option>`).join('')}
+        </select>
+      </label>`;
+    prototypeBar.querySelector('#personaSelect').addEventListener('change', event => applyPersona(event.target.value));
+  }
+
+  // 다른 사람 화면이 어떻게 보이는지 확인하는 용도. 화면 표시만 바뀌고
+  // 서버에서 내려오는 데이터는 실제 로그인 계정 것 그대로다.
+  function applyPersona(name) {
+    previewPersona = name || '';
+    if (!previewPersona) {
+      userDoc = realUserDoc;
+    } else {
+      const row = orgRoster().find(item => item.name === previewPersona);
+      const rank = row ? orgRankOf(row) : ORG_RANK_UNSET;
+      userDoc = {
+        ...realUserDoc,
+        name: previewPersona,
+        role: rank === '대표' ? 'admin' : (rank === '주임' ? 'member' : 'manager'),
+        group_name: row ? (row.teamName || row.divisionName) : ''
+      };
+    }
+    loadIntakeDraft();
+    applyUserIdentity();
+    activateView(activeView);
   }
 
   function updateNavigationBadges() {
@@ -1967,8 +2002,9 @@
 
   // ── 시트접수 ────────────────────────────────────────────────
   // 접수 초안은 계정별로 따로 담는다. 한 브라우저를 여러 사람이 써도 섞이지 않는다.
+  // 미리보기로 다른 사람을 볼 때도 그 사람 몫으로 따로 담는다.
   function intakeStorageKey() {
-    return `peakos.intakeDraft.${userDoc?.uid || 'anon'}`;
+    return `peakos.intakeDraft.${previewPersona || userDoc?.uid || 'anon'}`;
   }
 
   function loadIntakeDraft() {
@@ -2454,6 +2490,7 @@
   }
 
   function activateView(view) {
+    activeView = view;
     if (view !== 'chat') closeChatRoom();
     body.classList.toggle('calendar-workspace', view === 'calendar');
     // 조직도는 넓은 화면을 다 써야 트리가 스크롤 없이 들어간다
@@ -2603,6 +2640,7 @@
     setAuthStatus('계정 권한과 운영 데이터를 확인하고 있습니다…');
     try {
       userDoc = await readOnlyApi('/users/me');
+      realUserDoc = userDoc;
       loadIntakeDraft();
       if (userDoc.is_active === false) throw new Error('비활성화된 계정입니다. 관리자에게 문의해 주세요.');
       if (!userDoc.approved) throw new Error('아직 승인되지 않은 계정입니다.');
