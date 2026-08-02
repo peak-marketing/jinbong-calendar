@@ -1804,6 +1804,7 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .intake-limit { margin: 10px 0 0; color: #2674ac; font-size: 13.5px; }
 .intake-limit strong { font-weight: 800; }
 .intake-limit.warn { color: #b45309; }
+.ledger-empty-row { opacity: .45; }
 
 .intake-cap {
   margin-left: 5px;
@@ -1834,7 +1835,7 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .ledger-table tr.kind-refund th { color: #a8514c; }
 .ledger-table tr.kind-reserve { background: #faf8ff; }
 
-.ledger-total strong.reserve { color: #5b4bb5; }
+.ledger-total strong.reserve, .final-total strong.reserve { color: #5b4bb5; }
 
 .intake-field.auto input {
   border-color: #e6ecf1;
@@ -1925,7 +1926,7 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 
 .ledger-remove:hover { border-color: #e2b8b5; color: #b4504a; }
 
-.ledger-total {
+.ledger-total, .final-total {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -1984,7 +1985,7 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .pick-bar strong { font-weight: 800; }
 .pick-bar-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
-.ledger-total strong.unpaid { color: #9d6a24; }
+.ledger-total strong.unpaid, .final-total strong.unpaid { color: #9d6a24; }
 
 /* 입금 확인 창 */
 .paid-modal-sub { margin: 0 0 16px; color: #6d7b89; font-size: 14.5px; }
@@ -2169,9 +2170,9 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .team-member-rank { color: #2674ac; font-size: 13px; font-weight: 700; }
 .team-member-team { grid-column: 1 / -1; color: #7b8794; font-size: 13px; }
 
-.ledger-total > span:first-child { font-weight: 800; color: #1d2b38; }
-.ledger-total strong { color: #1d2b38; font-size: 17px; font-weight: 800; }
-.ledger-total strong.profit { color: #2674ac; }
+.ledger-total > span:first-child, .final-total > span:first-child { font-weight: 800; color: #1d2b38; }
+.ledger-total strong, .final-total strong { color: #1d2b38; font-size: 17px; font-weight: 800; }
+.ledger-total strong.profit, .final-total strong.profit { color: #2674ac; }
 
 .empty-table {
   width: 100%;

@@ -412,7 +412,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
     await page.locator('.nav-item[data-view="settlement"]').click();
     await expect(page.locator('#moduleView')).toContainText('내 개인정산서');
-    await expect(page.locator('#moduleView .module-card h2', { hasText: '최종정산서' })).toHaveCount(0);
+    await expect(page.locator('#moduleView .final-settlement')).toHaveCount(0);
     // 영업자에게는 회사 원가를 감춘다
     await expect(page.locator('#moduleView .intake-calc .masked')).toContainText('표시 안 함');
     await expect(page.locator('#moduleView')).toContainText('회사 원가는 감춥니다');
@@ -459,7 +459,7 @@ test.describe('Business OS read-only operating data', () => {
       // 접수 화면은 누구에게나 열린다
       await expect(page.locator('#moduleView .intake-form')).toHaveCount(1);
       await expect(
-        page.locator('#moduleView .module-card h2', { hasText: '최종정산서' })
+        page.locator('#moduleView .final-settlement')
       ).toHaveCount(allowed ? 1 : 0);
     });
   }
@@ -624,6 +624,88 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-intake="sell"]').fill('1000');
     await page.locator('[data-intake-add]').click();
     await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(3);
+  });
+
+  // 최종정산서에는 당일접수·예약건 작업·환불·예약건환불만 올라간다.
+  // 예약최초건은 아직 일이 들어가지 않아 매출이 아니므로 빠진다.
+  test('final settlement lists only worked rows and drops the reservation', async ({ page }) => {
+    await installFirebaseStub(page);
+    await page.route('**/api/**', route => {
+      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+      let payload: unknown = [];
+      if (pathname === '/users/me') {
+        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
+      } else if (pathname === '/chat-rooms/unread') {
+        payload = {};
+      } else if (pathname === '/projects') {
+        payload = { canManageAll: false, projects: [] };
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    });
+
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+    await page.locator('.nav-item[data-view="settlement"]').click();
+
+    const pick = async (b: string, c: string) => {
+      await page.locator('[data-intake="a"]').selectOption('블로그');
+      await page.locator('[data-intake="b"]').selectOption(b);
+      await page.locator('[data-intake="c"]').selectOption(c);
+    };
+
+    // 당일접수 4개
+    await pick('최적화블로그', '최블 B');
+    await page.locator('[data-intake="client"]').fill('한결에이전시');
+    await page.locator('[data-intake="qty"]').fill('4');
+    await page.locator('[data-intake="sell"]').fill('25000');
+    await page.locator('[data-intake-add]').click();
+
+    // 예약최초건 10개 + 입금
+    await page.locator('[data-intake-kind="reserve"]').click();
+    await pick('원고', '프리미엄원고대필');
+    await page.locator('[data-intake="client"]').fill('나스컴퍼니');
+    await page.locator('[data-intake="qty"]').fill('10');
+    await page.locator('[data-intake="sell"]').fill('50000');
+    await page.locator('[data-intake-add]').click();
+    await page.locator('#moduleView .paid-chip').nth(1).click();
+    await page.locator('#paidMemo').fill('국민은행 선입금 확인');
+    await page.locator('[data-paid-save]').click();
+
+    // 예약건 작업 6개
+    await page.locator('[data-intake-kind="use"]').click();
+    await page.locator('[data-intake="refOf"]').selectOption({ index: 1 });
+    await page.locator('[data-intake="qty"]').fill('6');
+    await page.locator('[data-intake-add]').click();
+
+    // 당일접수 1개 환불 + 예약건 작업 2개 환불(= 예약건환불)
+    await page.locator('[data-intake-kind="refund"]').click();
+    await page.locator('[data-intake="refOf"]').selectOption({ index: 1 });  // 당일접수 최블 B
+    await page.locator('[data-intake="qty"]').fill('1');
+    await page.locator('[data-intake-add]').click();
+    await page.locator('[data-intake="refOf"]').selectOption({ index: 2 });  // 예약건 작업
+    await page.locator('[data-intake="qty"]').fill('2');
+    await page.locator('[data-intake-add]').click();
+
+    // 배지로 환불과 예약건환불이 갈린다
+    await expect(page.locator('#moduleView .kind-badge', { hasText: '예약건환불' })).toHaveCount(1);
+
+    const final = page.locator('#moduleView .final-settlement');
+    await expect(final).toHaveCount(1);
+    const rows = final.locator('.final-table tbody tr');
+    await expect(rows).toHaveCount(4);
+    await expect(rows.nth(0)).toContainText('당일접수');
+    await expect(rows.nth(1)).toContainText('예약건 작업');
+    await expect(rows.nth(2)).toContainText('환불');
+    await expect(rows.nth(3)).toContainText('예약건환불');
+
+    // 예약최초건은 구분에도 없고 매출에도 안 잡힌다
+    await expect(final.locator('.final-table')).not.toContainText('예약최초건');
+    await expect(final).toContainText('예약최초건 1건');
+    await expect(final).toContainText('최종정산서에 올리지 않습니다');
+
+    // 당일 3건(75,000) + 예약건 작업 4건(200,000) = 275,000
+    await expect(final.locator('.final-total')).toContainText('매출 275,000');
   });
 
   // 예약건 작업은 예약최초건의 업체명·메모·상품·판매단가를 그대로 따른다.

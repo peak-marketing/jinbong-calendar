@@ -2203,6 +2203,18 @@
       }, { qty: 0, amount: 0 });
   }
 
+  // 정산서에 찍히는 이름. 환불은 대상이 예약건 작업이면 예약건환불로 나눈다.
+  function kindLabel(row) {
+    const kind = kindOf(row);
+    if (kind === 'refund' && isReserveRefund(row)) return '예약건환불';
+    return INTAKE_KINDS[kind].label;
+  }
+
+  // 최종정산서에 올라가는 건 — 예약최초건은 아직 일한 게 아니라 빠진다.
+  function finalSettlementRows() {
+    return intakeDraft.filter(row => kindOf(row) !== 'reserve');
+  }
+
   // 예약건 작업을 되돌린 환불인지 — 이 경우 돈이 나가지 않는다.
   function isReserveRefund(row) {
     if (kindOf(row) !== 'refund') return false;
@@ -2666,7 +2678,7 @@
                     const sales = (Number(row.sell) || 0) * (Number(row.qty) || 0) * sign;
                     return `<tr class="${intakeSelection.includes(row.id) ? 'picked' : ''} ${kind !== 'normal' ? `kind-${kind}` : ''}">
                       <td class="ledger-pick"><input type="checkbox" data-intake-pick="${esc(row.id)}" ${intakeSelection.includes(row.id) ? 'checked' : ''} aria-label="${esc(row.client || '')} 선택"></td>
-                      <th scope="row">${esc(row.client || '업체 미입력')}${kind === 'normal' ? '' : `<span class="kind-badge ${esc(kind)}">${esc(INTAKE_KINDS[kind].label)}</span>`}</th>
+                      <th scope="row">${esc(row.client || '업체 미입력')}${kind === 'normal' ? '' : `<span class="kind-badge ${esc(kind)}">${esc(kindLabel(row))}</span>`}</th>
                       <td class="ledger-product">${esc(row.a)} › ${esc(row.b)} › ${esc(row.c)}</td>
                       <td>${esc((Number(row.qty) * sign).toLocaleString('ko-KR'))}</td>
                       <td>${esc(Number(row.unit).toLocaleString('ko-KR'))}</td>
@@ -2698,9 +2710,73 @@
     </section>`;
   }
 
+  // 최종정산서는 실제로 일이 들어간 건만 올린다.
+  // 당일접수 / 예약건 작업 / 환불 / 예약건환불 네 가지이며, 선입금만 받아 둔
+  // 예약최초건은 매출이 아니므로 올라가지 않는다.
+  function renderFinalSettlement() {
+    if (!canSeeFinalSettlement()) return '';
+    const rows = finalSettlementRows();
+    const total = intakeTotals(rows);
+    const buckets = [
+      ['당일접수', row => kindOf(row) === 'normal'],
+      ['예약건 작업', row => kindOf(row) === 'use'],
+      ['환불', row => kindOf(row) === 'refund' && !isReserveRefund(row)],
+      ['예약건환불', row => kindOf(row) === 'refund' && isReserveRefund(row)]
+    ];
+    const held = intakeDraft.filter(row => kindOf(row) === 'reserve');
+    const heldAmount = held.reduce((sum, row) => sum + reserveRemaining(row).amount, 0);
+
+    return `<section class="module-section final-settlement">
+      <div class="module-section-head">
+        <span><strong>최종정산서</strong><small>당일접수 · 예약건 작업 · 환불 · 예약건환불만 올라갑니다</small></span>
+        <span class="module-chip restricted">지정 인원 전용</span>
+      </div>
+      <div class="module-section-body">
+        ${rows.length ? `
+        <div class="sales-table-scroll">
+          <table class="sales-table final-table">
+            <thead>
+              <tr>
+                <th scope="col">구분</th>
+                <th scope="col">건수</th>
+                <th scope="col">수량</th>
+                <th scope="col">매출</th>
+                ${canSeeCompanyCost() ? '<th scope="col">회사원가</th>' : ''}
+                <th scope="col">영업이익</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${buckets.map(([label, match]) => {
+                const part = rows.filter(match);
+                const sum = intakeTotals(part);
+                const qty = part.reduce((acc, row) => acc + (Number(row.qty) || 0) * signOf(row), 0);
+                return `<tr class="${part.length ? '' : 'ledger-empty-row'}">
+                  <th scope="row">${esc(label)}</th>
+                  <td>${esc(part.length.toLocaleString('ko-KR'))}</td>
+                  <td>${esc(qty.toLocaleString('ko-KR'))}</td>
+                  <td>${esc(sum.sales.toLocaleString('ko-KR'))}</td>
+                  ${canSeeCompanyCost() ? `<td>${esc(sum.cost.toLocaleString('ko-KR'))}</td>` : ''}
+                  <td class="sales-cell-total">${esc(sum.profit.toLocaleString('ko-KR'))}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="final-total">
+          <span>합계</span>
+          <span>매출 <strong>${esc(total.sales.toLocaleString('ko-KR'))}</strong></span>
+          ${canSeeCompanyCost() ? `<span>회사원가 <strong>${esc(total.cost.toLocaleString('ko-KR'))}</strong></span>` : ''}
+          <span>영업이익 <strong class="profit">${esc(total.profit.toLocaleString('ko-KR'))}</strong></span>
+          <span>입금 <strong>${esc(total.paid.toLocaleString('ko-KR'))}</strong></span>
+          <span>미입금 <strong class="unpaid">${esc(Math.max(0, total.sales - total.paid).toLocaleString('ko-KR'))}</strong></span>
+        </div>` : '<p class="sales-state">최종정산서에 올릴 접수가 아직 없습니다.</p>'}
+        <p class="sales-basis">예약최초건 ${esc(held.length.toLocaleString('ko-KR'))}건(예약금 잔여 ${esc(heldAmount.toLocaleString('ko-KR'))}원)은 아직 일이 들어가지 않아 최종정산서에 올리지 않습니다. 예약건 작업으로 넘어갈 때 매출로 잡힙니다.</p>
+        <p class="sales-basis">지금은 이 브라우저에 저장된 접수만 집계합니다. 서버 저장을 붙이면 전 영업자 기준으로 합산됩니다.</p>
+      </div>
+    </section>`;
+  }
+
   function renderSettlementModule() {
-    const managementCards = `
-      ${canSeeFinalSettlement() ? moduleCard({ icon: '♛', tone: 'violet', title: '최종정산서', description: '전체 정산 검토가 끝난 뒤 확정된 최종 지급 내역과 승인 이력을 관리합니다.', chip: '지정 인원 전용', chipClass: 'restricted', footer: '대표·손명아·김대호·박종원·전현우', action: '정산 구조 보기' }) : ''}`.trim();
 
     const teamSection = canSeeTeamSettlement() ? `
       <section class="module-section">
@@ -2739,8 +2815,8 @@
       ${moduleStatusbar('정산서', canSeeTeamSettlement() ? '시트접수와 하위 계정 정산서를 관리합니다.' : '로그인한 영업자의 개인정산 범위만 표시합니다.', '접수 초안 · 저장 전')}
       ${renderIntakeForm()}
       ${renderIntakeLedger()}
+      ${renderFinalSettlement()}
       ${teamSection}
-      ${managementCards ? `<section class="module-grid single">${managementCards}</section>` : ''}
       <div class="module-security"><span>▣</span><span><strong>현재 적용 권한: ${esc(currentOrgRank())}</strong><br>${canSeeCompanyCost()
         ? '회사 원가와 회사 기준 영업이익까지 표시됩니다. 부장 이상에게만 보입니다.'
         : '영업자 단가 기준으로만 표시되며 회사 원가는 감춥니다. 지금 구글 정산서와 같은 기준입니다.'}${canSeeFinalSettlement()
