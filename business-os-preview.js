@@ -2148,7 +2148,10 @@
 
   // 나중에 추가한 상품. 단가표는 회사 전체가 같이 쓰므로 계정별로 나누지 않는다.
   const CUSTOM_PRICE_KEY = 'peakos.customPrices';
+  const PRICE_EDIT_KEY = 'peakos.priceOverrides';
   let customPrices = [];
+  // 기본 단가표를 직접 고치지 않고 덮어쓸 값만 따로 둔다. '대|중|소' -> [회사원가, 영업자단가]
+  let priceOverrides = {};
 
   function loadCustomPrices() {
     try {
@@ -2157,23 +2160,41 @@
     } catch (error) {
       customPrices = [];
     }
+    try {
+      const saved = JSON.parse(localStorage.getItem(PRICE_EDIT_KEY) || '{}');
+      priceOverrides = saved && typeof saved === 'object' ? saved : {};
+    } catch (error) {
+      priceOverrides = {};
+    }
   }
 
   function saveCustomPrices() {
     try {
       localStorage.setItem(CUSTOM_PRICE_KEY, JSON.stringify(customPrices));
+      localStorage.setItem(PRICE_EDIT_KEY, JSON.stringify(priceOverrides));
     } catch (error) {
       /* 저장 공간이 막혀 있어도 화면 동작은 유지한다 */
     }
   }
 
-  // 기본 단가표 + 추가한 상품. 접수 화면과 단가표가 같은 목록을 본다.
+  function priceKey(row) {
+    return `${row[0]}|${row[1]}|${row[2]}`;
+  }
+
+  // 기본 단가표 + 추가한 상품 + 고친 단가. 접수 화면과 단가표가 같은 목록을 본다.
   function priceRows() {
-    return PRICE_TABLE.concat(customPrices);
+    const customKeys = new Set(customPrices.map(priceKey));
+    return PRICE_TABLE.concat(customPrices).map(row => {
+      const edit = priceOverrides[priceKey(row)];
+      const base = edit ? [row[0], row[1], row[2], edit[0], edit[1]] : row;
+      base.custom = customKeys.has(priceKey(row));
+      base.edited = Boolean(edit);
+      return base;
+    });
   }
 
   function isCustomPrice(row) {
-    return customPrices.includes(row);
+    return Boolean(row.custom);
   }
 
   function priceRow(a, b, c) {
@@ -2193,6 +2214,17 @@
   function canSeeCompanyCost() {
     if (userDoc?.role === 'admin') return true;
     return FINAL_SETTLEMENT_VIEWERS.includes(String(userDoc?.name || '').trim());
+  }
+
+  // 볼 자격이 있어도 개인정산서에는 회사 원가를 띄우지 않는다.
+  // 개인정산서는 누가 보든 영업자 단가 기준으로만 읽히게 한다.
+  function showCompanyCost() {
+    return intakeContext === 'final-settlement' && canSeeCompanyCost();
+  }
+
+  // 예약 단가 수정은 원래대로 부장 이상 직급 기준이다.
+  function canEditReserveUnit() {
+    return orgRankOrder(currentOrgRank()) <= ORG_RANK_MANAGE_FROM;
   }
 
   // 로그인 계정이 어느 지사인지. 조직도에 이름이 있으면 그것을 따르고,
@@ -2507,7 +2539,7 @@
       <article><span>영업자 공급가액</span><strong>${supply ? esc(supply.toLocaleString('ko-KR')) : '—'}</strong></article>
       <article><span>판매액 (매출)</span><strong>${sales ? esc(sales.toLocaleString('ko-KR')) : '—'}</strong></article>
       <article class="profit"><span>영업이익</span><strong>${unit && qty ? esc((sales - supply).toLocaleString('ko-KR')) : '—'}</strong></article>
-      ${canSeeCompanyCost()
+      ${showCompanyCost()
         ? `<article><span>회사 원가</span><strong>${row && row[3] !== null && qty ? esc((row[3] * qty).toLocaleString('ko-KR')) : '—'}</strong></article>`
         : '<article class="masked"><span>회사 원가</span><strong>표시 안 함</strong></article>'}`;
   }
@@ -2538,7 +2570,7 @@
     }
     // 영업자 단가는 나중에 바뀔 수 있어 부장 이상만 고칠 수 있다.
     const lockBase = Boolean(source);
-    const unitEditable = !lockBase || canSeeCompanyCost();
+    const unitEditable = !lockBase || canEditReserveUnit();
     // 공급처는 상품에서 자동으로 붙되 직접 바꿀 수 있다. 되돌림·환불은 원본을 따른다.
     const suggested = defaultSupplier(form.b, form.c);
     if (source) form.supplier = source.supplier || '';
@@ -2657,7 +2689,7 @@
             </select>
             ${lockBase ? '' : `<small>${suggested ? `기본 ${esc(suggested)}` : '상품을 고르면 자동'}</small>`}
           </label>
-          ${variable && canSeeCompanyCost() ? `<label class="intake-field ${form.cost ? '' : 'need'}">
+          ${variable && showCompanyCost() ? `<label class="intake-field ${form.cost ? '' : 'need'}">
             <span>회사 원가</span>
             <input type="number" min="0" data-intake="cost" value="${esc(form.cost ?? '')}" placeholder="직접 입력">
             <small>${form.cost ? '상시변동 · 직접 입력' : '상시변동 · 입력 필요'}</small>
@@ -3054,7 +3086,8 @@
 
   function renderIntakeLedger() {
     const groups = intakeRowsByDate();
-    const showCost = canSeeCompanyCost();
+    // 개인정산서는 영업자 단가 기준으로만 본다.
+    const showCost = false;
     const shown = filteredIntake();
     const month = intakeTotals(shown);
 
@@ -3154,11 +3187,15 @@
   // 단가표 — 최종정산서에서는 회사원가까지, 개인정산서에서는 영업자단가만.
   let priceTableQuery = '';
 
+  let editingPriceKey = '';
+
   function renderPriceTableBody() {
-    const showCost = intakeContext === 'final-settlement' && canSeeCompanyCost();
+    const showCost = showCompanyCost();
+    const canEdit = showCost;
     const q = priceTableQuery.trim().toLowerCase().replace(/\s/g, '');
     const rows = priceRows().filter(row => !q || `${row[0]}${row[1]}${row[2]}`.toLowerCase().replace(/\s/g, '').includes(q));
     const won = value => value === null ? '상시변동' : Number(value).toLocaleString('ko-KR');
+    const cols = 3 + (showCost ? 1 : 0) + 1 + (canEdit ? 1 : 0);
 
     return `<div class="sales-table-scroll price-table-scroll">
       <table class="sales-table price-table">
@@ -3169,17 +3206,37 @@
             <th scope="col">소분류</th>
             ${showCost ? '<th scope="col">회사원가</th>' : ''}
             <th scope="col">영업자단가</th>
+            ${canEdit ? '<th scope="col" aria-label="수정"></th>' : ''}
           </tr>
         </thead>
         <tbody>
-          ${rows.length ? rows.map(row => `<tr class="${isCustomPrice(row) ? 'price-added' : ''}">
-            <td>${esc(row[0])}</td>
-            <td>${esc(row[1])}</td>
-            <th scope="row">${esc(row[2])}${isCustomPrice(row) ? '<span class="kind-badge added">추가</span>' : ''}</th>
-            ${showCost ? `<td class="${row[3] === null ? 'ledger-memo-empty' : ''}">${esc(won(row[3]))}</td>` : ''}
-            <td class="${row[4] === null ? 'ledger-memo-empty' : ''}">${esc(won(row[4]))}</td>
-          </tr>`).join('')
-          : `<tr><td colspan="${showCost ? 5 : 4}" class="ledger-memo-empty">찾는 상품이 없습니다.</td></tr>`}
+          ${rows.length ? rows.map(row => {
+            const key = priceKey(row);
+            const editing = canEdit && editingPriceKey === key;
+            const badges = `${isCustomPrice(row) ? '<span class="kind-badge added">추가</span>' : ''}${row.edited ? '<span class="kind-badge edited">수정</span>' : ''}`;
+            if (editing) {
+              return `<tr class="price-editing">
+                <td>${esc(row[0])}</td>
+                <td>${esc(row[1])}</td>
+                <th scope="row">${esc(row[2])}${badges}</th>
+                <td><input class="paid-input price-edit-input" type="number" min="0" data-price-edit="cost" value="${esc(row[3] === null ? '' : String(row[3]))}" placeholder="상시변동"></td>
+                <td><input class="paid-input price-edit-input" type="number" min="0" data-price-edit="unit" value="${esc(row[4] === null ? '' : String(row[4]))}" placeholder="상시변동"></td>
+                <td class="price-actions">
+                  <button class="module-action primary" type="button" data-price-edit-save="${esc(key)}">저장</button>
+                  <button class="module-action" type="button" data-price-edit-cancel>취소</button>
+                </td>
+              </tr>`;
+            }
+            return `<tr class="${isCustomPrice(row) ? 'price-added' : ''}">
+              <td>${esc(row[0])}</td>
+              <td>${esc(row[1])}</td>
+              <th scope="row">${esc(row[2])}${badges}</th>
+              ${showCost ? `<td class="${row[3] === null ? 'ledger-memo-empty' : ''}">${esc(won(row[3]))}</td>` : ''}
+              <td class="${row[4] === null ? 'ledger-memo-empty' : ''}">${esc(won(row[4]))}</td>
+              ${canEdit ? `<td class="price-actions"><button class="module-action" type="button" data-price-edit-open="${esc(key)}">수정</button>${row.edited ? `<button class="module-action" type="button" data-price-edit-reset="${esc(key)}">되돌리기</button>` : ''}</td>` : ''}
+            </tr>`;
+          }).join('')
+          : `<tr><td colspan="${cols}" class="ledger-memo-empty">찾는 상품이 없습니다.</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -3188,7 +3245,8 @@
 
   function openPriceTable() {
     priceTableQuery = '';
-    const showCost = intakeContext === 'final-settlement' && canSeeCompanyCost();
+    editingPriceKey = '';
+    const showCost = showCompanyCost();
 
     openDetailModal(showCost ? '단가표 · 회사원가 / 영업자단가' : '단가표 · 영업자단가', `
       <div class="price-warning">
@@ -3233,10 +3291,58 @@
 
     const dialog = document.getElementById('readonlyModalBody');
     const search = document.getElementById('priceSearch');
+    const body = document.getElementById('priceTableBody');
+
+    // 표만 다시 그리고 그때마다 버튼을 다시 묶는다.
+    function refreshPriceTable() {
+      body.innerHTML = renderPriceTableBody();
+      wirePriceRows();
+    }
+
+    function wirePriceRows() {
+      body.querySelectorAll('[data-price-edit-open]').forEach(button => button.addEventListener('click', () => {
+        editingPriceKey = button.dataset.priceEditOpen;
+        refreshPriceTable();
+        body.querySelector('[data-price-edit="cost"], [data-price-edit="unit"]')?.focus();
+      }));
+      body.querySelector('[data-price-edit-cancel]')?.addEventListener('click', () => {
+        editingPriceKey = '';
+        refreshPriceTable();
+      });
+      body.querySelectorAll('[data-price-edit-reset]').forEach(button => button.addEventListener('click', () => {
+        delete priceOverrides[button.dataset.priceEditReset];
+        saveCustomPrices();
+        refreshPriceTable();
+        renderPlannedModule(intakeContext);
+        showToast('단가를 원래대로 되돌렸습니다.');
+      }));
+      body.querySelector('[data-price-edit-save]')?.addEventListener('click', event => {
+        const key = event.currentTarget.dataset.priceEditSave;
+        const read = which => {
+          const value = body.querySelector(`[data-price-edit="${which}"]`).value.trim();
+          return value === '' ? null : Number(value);
+        };
+        const cost = read('cost');
+        const unit = read('unit');
+        if ((cost !== null && (!Number.isFinite(cost) || cost < 0)) || (unit !== null && (!Number.isFinite(unit) || unit < 0))) {
+          showToast('단가는 0 이상 숫자로 넣어 주세요.');
+          return;
+        }
+        priceOverrides[key] = [cost, unit];
+        saveCustomPrices();
+        editingPriceKey = '';
+        refreshPriceTable();
+        renderPlannedModule(intakeContext);
+        showToast(`${key.split('|').join(' › ')} 단가를 바꿨습니다.`);
+      });
+    }
+
     search.addEventListener('input', () => {
       priceTableQuery = search.value;
-      document.getElementById('priceTableBody').innerHTML = renderPriceTableBody();
+      editingPriceKey = '';
+      refreshPriceTable();
     });
+    wirePriceRows();
     dialog.querySelector('[data-price-close]').addEventListener('click', closeDetailModal);
 
     const form = document.getElementById('priceForm');
@@ -3264,7 +3370,7 @@
       saveCustomPrices();
       form.hidden = true;
       ['newMajor', 'newMiddle', 'newMinor', 'newCost', 'newUnit'].forEach(id => { document.getElementById(id).value = ''; });
-      document.getElementById('priceTableBody').innerHTML = renderPriceTableBody();
+      refreshPriceTable();
       renderPlannedModule(intakeContext);
       showToast(`${a} › ${b} › ${c} 상품을 단가표에 추가했습니다.`);
     });
@@ -3383,7 +3489,7 @@
 
   // 시트의 '최종 정산' 탭과 같은 열 구성으로 하루치를 그린다.
   function finalDayTable(rows) {
-    const showCost = canSeeCompanyCost();
+    const showCost = showCompanyCost();
     return `<div class="sales-table-scroll">
       <table class="sales-table final-day-table">
         <thead>
@@ -3458,7 +3564,7 @@
     const managers = [...new Set(all.map(row => row.manager).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
     const total = intakeTotals(rows);
     const final = finalTotals(rows);
-    const showCost = canSeeCompanyCost();
+    const showCost = showCompanyCost();
     const missing = missingCostRows();
     const held = intakeDraft.filter(row => kindOf(row) === 'reserve');
     const heldAmount = held.reduce((sum, row) => sum + reserveRemaining(row).amount, 0);
@@ -3696,7 +3802,7 @@
       ${renderIntakeLedger()}
       ${teamSection}
       <div class="module-security"><span>▣</span><span><strong>현재 적용 권한: ${esc(currentOrgRank())}</strong><br>${canSeeCompanyCost()
-        ? '회사 원가와 회사 기준 영업이익까지 표시됩니다. 대표·손명아·김대호·박종원·전현우만 볼 수 있습니다.'
+        ? '개인정산서는 영업자 단가 기준으로만 표시합니다. 회사 원가는 최종정산서에서만 봅니다.'
         : '영업자 단가 기준으로만 표시되며 회사 원가는 감춥니다. 지금 구글 정산서와 같은 기준입니다.'}${canSeeFinalSettlement()
         ? ' 최종정산서는 지정된 인원에게만 열립니다.'
         : ' 최종정산서는 지정된 인원만 볼 수 있어 표시하지 않습니다.'}${canSeeTeamSettlement()

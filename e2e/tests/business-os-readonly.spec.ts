@@ -381,9 +381,14 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(1);
     await expect(page.locator('#moduleView .ledger-table tbody tr').first()).toContainText('명동미용실');
     await expect(page.locator('#moduleView .ledger-total')).toContainText('250,000');
-    // 부장 이상은 회사 원가까지 본다 (최블 B 원가 17,000 × 10)
-    await expect(page.locator('#moduleView .ledger-table th', { hasText: '회사원가' })).toHaveCount(1);
-    await expect(page.locator('#moduleView .ledger-total')).toContainText('170,000');
+    // 개인정산서는 부장이 봐도 영업자 단가 기준이라 회사 원가가 없다
+    await expect(page.locator('#moduleView .ledger-table th', { hasText: '회사원가' })).toHaveCount(0);
+    await expect(page.locator('#moduleView .ledger-total')).not.toContainText('회사원가');
+
+    // 회사 원가(최블 B 17,000 × 10)는 최종정산서에서만 보인다
+    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await expect(page.locator('.final-total')).toContainText('회사 공급가 170,000');
+    await page.locator('.nav-item[data-view="settlement"]').click();
 
     await page.locator('.nav-item[data-view="tax"]').click();
     await expect(page.locator('#moduleView')).toContainText('거래처별 사업자등록증');
@@ -618,7 +623,9 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-intake="refOf"]').selectOption({ index: 1 });
     await page.locator('[data-intake="qty"]').fill('40');
     await page.locator('[data-intake-add]').click();
-    await expect(page.locator('#moduleView .ledger-total')).toContainText('회사원가 400,000');
+    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await expect(page.locator('.final-total')).toContainText('회사 공급가 400,000');
+    await page.locator('.nav-item[data-view="settlement"]').click();
 
     // -10으로 되돌리면 매출·회사원가가 함께 빠지고 예약 잔여가 돌아온다
     await page.locator('[data-intake="refOf"]').selectOption({ index: 1 });
@@ -626,7 +633,9 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-intake-add]').click();
     await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(3);
     await expect(page.locator('#moduleView .ledger-total')).toContainText('매출 1,500,000');
-    await expect(page.locator('#moduleView .ledger-total')).toContainText('회사원가 300,000');
+    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await expect(page.locator('.final-total')).toContainText('회사 공급가 300,000');
+    await page.locator('.nav-item[data-view="settlement"]').click();
     await expect(page.locator('#moduleView .ledger-total')).toContainText('예약금 잔여 3,500,000');
     await expect(page.locator('[data-intake="refOf"] option').nth(1)).toContainText('잔여 70개');
 
@@ -1031,6 +1040,81 @@ test.describe('Business OS read-only operating data', () => {
     await expect(final.locator('.final-total')).toContainText('판매가액 275,000');
   });
 
+  // 단가는 상품별로 고칠 수 있고, 고친 값이 접수 화면과 영업자 단가표에 함께 간다.
+  test('edits a single product price and shares it with sales accounts', async ({ page }) => {
+    await installFirebaseStub(page);
+    await page.route('**/api/**', route => {
+      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+      let payload: unknown = [];
+      if (pathname === '/users/me') {
+        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
+      } else if (pathname === '/chat-rooms/unread') {
+        payload = {};
+      } else if (pathname === '/projects') {
+        payload = { canManageAll: false, projects: [] };
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    });
+
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+
+    // 개인정산서 단가표에서는 고칠 수 없다
+    await page.locator('.nav-item[data-view="settlement"]').click();
+    await page.locator('[data-price-table]').click();
+    await expect(page.locator('[data-price-edit-open]')).toHaveCount(0);
+    await page.locator('[data-price-close]').click();
+
+    // 최종정산서에서 최블 B 단가를 고친다 (17,000 / 19,000)
+    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await page.locator('[data-price-table]').click();
+    await page.locator('#priceSearch').fill('최블 B');
+    const row = page.locator('.price-table tbody tr').first();
+    await expect(row).toContainText('17,000');
+    await expect(row).toContainText('19,000');
+
+    await row.locator('[data-price-edit-open]').click();
+    await page.locator('[data-price-edit="cost"]').fill('18000');
+    await page.locator('[data-price-edit="unit"]').fill('21000');
+    await page.locator('[data-price-edit-save]').click();
+
+    const edited = page.locator('.price-table tbody tr').first();
+    await expect(edited.locator('.kind-badge.edited')).toHaveCount(1);
+    await expect(edited).toContainText('18,000');
+    await expect(edited).toContainText('21,000');
+    await page.locator('[data-price-close]').click();
+
+    // 접수 화면 단가도 따라간다
+    await openIntake(page);
+    await page.locator('[data-intake="a"]').selectOption('블로그');
+    await page.locator('[data-intake="b"]').selectOption('최적화블로그');
+    await page.locator('[data-intake="c"]').selectOption('최블 B');
+    await expect(page.locator('[data-intake="unit"]')).toHaveValue('21000');
+
+    // 영업자 계정에는 영업자단가만, 수정 버튼 없이
+    await page.locator('#personaSelect').selectOption('김용일');
+    await page.locator('.nav-item[data-view="settlement"]').click();
+    await page.locator('[data-price-table]').click();
+    await page.locator('#priceSearch').fill('최블 B');
+    const shared = page.locator('.price-table tbody tr').first();
+    await expect(shared).toContainText('21,000');
+    await expect(shared).not.toContainText('18,000');
+    await expect(page.locator('[data-price-edit-open]')).toHaveCount(0);
+    await page.locator('[data-price-close]').click();
+
+    // 되돌리면 원래 단가로 돌아온다
+    await page.locator('#personaSelect').selectOption('');
+    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await page.locator('[data-price-table]').click();
+    await page.locator('#priceSearch').fill('최블 B');
+    await page.locator('[data-price-edit-reset]').first().click();
+    const reset = page.locator('.price-table tbody tr').first();
+    await expect(reset).toContainText('17,000');
+    await expect(reset).toContainText('19,000');
+    await expect(reset.locator('.kind-badge.edited')).toHaveCount(0);
+  });
+
   // 회사 원가는 직급이 아니라 지정된 다섯 사람만 본다.
   for (const [name, allowed] of [
     ['김진봉', true], ['손명아', true], ['김대호', true], ['박종원', true], ['전현우', true],
@@ -1066,21 +1150,18 @@ test.describe('Business OS read-only operating data', () => {
       await page.locator('[data-intake="sell"]').fill('15000');
       await page.locator('[data-intake-add]').click();
 
-      // 명단 밖이면 개인정산서 표에도 회사원가 열이 없다
-      const ledgerHead = page.locator('#moduleView .ledger-table thead').first();
-      if (allowed) {
-        await expect(ledgerHead).toContainText('회사원가');
-      } else {
-        await expect(ledgerHead).not.toContainText('회사원가');
-      }
+      // 개인정산서는 명단 5인에게도 영업자 단가 기준으로만 보인다
+      await expect(page.locator('#moduleView .ledger-table thead').first())
+        .not.toContainText('회사원가');
+      await expect(page.locator('#moduleView .intake-calc')).toContainText('표시 안 함');
 
       const banner = page.locator('#moduleView .module-security');
       if (allowed) {
-        await expect(banner).toContainText('회사 원가와 회사 기준 영업이익까지');
+        await expect(banner).toContainText('회사 원가는 최종정산서에서만 봅니다');
         // 단가표에서도 회사원가가 보인다
         await page.locator('.nav-item[data-view="final-settlement"]').click();
         await page.locator('[data-price-table]').click();
-        await expect(page.locator('.price-table thead th')).toHaveText(['대분류', '중분류', '소분류', '회사원가', '영업자단가']);
+        await expect(page.locator('.price-table thead th')).toHaveText(['대분류', '중분류', '소분류', '회사원가', '영업자단가', '']);
       } else {
         await expect(banner).toContainText('영업자 단가 기준으로만 표시되며 회사 원가는 감춥니다');
         // 최종정산서 자체가 열리지 않으니 회사원가에 닿을 길이 없다
@@ -1134,7 +1215,7 @@ test.describe('Business OS read-only operating data', () => {
       await page.locator('.nav-item[data-view="final-settlement"]').click();
       await page.locator('[data-price-table]').click();
       await expect(page.locator('#readonlyModalTitle')).toHaveText('단가표 · 회사원가 / 영업자단가');
-      await expect(page.locator('.price-table thead th')).toHaveText(['대분류', '중분류', '소분류', '회사원가', '영업자단가']);
+      await expect(page.locator('.price-table thead th')).toHaveText(['대분류', '중분류', '소분류', '회사원가', '영업자단가', '']);
     });
   }
 
@@ -1237,12 +1318,11 @@ test.describe('Business OS read-only operating data', () => {
     await expect(toggle).toHaveText('접기');
     await expect(page.locator('[data-intake="client"]')).toBeVisible();
 
-    // 월보장은 상시변동이라 회사 원가 칸이 따로 뜬다
+    // 개인정산서 쪽 접수에는 회사 원가 칸이 없다 — 원가는 최종정산서에서만 다룬다
     await page.locator('[data-intake="a"]').selectOption('플레이스');
     await page.locator('[data-intake="b"]').selectOption('상위노출');
     await page.locator('[data-intake="c"]').selectOption('월보장');
-    await expect(page.locator('[data-intake="cost"]')).toBeVisible();
-    await expect(page.locator('.intake-field.need')).toContainText('상시변동 · 입력 필요');
+    await expect(page.locator('[data-intake="cost"]')).toHaveCount(0);
 
     // 원가 없이 등록하면 최종정산서에서 알려 준다
     await page.locator('[data-intake="client"]').fill('군자한의원');
@@ -1252,6 +1332,15 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-intake-add]').click();
 
     await page.locator('.nav-item[data-view="final-settlement"]').click();
+
+    // 최종정산서 접수에서는 상시변동 상품에 회사 원가 칸이 뜬다
+    await openIntake(page);
+    await page.locator('[data-intake="a"]').selectOption('플레이스');
+    await page.locator('[data-intake="b"]').selectOption('상위노출');
+    await page.locator('[data-intake="c"]').selectOption('월보장');
+    await expect(page.locator('[data-intake="cost"]')).toBeVisible();
+    await expect(page.locator('.intake-field.need')).toContainText('상시변동 · 입력 필요');
+
     await expect(page.locator('.cost-alert-copy')).toContainText('회사 원가를 넣어야 할 접수 1건');
     await expect(page.locator('.final-total')).toContainText('회사이익 0');
 

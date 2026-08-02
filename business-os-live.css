@@ -3098,3 +3098,9 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   z-index: 3;
   background: #f4f8fb;
 }
+
+.price-actions { display: flex; gap: 6px; justify-content: center; white-space: nowrap; }
+.price-actions .module-action { padding: 5px 11px; font-size: 13px; }
+.price-edit-input { max-width: 96px; padding: 6px 8px; font-size: 13.5px; text-align: center; }
+.price-editing { background: #eef6fb; }
+.kind-badge.edited { background: #e3f0f8; color: #2674ac; }
