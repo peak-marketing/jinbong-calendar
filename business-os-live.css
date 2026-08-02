@@ -3035,3 +3035,7 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .vendor-detail { max-height: 240px; overflow-y: auto; margin: 14px 0; }
 .final-day-table th[scope="row"] { font-weight: 800; color: #1d2b38; }
 .paid-hint.warn { color: #b45309; font-weight: 600; }
+
+.final-manager select { border: 1px solid #dbe6ef; background: #fff; border-radius: 8px;
+  padding: 5px 8px; font-size: 13px; font-weight: 700; color: #1d2b38; max-width: 118px; }
+.final-manager select:focus { outline: 2px solid #348ecd; outline-offset: 1px; }

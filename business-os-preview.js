@@ -53,6 +53,8 @@
   let intakeDraft = [];
   let intakeForm = { a: '', b: '', c: '', unit: '', qty: '', sell: '', client: '', date: '', memo: '', kind: 'normal', refOf: '' };
   let intakeFilter = { from: '', to: '', client: '', product: '', paid: '' };
+  // 최종정산서는 담당자 정리용으로 따로 기간을 잡는다.
+  let finalFilter = { from: '', to: '' };
   let intakeSelection = [];
   let orgBranchFilter = 'all';
   // 평소에는 갈래로 나뉜 조직도, 수정할 때만 세로로 나열한다
@@ -3029,7 +3031,11 @@
             const vendorDue = hasCost ? Number(row.cost) * qty : null;
             const kind = kindOf(row);
             return `<tr class="${kind !== 'normal' ? `kind-${kind}` : ''}">
-              <td class="${row.manager ? '' : 'ledger-memo-empty'}">${esc(managerOf(row))}</td>
+              <td class="final-manager">
+                <select data-final-manager="${esc(row.id)}" aria-label="${esc(row.client || '')} 접수담당자">
+                  ${[''].concat(managerRoster()).map(v => `<option value="${esc(v)}" ${v === (row.manager || '') ? 'selected' : ''}>${esc(v || NO_MANAGER)}</option>`).join('')}
+                </select>
+              </td>
               <td>${esc(row.ownerName || userDoc?.name || '')}${kind === 'normal' ? '' : `<span class="kind-badge ${esc(kind)}">${esc(kindLabel(row))}</span>`}</td>
               <th scope="row">${esc(row.client || '업체 미입력')}</th>
               <td>${esc(row.b)}</td>
@@ -3053,9 +3059,18 @@
     </div>`;
   }
 
+  function finalFilterActive() {
+    return Boolean(finalFilter.from || finalFilter.to);
+  }
+
   function renderFinalSettlement() {
     if (!canSeeFinalSettlement()) return '';
-    const rows = finalSettlementRows();
+    const all = finalSettlementRows();
+    const rows = all.filter(row => {
+      if (finalFilter.from && String(row.date) < finalFilter.from) return false;
+      if (finalFilter.to && String(row.date) > finalFilter.to) return false;
+      return true;
+    });
     const total = intakeTotals(rows);
     const showCost = canSeeCompanyCost();
     const held = intakeDraft.filter(row => kindOf(row) === 'reserve');
@@ -3081,10 +3096,23 @@
 
     return `<section class="module-section final-settlement">
       <div class="module-section-head">
-        <span><strong>일별 취합</strong><small>당일접수 · 예약건 작업 · 환불 · 예약건환불만 올라갑니다</small></span>
+        <span><strong>일별 취합</strong><small>${finalFilterActive()
+          ? `조회 ${esc(rows.length.toLocaleString('ko-KR'))}건 / 전체 ${esc(all.length.toLocaleString('ko-KR'))}건`
+          : '당일접수 · 예약건 작업 · 환불 · 예약건환불만 올라갑니다'}</small></span>
         <span class="module-chip restricted">지정 인원 전용</span>
       </div>
       <div class="module-section-body">
+        <div class="ledger-filter">
+          <label class="ledger-filter-field">
+            <span>기간</span>
+            <span class="ledger-filter-range">
+              <input type="date" data-final-filter="from" value="${esc(finalFilter.from)}" aria-label="시작일">
+              <em>~</em>
+              <input type="date" data-final-filter="to" value="${esc(finalFilter.to)}" aria-label="종료일">
+            </span>
+          </label>
+          ${finalFilterActive() ? '<button class="module-action" type="button" data-final-filter-reset>조건 해제</button>' : ''}
+        </div>
         ${days.length ? days.map(([date, dayRows]) => {
           const day = intakeTotals(dayRows);
           const dow = weekday[new Date(`${date}T00:00:00`).getDay()] || '';
@@ -3097,7 +3125,7 @@
             </div>
             ${finalDayTable(dayRows)}
           </div>`;
-        }).join('') : '<p class="sales-state">최종정산서에 올릴 접수가 아직 없습니다.</p>'}
+        }).join('') : `<p class="sales-state">${finalFilterActive() ? '조회한 기간에 접수가 없습니다.' : '최종정산서에 올릴 접수가 아직 없습니다.'}</p>`}
 
         ${rows.length ? `
         <div class="sales-table-scroll">
@@ -3332,6 +3360,24 @@
     }));
     moduleView.querySelector('[data-open-permissions]')?.addEventListener('click', () => activateView('permissions'));
     moduleView.querySelectorAll('[data-vendor-settle]').forEach(button => button.addEventListener('click', () => openVendorDialog(button.dataset.vendorSettle)));
+
+    // 담당자는 나중에 바뀔 수 있어 최종정산서에서 바로 고친다.
+    moduleView.querySelectorAll('[data-final-manager]').forEach(select => select.addEventListener('change', () => {
+      const row = intakeDraft.find(item => item.id === select.dataset.finalManager);
+      if (!row) return;
+      row.manager = select.value;
+      saveIntakeDraft();
+      showToast(`${row.client || '업체 미입력'} 접수담당자를 ${select.value || NO_MANAGER}(으)로 바꿨습니다.`);
+    }));
+
+    moduleView.querySelectorAll('[data-final-filter]').forEach(input => input.addEventListener('change', () => {
+      finalFilter[input.dataset.finalFilter] = input.value;
+      renderPlannedModule('final-settlement');
+    }));
+    moduleView.querySelector('[data-final-filter-reset]')?.addEventListener('click', () => {
+      finalFilter = { from: '', to: '' };
+      renderPlannedModule('final-settlement');
+    });
 
     moduleView.querySelectorAll('[data-intake]').forEach(input => {
       const key = input.dataset.intake;

@@ -682,10 +682,65 @@ test.describe('Business OS read-only operating data', () => {
     await expect(head).toContainText('접수자');
 
     const rows = page.locator('.final-day-table tbody tr');
-    await expect(rows.nth(0).locator('td').nth(0)).toHaveText('박종원');
+    await expect(rows.nth(0).locator('[data-final-manager]')).toHaveValue('박종원');
     await expect(rows.nth(0).locator('td').nth(1)).toHaveText('김대호');
-    await expect(rows.nth(1).locator('td').nth(0)).toHaveText('담당 없음');
+    await expect(rows.nth(1).locator('[data-final-manager]')).toHaveValue('');
     await expect(rows.nth(1).locator('td').nth(1)).toHaveText('김대호');
+
+    // 담당자는 나중에 바뀔 수 있어 최종정산서에서 바로 고친다
+    await rows.nth(1).locator('[data-final-manager]').selectOption('김용일');
+    await page.locator('.nav-item[data-view="settlement"]').click();
+    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await expect(page.locator('.final-day-table tbody tr').nth(1).locator('[data-final-manager]')).toHaveValue('김용일');
+  });
+
+  // 최종정산서는 담당자를 정리할 수 있게 기간으로도 조회한다.
+  test('filters the final settlement by period', async ({ page }) => {
+    await installFirebaseStub(page);
+    await page.route('**/api/**', route => {
+      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+      let payload: unknown = [];
+      if (pathname === '/users/me') {
+        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
+      } else if (pathname === '/chat-rooms/unread') {
+        payload = {};
+      } else if (pathname === '/projects') {
+        payload = { canManageAll: false, projects: [] };
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    });
+
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+
+    // 상단 '＋ 새 업무' 버튼은 쓰지 않아 없앴다
+    await expect(page.locator('.top-actions .primary-button')).toHaveCount(0);
+
+    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+    await page.locator('.nav-item[data-view="settlement"]').click();
+
+    for (const [date, client] of [['2026-08-01', '한결에이전시'], ['2026-08-02', '나스컴퍼니'], ['2026-08-03', '파인트리']]) {
+      await page.locator('[data-intake="date"]').fill(date);
+      await page.locator('[data-intake="a"]').selectOption('블로그');
+      await page.locator('[data-intake="b"]').selectOption('원고');
+      await page.locator('[data-intake="c"]').selectOption('프리미엄원고대필');
+      await page.locator('[data-intake="client"]').fill(client);
+      await page.locator('[data-intake="qty"]').fill('10');
+      await page.locator('[data-intake="sell"]').fill('15000');
+      await page.locator('[data-intake-add]').click();
+    }
+
+    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    const rows = page.locator('.final-day-table tbody tr');
+    await expect(rows).toHaveCount(3);
+
+    await page.locator('[data-final-filter="from"]').fill('2026-08-02');
+    await page.locator('[data-final-filter="to"]').fill('2026-08-03');
+    await expect(rows).toHaveCount(2);
+    await expect(page.locator('.final-settlement .module-section-head small')).toHaveText('조회 2건 / 전체 3건');
+
+    await page.locator('[data-final-filter-reset]').click();
+    await expect(rows).toHaveCount(3);
   });
 
   // 공급사 정산은 공급처별로 수량을 맞춰 본 뒤에야 지불로 확정된다.
