@@ -45,6 +45,9 @@
   let reportType = 'attendance';
   let salesSummary = { key: '', status: 'idle', data: null, error: '' };
   const salesSummaryCache = new Map();
+  // 시트접수 건. 아직 운영 DB에 쓰지 않고 브라우저에만 남는 초안이다.
+  let intakeDraft = [];
+  let intakeForm = { a: '', b: '', c: '', unit: '', qty: '', sell: '', client: '', date: '' };
   let orgBranchFilter = 'all';
   // 평소에는 갈래로 나뉜 조직도, 수정할 때만 세로로 나열한다
   let orgEditMode = false;
@@ -99,6 +102,176 @@
     done: '완료',
     hold: '보류'
   };
+
+  // 최종정산서 '드롭다운 및 영업자 단가' 탭에서 옮긴 단가표.
+  // [대분류, 중분류, 소분류, 회사원가, 영업자단가] — null은 상시변동(직접 입력)
+  const PRICE_TABLE = [
+    ['플레이스', '상위노출', '월보장', null, null],
+    ['플레이스', '상위노출', '건바이', null, null],
+    ['지식인', '상위노출', '월보장', null, null],
+    ['지식인', '상위노출', '건바이', null, null],
+    ['지식인', '배포', '단순배포', 3000, 3500],
+    ['자동완성', '자동완성', '월보장', 45000, 47000],
+    ['자동완성', '자동완성', '슬롯', 13000, 15000],
+    ['웹사이트', '웹사이트', '슬롯', 40000, 45000],
+    ['SNS', '영상제작', '영상제작', 70000, 75000],
+    ['상세페이지', '상세페이지 제작', '1000PX', 10000, 10000],
+    ['유튜브', '자동완성', '월보장', null, null],
+    ['유튜브', '자동완성', '슬롯', 35000, 35000],
+    ['유튜브', '상위노출', '월보장', null, null],
+    ['유튜브', '상위노출', '건바이', null, null],
+    ['리워드', '신규리워드', '트래픽', 20, 22],
+    ['리워드', 'Alpha', '트래픽', 21, 24],
+    ['리워드', '올데이', '트래픽', 21, 23],
+    ['리워드', '올데이 (쇼핑)', '트래픽', 18, 20],
+    ['리워드', '프리저', '트래픽', 18, 20],
+    ['리워드', '프리저', '저장하기', 27, 29],
+    ['리워드', '프리저', '스마트콜', 26, 28],
+    ['리워드', '파라곤 (쇼핑)', '트래픽', 22, 24],
+    ['리워드', '피크리워드', '트래픽', 18, 20],
+    ['리워드', '피크리워드', '저장하기', 27, 29],
+    ['리워드', '프리저 (쇼핑)', '트래픽', 19, 21],
+    ['리워드', 'BOOSTER', '트래픽', 32, 34],
+    ['리워드', 'BOOSTER Pro', '트래픽', 35, 35],
+    ['리워드', '포미션', '트래픽', 20, 22],
+    ['리워드', '포미션', '저장하기', 30, 32],
+    ['리워드', '포미션', '대행사 페이백', null, null],
+    ['리워드', '포미션', '찜', 50, 52],
+    ['리워드', '파라곤', '트래픽', 35, 36],
+    ['블로그', 'P01', '사진 1장', 300, 400],
+    ['블로그', 'P01', '사진 1장 247', 400, 500],
+    ['블로그', 'P01', '사진 3장', 400, 500],
+    ['블로그', 'P01', '사진 3장 247', 500, 600],
+    ['블로그', 'P01', 'AI 사진 3장 ', 400, 500],
+    ['블로그', 'P01', '유입형 사진 3장 247', 1150, 1200],
+    ['블로그', 'P01', '개별세팅옵션', 200, 200],
+    ['블로그', 'P01-A', '사진 3장 글자수 100~300', 700, 800],
+    ['블로그', 'P01-A', '사진 5장 글자수 300~500', 1100, 1200],
+    ['블로그', 'P01-A', '사진 10장 글자수 600~900', 1700, 1800],
+    ['블로그', 'P01-A', '사진 15장 글자수 1000~1200', 2500, 2500],
+    ['블로그', 'P01-A', '개별세팅옵션', 200, 200],
+    ['블로그', 'P01-A', '24옵션', 100, 100],
+    ['블로그', 'P01-A', '준최 3', 6000, 6500],
+    ['블로그', 'P02', '일반~준최5 이미지 7장 700', 1000, 1000],
+    ['블로그', 'P02', '준최2~준최5 이미지 5장 500', 1100, 1100],
+    ['블로그', 'P02', '준최2~준최5 이미지 7장 700', 1500, 1500],
+    ['블로그', 'P02', '준최2~준최5 이미지 10장 1000', 1900, 1900],
+    ['블로그', 'P02', '준최4~준최7 이미지 20장 2000', 3000, 3000],
+    ['블로그', 'P02', '준최 4 원고세팅', 4000, 6000],
+    ['블로그', 'P02', '수정/삭제비', 500, 500],
+    ['블로그', 'P0B', '실계정 준최 4', 2000, 2000],
+    ['블로그', 'P0B', '프리미엄 배포(원고 및 사진 지정)', 1000, 1000],
+    ['블로그', 'P0B', '실계정 준최2~4 배포(사진10장)', 800, 800],
+    ['블로그', 'P0B', '실계정 준최2~4 배포(사진5장)', 650, 650],
+    ['블로그', 'P0B', '실계정 준최2~4 배포(사진3장)', 550, 550],
+    ['블로그', 'P0B', '실계정 준최2~4 배포(사진1장)', 500, 500],
+    ['블로그', 'AI 파라곤', '일반배포', 120, 120],
+    ['블로그', 'AI 파라곤', '프리미엄 이미지 생성', 170, 170],
+    ['블로그', 'P03', '준최 4~6 원고세팅', 10000, 11000],
+    ['블로그', 'P03-A', '준최 4~6 원고세팅', 8000, 8000],
+    ['블로그', '최적화블로그', '최블A+', 17000, 19000],
+    ['블로그', '최적화블로그', '최블 B', 17000, 19000],
+    ['블로그', '최적화블로그', '최블 C', 23000, 25000],
+    ['블로그', '최적화블로그', '최블 D', 38000, 40000],
+    ['블로그', '원고', '대필프로그램', 500, 700],
+    ['블로그', '원고', '외주대필', 2000, 3000],
+    ['블로그', '원고', '프리미엄원고대필', 10000, 11000],
+    ['블로그', '파라곤', '247.0', 150, 180],
+    ['블로그', '파라곤', '25.0', 100, 130],
+    ['블로그', '스페이스', '[일반] 1장 일반', 300, 300],
+    ['블로그', '스페이스', '[일반] 3장 일반', 300, 300],
+    ['블로그', '스페이스', '[일반] 7장 일반', 400, 400],
+    ['블로그', '스페이스', '[일반] 1장 프리미엄', 400, 400],
+    ['블로그', '스페이스', '[일반] 3장 프리미엄', 400, 400],
+    ['블로그', '스페이스', '[일반] 7장 프리미엄', 500, 500],
+    ['블로그', '스페이스', '[올인원] 1장 일반', 350, 350],
+    ['블로그', '스페이스', '[올인원] 3장 일반', 350, 350],
+    ['블로그', '스페이스', '[올인원] 7장 일반', 450, 450],
+    ['블로그', '스페이스', '[올인원] 1장 프리미엄', 450, 450],
+    ['블로그', '스페이스', '[올인원] 3장 프리미엄', 450, 450],
+    ['블로그', '스페이스', '[올인원] 7장 프리미엄', 550, 550],
+    ['블로그', '스페이스', '[247] 1장 일반', 400, 400],
+    ['블로그', '스페이스', '[247] 3장 일반', 400, 400],
+    ['블로그', '스페이스', '[247] 7장 일반', 500, 500],
+    ['블로그', '스페이스', '[247] 1장 프리미엄', 500, 500],
+    ['블로그', '스페이스', '[247] 3장 프리미엄', 500, 500],
+    ['블로그', '스페이스', '[247] 7장 프리미엄', 600, 600],
+    ['블로그', 'HP', '247.0', 300, 350],
+    ['블로그', 'HP', '25.0', 180, 200],
+    ['블로그', '저인망', '준최 2', 900, 1000],
+    ['블로그', '저인망', '준최 4 ', 1200, 1300],
+    ['리뷰', 'ReviewFlow', '충전금', null, null],
+    ['리뷰', '플레이스', 'A/S ReceiptNote', 400, 600],
+    ['리뷰', '플레이스', 'A/S 영수증리뷰', 800, 900],
+    ['리뷰', '플레이스', 'ReceiptNote', 400, 600],
+    ['리뷰', '플레이스', 'N 영수증리뷰', 500, 600],
+    ['리뷰', '플레이스', '영수증리뷰', 800, 900],
+    ['리뷰', '플레이스', '예약자리뷰', 1300, 1400],
+    ['리뷰', '카카오', '카카오맵리뷰', 500, 600],
+    ['리뷰', '카카오', '카카오맵리뷰 원고요청', 600, 700],
+    ['리뷰', 'T맵', 'T맵리뷰', 1500, 1600],
+    ['리뷰', '구글', '구글리뷰', 1800, 2000],
+    ['리뷰', '구글', '개별옵션', 200, 200],
+    ['리뷰', '리뷰삭제', '빠른삭제', 35000, 37000],
+    ['리뷰', '리뷰삭제', '일반삭제', 25000, 27000],
+    ['리뷰', '클립리뷰', '25초내 영상형', 1800, 1900],
+    ['리뷰', '클립리뷰', '10장 내 슬라이드형', 1800, 1900],
+    ['리뷰', '캐치테이블', '캐치테이블리뷰', 3000, 3500],
+    ['리뷰', '원고', '대필프로그램', 70, 70],
+    ['카페', '맘카페', '단순배포', 6500, 7000],
+    ['카페', '맘카페', '댓글작업', 1500, 1500],
+    ['카페', '핫딜', '커뮤니티', null, null],
+    ['인스타그램', '기자단', '단순배포', 10000, 12000],
+    ['네이버 쇼핑', '가구매', '기자단', 1500, 1500],
+    ['네이버 쇼핑', '가구매', '택배대행비', 1900, 1900],
+    ['네이버 쇼핑', '스토어', '알림받기', 29, 31],
+    ['네이버 쇼핑', '스토어', '찜', 29, 31],
+    ['쿠팡', '쓰나미', '트래픽', 24000, 24000],
+    ['쿠팡', 'MAX', '트래픽', 400, 417],
+    ['쿠팡', '업팡', '트래픽', 670, 700],
+    ['쿠팡', '가구매', '기자단', 1500, 1500],
+    ['쿠팡', '가구매', '택배대행비', 1900, 1900],
+    ['쿠팡', '가구매', '물품비', null, null],
+    ['쿠팡2', '가구매2', '기자단2', 800, 900],
+    ['쿠팡2', '가구매2', '택배대행비2', 1800, 1900],
+    ['쿠팡2', '가구매2', '물품비', null, null],
+    ['중화권마케팅', '샤오홍슈', '프리미엄', 58000, 63000],
+    ['중화권마케팅', '샤오홍슈', '스탠다드', 20000, 25000],
+    ['중화권마케팅', '샤오홍슈', '부띠끄', 20000, 25000],
+    ['크몽작업', '수수료', '크몽 수수료', null, null],
+    ['피크마케팅 상품', '상품', 'DB 프로그램', 20000, 20000],
+    ['피크마케팅 상품', '상품', 'UI 최초사용료', 18000, 18000],
+    ['피크마케팅 상품', '상품', '도메인 구입비', 18000, 18000],
+    ['피크마케팅 상품', '상품', '스냅촬영', null, null],
+    ['브랜드블로그', '베이직', '타입 A', 100000, 100000],
+    ['브랜드블로그', '베이직', '타입 B', 150000, 150000],
+    ['브랜드블로그', '스탠다드', '타입 A', 200000, 200000],
+    ['브랜드블로그', '스탠다드', '타입 B', 300000, 300000],
+    ['브랜드블로그', '스탠다드', '타입 C', 400000, 400000],
+    ['브랜드블로그', '프리미엄', '타입 A', 280000, 280000],
+    ['브랜드블로그', '프리미엄', '타입 B', 450000, 450000],
+    ['브랜드블로그', '프리미엄', '타입 C', 550000, 550000],
+    ['브랜드블로그', '옵션', '일반 대문이미지', 100000, 100000],
+    ['브랜드블로그', '옵션', '홈페이지형 대문이미지', 200000, 200000],
+    ['브랜드블로그', '옵션', '프리미엄포스팅 5건 변경', 100000, 100000],
+    ['브랜드블로그', '옵션', '대문에서 홈페이지형 변경', 80000, 80000],
+    ['당근', '리뷰', '비즈후기', 2000, 2200],
+    ['당근', '찜', '찜', 200, 220],
+    ['당근', '단골맺기', '단골맺기', 200, 220],
+    ['당근', '동네생활', '단순배포', 6500, 7000],
+    ['블로그', '브랜드블로그', '신규 스타터 입문형', 150000, 150000],
+    ['블로그', '브랜드블로그', '신규 베이직 육성형', 290000, 290000],
+    ['블로그', '브랜드블로그', '신규 프리미엄 육성형', 420000, 420000],
+    ['블로그', '브랜드블로그', '신규 올인원 집중관리형', 570000, 570000],
+    ['블로그', '브랜드블로그', '연장 스타터 입문형', 90000, 90000],
+    ['블로그', '브랜드블로그', '연장 베이직 육성형', 250000, 250000],
+    ['블로그', '브랜드블로그', '연장 프리미엄 육성형', 350000, 350000],
+    ['블로그', '브랜드블로그', '연장 올인원 집중관리형', 420000, 420000],
+    ['블로그', '브랜드블로그', '빠른 서로이웃', 25000, 25000],
+    ['블로그', '브랜드블로그', '빠른 이웃', 15000, 15000],
+    ['블로그', '브랜드블로그', '포스팅 반응활성화', 2000, 2000],
+    ['블로그', '브랜드블로그', '카카오톡 채널 친구추가', 12000, 12000]
+  ];
 
   // 직급은 위에서 아래로 높은 순. 권한 관리는 부장 이상만 가능하다.
   const ORG_RANKS = ['대표', '이사', '부장', '실장', '팀장', '과장', '대리', '주임'];
@@ -1785,22 +1958,235 @@
     loadOrgDirectory();
   }
 
+  // ── 시트접수 ────────────────────────────────────────────────
+  const INTAKE_STORAGE_KEY = 'peakos.intakeDraft';
+
+  function loadIntakeDraft() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(INTAKE_STORAGE_KEY) || '[]');
+      intakeDraft = Array.isArray(saved) ? saved : [];
+    } catch (error) {
+      intakeDraft = [];
+    }
+  }
+
+  function saveIntakeDraft() {
+    try {
+      localStorage.setItem(INTAKE_STORAGE_KEY, JSON.stringify(intakeDraft));
+    } catch (error) {
+      /* 저장 공간이 막혀 있어도 화면 동작은 유지한다 */
+    }
+  }
+
+  function priceRow(a, b, c) {
+    return PRICE_TABLE.find(row => row[0] === a && row[1] === b && row[2] === c) || null;
+  }
+
+  function priceLevels(key, ...filters) {
+    const index = ['a', 'b', 'c'].indexOf(key);
+    return [...new Set(PRICE_TABLE
+      .filter(row => filters.every((value, i) => !value || row[i] === value))
+      .map(row => row[index]))];
+  }
+
+  // 회사 원가는 부장 이상만 본다. 지금 구글 정산서와 같은 경계.
+  function canSeeCompanyCost() {
+    return orgRankOrder(currentOrgRank()) <= ORG_RANK_MANAGE_FROM;
+  }
+
+  function intakeRowsByDate() {
+    const groups = new Map();
+    [...intakeDraft]
+      .sort((x, y) => String(y.date).localeCompare(String(x.date)))
+      .forEach(row => {
+        if (!groups.has(row.date)) groups.set(row.date, []);
+        groups.get(row.date).push(row);
+      });
+    return [...groups.entries()];
+  }
+
+  function intakeTotals(rows) {
+    return rows.reduce((sum, row) => {
+      const supply = (Number(row.unit) || 0) * (Number(row.qty) || 0);
+      const sales = (Number(row.sell) || 0) * (Number(row.qty) || 0);
+      const cost = row.cost === null || row.cost === undefined ? null : Number(row.cost) * (Number(row.qty) || 0);
+      sum.supply += supply;
+      sum.sales += sales;
+      sum.profit += sales - supply;
+      if (cost !== null) sum.cost += cost;
+      return sum;
+    }, { supply: 0, sales: 0, profit: 0, cost: 0 });
+  }
+
+  function renderIntakeForm() {
+    const form = intakeForm;
+    const majors = priceLevels('a');
+    if (!form.a || !majors.includes(form.a)) form.a = majors[0] || '';
+    const mids = priceLevels('b', form.a);
+    if (!form.b || !mids.includes(form.b)) form.b = mids[0] || '';
+    const minors = priceLevels('c', form.a, form.b);
+    if (!form.c || !minors.includes(form.c)) form.c = minors[0] || '';
+
+    const row = priceRow(form.a, form.b, form.c);
+    const variable = Boolean(row) && row[4] === null;
+    const unit = variable ? form.unit : (row ? row[4] : '');
+    const qty = Number(form.qty) || 0;
+    const sell = Number(form.sell) || 0;
+    const supply = (Number(unit) || 0) * qty;
+    const sales = sell * qty;
+
+    const option = (value, selected) => `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(value)}</option>`;
+
+    return `<section class="module-section">
+      <div class="module-section-head">
+        <span><strong>상품 접수</strong><small>시트접수 건을 등록합니다. 분류를 고르면 영업자 단가가 자동으로 붙습니다</small></span>
+        <span class="module-chip live">시트접수</span>
+      </div>
+      <div class="module-section-body">
+        <div class="intake-form">
+          <label class="intake-field">
+            <span>일자</span>
+            <input type="date" data-intake="date" value="${esc(form.date || localDateKey(new Date()))}">
+          </label>
+          <label class="intake-field">
+            <span>업체명</span>
+            <input type="text" data-intake="client" value="${esc(form.client)}" placeholder="업체명 입력">
+          </label>
+          <label class="intake-field">
+            <span>대분류</span>
+            <select data-intake="a">${majors.map(v => option(v, form.a)).join('')}</select>
+          </label>
+          <label class="intake-field">
+            <span>중분류</span>
+            <select data-intake="b">${mids.map(v => option(v, form.b)).join('')}</select>
+          </label>
+          <label class="intake-field">
+            <span>소분류</span>
+            <select data-intake="c">${minors.map(v => option(v, form.c)).join('')}</select>
+          </label>
+          <label class="intake-field ${variable ? '' : 'auto'}">
+            <span>영업자 단가</span>
+            <input type="number" data-intake="unit" value="${esc(unit === '' || unit === null ? '' : unit)}"
+              ${variable ? 'placeholder="직접 입력"' : 'readonly'}>
+            <small>${variable ? '상시변동 상품 · 직접 입력' : '단가표에서 자동'}</small>
+          </label>
+          <label class="intake-field">
+            <span>수량</span>
+            <input type="number" min="0" data-intake="qty" value="${esc(form.qty)}" placeholder="0">
+          </label>
+          <label class="intake-field">
+            <span>판매 단가</span>
+            <input type="number" min="0" data-intake="sell" value="${esc(form.sell)}" placeholder="거래처 판매가">
+          </label>
+        </div>
+
+        <div class="intake-calc">
+          <article><span>영업자 공급가액</span><strong>${supply ? esc(supply.toLocaleString('ko-KR')) : '—'}</strong></article>
+          <article><span>판매액 (매출)</span><strong>${sales ? esc(sales.toLocaleString('ko-KR')) : '—'}</strong></article>
+          <article class="profit"><span>영업이익</span><strong>${(sales || supply) ? esc((sales - supply).toLocaleString('ko-KR')) : '—'}</strong></article>
+          ${canSeeCompanyCost()
+            ? `<article><span>회사 원가</span><strong>${row && row[3] !== null && qty ? esc((row[3] * qty).toLocaleString('ko-KR')) : '—'}</strong></article>`
+            : '<article class="masked"><span>회사 원가</span><strong>표시 안 함</strong></article>'}
+        </div>
+
+        <div class="intake-actions">
+          <p class="sales-basis">등록한 건은 이 브라우저에만 저장되는 초안이며 운영 DB에는 쓰지 않습니다.</p>
+          <button class="module-action primary" type="button" data-intake-add>접수 등록</button>
+        </div>
+      </div>
+    </section>`;
+  }
+
+  function renderIntakeLedger() {
+    const groups = intakeRowsByDate();
+    const showCost = canSeeCompanyCost();
+    const month = intakeTotals(intakeDraft);
+
+    if (!groups.length) {
+      return `<section class="module-section">
+        <div class="module-section-head"><span><strong>내 개인정산서</strong><small>접수한 건이 일자별로 쌓입니다</small></span></div>
+        <div class="module-section-body">
+          <p class="sales-state">아직 접수한 건이 없습니다. 위에서 상품을 접수해 보세요.</p>
+        </div>
+      </section>`;
+    }
+
+    const weekday = ['일', '월', '화', '수', '목', '금', '토'];
+
+    return `<section class="module-section">
+      <div class="module-section-head">
+        <span><strong>내 개인정산서</strong><small>${esc(userDoc?.name || '')} · 접수 ${intakeDraft.length}건</small></span>
+        <span class="module-chip live">매출 ${esc(month.sales.toLocaleString('ko-KR'))}원 · 영업이익 ${esc(month.profit.toLocaleString('ko-KR'))}원</span>
+      </div>
+      <div class="module-section-body">
+        ${groups.map(([date, rows]) => {
+          const day = intakeTotals(rows);
+          const dow = weekday[new Date(`${date}T00:00:00`).getDay()] || '';
+          return `<div class="ledger-day">
+            <div class="ledger-day-head">
+              <strong>${esc(date.slice(5).replace('-', '/'))} (${esc(dow)})</strong>
+              <span>매출 ${esc(day.sales.toLocaleString('ko-KR'))} · 영업이익 <em>${esc(day.profit.toLocaleString('ko-KR'))}</em></span>
+            </div>
+            <div class="sales-table-scroll">
+              <table class="sales-table ledger-table">
+                <thead>
+                  <tr>
+                    <th scope="col">업체명</th>
+                    <th scope="col">상품</th>
+                    <th scope="col">수량</th>
+                    <th scope="col">영업자단가</th>
+                    <th scope="col">판매단가</th>
+                    ${showCost ? '<th scope="col">회사원가</th>' : ''}
+                    <th scope="col">매출</th>
+                    <th scope="col">영업이익</th>
+                    <th scope="col" aria-label="삭제"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rows.map(row => {
+                    const supply = (Number(row.unit) || 0) * (Number(row.qty) || 0);
+                    const sales = (Number(row.sell) || 0) * (Number(row.qty) || 0);
+                    return `<tr>
+                      <th scope="row">${esc(row.client || '업체 미입력')}</th>
+                      <td class="ledger-product">${esc(row.a)} › ${esc(row.b)} › ${esc(row.c)}</td>
+                      <td>${esc(Number(row.qty).toLocaleString('ko-KR'))}</td>
+                      <td>${esc(Number(row.unit).toLocaleString('ko-KR'))}</td>
+                      <td>${esc(Number(row.sell).toLocaleString('ko-KR'))}</td>
+                      ${showCost ? `<td>${row.cost === null || row.cost === undefined ? '—' : esc((Number(row.cost) * Number(row.qty)).toLocaleString('ko-KR'))}</td>` : ''}
+                      <td>${esc(sales.toLocaleString('ko-KR'))}</td>
+                      <td class="sales-cell-total">${esc((sales - supply).toLocaleString('ko-KR'))}</td>
+                      <td><button class="ledger-remove" type="button" data-intake-remove="${esc(row.id)}" aria-label="${esc(row.client || '')} 접수 삭제">✕</button></td>
+                    </tr>`;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>`;
+        }).join('')}
+
+        <div class="ledger-total">
+          <span>합계</span>
+          <span>매출 <strong>${esc(month.sales.toLocaleString('ko-KR'))}</strong></span>
+          ${showCost ? `<span>회사원가 <strong>${esc(month.cost.toLocaleString('ko-KR'))}</strong></span>` : ''}
+          <span>영업이익 <strong class="profit">${esc(month.profit.toLocaleString('ko-KR'))}</strong></span>
+        </div>
+      </div>
+    </section>`;
+  }
+
   function renderSettlementModule() {
     const management = ['admin', 'manager'].includes(userDoc?.role);
     const managementCards = management ? `
       ${moduleCard({ icon: '♙', tone: 'green', title: '영업자별 개인정산서', description: '소속 또는 허용된 영업자별 매출, 공제, 지급 예정액과 정산 상태를 확인합니다.', chip: '관리직 조회', chipClass: 'visible', footer: '소속·허용 지사 기준', action: '영업자 목록' })}
       ${moduleCard({ icon: '♛', tone: 'violet', title: '최종정산서', description: '전체 정산 검토가 끝난 뒤 확정된 최종 지급 내역과 승인 이력을 관리합니다.', chip: '관리직 전용', chipClass: 'restricted', footer: '대표·팀장만 표시', action: '정산 구조 보기' })}` : '';
     moduleView.innerHTML = `
-      ${moduleStatusbar('정산 모듈', management ? '개인정산과 관리직용 최종정산 구조를 확인합니다.' : '로그인한 영업자의 개인정산 범위만 표시합니다.')}
-      <section class="module-grid ${management ? '' : 'single'}">
-        ${moduleCard({ icon: '◉', title: '내 개인정산서', description: '본인의 매출, 공제 항목, 지급 예정액과 월별 정산 이력을 확인합니다.', chip: '본인만', chipClass: 'visible', footer: '현재 로그인 계정 기준', action: '정산서 보기' })}
-        ${managementCards}
-      </section>
-      <section class="module-section">
-        <div class="module-section-head"><span><strong>정산 현황</strong><small>실제 매출·공제·지급 데이터가 연결되면 월별 상태를 표시합니다</small></span><span class="module-chip">정산 DB 연결 전</span></div>
-        <div class="module-section-body"><div class="report-kpis"><article class="report-kpi"><span>정산 대상</span><strong>—</strong><small>데이터 연결 전</small></article><article class="report-kpi"><span>검토 중</span><strong>—</strong><small>데이터 연결 전</small></article><article class="report-kpi"><span>지급 확정</span><strong>—</strong><small>데이터 연결 전</small></article></div></div>
-      </section>
-      <div class="module-security"><span>▣</span><span><strong>현재 적용 권한: ${esc(roleLabel(userDoc?.role))}</strong><br>${management ? '영업자별 정산과 최종정산 메뉴가 표시됩니다.' : '본인의 개인정산서만 표시되며 관리직용 정산 기능은 메뉴와 API 모두 차단합니다.'}</span></div>`;
+      ${moduleStatusbar('정산 모듈', management ? '시트접수와 개인정산서를 관리합니다.' : '로그인한 영업자의 개인정산 범위만 표시합니다.', '접수 초안 · 저장 전')}
+      ${renderIntakeForm()}
+      ${renderIntakeLedger()}
+      ${managementCards ? `<section class="module-grid">${managementCards}</section>` : ''}
+      <div class="module-security"><span>▣</span><span><strong>현재 적용 권한: ${esc(currentOrgRank())}</strong><br>${canSeeCompanyCost()
+        ? '회사 원가와 회사 기준 영업이익까지 표시됩니다. 부장 이상에게만 보입니다.'
+        : '영업자 단가 기준으로만 표시되며 회사 원가는 감춥니다. 지금 구글 정산서와 같은 기준입니다.'}</span></div>`;
   }
 
   function renderTaxModule() {
@@ -1868,6 +2254,56 @@
       renderPlannedModule('reports');
     }));
     moduleView.querySelector('[data-open-permissions]')?.addEventListener('click', () => activateView('permissions'));
+
+    moduleView.querySelectorAll('[data-intake]').forEach(input => {
+      const key = input.dataset.intake;
+      const event = input.tagName === 'SELECT' ? 'change' : 'input';
+      input.addEventListener(event, () => {
+        intakeForm[key] = input.value;
+        // 분류를 바꾸면 아래 단계와 단가를 다시 잡아야 한다
+        if (key === 'a') { intakeForm.b = ''; intakeForm.c = ''; intakeForm.unit = ''; }
+        if (key === 'b') { intakeForm.c = ''; intakeForm.unit = ''; }
+        if (key === 'c') intakeForm.unit = '';
+        renderPlannedModule('settlement');
+        const next = moduleView.querySelector(`[data-intake="${key}"]`);
+        if (next && event === 'input') {
+          next.focus();
+          const end = String(next.value).length;
+          if (next.type !== 'date' && next.type !== 'number') next.setSelectionRange(end, end);
+        }
+      });
+    });
+
+    moduleView.querySelector('[data-intake-add]')?.addEventListener('click', () => {
+      const form = intakeForm;
+      const row = priceRow(form.a, form.b, form.c);
+      const unit = Number(row && row[4] !== null ? row[4] : form.unit) || 0;
+      const qty = Number(form.qty) || 0;
+      const sell = Number(form.sell) || 0;
+      if (!row || !qty || !unit) {
+        showToast('상품·수량·단가를 채워 주세요.');
+        return;
+      }
+      intakeDraft.push({
+        id: `intake-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        date: form.date || localDateKey(new Date()),
+        client: form.client || '',
+        a: form.a, b: form.b, c: form.c,
+        unit, qty, sell,
+        cost: row[3],
+        owner: userDoc?.uid || ''
+      });
+      saveIntakeDraft();
+      intakeForm = { ...form, client: '', qty: '', sell: '', unit: row[4] === null ? '' : '' };
+      renderPlannedModule('settlement');
+      showToast('접수를 등록했습니다. 이 브라우저에만 저장되는 초안입니다.');
+    });
+
+    moduleView.querySelectorAll('[data-intake-remove]').forEach(button => button.addEventListener('click', () => {
+      intakeDraft = intakeDraft.filter(row => row.id !== button.dataset.intakeRemove);
+      saveIntakeDraft();
+      renderPlannedModule('settlement');
+    }));
 
     moduleView.querySelector('[data-org-edit-toggle]')?.addEventListener('click', () => {
       orgEditMode = !orgEditMode;
@@ -2071,6 +2507,7 @@
 
   function initialize() {
     loadOrgRankDraft();
+    loadIntakeDraft();
     createAuthGate();
     createDetailModal();
     wireNavigation();

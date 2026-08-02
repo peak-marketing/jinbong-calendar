@@ -1716,6 +1716,147 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   line-height: 1.7;
 }
 
+/* ── 시트접수 폼 ─────────────────────────────────── */
+.intake-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px;
+}
+
+.intake-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.intake-field > span {
+  color: #41586c;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.intake-field input,
+.intake-field select {
+  min-height: 46px;
+  padding: 0 12px;
+  border: 1px solid #d5dfe8;
+  border-radius: 9px;
+  background: #fff;
+  color: #24313e;
+  font-family: inherit;
+  font-size: 15px;
+}
+
+.intake-field small { color: #7b8794; font-size: 12.5px; }
+
+/* 단가표에서 자동으로 붙는 칸은 입력칸처럼 보이지 않게 한다 */
+.intake-field.auto input {
+  border-color: #e6ecf1;
+  background: #f4f7f9;
+  color: #41586c;
+  font-weight: 700;
+}
+
+.intake-calc {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  margin-top: 18px;
+  border: 1px solid #e3eaf0;
+  border-radius: 11px;
+  background: #e3eaf0;
+  overflow: hidden;
+}
+
+.intake-calc article {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 14px 16px;
+  background: #fff;
+}
+
+.intake-calc span { color: #6d7b89; font-size: 13px; font-weight: 600; }
+.intake-calc strong { color: #1d2b38; font-size: 21px; font-weight: 800; }
+.intake-calc .profit strong { color: #2674ac; }
+.intake-calc .masked { background: #fbf3f3; }
+.intake-calc .masked span { color: #b4504a; }
+.intake-calc .masked strong { color: #b4504a; font-size: 14px; font-weight: 600; }
+
+.intake-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.module-action.primary {
+  border-color: #348ecd;
+  background: #348ecd;
+  color: #fff;
+  font-weight: 700;
+}
+
+.module-action.primary:hover { border-color: #2674ac; background: #2674ac; }
+
+/* ── 개인정산서 ──────────────────────────────────── */
+.ledger-day + .ledger-day { margin-top: 22px; }
+
+.ledger-day-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 14px;
+  margin-bottom: 8px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid #e3eaf0;
+}
+
+.ledger-day-head strong { color: #1d2b38; font-size: 16px; font-weight: 800; }
+.ledger-day-head span { color: #6d7b89; font-size: 14px; }
+.ledger-day-head span em { font-style: normal; color: #2674ac; font-weight: 700; }
+
+.ledger-table .ledger-product {
+  color: #6d7b89;
+  font-size: 13.5px;
+  text-align: left;
+}
+
+.ledger-remove {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: 1px solid #e6ecf1;
+  border-radius: 8px;
+  background: #fff;
+  color: #97a3af;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ledger-remove:hover { border-color: #e2b8b5; color: #b4504a; }
+
+.ledger-total {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px 26px;
+  margin-top: 22px;
+  padding: 16px 18px;
+  border: 1px solid #dbe5ec;
+  border-radius: 11px;
+  background: #f8fafc;
+  font-size: 15px;
+  color: #41586c;
+}
+
+.ledger-total > span:first-child { font-weight: 800; color: #1d2b38; }
+.ledger-total strong { color: #1d2b38; font-size: 17px; font-weight: 800; }
+.ledger-total strong.profit { color: #2674ac; }
+
 .empty-table {
   width: 100%;
   border-collapse: collapse;
@@ -2508,6 +2649,12 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   .sales-bar { flex-basis: 54px; min-width: 54px; height: 190px; }
   .sales-field { grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .sales-field-amount { text-align: left; }
+  .intake-form { grid-template-columns: minmax(0, 1fr); }
+  .intake-calc { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .intake-calc strong { font-size: 18px; }
+  .intake-actions { align-items: stretch; flex-direction: column; }
+  .module-action.primary { width: 100%; min-height: 46px; }
+  .ledger-total { gap: 6px 18px; font-size: 14px; }
   .integration-flow { grid-template-columns: minmax(0, 1fr); }
   .integration-arrow { transform: rotate(90deg); }
   .service-toolbar { align-items: flex-start; flex-direction: column-reverse; }

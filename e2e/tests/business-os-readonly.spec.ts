@@ -345,6 +345,37 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView')).toContainText('내 개인정산서');
     await expect(page.locator('#moduleView')).toContainText('최종정산서');
 
+    // 시트접수: 분류를 고르면 단가표에서 영업자 단가가 자동으로 붙는다
+    await page.locator('[data-intake="a"]').selectOption('블로그');
+    await page.locator('[data-intake="b"]').selectOption('최적화블로그');
+    await page.locator('[data-intake="c"]').selectOption('최블 B');
+    await expect(page.locator('[data-intake="unit"]')).toHaveValue('19000');
+    await expect(page.locator('[data-intake="unit"]')).toHaveAttribute('readonly', '');
+
+    // 상시변동 상품은 단가 칸이 열려 직접 입력한다
+    await page.locator('[data-intake="a"]').selectOption('플레이스');
+    await expect(page.locator('[data-intake="unit"]')).not.toHaveAttribute('readonly', '');
+    await expect(page.locator('#moduleView')).toContainText('상시변동 상품 · 직접 입력');
+
+    // 다시 고정 단가 상품으로 돌아와 접수 등록
+    await page.locator('[data-intake="a"]').selectOption('블로그');
+    await page.locator('[data-intake="b"]').selectOption('최적화블로그');
+    await page.locator('[data-intake="c"]').selectOption('최블 B');
+    await page.locator('[data-intake="client"]').fill('명동미용실');
+    await page.locator('[data-intake="qty"]').fill('10');
+    await page.locator('[data-intake="sell"]').fill('25000');
+    // 영업자 공급가액 190,000 · 매출 250,000 · 영업이익 60,000
+    await expect(page.locator('#moduleView .intake-calc .profit strong')).toHaveText('60,000');
+    await page.locator('[data-intake-add]').click();
+
+    // 개인정산서에 일자별로 쌓인다
+    await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(1);
+    await expect(page.locator('#moduleView .ledger-table tbody tr').first()).toContainText('명동미용실');
+    await expect(page.locator('#moduleView .ledger-total')).toContainText('250,000');
+    // 부장 이상은 회사 원가까지 본다 (최블 B 원가 17,000 × 10)
+    await expect(page.locator('#moduleView .ledger-table th', { hasText: '회사원가' })).toHaveCount(1);
+    await expect(page.locator('#moduleView .ledger-total')).toContainText('170,000');
+
     await page.locator('.nav-item[data-view="tax"]').click();
     await expect(page.locator('#moduleView')).toContainText('거래처별 사업자등록증');
     await expect(page.locator('#moduleView')).toContainText('세금계산서');
@@ -382,7 +413,10 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('.nav-item[data-view="settlement"]').click();
     await expect(page.locator('#moduleView')).toContainText('내 개인정산서');
     await expect(page.locator('#moduleView')).not.toContainText('최종정산서');
-    await expect(page.locator('#moduleView')).toContainText('본인의 개인정산서만 표시');
+    // 영업자에게는 회사 원가를 감춘다
+    await expect(page.locator('#moduleView .intake-calc .masked')).toContainText('표시 안 함');
+    await expect(page.locator('#moduleView')).toContainText('회사 원가는 감춥니다');
+    await expect(page.locator('#moduleView .ledger-table th', { hasText: '회사원가' })).toHaveCount(0);
 
     // 부장 미만 계정은 직급 수정 버튼도 권한 관리도 볼 수 없다
     await page.locator('.nav-item[data-view="organization"]').click();
