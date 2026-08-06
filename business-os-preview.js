@@ -393,6 +393,15 @@
   // 대표 계정은 구글 표시이름이 '패션TV봉이'라 실명과 함께 넣어 둔다.
   const FINAL_SETTLEMENT_VIEWERS = ['김진봉', '패션TV봉이', '손명아', '김대호', '박종원', '전현우'];
 
+  // 운영 파라곤에 이미 있는 화면. 영업자들에게는 여기까지만 보인다.
+  // PEAK OS로 새로 만든 화면은 아직 검토 중이라 지정 인원에게만 연다.
+  const LIVE_PARAGON_VIEWS = ['dashboard', 'calendar', 'chat', 'todo', 'review'];
+
+  function canSeePeakosTabs() {
+    if (userDoc?.role === 'admin') return true;
+    return FINAL_SETTLEMENT_VIEWERS.includes(String(userDoc?.name || '').trim());
+  }
+
   // 하위 영업자의 개인정산서를 열어볼 수 있는 사람.
   const TEAM_SETTLEMENT_VIEWERS = ['김진봉', '패션TV봉이', '김대호', '박종원'];
 
@@ -725,19 +734,31 @@
 
   // 최종정산서 탭은 지정된 인원에게만 보인다.
   function applyNavPermissions() {
+    const peakosOpen = canSeePeakosTabs();
     const locks = {
-      'final-settlement': canSeeFinalSettlement(),
-      'monthly-guarantee': canSeeMonthly('monthly-guarantee'),
-      'monthly-manage': canSeeMonthly('monthly-manage'),
-      credit: canSeeFinalSettlement(),
-      closing: canSeeFinalSettlement(),
-      receivable: canSeeTeamSettlement()
+      'final-settlement': peakosOpen && canSeeFinalSettlement(),
+      'monthly-guarantee': peakosOpen && canSeeMonthly('monthly-guarantee'),
+      'monthly-manage': peakosOpen && canSeeMonthly('monthly-manage'),
+      credit: peakosOpen && canSeeFinalSettlement(),
+      closing: peakosOpen && canSeeFinalSettlement(),
+      receivable: peakosOpen && canSeeTeamSettlement()
     };
+    // 나머지 신규 화면은 지정 인원에게만 통째로 연다.
+    document.querySelectorAll('.app-sidebar .nav-item[data-view]').forEach(button => {
+      const view = button.dataset.view;
+      if (locks[view] !== undefined || LIVE_PARAGON_VIEWS.includes(view) || view === 'permissions') return;
+      locks[view] = peakosOpen;
+    });
     Object.entries(locks).forEach(([view, allowed]) => {
       const button = document.querySelector(`.app-sidebar .nav-item[data-view="${view}"]`);
       if (!button) return;
       button.dataset.navLocked = allowed ? 'false' : 'true';
       button.hidden = !allowed;
+    });
+    // 안에 보일 항목이 하나도 없는 묶음은 통째로 감춘다.
+    document.querySelectorAll('[data-nav-cluster]').forEach(cluster => {
+      const items = [...cluster.querySelectorAll('.nav-item[data-view]')];
+      cluster.hidden = items.length > 0 && items.every(item => item.hidden);
     });
   }
 
@@ -5826,6 +5847,10 @@
   function activateView(view) {
     // 자금 현황판을 떠나기 전에 못 보낸 값을 밀어 넣는다.
     if (activeView === 'receivable' && view !== 'receivable') flushFundBoard();
+    // 아직 공개하지 않은 화면은 주소로 들어와도 막는다.
+    if (!canSeePeakosTabs() && !LIVE_PARAGON_VIEWS.includes(view) && view !== 'permissions') {
+      view = 'dashboard';
+    }
     activeView = view;
     if (view !== 'chat') closeChatRoom();
     body.classList.toggle('calendar-workspace', view === 'calendar');
