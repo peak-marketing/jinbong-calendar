@@ -889,3 +889,124 @@ export async function setupStubs(page: Page, initial?: ApiStubState) {
   await installFirebaseStub(page);
   await installApiStub(page, initial);
 }
+
+// ── PEAK OS 정산 API 스텁 ────────────────────────────────────
+// 서버 저장으로 옮긴 뒤 화면이 GET/POST/PUT/DELETE 를 쓴다.
+// 메모리에 들고 있다가 그대로 돌려주므로 새로고침 없이도 왕복이 확인된다.
+
+export function createPeakosStore(): any {
+  return { intake: [], prices: [], credit: [], fund: null, monthly: {} };
+}
+
+function upsert(list: any[], row: any) {
+  const i = list.findIndex(x => x.id === row.id);
+  if (i >= 0) list[i] = row; else list.push(row);
+}
+
+/** /api/peakos/* 를 처리했으면 true. 아니면 호출한 쪽이 이어서 처리한다. */
+export function handlePeakos(store: any, route: any): boolean {
+  const req = route.request();
+  const path = new URL(req.url()).pathname.replace(/^\/api/, '');
+  if (!path.startsWith('/peakos')) return false;
+
+  const method = req.method();
+  const parts = path.split('/').filter(Boolean);       // peakos, <area>, ...
+  const area = parts[1];
+  const tail = parts.slice(2).map(decodeURIComponent);
+  let body: any = {};
+  try { body = JSON.parse(req.postData() || '{}'); } catch { body = {}; }
+
+  const send = (payload: unknown) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+
+  if (area === 'intake') {
+    if (method === 'GET') send(store.intake);
+    else if (method === 'DELETE') {
+      store.intake = store.intake.filter((x: any) => x.id !== tail[0]);
+      send({ deleted: tail[0] });
+    } else {
+      (body.rows || []).forEach((row: any) => upsert(store.intake, row));
+      send({ saved: (body.rows || []).length });
+    }
+    return true;
+  }
+
+  if (area === 'prices') {
+    if (method === 'GET') send(store.prices);
+    else if (method === 'DELETE') {
+      store.prices = store.prices.filter((x: any) => x.key !== tail[0]);
+      send({ deleted: tail[0] });
+    } else {
+      const i = store.prices.findIndex((x: any) => x.key === body.key);
+      if (i >= 0) store.prices[i] = body; else store.prices.push(body);
+      send({ saved: body.key });
+    }
+    return true;
+  }
+
+  if (area === 'credit') {
+    if (method === 'GET') send(store.credit);
+    else if (method === 'DELETE') {
+      store.credit = store.credit.filter((x: any) => x.id !== tail[0]);
+      send({ deleted: tail[0] });
+    } else {
+      (body.rows || []).forEach((row: any) => upsert(store.credit, row));
+      send({ saved: (body.rows || []).length });
+    }
+    return true;
+  }
+
+  if (area === 'monthly') {
+    const view = tail[0];
+    store.monthly[view] = store.monthly[view] || [];
+    if (method === 'GET') send(store.monthly[view]);
+    else if (method === 'DELETE') {
+      // 판매 건을 지우면 붙어 있던 실행 건도 같이 지운다
+      const id = tail[1];
+      store.monthly[view] = store.monthly[view].filter((x: any) => x.id !== id && x.parentId !== id);
+      send({ deleted: id });
+    } else {
+      (body.rows || []).forEach((row: any) => upsert(store.monthly[view], row));
+      send({ saved: (body.rows || []).length });
+    }
+    return true;
+  }
+
+  if (area === 'fund') {
+    if (method === 'GET') send(store.fund);
+    else { store.fund = body.board; send({ saved: true }); }
+    return true;
+  }
+
+  send([]);
+  return true;
+}
+
+/** 계정 정보와 PEAK OS 스텁을 한 번에 깐다. */
+export async function installPeakosStub(
+  page: Page,
+  user: { name: string; uid?: string; role?: string; group_name?: string }
+) {
+  const store = createPeakosStore();
+  await page.route('**/api/**', route => {
+    if (handlePeakos(store, route)) return;
+    const path = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+    let payload: unknown = [];
+    if (path === '/users/me') {
+      payload = {
+        uid: user.uid || 'e2e-test-user',
+        name: user.name,
+        role: user.role || 'manager',
+        approved: true,
+        is_active: true,
+        group_name: user.group_name || '본사 영업팀',
+      };
+    } else if (path === '/chat-rooms/unread') {
+      payload = {};
+    } else if (path === '/projects') {
+      payload = { canManageAll: false, projects: [] };
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+  });
+  return store;
+}

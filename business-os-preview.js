@@ -617,12 +617,26 @@
   }
 
   async function readOnlyApi(path) {
+    return callApi('GET', path);
+  }
+
+  // 정산 데이터만 서버에 쓴다. 그 밖의 운영 데이터는 여전히 읽기만 한다.
+  const WRITABLE_PREFIX = '/peakos/';
+
+  async function callApi(method, path, body) {
     if (!currentUser) throw new Error('로그인이 필요합니다.');
     if (typeof path !== 'string' || !path.startsWith('/')) throw new Error('잘못된 조회 경로입니다.');
+    if (method !== 'GET' && !path.startsWith(WRITABLE_PREFIX)) {
+      throw new Error('이 경로에는 쓸 수 없습니다.');
+    }
     const token = await currentUser.getIdToken();
     const response = await fetch('/api' + path, {
-      method: 'GET',
-      headers: { Authorization: 'Bearer ' + token },
+      method,
+      headers: {
+        Authorization: 'Bearer ' + token,
+        ...(body ? { 'Content-Type': 'application/json' } : {})
+      },
+      body: body ? JSON.stringify(body) : undefined,
       cache: 'no-store',
       credentials: 'same-origin'
     });
@@ -743,17 +757,21 @@
         group_name: row ? (row.teamName || row.divisionName) : ''
       };
     }
-    loadIntakeDraft();
-    loadMonthlyDraft();
-    loadCreditDraft();
-    applyUserIdentity();
-    // 권한이 사라진 화면을 보고 있었다면 되돌린다
-    const lostFinal = activeView === 'final-settlement' && !canSeeFinalSettlement();
-    const lostMonthly = Boolean(MONTHLY_TABS[activeView]) && !canSeeMonthly(activeView);
-    const lostAdmin = ['credit', 'closing'].includes(activeView) && !canSeeFinalSettlement();
-    const lostAr = activeView === 'receivable' && !canSeeTeamSettlement();
-    activateView(lostFinal || lostMonthly || lostAdmin || lostAr ? 'settlement' : activeView);
+    loadPeakosData().then(() => {
+      applyUserIdentity();
+      const lost = (activeView === 'final-settlement' && !canSeeFinalSettlement())
+        || (Boolean(MONTHLY_TABS[activeView]) && !canSeeMonthly(activeView))
+        || (['credit', 'closing'].includes(activeView) && !canSeeFinalSettlement())
+        || (activeView === 'receivable' && !canSeeTeamSettlement());
+      activateView(lost ? 'settlement' : activeView);
+    });
   }
+
+  // 계정이 바뀌면 그 계정 기준으로 다시 읽는다.
+  async function loadPeakosData() {
+    await Promise.all([loadIntakeDraft(), loadCustomPrices(), loadMonthlyDraft(), loadCreditDraft(), loadFundBoard()]);
+  }
+
 
   function updateNavigationBadges() {
     const unreadTotal = Object.values(liveUnreadCounts).reduce((sum, value) => sum + Number(value || 0), 0);
@@ -2150,21 +2168,68 @@
     return `peakos.intakeDraft.${previewPersona || userDoc?.uid || 'anon'}`;
   }
 
-  function loadIntakeDraft() {
+  // 브라우저에만 있던 초안. 서버로 옮긴 뒤에는 마이그레이션 원본으로만 쓴다.
+  function localIntakeDraft(key) {
     try {
-      const saved = JSON.parse(localStorage.getItem(intakeStorageKey()) || '[]');
-      intakeDraft = Array.isArray(saved) ? saved : [];
+      const saved = JSON.parse(localStorage.getItem(key || intakeStorageKey()) || '[]');
+      return Array.isArray(saved) ? saved : [];
     } catch (error) {
-      intakeDraft = [];
+      return [];
     }
   }
 
-  function saveIntakeDraft() {
-    try {
-      localStorage.setItem(intakeStorageKey(), JSON.stringify(intakeDraft));
-    } catch (error) {
-      /* 저장 공간이 막혀 있어도 화면 동작은 유지한다 */
+  async function loadIntakeDraft() {
+    // 계정 미리보기 중에는 남의 계정으로 쓸 수 없으니 서버를 건드리지 않는다.
+    if (previewPersona) {
+      intakeDraft = localIntakeDraft();
+      return;
     }
+    try {
+      const rows = await readOnlyApi('/peakos/intake');
+      intakeDraft = Array.isArray(rows) ? rows : [];
+    } catch (error) {
+      console.error('접수 불러오기 실패:', error.message);
+      intakeDraft = [];
+      showToast('접수를 불러오지 못했습니다. 새로고침해 주세요.');
+    }
+  }
+
+  // 화면에서 바꾼 건을 서버에 반영한다. 미리보기 중에는 브라우저에만 남긴다.
+  async function saveIntakeRows(rows) {
+    if (previewPersona) {
+      try {
+        localStorage.setItem(intakeStorageKey(), JSON.stringify(intakeDraft));
+      } catch (error) { /* 저장 공간이 막혀도 화면은 유지 */ }
+      return;
+    }
+    const list = (rows && rows.length ? rows : intakeDraft).filter(Boolean);
+    if (!list.length) return;
+    try {
+      await callApi('POST', '/peakos/intake', { rows: list });
+    } catch (error) {
+      console.error('접수 저장 실패:', error.message);
+      showToast(`저장하지 못했습니다. ${error.message}`);
+    }
+  }
+
+  async function removeIntakeRow(id) {
+    if (previewPersona) {
+      try {
+        localStorage.setItem(intakeStorageKey(), JSON.stringify(intakeDraft));
+      } catch (error) { /* 저장 공간이 막혀도 화면은 유지 */ }
+      return;
+    }
+    try {
+      await callApi('DELETE', `/peakos/intake/${encodeURIComponent(id)}`);
+    } catch (error) {
+      console.error('접수 삭제 실패:', error.message);
+      showToast(`지우지 못했습니다. ${error.message}`);
+    }
+  }
+
+  // 예전 호출부를 그대로 두기 위한 얇은 껍데기. 전체를 밀어 넣는다.
+  function saveIntakeDraft() {
+    saveIntakeRows(intakeDraft);
   }
 
   // 나중에 추가한 상품. 단가표는 회사 전체가 같이 쓰므로 계정별로 나누지 않는다.
@@ -2174,27 +2239,52 @@
   // 기본 단가표를 직접 고치지 않고 덮어쓸 값만 따로 둔다. '대|중|소' -> [회사원가, 영업자단가]
   let priceOverrides = {};
 
-  function loadCustomPrices() {
+  function localCustomPrices() {
     try {
-      const saved = JSON.parse(localStorage.getItem(CUSTOM_PRICE_KEY) || '[]');
-      customPrices = Array.isArray(saved) ? saved : [];
+      const rows = JSON.parse(localStorage.getItem(CUSTOM_PRICE_KEY) || '[]');
+      const edits = JSON.parse(localStorage.getItem(PRICE_EDIT_KEY) || '{}');
+      return {
+        rows: Array.isArray(rows) ? rows : [],
+        edits: edits && typeof edits === 'object' ? edits : {}
+      };
     } catch (error) {
-      customPrices = [];
+      return { rows: [], edits: {} };
     }
+  }
+
+  // 단가표는 회사 공용이라 계정과 무관하게 서버에서 읽는다.
+  async function loadCustomPrices() {
     try {
-      const saved = JSON.parse(localStorage.getItem(PRICE_EDIT_KEY) || '{}');
-      priceOverrides = saved && typeof saved === 'object' ? saved : {};
+      const rows = await readOnlyApi('/peakos/prices');
+      customPrices = [];
+      priceOverrides = {};
+      (Array.isArray(rows) ? rows : []).forEach(row => {
+        if (row.custom) customPrices.push([row.a, row.b, row.c, row.cost, row.unit]);
+        else priceOverrides[row.key] = [row.cost, row.unit];
+      });
     } catch (error) {
+      console.error('단가표 불러오기 실패:', error.message);
+      customPrices = [];
       priceOverrides = {};
     }
   }
 
-  function saveCustomPrices() {
+  // 고친 한 건만 보낸다. 통째로 밀어 넣으면 남이 방금 고친 값을 덮는다.
+  async function savePriceEntry(key, a, b, c, cost, unit, custom) {
     try {
-      localStorage.setItem(CUSTOM_PRICE_KEY, JSON.stringify(customPrices));
-      localStorage.setItem(PRICE_EDIT_KEY, JSON.stringify(priceOverrides));
+      await callApi('PUT', '/peakos/prices', { key, a, b, c, cost, unit, custom });
     } catch (error) {
-      /* 저장 공간이 막혀 있어도 화면 동작은 유지한다 */
+      console.error('단가 저장 실패:', error.message);
+      showToast(`단가를 저장하지 못했습니다. ${error.message}`);
+    }
+  }
+
+  async function removePriceEntry(key) {
+    try {
+      await callApi('DELETE', `/peakos/prices/${encodeURIComponent(key)}`);
+    } catch (error) {
+      console.error('단가 삭제 실패:', error.message);
+      showToast(`되돌리지 못했습니다. ${error.message}`);
     }
   }
 
@@ -3677,8 +3767,9 @@
         refreshPriceTable();
       });
       body.querySelectorAll('[data-price-edit-reset]').forEach(button => button.addEventListener('click', () => {
-        delete priceOverrides[button.dataset.priceEditReset];
-        saveCustomPrices();
+        const resetKey = button.dataset.priceEditReset;
+        delete priceOverrides[resetKey];
+        removePriceEntry(resetKey);
         refreshPriceTable();
         renderPlannedModule(intakeContext);
         showToast('단가를 원래대로 되돌렸습니다.');
@@ -3696,7 +3787,8 @@
           return;
         }
         priceOverrides[key] = [cost, unit];
-        saveCustomPrices();
+        const parts = key.split('|');
+        savePriceEntry(key, parts[0], parts[1], parts[2], cost, unit, false);
         editingPriceKey = '';
         refreshPriceTable();
         renderPlannedModule(intakeContext);
@@ -3734,7 +3826,7 @@
       const num = id => value(id) === '' ? null : Number(value(id));
       // 단가표와 같은 모양으로 넣어야 접수 화면이 그대로 읽는다.
       customPrices.push([a, b, c, num('newCost'), num('newUnit')]);
-      saveCustomPrices();
+      savePriceEntry(`${a}|${b}|${c}`, a, b, c, num('newCost'), num('newUnit'), true);
       form.hidden = true;
       ['newMajor', 'newMiddle', 'newMinor', 'newCost', 'newUnit'].forEach(id => { document.getElementById(id).value = ''; });
       refreshPriceTable();
@@ -4205,23 +4297,45 @@
     return `peakos.monthly.${view}.${previewPersona || userDoc?.uid || 'anon'}`;
   }
 
-  function loadMonthlyDraft() {
+  function localMonthlyDraft(view) {
+    try {
+      const saved = JSON.parse(localStorage.getItem(monthlyStorageKey(view)) || '[]');
+      return Array.isArray(saved) ? saved : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  async function loadMonthlyDraft() {
     monthlyDraft = {};
-    Object.keys(MONTHLY_TABS).forEach(view => {
+    await Promise.all(Object.keys(MONTHLY_TABS).map(async view => {
+      if (!canSeeMonthly(view)) { monthlyDraft[view] = []; return; }
       try {
-        const saved = JSON.parse(localStorage.getItem(monthlyStorageKey(view)) || '[]');
-        monthlyDraft[view] = Array.isArray(saved) ? saved : [];
+        const rows = await readOnlyApi(`/peakos/monthly/${view}`);
+        monthlyDraft[view] = Array.isArray(rows) ? rows : [];
       } catch (error) {
         monthlyDraft[view] = [];
       }
-    });
+    }));
   }
 
-  function saveMonthlyDraft(view) {
+  async function saveMonthlyDraft(view, rows) {
+    const list = (rows && rows.length ? rows : monthlyRows(view)).filter(Boolean);
+    if (!list.length) return;
     try {
-      localStorage.setItem(monthlyStorageKey(view), JSON.stringify(monthlyDraft[view] || []));
+      await callApi('POST', `/peakos/monthly/${view}`, { rows: list });
     } catch (error) {
-      /* 저장 공간이 막혀 있어도 화면 동작은 유지한다 */
+      console.error('정산 저장 실패:', error.message);
+      showToast(`저장하지 못했습니다. ${error.message}`);
+    }
+  }
+
+  async function removeMonthlyRow(view, id) {
+    try {
+      await callApi('DELETE', `/peakos/monthly/${view}/${encodeURIComponent(id)}`);
+    } catch (error) {
+      console.error('정산 삭제 실패:', error.message);
+      showToast(`지우지 못했습니다. ${error.message}`);
     }
   }
 
@@ -4557,21 +4671,38 @@
     return `peakos.credit.${previewPersona || userDoc?.uid || 'anon'}`;
   }
 
-  function loadCreditDraft() {
+  function localCreditDraft() {
     try {
       const saved = JSON.parse(localStorage.getItem(creditStorageKey()) || '[]');
-      creditDraft = Array.isArray(saved) ? saved : [];
+      return Array.isArray(saved) ? saved : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  async function loadCreditDraft() {
+    if (!canSeeFinalSettlement()) { creditDraft = []; return; }
+    try {
+      const rows = await readOnlyApi('/peakos/credit');
+      creditDraft = Array.isArray(rows) ? rows : [];
     } catch (error) {
       creditDraft = [];
     }
   }
 
-  function saveCreditDraft() {
+  async function saveCreditRows(rows) {
+    const list = (rows && rows.length ? rows : creditDraft).filter(Boolean);
+    if (!list.length) return;
     try {
-      localStorage.setItem(creditStorageKey(), JSON.stringify(creditDraft));
+      await callApi('POST', '/peakos/credit', { rows: list });
     } catch (error) {
-      /* 저장 공간이 막혀 있어도 화면 동작은 유지한다 */
+      console.error('충전금 저장 실패:', error.message);
+      showToast(`저장하지 못했습니다. ${error.message}`);
     }
+  }
+
+  function saveCreditDraft() {
+    saveCreditRows(creditDraft);
   }
 
   function creditSign(row) {
@@ -4956,9 +5087,19 @@
     };
   }
 
-  function loadFundBoard() {
+  function localFundBoard() {
     try {
       const saved = JSON.parse(localStorage.getItem(FUND_KEY) || 'null');
+      return saved && typeof saved === 'object' ? saved : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  async function loadFundBoard() {
+    if (!canSeeTeamSettlement()) { fundBoard = emptyFundBoard(); return; }
+    try {
+      const saved = await readOnlyApi('/peakos/fund');
       fundBoard = saved && typeof saved === 'object' ? { ...emptyFundBoard(), ...saved } : emptyFundBoard();
       // 사람이 늘어도 칸이 비지 않게 채운다
       ['ar', 'prepaid'].forEach(key => {
@@ -4977,13 +5118,38 @@
     }
   }
 
-  function saveFundBoard() {
+  // 숫자를 칠 때마다 보내면 요청이 쏟아진다. 잠깐 모았다가 한 번에 보낸다.
+  // 대신 창을 닫거나 새로고침할 때는 남은 것을 바로 밀어 넣는다.
+  let fundSaveTimer = null;
+  let fundSavePending = false;
+
+  async function pushFundBoard() {
+    fundSavePending = false;
     try {
-      localStorage.setItem(FUND_KEY, JSON.stringify(fundBoard));
+      await callApi('PUT', '/peakos/fund', { board: fundBoard });
     } catch (error) {
-      /* 저장 공간이 막혀 있어도 화면 동작은 유지한다 */
+      console.error('자금 현황 저장 실패:', error.message);
+      showToast(`저장하지 못했습니다. ${error.message}`);
     }
   }
+
+  function saveFundBoard() {
+    fundSavePending = true;
+    clearTimeout(fundSaveTimer);
+    fundSaveTimer = setTimeout(pushFundBoard, 400);
+  }
+
+  function flushFundBoard() {
+    if (!fundSavePending) return;
+    clearTimeout(fundSaveTimer);
+    pushFundBoard();
+  }
+
+  // 화면을 떠날 때 아직 못 보낸 값이 있으면 지금 보낸다.
+  window.addEventListener('pagehide', flushFundBoard);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushFundBoard();
+  });
 
   const won = value => (Number(value) || 0).toLocaleString('ko-KR');
   const sumOf = (obj, field) => Object.values(obj).reduce((sum, item) => sum + (Number(field ? item[field] : item) || 0), 0);
@@ -5030,7 +5196,7 @@
         </section>`;
       return;
     }
-    if (!fundBoard) loadFundBoard();
+    if (!fundBoard) fundBoard = emptyFundBoard();
 
     const sum = fundSummary();
     const cur = fundBoard.curLabel || '당월';
@@ -5417,13 +5583,13 @@
       }, 'image/png');
     });
 
-    moduleView.querySelectorAll('[data-monthly-remove]').forEach(button => button.addEventListener('click', () => {
+    moduleView.querySelectorAll('[data-monthly-remove]').forEach(button => button.addEventListener('click', async () => {
       const view = monthlyForm.view;
       const id = button.dataset.monthlyRemove;
       // 판매 건을 지우면 거기 붙은 실행 건도 같이 사라진다
       monthlyDraft[view] = monthlyRows(view).filter(row => row.id !== id && row.parentId !== id);
-      saveMonthlyDraft(view);
       renderPlannedModule(view);
+      await removeMonthlyRow(view, id);
     }));
     // 접수 없이 받을 돈이 생기기도 해서 빈 정산서로도 시작한다.
     moduleView.querySelector('[data-estimate-new]')?.addEventListener('click', () => openEstimateDialog('', []));
@@ -5614,10 +5780,11 @@
         : '접수를 등록했습니다. 이 브라우저에만 저장되는 초안입니다.');
     });
 
-    moduleView.querySelectorAll('[data-intake-remove]').forEach(button => button.addEventListener('click', () => {
-      intakeDraft = intakeDraft.filter(row => row.id !== button.dataset.intakeRemove);
-      saveIntakeDraft();
+    moduleView.querySelectorAll('[data-intake-remove]').forEach(button => button.addEventListener('click', async () => {
+      const id = button.dataset.intakeRemove;
+      intakeDraft = intakeDraft.filter(row => row.id !== id);
       renderPlannedModule(intakeContext);
+      await removeIntakeRow(id);
     }));
 
     moduleView.querySelector('[data-org-edit-toggle]')?.addEventListener('click', () => {
@@ -5657,6 +5824,8 @@
   }
 
   function activateView(view) {
+    // 자금 현황판을 떠나기 전에 못 보낸 값을 밀어 넣는다.
+    if (activeView === 'receivable' && view !== 'receivable') flushFundBoard();
     activeView = view;
     if (view !== 'chat') closeChatRoom();
     body.classList.toggle('calendar-workspace', view === 'calendar');
@@ -5809,12 +5978,9 @@
     try {
       userDoc = await readOnlyApi('/users/me');
       realUserDoc = userDoc;
-      loadIntakeDraft();
-      loadCustomPrices();
-      loadMonthlyDraft();
-      loadCreditDraft();
       if (userDoc.is_active === false) throw new Error('비활성화된 계정입니다. 관리자에게 문의해 주세요.');
       if (!userDoc.approved) throw new Error('아직 승인되지 않은 계정입니다.');
+      await loadPeakosData();
       await loadLiveData();
       renderAllLiveViews();
       document.getElementById('authGate').hidden = true;

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { installFirebaseStub } from './helpers';
+import { createPeakosStore, handlePeakos, installFirebaseStub, installPeakosStub } from './helpers';
 
 
 // 접수 폼은 기본으로 접혀 있다. 폼을 쓰는 테스트는 먼저 펼친다.
@@ -12,7 +12,7 @@ async function openIntake(page: Page) {
 test.describe('Business OS read-only operating data', () => {
   test('renders account-scoped Paragon data and only issues GET requests', async ({ page }) => {
     await installFirebaseStub(page);
-    const apiMethods: string[] = [];
+    const apiMethods: { method: string; path: string }[] = [];
     const salesSummaryQueries: string[] = [];
     const pageErrors: string[] = [];
     page.on('pageerror', error => pageErrors.push(error.message));
@@ -49,9 +49,14 @@ test.describe('Business OS read-only operating data', () => {
       events: [{ id: 'project-event-1', title: '프로젝트 회의', date, time: '16:00', memo: '회의 일정 원문' }],
     };
 
+    const peakStore = createPeakosStore();
+
+
     await page.route('**/api/**', route => {
+
+      if (handlePeakos(peakStore, route)) return;
       const request = route.request();
-      apiMethods.push(request.method());
+      apiMethods.push({ method: request.method(), path: new URL(request.url()).pathname.replace(/^\/api/, '') });
       const pathname = new URL(request.url()).pathname.replace(/^\/api/, '');
       let payload: unknown = {};
       if (pathname === '/users/me') {
@@ -402,24 +407,15 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView')).toContainText('SaaS 사이트 목록');
 
     expect(apiMethods.length).toBeGreaterThan(0);
-    expect(new Set(apiMethods)).toEqual(new Set(['GET']));
+    // 정산 데이터만 서버에 쓴다. 그 밖의 운영 데이터는 여전히 읽기만 한다.
+    expect(new Set(apiMethods.filter(m => !m.path.startsWith('/peakos')).map(m => m.method)))
+      .toEqual(new Set(['GET']));
     expect(pageErrors).toEqual([]);
   });
 
   test('hides final settlement from a regular member account', async ({ page }) => {
     await installFirebaseStub(page);
-    await page.route('**/api/**', route => {
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
-      let payload: unknown = [];
-      if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '일반 영업자', role: 'member', approved: true, is_active: true, group_name: '영업팀' };
-      } else if (pathname === '/chat-rooms/unread') {
-        payload = {};
-      } else if (pathname === '/projects') {
-        payload = { canManageAll: false, projects: [] };
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
-    });
+    await installPeakosStub(page, { name: '일반 영업자', uid: 'e2e-test-user', role: 'member', group_name: '영업팀' });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -454,7 +450,10 @@ test.describe('Business OS read-only operating data', () => {
   ] as [string, string, boolean][]) {
     test(`final settlement is ${allowed ? 'visible' : 'hidden'} for ${name}`, async ({ page }) => {
       await installFirebaseStub(page);
+      const peakStore = createPeakosStore();
+
       await page.route('**/api/**', route => {
+        if (handlePeakos(peakStore, route)) return;
         const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
         let payload: unknown = [];
         if (pathname === '/users/me') {
@@ -491,18 +490,7 @@ test.describe('Business OS read-only operating data', () => {
 
   test('caps reservation drawdown and refunds at the original amount', async ({ page }) => {
     await installFirebaseStub(page);
-    await page.route('**/api/**', route => {
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
-      let payload: unknown = [];
-      if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
-      } else if (pathname === '/chat-rooms/unread') {
-        payload = {};
-      } else if (pathname === '/projects') {
-        payload = { canManageAll: false, projects: [] };
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
-    });
+    await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -587,18 +575,7 @@ test.describe('Business OS read-only operating data', () => {
   // 공급사 정산에서도 원가를 같이 빼야 하므로 음수 수량으로 되돌릴 수 있다.
   test('reverses a drawdown with a negative quantity and restores the reserve', async ({ page }) => {
     await installFirebaseStub(page);
-    await page.route('**/api/**', route => {
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
-      let payload: unknown = [];
-      if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
-      } else if (pathname === '/chat-rooms/unread') {
-        payload = {};
-      } else if (pathname === '/projects') {
-        payload = { canManageAll: false, projects: [] };
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
-    });
+    await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -660,18 +637,7 @@ test.describe('Business OS read-only operating data', () => {
   // 접수담당자는 실제로 접수를 넣은 사람과 따로 고르며, 최종정산서에만 나온다.
   test('tags an intake with a manager shown only on the final settlement', async ({ page }) => {
     await installFirebaseStub(page);
-    await page.route('**/api/**', route => {
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
-      let payload: unknown = [];
-      if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
-      } else if (pathname === '/chat-rooms/unread') {
-        payload = {};
-      } else if (pathname === '/projects') {
-        payload = { canManageAll: false, projects: [] };
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
-    });
+    await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -715,18 +681,7 @@ test.describe('Business OS read-only operating data', () => {
   // 최종정산서는 담당자를 정리할 수 있게 기간으로도 조회한다.
   test('filters the final settlement by period', async ({ page }) => {
     await installFirebaseStub(page);
-    await page.route('**/api/**', route => {
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
-      let payload: unknown = [];
-      if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
-      } else if (pathname === '/chat-rooms/unread') {
-        payload = {};
-      } else if (pathname === '/projects') {
-        payload = { canManageAll: false, projects: [] };
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
-    });
+    await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -796,18 +751,7 @@ test.describe('Business OS read-only operating data', () => {
   // 개인정산서에 올라가지 않는다. 영업자별로도 추려 본다.
   test('records final-only intakes and filters them by salesperson', async ({ page }) => {
     await installFirebaseStub(page);
-    await page.route('**/api/**', route => {
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
-      let payload: unknown = [];
-      if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
-      } else if (pathname === '/chat-rooms/unread') {
-        payload = {};
-      } else if (pathname === '/projects') {
-        payload = { canManageAll: false, projects: [] };
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
-    });
+    await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -865,18 +809,7 @@ test.describe('Business OS read-only operating data', () => {
   // 공급사 정산은 공급처별로 수량을 맞춰 본 뒤에야 지불로 확정된다.
   test('settles suppliers only when the quantity matches', async ({ page }) => {
     await installFirebaseStub(page);
-    await page.route('**/api/**', route => {
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
-      let payload: unknown = [];
-      if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
-      } else if (pathname === '/chat-rooms/unread') {
-        payload = {};
-      } else if (pathname === '/projects') {
-        payload = { canManageAll: false, projects: [] };
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
-    });
+    await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -959,18 +892,7 @@ test.describe('Business OS read-only operating data', () => {
   // 예약최초건은 아직 일이 들어가지 않아 매출이 아니므로 빠진다.
   test('final settlement lists only worked rows and drops the reservation', async ({ page }) => {
     await installFirebaseStub(page);
-    await page.route('**/api/**', route => {
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
-      let payload: unknown = [];
-      if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
-      } else if (pathname === '/chat-rooms/unread') {
-        payload = {};
-      } else if (pathname === '/projects') {
-        payload = { canManageAll: false, projects: [] };
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
-    });
+    await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -1043,18 +965,7 @@ test.describe('Business OS read-only operating data', () => {
   // 거래처에 보낼 견적서를 접수 건에서 뽑는다. 상품명·카테고리는 자유롭게 고친다.
   test('issues one work estimate per client and downloads it as an image', async ({ page }) => {
     await installFirebaseStub(page);
-    await page.route('**/api/**', route => {
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
-      let payload: unknown = [];
-      if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
-      } else if (pathname === '/chat-rooms/unread') {
-        payload = {};
-      } else if (pathname === '/projects') {
-        payload = { canManageAll: false, projects: [] };
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
-    });
+    await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -1109,18 +1020,7 @@ test.describe('Business OS read-only operating data', () => {
   // 표에서 건을 골라 그 건만 정산서로 내고, 접수 없이 새로 만들 수도 있다.
   test('issues an estimate from picked rows and from scratch', async ({ page }) => {
     await installFirebaseStub(page);
-    await page.route('**/api/**', route => {
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
-      let payload: unknown = [];
-      if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
-      } else if (pathname === '/chat-rooms/unread') {
-        payload = {};
-      } else if (pathname === '/projects') {
-        payload = { canManageAll: false, projects: [] };
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
-    });
+    await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -1191,18 +1091,7 @@ test.describe('Business OS read-only operating data', () => {
   // 단가는 상품별로 고칠 수 있고, 고친 값이 접수 화면과 영업자 단가표에 함께 간다.
   test('edits a single product price and shares it with sales accounts', async ({ page }) => {
     await installFirebaseStub(page);
-    await page.route('**/api/**', route => {
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
-      let payload: unknown = [];
-      if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
-      } else if (pathname === '/chat-rooms/unread') {
-        payload = {};
-      } else if (pathname === '/projects') {
-        payload = { canManageAll: false, projects: [] };
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
-    });
+    await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -1267,18 +1156,7 @@ test.describe('Business OS read-only operating data', () => {
   //   현잔고 + 영업자 미수금 − (공급처 입금 + 선결제) = 실질적으로 남은 금액
   test('adds up the fund board exactly like the owner sheet', async ({ page }) => {
     await installFirebaseStub(page);
-    await page.route('**/api/**', route => {
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
-      let payload: unknown = [];
-      if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
-      } else if (pathname === '/chat-rooms/unread') {
-        payload = {};
-      } else if (pathname === '/projects') {
-        payload = { canManageAll: false, projects: [] };
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
-    });
+    await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -1346,18 +1224,7 @@ test.describe('Business OS read-only operating data', () => {
   // 새로 붙인 다섯 탭. 회사 돈을 다루는 충전금·결산은 지정 인원만 본다.
   test('adds the five new tabs with the right scope', async ({ page }) => {
     await installFirebaseStub(page);
-    await page.route('**/api/**', route => {
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
-      let payload: unknown = [];
-      if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
-      } else if (pathname === '/chat-rooms/unread') {
-        payload = {};
-      } else if (pathname === '/projects') {
-        payload = { canManageAll: false, projects: [] };
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
-    });
+    await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -1437,7 +1304,10 @@ test.describe('Business OS read-only operating data', () => {
   ] as [string, boolean, boolean][]) {
     test(`monthly settlement tabs are scoped for ${name}`, async ({ page }) => {
       await installFirebaseStub(page);
+      const peakStore = createPeakosStore();
+
       await page.route('**/api/**', route => {
+        if (handlePeakos(peakStore, route)) return;
         const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
         let payload: unknown = [];
         if (pathname === '/users/me') {
@@ -1471,18 +1341,7 @@ test.describe('Business OS read-only operating data', () => {
   // 판매 한 건에 실행 비용을 붙여 묶음별 손익을 낸다.
   test('nests run costs under a monthly sale and nets the profit', async ({ page }) => {
     await installFirebaseStub(page);
-    await page.route('**/api/**', route => {
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
-      let payload: unknown = [];
-      if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '김지홍', role: 'manager', approved: true, is_active: true, group_name: '본사 영업팀' };
-      } else if (pathname === '/chat-rooms/unread') {
-        payload = {};
-      } else if (pathname === '/projects') {
-        payload = { canManageAll: false, projects: [] };
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
-    });
+    await installPeakosStub(page, { name: '김지홍', uid: 'e2e-test-user', role: 'manager', group_name: '본사 영업팀' });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -1533,7 +1392,10 @@ test.describe('Business OS read-only operating data', () => {
   ] as [string, boolean][]) {
     test(`company cost stays hidden unless named — ${name}`, async ({ page }) => {
       await installFirebaseStub(page);
+      const peakStore = createPeakosStore();
+
       await page.route('**/api/**', route => {
+        if (handlePeakos(peakStore, route)) return;
         const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
         let payload: unknown = [];
         if (pathname === '/users/me') {
@@ -1587,7 +1449,10 @@ test.describe('Business OS read-only operating data', () => {
   for (const [name, allowed] of [['김대호', true], ['김용일', false]] as [string, boolean][]) {
     test(`shows the price table scoped to the screen for ${name}`, async ({ page }) => {
       await installFirebaseStub(page);
+      const peakStore = createPeakosStore();
+
       await page.route('**/api/**', route => {
+        if (handlePeakos(peakStore, route)) return;
         const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
         let payload: unknown = [];
         if (pathname === '/users/me') {
@@ -1632,18 +1497,7 @@ test.describe('Business OS read-only operating data', () => {
   // 최종정산서에서 상품을 추가하면 영업자 단가표에도 영업자단가만 실린다.
   test('adds a product from the final settlement and shares it without company cost', async ({ page }) => {
     await installFirebaseStub(page);
-    await page.route('**/api/**', route => {
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
-      let payload: unknown = [];
-      if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
-      } else if (pathname === '/chat-rooms/unread') {
-        payload = {};
-      } else if (pathname === '/projects') {
-        payload = { canManageAll: false, projects: [] };
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
-    });
+    await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -1702,18 +1556,7 @@ test.describe('Business OS read-only operating data', () => {
   // 접수 폼은 접혀 있다가 버튼으로 펼치고, 상시변동 상품은 회사 원가를 직접 넣는다.
   test('collapses the intake form and prompts for missing company cost', async ({ page }) => {
     await installFirebaseStub(page);
-    await page.route('**/api/**', route => {
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
-      let payload: unknown = [];
-      if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
-      } else if (pathname === '/chat-rooms/unread') {
-        payload = {};
-      } else if (pathname === '/projects') {
-        payload = { canManageAll: false, projects: [] };
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
-    });
+    await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -1767,18 +1610,7 @@ test.describe('Business OS read-only operating data', () => {
   // 이익을 영업자 기준과 회사 기준으로 나눠 보고, 공급사 미정산도 함께 본다.
   test('splits salesperson and company profit and shows unsettled supplier amounts', async ({ page }) => {
     await installFirebaseStub(page);
-    await page.route('**/api/**', route => {
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
-      let payload: unknown = [];
-      if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
-      } else if (pathname === '/chat-rooms/unread') {
-        payload = {};
-      } else if (pathname === '/projects') {
-        payload = { canManageAll: false, projects: [] };
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
-    });
+    await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -1841,7 +1673,10 @@ test.describe('Business OS read-only operating data', () => {
   for (const [name, canEditUnit] of [['김대호', true], ['김용일', false]] as [string, boolean][]) {
     test(`reservation drawdown inherits its terms for ${name}`, async ({ page }) => {
       await installFirebaseStub(page);
+      const peakStore = createPeakosStore();
+
       await page.route('**/api/**', route => {
+        if (handlePeakos(peakStore, route)) return;
         const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
         let payload: unknown = [];
         if (pathname === '/users/me') {
@@ -1910,18 +1745,7 @@ test.describe('Business OS read-only operating data', () => {
 
   test('filters the ledger by period, client, product and deposit state', async ({ page }) => {
     await installFirebaseStub(page);
-    await page.route('**/api/**', route => {
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
-      let payload: unknown = [];
-      if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
-      } else if (pathname === '/chat-rooms/unread') {
-        payload = {};
-      } else if (pathname === '/projects') {
-        payload = { canManageAll: false, projects: [] };
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
-    });
+    await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -1973,18 +1797,7 @@ test.describe('Business OS read-only operating data', () => {
 
   test('splits one deposit across several intake rows', async ({ page }) => {
     await installFirebaseStub(page);
-    await page.route('**/api/**', route => {
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
-      let payload: unknown = [];
-      if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '김대호', role: 'manager', approved: true, is_active: true, group_name: '본사 경영지원팀' };
-      } else if (pathname === '/chat-rooms/unread') {
-        payload = {};
-      } else if (pathname === '/projects') {
-        payload = { canManageAll: false, projects: [] };
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
-    });
+    await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -2060,7 +1873,10 @@ test.describe('Business OS read-only operating data', () => {
   ] as [string, boolean][]) {
     test(`team ledger is ${allowed ? 'open' : 'closed'} for ${name}`, async ({ page }) => {
       await installFirebaseStub(page);
+      const peakStore = createPeakosStore();
+
       await page.route('**/api/**', route => {
+        if (handlePeakos(peakStore, route)) return;
         const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
         let payload: unknown = [];
         if (pathname === '/users/me') {
@@ -2096,7 +1912,10 @@ test.describe('Business OS read-only operating data', () => {
   ] as [string, string, string, boolean][]) {
     test(`intake is ${open ? 'open' : 'closed'} for ${branch}`, async ({ page }) => {
       await installFirebaseStub(page);
+      const peakStore = createPeakosStore();
+
       await page.route('**/api/**', route => {
+        if (handlePeakos(peakStore, route)) return;
         const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
         let payload: unknown = [];
         if (pathname === '/users/me') {
@@ -2125,7 +1944,10 @@ test.describe('Business OS read-only operating data', () => {
 
   test('shows no invented amounts when the account has no sales rows', async ({ page }) => {
     await installFirebaseStub(page);
+    const peakStore = createPeakosStore();
+
     await page.route('**/api/**', route => {
+      if (handlePeakos(peakStore, route)) return;
       const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
       let payload: unknown = [];
       if (pathname === '/users/me') {
