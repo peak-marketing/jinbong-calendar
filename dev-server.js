@@ -6,29 +6,40 @@ const root = __dirname;
 const port = Number(process.env.DEV_PORT || 4180);
 const apiPort = Number(process.env.API_PORT || 4110);
 
+const publicFiles = new Map([
+  ['/', 'business-os-preview.html'],
+  ['/business-os-preview.html', 'business-os-preview.html'],
+  ['/business-os-live.css', 'business-os-live.css'],
+  ['/business-os-preview.js', 'business-os-preview.js'],
+  ['/logo-trimmed.png', 'logo-trimmed.png'],
+]);
+
 const mime = {
   '.css': 'text/css; charset=utf-8',
-  '.gif': 'image/gif',
   '.html': 'text/html; charset=utf-8',
-  '.ico': 'image/x-icon',
-  '.jpeg': 'image/jpeg',
-  '.jpg': 'image/jpeg',
   '.js': 'text/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
-  '.svg': 'image/svg+xml',
-  '.webp': 'image/webp',
 };
 
-function proxyApi(req, res) {
+function writeText(req, res, statusCode, body, headers = {}) {
+  const data = Buffer.from(body);
+  res.writeHead(statusCode, {
+    'Content-Length': data.length,
+    'Content-Type': 'text/plain; charset=utf-8',
+    ...headers,
+  });
+  res.end(req.method === 'HEAD' ? undefined : data);
+}
+
+function proxyApi(req, res, targetApiPort) {
   const proxy = http.request({
     hostname: '127.0.0.1',
-    port: apiPort,
+    port: targetApiPort,
     path: req.url,
     method: req.method,
     headers: {
       ...req.headers,
-      host: `127.0.0.1:${apiPort}`,
+      host: `127.0.0.1:${targetApiPort}`,
     },
   }, upstream => {
     res.writeHead(upstream.statusCode || 502, upstream.headers);
@@ -43,48 +54,101 @@ function proxyApi(req, res) {
   req.pipe(proxy);
 }
 
-function serveFile(req, res) {
+function serveFile(req, res, options) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    writeText(req, res, 405, 'Method not allowed', { Allow: 'GET, HEAD' });
+    return;
+  }
+
   let pathname;
   try {
     pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
   } catch {
-    res.writeHead(400);
-    res.end('Bad request');
+    writeText(req, res, 400, 'Bad request');
     return;
   }
 
-  if (pathname === '/') pathname = '/business-os-preview.html';
-  const filePath = path.resolve(root, `.${pathname}`);
-  const relative = path.relative(root, filePath);
-
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    res.writeHead(403);
-    res.end('Forbidden');
+  const filename = options.publicFiles.get(pathname);
+  if (!filename) {
+    writeText(req, res, 404, 'Not found');
     return;
   }
 
-  fs.readFile(filePath, (error, data) => {
-    if (error) {
-      res.writeHead(error.code === 'ENOENT' ? 404 : 500);
-      res.end(error.code === 'ENOENT' ? 'Not found' : 'Internal error');
+  const filePath = path.join(options.realRoot, filename);
+  fs.realpath(filePath, (realpathError, resolvedPath) => {
+    const relative = realpathError ? '' : path.relative(options.realRoot, resolvedPath);
+    if (
+      realpathError
+      || !relative
+      || relative.startsWith('..')
+      || path.isAbsolute(relative)
+      || relative !== filename
+    ) {
+      writeText(req, res, realpathError && realpathError.code === 'ENOENT' ? 404 : 403, realpathError && realpathError.code === 'ENOENT' ? 'Not found' : 'Forbidden');
       return;
     }
 
-    res.writeHead(200, {
-      'Cache-Control': 'no-store',
-      'Content-Type': mime[path.extname(filePath).toLowerCase()] || 'application/octet-stream',
+    fs.open(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW, (openError, fd) => {
+      if (openError) {
+        writeText(req, res, openError.code === 'ENOENT' ? 404 : 403, openError.code === 'ENOENT' ? 'Not found' : 'Forbidden');
+        return;
+      }
+
+      fs.fstat(fd, (statError, stats) => {
+        if (statError || !stats.isFile()) {
+          fs.close(fd, () => {});
+          writeText(req, res, 403, 'Forbidden');
+          return;
+        }
+
+        res.writeHead(200, {
+          'Cache-Control': 'no-store',
+          'Content-Length': stats.size,
+          'Content-Type': mime[path.extname(filePath).toLowerCase()] || 'application/octet-stream',
+        });
+
+        if (req.method === 'HEAD') {
+          fs.close(fd, () => {});
+          res.end();
+          return;
+        }
+
+        const stream = fs.createReadStream(filePath, { fd, autoClose: true });
+        stream.on('error', () => res.destroy());
+        stream.pipe(res);
+      });
     });
-    res.end(data);
   });
 }
 
-http.createServer((req, res) => {
-  if (req.url === '/api' || req.url.startsWith('/api/')) {
-    proxyApi(req, res);
-    return;
-  }
-  serveFile(req, res);
-}).listen(port, '127.0.0.1', () => {
-  console.log(`Peak Marketing Business OS: http://127.0.0.1:${port}`);
-  console.log(`API proxy: http://127.0.0.1:${apiPort}`);
-});
+function createDevServer(options = {}) {
+  const rootDir = options.rootDir || root;
+  const realRoot = fs.realpathSync(rootDir);
+  const targetApiPort = options.apiPort || apiPort;
+  const allowedPublicFiles = options.publicFiles || publicFiles;
+
+  return http.createServer((req, res) => {
+    let pathname;
+    try {
+      pathname = new URL(req.url, 'http://localhost').pathname;
+    } catch {
+      writeText(req, res, 400, 'Bad request');
+      return;
+    }
+
+    if (pathname === '/api' || pathname.startsWith('/api/')) {
+      proxyApi(req, res, targetApiPort);
+      return;
+    }
+    serveFile(req, res, { publicFiles: allowedPublicFiles, realRoot });
+  });
+}
+
+if (require.main === module) {
+  createDevServer().listen(port, '127.0.0.1', () => {
+    console.log(`Peak Marketing Business OS: http://127.0.0.1:${port}`);
+    console.log(`API proxy: http://127.0.0.1:${apiPort}`);
+  });
+}
+
+module.exports = { createDevServer, publicFiles };
