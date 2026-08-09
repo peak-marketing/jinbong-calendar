@@ -18,6 +18,12 @@ const PUBLIC_ACCOUNT_IDS = Object.freeze([
   'ibk-reward-space',
 ]);
 const PUBLIC_ACCOUNT_ID_SET = new Set(PUBLIC_ACCOUNT_IDS);
+const TAX_PURCHASE_ACCOUNT_IDS = Object.freeze([
+  'ibk-hq-fixed',
+  'ibk-hq-supplier',
+]);
+const TAX_PURCHASE_ACCOUNT_ID_SET = new Set(TAX_PURCHASE_ACCOUNT_IDS);
+const TAX_PURCHASE_SCOPE = 'tax-purchase';
 const ACCOUNT_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{1,79}$/i;
 const ISO_TIMESTAMP_WITH_ZONE_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/i;
 
@@ -103,6 +109,14 @@ function parsePageInteger(value, fieldName, fallback, max) {
     throw new BankValidationError(`${fieldName} 범위가 올바르지 않습니다.`);
   }
   return parsed;
+}
+
+function parseBankReadScope(value) {
+  if (value === undefined || value === null || value === '') return '';
+  if (Array.isArray(value) || String(value).trim() !== TAX_PURCHASE_SCOPE) {
+    throw new BankValidationError('통장 조회 scope 값이 올바르지 않습니다.', 'BANK_INVALID_SCOPE');
+  }
+  return TAX_PURCHASE_SCOPE;
 }
 
 function maskAccountNumber(value) {
@@ -259,6 +273,10 @@ function safeErrorMessage(error) {
 
 function isPublicAccountId(accountId) {
   return PUBLIC_ACCOUNT_ID_SET.has(String(accountId || '').trim());
+}
+
+function isTaxPurchaseAccountId(accountId) {
+  return TAX_PURCHASE_ACCOUNT_ID_SET.has(String(accountId || '').trim());
 }
 
 function publicSyncRun(row) {
@@ -444,6 +462,7 @@ function registerPeakosBanking({
   authMiddleware,
   pool,
   canRead,
+  canReadTaxPurchase,
   canViewBalances,
   canSync,
   canManage,
@@ -454,6 +473,9 @@ function registerPeakosBanking({
   autoReconciliationEnabled = false,
 }) {
   const readAllowed = typeof canRead === 'function' ? canRead : () => false;
+  const taxPurchaseReadAllowed = typeof canReadTaxPurchase === 'function'
+    ? canReadTaxPurchase
+    : () => false;
   // This callback must be UID-backed and return true only for the four people
   // approved to see restricted accounts and any balance values. Default deny
   // keeps the module safe until index.js explicitly wires the policy.
@@ -468,8 +490,11 @@ function registerPeakosBanking({
   const allowed = (req, check) => approvedActive(req) && check(req) === true;
   const canViewBalanceData = req => allowed(req, balanceAllowed);
   const canReadBanking = req => allowed(req, readAllowed) || canViewBalanceData(req);
-  const canReadAccount = (req, accountId) => (
-    canViewBalanceData(req) || (canReadBanking(req) && isPublicAccountId(accountId))
+  const canReadTaxPurchaseBanking = req => allowed(req, taxPurchaseReadAllowed);
+  const canReadAccount = (req, accountId, scope = '') => (
+    scope === TAX_PURCHASE_SCOPE
+      ? canReadTaxPurchaseBanking(req) && isTaxPurchaseAccountId(accountId)
+      : canViewBalanceData(req) || (canReadBanking(req) && isPublicAccountId(accountId))
   );
   const canOperateAccount = (req, accountId, operationAllowed) => (
     allowed(req, operationAllowed) && (canViewBalanceData(req) || isPublicAccountId(accountId))
@@ -695,9 +720,22 @@ function registerPeakosBanking({
   }
 
   app.get('/api/peakos/bank/accounts', authMiddleware, async (req, res) => {
-    if (!canReadBanking(req)) return res.status(403).json({ error: '통장 조회 권한이 없습니다.' });
+    let scope;
+    try {
+      scope = parseBankReadScope(req.query.scope);
+    } catch (error) {
+      return res.status(400).json({ error: error.message, code: error.code });
+    }
+    const taxPurchaseScope = scope === TAX_PURCHASE_SCOPE;
+    if (taxPurchaseScope ? !canReadTaxPurchaseBanking(req) : !canReadBanking(req)) {
+      return res.status(403).json({ error: '통장 조회 권한이 없습니다.' });
+    }
     try {
       const showBalances = canViewBalanceData(req);
+      const accountIds = taxPurchaseScope ? TAX_PURCHASE_ACCOUNT_IDS : PUBLIC_ACCOUNT_IDS;
+      // 잔액 권한자가 일반 통장 화면을 열 때만 전체 계좌를 허용한다.
+      // tax-purchase scope는 잔액 권한자라도 매입용 두 계좌로 고정한다.
+      const showAllAccounts = showBalances && !taxPurchaseScope;
       const result = await pool.query(
         `SELECT a.id, a.provider, a.bank_name, a.display_name, a.branch_id,
                 a.account_number_masked, a.currency, a.purpose, a.is_active,
@@ -708,19 +746,22 @@ function registerPeakosBanking({
                 COUNT(t.id) FILTER (WHERE t.reconciliation_status = 'UNMATCHED') AS unmatched_count
            FROM peakos_bank_accounts a
            LEFT JOIN peakos_bank_transactions t ON t.account_id = a.id
-          WHERE $1::boolean OR a.id = ANY($2::text[])
+          WHERE $2::boolean OR a.id = ANY($3::text[])
           GROUP BY a.id
           ORDER BY a.branch_id, a.display_name`,
-        [showBalances, PUBLIC_ACCOUNT_IDS],
+        [showBalances, showAllAccounts, accountIds],
       );
-      const visibleRows = showBalances
+      const visibleRows = showAllAccounts
         ? result.rows
-        : result.rows.filter(row => isPublicAccountId(row.id));
+        : result.rows.filter(row => (
+          taxPurchaseScope ? isTaxPurchaseAccountId(row.id) : isPublicAccountId(row.id)
+        ));
       const actor = actorOf(req);
       if (showBalances) {
         req.bankRequestId = req.bankRequestId || crypto.randomUUID();
         await insertAudit(pool, req, actor, 'BANK_BALANCE_ACCOUNTS_READ', 'BANK_ACCOUNT_SET', 'visible', '잔액 포함 통장 조회', {
           accountCount: visibleRows.length,
+          scope: taxPurchaseScope ? TAX_PURCHASE_SCOPE : 'bank',
         });
       }
       res.set('Cache-Control', 'no-store');
@@ -733,6 +774,7 @@ function registerPeakosBanking({
         })),
         collectorConfigured: Boolean(collector),
         autoReconciliationEnabled: autoReconciliationEnabled === true,
+        scope: taxPurchaseScope ? TAX_PURCHASE_SCOPE : 'bank',
         canViewBalances: showBalances,
         canSync: Boolean(collector) && visibleRows.some(row => canOperateAccount(req, row.id, syncAllowed)),
         canManage: visibleRows.some(row => canOperateAccount(req, row.id, manageAllowed)),
@@ -818,7 +860,16 @@ function registerPeakosBanking({
   });
 
   app.get('/api/peakos/bank/transactions', authMiddleware, async (req, res) => {
-    if (!canReadBanking(req)) return res.status(403).json({ error: '통장 조회 권한이 없습니다.' });
+    let scope;
+    try {
+      scope = parseBankReadScope(req.query.scope);
+    } catch (error) {
+      return res.status(400).json({ error: error.message, code: error.code });
+    }
+    const taxPurchaseScope = scope === TAX_PURCHASE_SCOPE;
+    if (taxPurchaseScope ? !canReadTaxPurchaseBanking(req) : !canReadBanking(req)) {
+      return res.status(403).json({ error: '통장 조회 권한이 없습니다.' });
+    }
     const showBalances = canViewBalanceData(req);
     let limit;
     let page;
@@ -843,7 +894,7 @@ function registerPeakosBanking({
     if (accountId && !ACCOUNT_ID_PATTERN.test(accountId)) {
       return res.status(400).json({ error: 'accountId 형식이 올바르지 않습니다.' });
     }
-    if (accountId && !canReadAccount(req, accountId)) {
+    if (accountId && !canReadAccount(req, accountId, scope)) {
       return res.status(403).json({ error: '이 통장의 거래내역을 볼 권한이 없습니다.' });
     }
     if (direction && !ALLOWED_DIRECTIONS.has(direction)) {
@@ -852,9 +903,13 @@ function registerPeakosBanking({
     if (status && !ALLOWED_STATUSES.has(status)) {
       return res.status(400).json({ error: 'status 값이 올바르지 않습니다.' });
     }
-    // Defense in depth: ordinary readers can see only the explicitly public
-    // accounts. Any future account is denied until it is deliberately added.
-    if (!showBalances) add('t.account_id = ANY(?::text[])', PUBLIC_ACCOUNT_IDS);
+    // 일반 조회는 공개 3계좌, 매입 scope는 명시된 2계좌로 SQL 단계부터
+    // 제한한다. 잔액 권한자도 tax-purchase scope로 미래 계좌를 넓혀 볼 수 없다.
+    if (taxPurchaseScope) {
+      add('t.account_id = ANY(?::text[])', TAX_PURCHASE_ACCOUNT_IDS);
+    } else if (!showBalances) {
+      add('t.account_id = ANY(?::text[])', PUBLIC_ACCOUNT_IDS);
+    }
     if (accountId) add('t.account_id = ?', accountId);
     if (direction && ALLOWED_DIRECTIONS.has(direction)) add('t.direction = ?', direction);
     if (status && ALLOWED_STATUSES.has(status)) add('t.reconciliation_status = ?', status);
@@ -897,19 +952,21 @@ function registerPeakosBanking({
         values,
       );
       const totals = summary.rows[0] || {};
-      const visibleRows = showBalances
-        ? list.rows
-        : list.rows.filter(row => isPublicAccountId(row.account_id));
+      const visibleRows = taxPurchaseScope
+        ? list.rows.filter(row => isTaxPurchaseAccountId(row.account_id))
+        : (showBalances ? list.rows : list.rows.filter(row => isPublicAccountId(row.account_id)));
       if (showBalances) {
         req.bankRequestId = req.bankRequestId || crypto.randomUUID();
         await insertAudit(pool, req, actorOf(req), 'BANK_BALANCE_TRANSACTIONS_READ', 'BANK_ACCOUNT', accountId || 'all', '잔액 포함 거래 조회', {
           page,
           limit,
           filteredAccountId: accountId || null,
+          scope: taxPurchaseScope ? TAX_PURCHASE_SCOPE : 'bank',
         });
       }
       res.set('Cache-Control', 'no-store');
       res.json({
+        scope: taxPurchaseScope ? TAX_PURCHASE_SCOPE : 'bank',
         transactions: visibleRows.map(row => publicTransaction(row, { includeBalance: showBalances })),
         summary: {
           total: Number(totals.total || 0),
@@ -931,6 +988,12 @@ function registerPeakosBanking({
   });
 
   app.get('/api/peakos/bank/sync-runs', authMiddleware, async (req, res) => {
+    if (req.query.scope !== undefined && req.query.scope !== null && req.query.scope !== '') {
+      return res.status(400).json({
+        error: 'scope는 계좌 목록과 거래내역 조회에서만 사용할 수 있습니다.',
+        code: 'BANK_INVALID_SCOPE',
+      });
+    }
     if (!canReadBanking(req)) return res.status(403).json({ error: '통장 조회 권한이 없습니다.' });
     const showBalances = canViewBalanceData(req);
     let limit;

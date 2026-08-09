@@ -24,6 +24,10 @@ server/*
 !server/auth/**
 server/auth/*.env
 server/auth/*.secret.*
+!server/imports/
+!server/imports/**
+!server/collaboration/
+!server/collaboration/**
 !server/banking/
 !server/banking/**
 server/banking/*.env
@@ -31,6 +35,8 @@ server/banking/*.secret.*
 !server/banking/*.env.example
 !server/migrations/
 !server/migrations/**
+!server/workspaces/
+!server/workspaces/**
 
 # Local backups
 index.old.html

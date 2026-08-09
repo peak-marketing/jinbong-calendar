@@ -110,9 +110,11 @@ async function findLockedCandidates(client, transaction) {
         AND i.bank_match_eligible = TRUE
         AND i.bank_match_approved_by_uid IS NOT NULL
         AND i.bank_match_approved_at IS NOT NULL
-        AND ((COALESCE(i.sell, 0)::numeric * COALESCE(i.qty, 0)::numeric)
+        AND (COALESCE(i.expected_deposit_amount,
+              COALESCE(i.sell, 0)::numeric * COALESCE(i.qty, 0)::numeric)
           - COALESCE(i.paid_amount, 0)::numeric) > 0
-        AND ((COALESCE(i.sell, 0)::numeric * COALESCE(i.qty, 0)::numeric)
+        AND (COALESCE(i.expected_deposit_amount,
+              COALESCE(i.sell, 0)::numeric * COALESCE(i.qty, 0)::numeric)
           - COALESCE(i.paid_amount, 0)::numeric) = $1::numeric
         AND $3::integer > 0
         AND i.created_at >= $2::timestamptz - ($3::integer * INTERVAL '1 day')
@@ -222,15 +224,18 @@ async function applyExactMatch(client, transaction, candidate, requestId) {
               ELSE left(paid_memo || ' · ' || $5, 500)
             END,
             paid_auto = TRUE,
+            row_version = row_version + 1,
             updated_at = NOW()
       WHERE id = $1
         AND kind IN ('normal', 'reserve')
         AND bank_match_eligible = TRUE
         AND bank_match_approved_by_uid IS NOT NULL
         AND bank_match_approved_at IS NOT NULL
-        AND ((COALESCE(sell, 0)::numeric * COALESCE(qty, 0)::numeric)
+        AND (COALESCE(expected_deposit_amount,
+              COALESCE(sell, 0)::numeric * COALESCE(qty, 0)::numeric)
           - COALESCE(paid_amount, 0)::numeric) = $2::numeric
-        AND ((COALESCE(sell, 0)::numeric * COALESCE(qty, 0)::numeric)
+        AND (COALESCE(expected_deposit_amount,
+              COALESCE(sell, 0)::numeric * COALESCE(qty, 0)::numeric)
           - COALESCE(paid_amount, 0)::numeric) > 0
       RETURNING id`,
     [candidate.id, transaction.amount, transaction.counterparty_name, transaction.transaction_at, AUTO_PAID_MEMO],

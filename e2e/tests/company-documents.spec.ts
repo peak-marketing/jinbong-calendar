@@ -20,6 +20,14 @@ async function installCompanyUser(page: Parameters<typeof installFirebaseStub>[0
   });
 }
 
+async function openCompanyView(page: Parameters<typeof installFirebaseStub>[0]) {
+  const cluster = page.locator('[data-nav-cluster="company"]');
+  if ((await cluster.getAttribute('class'))?.split(/\s+/).includes('closed')) {
+    await cluster.locator(':scope > .nav-cluster-toggle').click();
+  }
+  await cluster.locator('.nav-item[data-view="company"]').click();
+}
+
 test('보호된 본사·지사 원본을 미리 보고 각각 저장한다', async ({ page }) => {
   await installCompanyUser(page);
   const requests: { path: string; authorization: string }[] = [];
@@ -67,7 +75,7 @@ test('보호된 본사·지사 원본을 미리 보고 각각 저장한다', asy
 
   await page.goto('/business-os-preview.html');
   await expect(page.locator('#authGate')).toBeHidden();
-  await page.locator('.nav-item[data-view="company"]').click();
+  await openCompanyView(page);
 
   await expect(page.locator('[data-company-certificate-folders] [data-company-folder]')).toHaveCount(2);
   await expect(page.locator('[data-company-folder="branches"]')).toContainText('본사 및 지사 사업자등록증');
@@ -140,7 +148,7 @@ test('보호 저장소 권한 오류에는 원본 버튼을 열지 않는다', a
 
   await page.goto('/business-os-preview.html');
   await expect(page.locator('#authGate')).toBeHidden();
-  await page.locator('.nav-item[data-view="company"]').click();
+  await openCompanyView(page);
 
   await expect(page.locator('[data-company-folder-content="branches"]')).toContainText('보호 자료를 불러오지 못했습니다');
   await expect(page.locator('[data-company-folder-content="branches"]')).toContainText('추가 이메일 인증');
@@ -177,7 +185,7 @@ test('원본 점검 상태에서 보호 목록을 다시 확인한다', async ({
 
   await page.goto('/business-os-preview.html');
   await expect(page.locator('#authGate')).toBeHidden();
-  await page.locator('.nav-item[data-view="company"]').click();
+  await openCompanyView(page);
 
   await expect(page.locator('[data-company-folder="branches"]')).toContainText('0/3 연결');
   await expect(page.locator('[data-company-document-refresh]')).toBeVisible();
@@ -216,7 +224,7 @@ test('미리보기의 지연 응답이 다른 모달을 덮어쓰지 않는다',
 
   await page.goto('/business-os-preview.html');
   await expect(page.locator('#authGate')).toBeHidden();
-  await page.locator('.nav-item[data-view="company"]').click();
+  await openCompanyView(page);
   await page.locator('[data-company-document-preview="head-office"]').click();
   await expect(page.locator('#readonlyModalBody')).toContainText('보호 원본을 확인하고 있습니다');
 
@@ -253,7 +261,7 @@ test('로그아웃하면 열려 있던 보호 원본을 DOM에서 제거한다',
 
   await page.goto('/business-os-preview.html');
   await expect(page.locator('#authGate')).toBeHidden();
-  await page.locator('.nav-item[data-view="company"]').click();
+  await openCompanyView(page);
   await page.locator('[data-company-document-preview="head-office"]').click();
   await expect(page.locator('[data-company-document-image="head-office"]')).toBeVisible();
 
@@ -338,7 +346,7 @@ test('거래처 폴더를 지연 조회하고 이미지 미리보기와 PDF 다�
 
   await page.goto('/business-os-preview.html');
   await expect(page.locator('#authGate')).toBeHidden();
-  await page.locator('.nav-item[data-view="company"]').click();
+  await openCompanyView(page);
   await expect(page.locator('[data-company-folder="branches"]')).toContainText('3/3 연결');
   expect(listRequests.map(request => request.folder)).toEqual(['branches']);
 
@@ -436,7 +444,7 @@ test('거래처 검색은 debounce하고 늦게 도착한 이전 검색 결과�
 
   await page.goto('/business-os-preview.html');
   await expect(page.locator('#authGate')).toBeHidden();
-  await page.locator('.nav-item[data-view="company"]').click();
+  await openCompanyView(page);
   await page.locator('[data-company-folder="clients"]').click();
   await expect(page.locator('[data-company-folder-content="clients"]')).toContainText('등록된 거래처 사업자등록증이 없습니다');
 
@@ -504,7 +512,7 @@ test('거래처 문서를 25건씩 이동하고 점검 중 원본을 다시 확�
 
   await page.goto('/business-os-preview.html');
   await expect(page.locator('#authGate')).toBeHidden();
-  await page.locator('.nav-item[data-view="company"]').click();
+  await openCompanyView(page);
   await page.locator('[data-company-folder="clients"]').click();
 
   const rows = page.locator('[data-company-client-document]');
@@ -561,7 +569,7 @@ test('거래처 미리보기 응답 전에 로그아웃하면 이전 인증 결�
 
   await page.goto('/business-os-preview.html');
   await expect(page.locator('#authGate')).toBeHidden();
-  await page.locator('.nav-item[data-view="company"]').click();
+  await openCompanyView(page);
   await page.locator('[data-company-folder="clients"]').click();
   await page.locator('[data-company-client-document="client-auth-stale"] [data-company-document-preview]').click();
   await expect(page.locator('#readonlyModalBody')).toContainText('보호 원본을 확인하고 있습니다');

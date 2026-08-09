@@ -10,7 +10,8 @@ async function openIntake(page: Page) {
 }
 
 test.describe('Business OS read-only operating data', () => {
-  test('renders account-scoped Paragon data and only issues GET requests', async ({ page }) => {
+  test('renders account-scoped Paragon data through the protected collaboration alias', async ({ page }) => {
+    test.setTimeout(60_000);
     await installFirebaseStub(page);
     const apiMethods: { method: string; path: string }[] = [];
     const salesSummaryQueries: string[] = [];
@@ -53,18 +54,30 @@ test.describe('Business OS read-only operating data', () => {
 
 
     await page.route('**/api/**', route => {
-
-      if (handlePeakos(peakStore, route)) return;
       const request = route.request();
-      apiMethods.push({ method: request.method(), path: new URL(request.url()).pathname.replace(/^\/api/, '') });
-      const pathname = new URL(request.url()).pathname.replace(/^\/api/, '');
+      const requestUrl = new URL(request.url());
+      const rawPathname = requestUrl.pathname.replace(/^\/api/, '');
+      // This fixture explicitly grants the immutable test UID finance access
+      // below. Keep the settlement snapshot aligned with that server grant;
+      // handlePeakos' legacy display-name allowlist must not override it.
+      if (rawPathname === '/peakos/intake' && requestUrl.searchParams.get('scope') === 'all') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(peakStore.intake),
+        });
+      }
+      if (!rawPathname.startsWith('/peakos/collaboration') && handlePeakos(peakStore, route)) return;
+      apiMethods.push({ method: request.method(), path: rawPathname });
+      const pathname = rawPathname.replace(/^\/peakos\/collaboration/, '') || '/';
       let payload: unknown = {};
       if (pathname === '/users/me') {
         payload = {
           uid: 'e2e-test-user', name: 'E2E', role: 'admin', approved: true, is_active: true,
           group_name: '개발팀', peakos_can_read_bank: true,
           peakos_can_view_bank_balances: false, peakos_can_review_finance: false,
-          peakos_can_view_tax_purchase: false,
+          peakos_can_view_finance_operations: true,
+          peakos_can_view_tax_purchase: false, peakos_can_preview_accounts: false,
         };
       } else if (pathname === '/events') {
         payload = [{
@@ -117,7 +130,7 @@ test.describe('Business OS read-only operating data', () => {
         payload = { 'room-live-1': 2 };
       } else if (pathname === '/chat-rooms/room-live-1/messages') {
         payload = [{
-          id: 'message-live-1',
+          id: '001155ae-5db3-45a0-b430-21c8324528ee',
           uid: 'colleague',
           name: '동료',
           text: '실제 채팅 메시지',
@@ -194,9 +207,10 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#dashboardView')).toContainText('아직 전달받은 실제 데이터가 없습니다');
     await expect(page.locator('#dashboardView')).not.toContainText('₩ 4,820만');
 
+    await page.locator('[data-nav-cluster="main"] > .nav-cluster-toggle').click();
     await page.locator('.nav-item[data-view="todo"]').click();
     await expect(page.locator('#todoView')).toContainText('오늘 운영 업무');
-    await expect(page.locator('#todoView .todo-task-check').first()).toBeDisabled();
+    await expect(page.locator('#todoView .todo-task-check').first()).toBeEnabled();
     await expect(page.locator('#todoView')).not.toContainText('현재 계정에 허용된 오늘 업무를 조회합니다');
 
     await page.locator('.nav-item[data-view="calendar"]').click();
@@ -219,10 +233,10 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('.nav-item[data-view="chat"]').click();
     await page.locator('[data-room-id="room-live-1"]').click();
     await expect(page.locator('#chatThreadMessages')).toContainText('실제 채팅 메시지');
-    await expect(page.locator('#chatMessageInput')).toBeDisabled();
+    await expect(page.locator('#chatMessageInput')).toBeEnabled();
 
     await page.locator('.nav-item[data-view="review"]').click();
-    await expect(page.locator('#reviewView .review-page-toolbar')).toHaveCount(0);
+    await expect(page.locator('#reviewView .review-page-toolbar')).toHaveCount(1);
     await expect(page.locator('#reviewSearchInput')).toHaveCount(0);
     await page.locator('[data-project-id="project-live-1"]').click();
     await expect(page.locator('#reviewView .project-detail-page')).toBeVisible();
@@ -230,7 +244,7 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#reviewView')).toContainText('읽기 전용 업무 확인');
     await expect(page.locator('#reviewView')).toContainText('진행사항 원문');
     await expect(page.locator('#reviewView')).toContainText('프로젝트 전체 대화 원문');
-    await expect(page.locator('#reviewView .project-comment-compose textarea')).toBeDisabled();
+    await expect(page.locator('#reviewView .project-comment-compose textarea')).toBeEnabled();
     await page.locator('[data-project-detail-tab="schedule"]').click();
     await expect(page.locator('#reviewView')).toContainText('프로젝트 회의');
     await page.locator('[data-project-back]').click();
@@ -260,6 +274,7 @@ test.describe('Business OS read-only operating data', () => {
     expect(salesSummaryQueries[0]).toContain('bucket=week');
     expect(salesSummaryQueries[0]).toMatch(/from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/);
 
+    await page.locator('[data-nav-cluster="company"] > .nav-cluster-toggle').click();
     await page.locator('.nav-item[data-view="documents"]').click();
     await expect(page.locator('#moduleView')).toContainText('협업제안서');
     await expect(page.locator('#moduleView')).toContainText('교육메뉴얼');
@@ -416,6 +431,7 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView')).toContainText('SaaS 사이트 목록');
 
     expect(apiMethods.length).toBeGreaterThan(0);
+    expect(apiMethods.some(call => call.path === '/peakos/collaboration/events')).toBe(true);
     // 정산 데이터만 서버에 쓴다. 그 밖의 운영 데이터는 여전히 읽기만 한다.
     expect(new Set(apiMethods.filter(m => !m.path.startsWith('/peakos')).map(m => m.method)))
       .toEqual(new Set(['GET']));
@@ -428,7 +444,6 @@ test.describe('Business OS read-only operating data', () => {
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
-    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
     await page.locator('.nav-item[data-view="settlement"]').click();
     await openIntake(page);
     await expect(page.locator('#moduleView')).toContainText('내 개인정산서');
@@ -464,7 +479,10 @@ test.describe('Business OS read-only operating data', () => {
         const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
         let payload: unknown = [];
         if (pathname === '/users/me') {
-          payload = { uid: 'e2e-test-user', name, role, approved: true, is_active: true, group_name: '본사 영업팀' };
+          payload = {
+            uid: 'e2e-test-user', name, role, approved: true, is_active: true,
+            group_name: '본사 영업팀', peakos_can_view_finance_operations: allowed,
+          };
         } else if (pathname === '/chat-rooms/unread') {
           payload = {};
         } else if (pathname === '/projects') {
@@ -475,13 +493,13 @@ test.describe('Business OS read-only operating data', () => {
 
       await page.goto('/business-os-preview.html');
       await expect(page.locator('#authGate')).toBeHidden();
-      await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
       await page.locator('.nav-item[data-view="settlement"]').click();
-    await openIntake(page);
+      await openIntake(page);
       // 접수 화면은 누구에게나 열린다
       await expect(page.locator('#moduleView .intake-form')).toHaveCount(1);
       const tab = page.locator('.nav-item[data-view="final-settlement"]');
       if (allowed) {
+        await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
         await expect(tab).toBeVisible();
         await tab.click();
         await expect(page.locator('#moduleView .final-settlement')).toHaveCount(1);
@@ -651,13 +669,12 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('.nav-item[data-view="settlement"]').click();
     await openIntake(page);
 
-    // 기본은 담당 없음
-    const manager = page.locator('[data-intake="manager"]');
-    await expect(manager.locator('option').first()).toHaveText('담당 없음');
-    await expect(manager).toHaveValue('');
+    // 접수 등록에서 담당자를 함께 보내지 않는다. 담당 배정은 최종정산 전용
+    // manager 액션으로만 저장해 일반 영업 수정 권한과 분리한다.
+    await expect(page.locator('[data-intake="manager"]')).toHaveCount(0);
 
-    for (const [who, client] of [['박종원', '한결에이전시'], ['', '나스컴퍼니']] as [string, string][]) {
-      await manager.selectOption(who);
+    for (const [date, client] of [['2026-08-01', '한결에이전시'], ['2026-08-02', '나스컴퍼니']] as [string, string][]) {
+      await page.locator('[data-intake="date"]').fill(date);
       await page.locator('[data-intake="a"]').selectOption('블로그');
       await page.locator('[data-intake="b"]').selectOption('원고');
       await page.locator('[data-intake="c"]').selectOption('프리미엄원고대필');
@@ -677,10 +694,17 @@ test.describe('Business OS read-only operating data', () => {
     await expect(head).toContainText('접수담당자');
     await expect(head).toContainText('접수자');
 
+    await page.locator('[data-final-assign]').click();
+    await page.locator('#assignFrom').fill('2026-08-01');
+    await page.locator('#assignTo').fill('2026-08-01');
+    await page.locator('#assignManager').selectOption('박종원');
+    await page.locator('[data-assign-save]').click();
+
     const rows = page.locator('.final-day-table tbody tr');
-    await expect(rows.nth(0).locator('td').nth(0)).toHaveText('박종원');
+    // 최신 일자가 먼저이므로 8/02는 미배정, 8/01만 박종원이다.
+    await expect(rows.nth(0).locator('td').nth(0)).toHaveText('담당 없음');
     await expect(rows.nth(0).locator('td').nth(1)).toHaveText('김대호');
-    await expect(rows.nth(1).locator('td').nth(0)).toHaveText('담당 없음');
+    await expect(rows.nth(1).locator('td').nth(0)).toHaveText('박종원');
     await expect(rows.nth(1).locator('td').nth(1)).toHaveText('김대호');
   });
 
@@ -763,8 +787,8 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#authGate')).toBeHidden();
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
 
-    const fill = async (client: string, manager: string) => {
-      await page.locator('[data-intake="manager"]').selectOption(manager);
+    const fill = async (date: string, client: string) => {
+      await page.locator('[data-intake="date"]').fill(date);
       await page.locator('[data-intake="a"]').selectOption('블로그');
       await page.locator('[data-intake="b"]').selectOption('원고');
       await page.locator('[data-intake="c"]').selectOption('프리미엄원고대필');
@@ -776,8 +800,8 @@ test.describe('Business OS read-only operating data', () => {
 
     await page.locator('.nav-item[data-view="settlement"]').click();
     await openIntake(page);
-    await fill('한결에이전시', '박종원');
-    await fill('나스컴퍼니', '김용일');
+    await fill('2026-08-01', '한결에이전시');
+    await fill('2026-08-02', '나스컴퍼니');
     await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(2);
 
     // 최종정산서에도 접수 폼이 있고, 전용 건임을 알린다
@@ -788,9 +812,20 @@ test.describe('Business OS read-only operating data', () => {
     const finalRows = page.locator('.final-day-table tbody tr');
     await expect(finalRows).toHaveCount(2);
 
-    await fill('퍼플페퍼', '박종원');
+    const assignDate = async (date: string, manager: string) => {
+      await page.locator('[data-final-assign]').click();
+      await page.locator('#assignFrom').fill(date);
+      await page.locator('#assignTo').fill(date);
+      await page.locator('#assignManager').selectOption(manager);
+      await page.locator('[data-assign-save]').click();
+    };
+    await assignDate('2026-08-01', '박종원');
+    await assignDate('2026-08-02', '김용일');
+
+    await fill('2026-08-03', '퍼플페퍼');
     await expect(finalRows).toHaveCount(3);
     await expect(page.locator('.kind-badge.final-only')).toHaveCount(1);
+    await assignDate('2026-08-03', '박종원');
 
     // 개인정산서에는 올라가지 않는다
     await page.locator('.nav-item[data-view="settlement"]').click();
@@ -872,12 +907,8 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#vendorBank')).toHaveValue('공급처통장');
     await page.locator('#vendorBank').selectOption('리워드스페이스통장');
 
-    // 정산자는 기본이 로그인한 사람이고, 비우면 확정되지 않는다
-    await expect(page.locator('#vendorBy')).toHaveValue('김대호');
-    await page.locator('#vendorBy').fill('');
-    await page.locator('[data-vendor-save]').click();
-    await expect(page.locator('#vendorBy')).toBeVisible();
-    await page.locator('#vendorBy').fill('손명아');
+    // 정산자명은 클라이언트가 고치지 않고 서버가 인증 사용자로 확정한다.
+    await expect(page.locator('#vendorBy')).toHaveCount(0);
 
     // 수량이 맞아야 지불로 확정된다
     await page.locator('#vendorMemo').fill('국민은행에서 송금 완료');
@@ -886,7 +917,7 @@ test.describe('Business OS read-only operating data', () => {
     await expect(vendorRow).toContainText('내역 보기');
     await expect(page.locator('.vendor-settlement .module-chip')).toContainText('미지불 0원');
     await expect(vendorRow).toContainText('리워드스페이스통장');
-    await expect(vendorRow).toContainText('손명아');
+    await expect(vendorRow).toContainText('김대호');
     await expect(page.locator('.final-day-table .vendor-chip.done').first()).toContainText('리워드스페이스통장');
     // 다시 열면 지난번 통장이 잡혀 있다
     await vendorRow.locator('[data-vendor-settle]').click();
@@ -1095,7 +1126,7 @@ test.describe('Business OS read-only operating data', () => {
   });
 
   // 단가는 상품별로 고칠 수 있고, 고친 값이 접수 화면과 영업자 단가표에 함께 간다.
-  test('edits a single product price and shares it with sales accounts', async ({ page }) => {
+  test('edits a single product price while account preview keeps financial data private', async ({ page }) => {
     await installFirebaseStub(page);
     await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
 
@@ -1135,19 +1166,22 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-intake="c"]').selectOption('최블 B');
     await expect(page.locator('[data-intake="unit"]')).toHaveValue('21000');
 
-    // 영업자 계정에는 영업자단가만, 수정 버튼 없이
+    // 계정 미리보기는 대상자의 메뉴 구조만 재현하며 금융 API·단가 데이터는
+    // 읽지 않는다. 실제 타 계정 로그인 공유는 서버 단가 계약에서 검증한다.
     await page.locator('#personaSelect').selectOption('김용일');
     await page.locator('.nav-item[data-view="settlement"]').click();
     await page.locator('[data-price-table]').click();
     await page.locator('#priceSearch').fill('최블 B');
     const shared = page.locator('.price-table tbody tr').first();
-    await expect(shared).toContainText('21,000');
+    await expect(shared).toContainText('찾는 상품이 없습니다.');
+    await expect(shared).not.toContainText('21,000');
     await expect(shared).not.toContainText('18,000');
     await expect(page.locator('[data-price-edit-open]')).toHaveCount(0);
     await page.locator('[data-price-close]').click();
 
     // 되돌리면 원래 단가로 돌아온다
     await page.locator('#personaSelect').selectOption('');
+    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
     await page.locator('.nav-item[data-view="final-settlement"]').click();
     await page.locator('[data-price-table]').click();
     await page.locator('#priceSearch').fill('최블 B');
@@ -1200,9 +1234,15 @@ test.describe('Business OS read-only operating data', () => {
     await expect(out('real')).toHaveText('193,631,274');
 
     // 월급을 넣으면 실제 통장 잔여가 그만큼 줄어든다
+    const payrollSaved = page.waitForResponse(response => {
+      if (!response.url().includes('/api/peakos/fund') || response.request().method() !== 'PUT') return false;
+      const payload = response.request().postDataJSON();
+      return String(payload?.board?.payroll?.['박종원'] || '') === '3000000';
+    });
     await page.locator('[data-fund-payroll="박종원"]').fill('3000000');
     await expect(out('payroll')).toHaveText('3,000,000');
     await expect(out('after')).toHaveText('190,631,274');
+    await payrollSaved;
 
     // 새로고침해도 남는다
     await page.reload();
@@ -1235,6 +1275,9 @@ test.describe('Business OS read-only operating data', () => {
       await page.locator('[data-intake="sell"]').fill(sell);
       await page.locator('[data-intake-add]').click();
     }
+    // 서버 canonical 응답을 받은 뒤에만 다음 탭으로 이동한다. 저장 완료
+    // 렌더가 늦게 돌아와 입금체크 화면을 다시 덮지 않게 한다.
+    await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(2);
 
     // 입금체크 — 업체별 미수금 (250,000 + 300,000)
     await go('deposit-check');
@@ -1262,16 +1305,16 @@ test.describe('Business OS read-only operating data', () => {
     await expect(creditRow).toContainText('330,000');
     await expect(creditRow).toContainText('30,000');
 
-    // 명함 — 조직도 정보와 영문 이름을 넣어 한 장의 고해상도 이미지로 받는다
+    // 명함 — 조직도 정보와 영문 이름을 넣어 제공받은 구조의 한 장으로 받는다
     await go('namecard');
     await expect(page.locator('[data-card="name"]')).toHaveValue('김대호');
     await expect(page.locator('[data-card="rank"]')).toHaveValue('부장');
     await page.locator('[data-card="englishName"]').fill('Dae Ho Kim');
     await page.locator('[data-card="phone"]').fill('010-1234-5678');
-    await expect(page.locator('#namecardCanvas')).toHaveJSProperty('width', 1800);
-    await expect(page.locator('#namecardCanvas')).toHaveJSProperty('height', 2000);
-    await expect(page.locator('#namecardBrandCanvas')).toHaveCount(0);
-    await expect(page.locator('#namecardInfoCanvas')).toHaveCount(0);
+    await expect(page.locator('#namecardCanvas')).toHaveJSProperty('width', 1500);
+    await expect(page.locator('#namecardCanvas')).toHaveJSProperty('height', 1696);
+    await expect(page.locator('#namecardCanvas')).toHaveAttribute('data-template-ready', 'true');
+    await expect(page.locator('[data-card-download]')).toHaveCount(1);
 
     const namecardDownload = page.waitForEvent('download');
     await page.locator('[data-card-download]').click();
@@ -1283,7 +1326,7 @@ test.describe('Business OS read-only operating data', () => {
     }
   });
 
-  test('renders and downloads the high-resolution single-image namecard', async ({ page }) => {
+  test('renders and downloads the supplied 1500x1696 single-sheet namecard layout', async ({ page }) => {
     await installFirebaseStub(page);
     await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -1298,27 +1341,62 @@ test.describe('Business OS read-only operating data', () => {
 
     await expect(page.locator('[data-card="name"]')).toHaveValue('김대호');
     await expect(page.locator('[data-card="rank"]')).toHaveValue('부장');
-    const beforeInput = await page.locator('#namecardCanvas').evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL());
+    const canvas = page.locator('#namecardCanvas');
+    await expect(canvas).toHaveAttribute('data-template-ready', 'true');
+    const beforeInput = await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL());
     await page.locator('[data-card="englishName"]').fill('Dae Ho Kim');
     await page.locator('[data-card="phone"]').fill('010-1234-5678');
     await page.locator('[data-card="email"]').fill('name@peak.kr');
 
-    const canvas = page.locator('#namecardCanvas');
-    await expect(canvas).toHaveJSProperty('width', 1800);
-    await expect(canvas).toHaveJSProperty('height', 2000);
+    await expect(canvas).toHaveJSProperty('width', 1500);
+    await expect(canvas).toHaveJSProperty('height', 1696);
     await expect(canvas).toHaveCSS('min-width', '0px');
+    expect(await canvas.evaluate((element: HTMLCanvasElement) => element.width / element.height)).toBeCloseTo(1500 / 1696, 8);
     await expect(page.locator('[data-card-download]')).toHaveCount(1);
     expect(await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())).not.toBe(beforeInput);
-    const colors = await page.evaluate(() => {
-      const canvas = document.getElementById('namecardCanvas') as HTMLCanvasElement;
-      const context = canvas.getContext('2d')!;
-      return {
-        brand: [...context.getImageData(4, 4, 1, 1).data],
-        info: [...context.getImageData(4, 1200, 1, 1).data]
-      };
+    const templateCheck = await canvas.evaluate(async (element: HTMLCanvasElement) => {
+      const context = element.getContext('2d')!;
+      const image = new Image();
+      image.src = '/peak-namecard-template.png?v=20260809-namecardoriginal1';
+      await image.decode();
+      const reference = document.createElement('canvas');
+      reference.width = element.width;
+      reference.height = element.height;
+      const referenceContext = reference.getContext('2d')!;
+      referenceContext.fillStyle = '#ffffff';
+      referenceContext.fillRect(0, 0, reference.width, reference.height);
+      referenceContext.drawImage(image, 0, 0, reference.width, reference.height);
+
+      let staticPixelMismatches = 0;
+      for (const [x, y, width, height] of [[0, 0, 1500, 880], [0, 1085, 1500, 611]]) {
+        const actual = context.getImageData(x, y, width, height).data;
+        const expected = referenceContext.getImageData(x, y, width, height).data;
+        for (let index = 0; index < actual.length; index += 1) {
+          if (actual[index] !== expected[index]) staticPixelMismatches += 1;
+        }
+      }
+      const privateBand = referenceContext.getImageData(0, 880, 1500, 205).data;
+      let templatePrivateBandNonWhitePixels = 0;
+      for (let index = 0; index < privateBand.length; index += 4) {
+        if (privateBand[index] !== 255 || privateBand[index + 1] !== 255
+          || privateBand[index + 2] !== 255 || privateBand[index + 3] !== 255) {
+          templatePrivateBandNonWhitePixels += 1;
+        }
+      }
+      const footer = context.getImageData(50, 650, 560, 180).data;
+      let footerWhitePixels = 0;
+      for (let index = 0; index < footer.length; index += 4) {
+        if (footer[index] > 245 && footer[index + 1] > 245 && footer[index + 2] > 245) footerWhitePixels += 1;
+      }
+      const blue = [...context.getImageData(500, 500, 1, 1).data].slice(0, 3);
+      const symbol = [...context.getImageData(1290, 100, 1, 1).data].slice(0, 3);
+      return { staticPixelMismatches, templatePrivateBandNonWhitePixels, footerWhitePixels, blue, symbol };
     });
-    expect(colors.brand.slice(0, 3)).toEqual([58, 148, 201]);
-    expect(colors.info.slice(0, 3)).toEqual([255, 255, 255]);
+    expect(templateCheck.staticPixelMismatches).toBe(0);
+    expect(templateCheck.templatePrivateBandNonWhitePixels).toBe(0);
+    expect(templateCheck.footerWhitePixels).toBeGreaterThan(1_000);
+    expect(templateCheck.blue).toEqual([52, 142, 205]);
+    expect(templateCheck.symbol).toEqual([255, 255, 255]);
 
     const verifyPng = async (download: Download) => {
       const stream = await download.createReadStream();
@@ -1327,23 +1405,23 @@ test.describe('Business OS read-only operating data', () => {
       for await (const chunk of stream) chunks.push(Buffer.from(chunk));
       const png = Buffer.concat(chunks);
       expect([...png.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
-      expect(png.readUInt32BE(16)).toBe(1800);
-      expect(png.readUInt32BE(20)).toBe(2000);
+      expect(png.readUInt32BE(16)).toBe(1500);
+      expect(png.readUInt32BE(20)).toBe(1696);
     };
 
-    const namecardDownload = page.waitForEvent('download');
+    const download = page.waitForEvent('download');
     await page.locator('[data-card-download]').click();
-    const downloadedNamecard = await namecardDownload;
-    expect(downloadedNamecard.suggestedFilename()).toBe('명함_김대호.png');
-    await verifyPng(downloadedNamecard);
+    const downloaded = await download;
+    expect(downloaded.suggestedFilename()).toBe('명함_김대호.png');
+    await verifyPng(downloaded);
 
     // 비정상적으로 긴 입력도 각 정보 영역 안에서 줄임표로 처리하고 Canvas 크기를 유지한다.
     await page.locator('[data-card="name"]').fill('김대호'.repeat(40));
     await page.locator('[data-card="englishName"]').fill('Dae Ho Kim With A Very Long English Name '.repeat(8));
     await page.locator('[data-card="team"]').fill('본사 경영지원 전략기획 마케팅 운영팀'.repeat(12));
     await page.locator('[data-card="email"]').fill('very-long-business-email-address-'.repeat(12) + '@peak.kr');
-    await expect(page.locator('#namecardCanvas')).toHaveJSProperty('width', 1800);
-    await expect(page.locator('#namecardCanvas')).toHaveJSProperty('height', 2000);
+    await expect(canvas).toHaveJSProperty('width', 1500);
+    await expect(canvas).toHaveJSProperty('height', 1696);
     const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(horizontalOverflow).toBeLessThanOrEqual(1);
     expect(pageErrors).toEqual([]);
@@ -1434,15 +1512,22 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('.monthly-table tbody tr').first()).toContainText('-11,000');
     await expect(page.locator('.ledger-total')).toContainText('영업이익 309,000');
 
-    // 판매 건을 지우면 붙어 있던 실행 건도 같이 사라진다
+    // 실행 건이 붙은 매출은 일괄 삭제하지 않는다. 실행 건을 먼저 지운 뒤
+    // 매출을 지워야 원본 연결과 삭제 이력이 모호해지지 않는다.
+    await page.locator('.monthly-head [data-monthly-remove]').first().click();
+    await expect(page.locator('.toast')).toContainText('실행 건을 먼저 삭제');
+    await expect(page.locator('.monthly-group')).toHaveCount(1);
+    await expect(page.locator('.monthly-table tbody tr')).toHaveCount(1);
+    await page.locator('.monthly-table [data-monthly-remove]').click();
+    await expect(page.locator('.monthly-table tbody tr')).toHaveCount(0);
     await page.locator('.monthly-head [data-monthly-remove]').first().click();
     await expect(page.locator('.monthly-group')).toHaveCount(0);
-    await expect(page.locator('.monthly-table tbody tr')).toHaveCount(0);
   });
 
   // 회사 원가는 직급이 아니라 지정된 다섯 사람만 본다.
   for (const [name, allowed] of [
-    ['김진봉', true], ['손명아', true], ['김대호', true], ['박종원', true], ['전현우', true],
+    ['패션TV봉이', true], ['손명아', true], ['김대호', true], ['박종원', true], ['전현우', true],
+    ['김진봉', false],
     ['김지홍', false], ['박우진', false], ['김주현', false], ['김용일', false], ['은시후', false],
     ['이종혁', false], ['김동우', false],
   ] as [string, boolean][]) {
@@ -1455,7 +1540,10 @@ test.describe('Business OS read-only operating data', () => {
         const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
         let payload: unknown = [];
         if (pathname === '/users/me') {
-          payload = { uid: 'e2e-test-user', name, role: 'manager', approved: true, is_active: true, group_name: '본사 영업팀' };
+          payload = {
+            uid: 'e2e-test-user', name, role: 'manager', approved: true, is_active: true,
+            group_name: '본사 영업팀', peakos_can_view_finance_operations: allowed,
+          };
         } else if (pathname === '/chat-rooms/unread') {
           payload = {};
         } else if (pathname === '/projects') {
@@ -1466,7 +1554,6 @@ test.describe('Business OS read-only operating data', () => {
 
       await page.goto('/business-os-preview.html');
       await expect(page.locator('#authGate')).toBeHidden();
-      await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
       await page.locator('.nav-item[data-view="settlement"]').click();
 
       await openIntake(page);
@@ -1487,6 +1574,7 @@ test.describe('Business OS read-only operating data', () => {
       if (allowed) {
         await expect(banner).toContainText('회사 원가는 최종정산서에서만 봅니다');
         // 단가표에서도 회사원가가 보인다
+        await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
         await page.locator('.nav-item[data-view="final-settlement"]').click();
         await page.locator('[data-price-table]').click();
         await expect(page.locator('.price-table thead th')).toHaveText(['대분류', '중분류', '소분류', '회사원가', '영업자단가', '']);
@@ -1512,7 +1600,10 @@ test.describe('Business OS read-only operating data', () => {
         const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
         let payload: unknown = [];
         if (pathname === '/users/me') {
-          payload = { uid: 'e2e-test-user', name, role: 'manager', approved: true, is_active: true, group_name: '본사 영업팀' };
+          payload = {
+            uid: 'e2e-test-user', name, role: 'manager', approved: true, is_active: true,
+            group_name: '본사 영업팀', peakos_can_view_finance_operations: allowed,
+          };
         } else if (pathname === '/chat-rooms/unread') {
           payload = {};
         } else if (pathname === '/projects') {
@@ -1523,7 +1614,6 @@ test.describe('Business OS read-only operating data', () => {
 
       await page.goto('/business-os-preview.html');
       await expect(page.locator('#authGate')).toBeHidden();
-      await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
       await page.locator('.nav-item[data-view="settlement"]').click();
 
       // 개인정산서에서는 영업자단가만 보인다
@@ -1543,6 +1633,7 @@ test.describe('Business OS read-only operating data', () => {
       if (!allowed) return;
 
       // 최종정산서에서는 회사원가까지 나온다
+      await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
       await page.locator('.nav-item[data-view="final-settlement"]').click();
       await page.locator('[data-price-table]').click();
       await expect(page.locator('#readonlyModalTitle')).toHaveText('단가표 · 회사원가 / 영업자단가');
@@ -1551,7 +1642,7 @@ test.describe('Business OS read-only operating data', () => {
   }
 
   // 최종정산서에서 상품을 추가하면 영업자 단가표에도 영업자단가만 실린다.
-  test('adds a product from the final settlement and shares it without company cost', async ({ page }) => {
+  test('adds a product from the final settlement while account preview keeps financial data private', async ({ page }) => {
     await installFirebaseStub(page);
     await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
 
@@ -1598,15 +1689,28 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-intake="a"]').selectOption('블로그');
     await expect(page.locator('[data-intake="b"] option')).toContainText(['신규상품']);
 
-    // 영업자 계정에서는 영업자단가만 보인다
+    // 계정 미리보기에서는 금융 API를 호출하지 않으므로 단가 자체를 비운다.
+    // 회사 원가뿐 아니라 새 상품의 존재도 실제 타 계정 데이터처럼 노출하지 않는다.
     await page.locator('#personaSelect').selectOption('김용일');
     await page.locator('.nav-item[data-view="settlement"]').click();
     await page.locator('[data-price-table]').click();
     await expect(page.locator('.price-table thead th')).toHaveText(['대분류', '중분류', '소분류', '영업자단가']);
     await page.locator('#priceSearch').fill('AI 원고');
     const shared = page.locator('.price-table tbody tr').first();
-    await expect(shared).toContainText('9,500');
+    await expect(shared).toContainText('찾는 상품이 없습니다.');
+    await expect(shared).not.toContainText('9,500');
     await expect(shared).not.toContainText('8,000');
+
+    // 미리보기를 끝내면 서버에 저장한 실제 로그인 계정의 상품은 그대로다.
+    await page.locator('[data-price-close]').click();
+    await page.locator('#personaSelect').selectOption('');
+    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
+    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await page.locator('[data-price-table]').click();
+    await page.locator('#priceSearch').fill('AI 원고');
+    const restored = page.locator('.price-table tbody tr').first();
+    await expect(restored).toContainText('8,000');
+    await expect(restored).toContainText('9,500');
   });
 
   // 접수 폼은 접혀 있다가 버튼으로 펼치고, 상시변동 상품은 회사 원가를 직접 넣는다.
@@ -1736,7 +1840,11 @@ test.describe('Business OS read-only operating data', () => {
         const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
         let payload: unknown = [];
         if (pathname === '/users/me') {
-          payload = { uid: 'e2e-test-user', name, role: 'manager', approved: true, is_active: true, group_name: '본사 영업팀' };
+          payload = {
+            uid: 'e2e-test-user', name, role: 'manager', approved: true, is_active: true,
+            group_name: '본사 영업팀', peakos_can_review_finance: name === '김대호',
+            peakos_can_view_finance_operations: name === '김대호',
+          };
         } else if (pathname === '/chat-rooms/unread') {
           payload = {};
         } else if (pathname === '/projects') {
@@ -1747,7 +1855,6 @@ test.describe('Business OS read-only operating data', () => {
 
       await page.goto('/business-os-preview.html');
       await expect(page.locator('#authGate')).toBeHidden();
-      await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
       await page.locator('.nav-item[data-view="settlement"]').click();
     await openIntake(page);
 
@@ -1770,11 +1877,28 @@ test.describe('Business OS read-only operating data', () => {
       await expect(page.locator('#moduleView .ledger-total')).toContainText('매출 0');
       await expect(page.locator('#moduleView .ledger-total')).toContainText('영업이익 0');
 
-      // 입금이 확인된 예약만 차감 목록에 오른다
-      for (const [index, memo] of [[0, '국민은행 8월 선입금'], [1, '국민은행 9월 선입금']] as [number, string][]) {
-        await page.locator('#moduleView .paid-chip').nth(index).click();
-        await page.locator('#paidMemo').fill(memo);
-        await page.locator('[data-paid-save]').click();
+      // 입금이 확인된 예약만 차감 목록에 오른다. 재무 담당자는 UI로
+      // 확인하고, 일반 영업자는 버튼 없이 재무팀이 확인한 서버 결과만 받는다.
+      if (name === '김대호') {
+        for (const memo of ['국민은행 8월 선입금', '국민은행 9월 선입금']) {
+          await page.locator('button[data-paid-open]', { hasText: '미입금' }).first().click();
+          await page.locator('#paidMemo').fill(memo);
+          await page.locator('[data-paid-save]').click();
+        }
+      } else {
+        await expect(page.locator('[data-paid-open]')).toHaveCount(0);
+        peakStore.intake.forEach(row => {
+          row.paid = 'paid';
+          row.paidAmount = Number(row.expectedDepositAmount ?? (Number(row.sell) * Number(row.qty)));
+          row.payer = row.client;
+          row.paidDate = '2026-08-09';
+          row.paidMemo = '재무팀 통장 입금 확인';
+          row.rowVersion = Number(row.rowVersion || 0) + 1;
+        });
+        await page.reload();
+        await expect(page.locator('#authGate')).toBeHidden();
+        await page.locator('.nav-item[data-view="settlement"]').click();
+        await openIntake(page);
       }
 
       // 목록은 업체명 - 메모로 구분된다
@@ -1886,10 +2010,14 @@ test.describe('Business OS read-only operating data', () => {
     // 판매액 합계가 기본값으로 채워진다
     await expect(page.locator('#paidAmount')).toHaveValue('50000');
 
-    // 저장 버튼은 입력한 금액을 따라간다. 0원이면 확인이 아니라 수정이다.
+    // 신규 입금은 0원으로 바꿔도 '확인' 의미를 유지하고 저장에서 거부한다.
     await expect(page.locator('[data-paid-save]')).toHaveText('입금확인');
     await page.locator('#paidAmount').fill('0');
-    await expect(page.locator('[data-paid-save]')).toHaveText('입금내용 수정');
+    await expect(page.locator('[data-paid-save]')).toHaveText('입금확인');
+    await page.locator('#paidMemo').fill('국민은행 통장 입금 확인');
+    await page.locator('[data-paid-save]').click();
+    await expect(page.locator('.toast')).toContainText('입금액은 0보다 큰 금액');
+    await expect(page.locator('#paidAmount')).toBeVisible();
     await page.locator('#paidAmount').fill('50000');
     await expect(page.locator('[data-paid-save]')).toHaveText('입금확인');
 
@@ -1915,10 +2043,13 @@ test.describe('Business OS read-only operating data', () => {
     // 이미 입금된 건을 다시 열면 저장 버튼이 수정으로 바뀐다
     await page.locator('#moduleView .paid-chip').first().click();
     await expect(page.locator('[data-paid-save]')).toHaveText('입금내용 수정');
-    // 입금액을 0으로 넣으면 미입금으로 돌아간다
+    // 입금액 0원은 기존 입금을 지우는 방법으로도 허용하지 않는다.
     await page.locator('#paidAmount').fill('0');
     await page.locator('[data-paid-save]').click();
-    await expect(page.locator('#moduleView .paid-chip span').first()).toHaveText('미입금');
+    await expect(page.locator('.toast')).toContainText('입금액은 0보다 큰 금액');
+    await expect(page.locator('#paidAmount')).toBeVisible();
+    await page.locator('[data-paid-cancel]').click();
+    await expect(page.locator('#moduleView .paid-chip span').first()).toHaveText('입금');
   });
 
   // 하위 계정 정산서는 대표·김대호·박종원만 연다.
@@ -1948,9 +2079,8 @@ test.describe('Business OS read-only operating data', () => {
 
       await page.goto('/business-os-preview.html');
       await expect(page.locator('#authGate')).toBeHidden();
-      await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
       await page.locator('.nav-item[data-view="settlement"]').click();
-    await openIntake(page);
+      await openIntake(page);
       await expect(page.locator('#moduleView .team-roster')).toHaveCount(allowed ? 1 : 0);
       if (allowed) {
         // 본사에서 대표와 자기 자신을 뺀 나머지가 목록에 오른다
@@ -1987,7 +2117,6 @@ test.describe('Business OS read-only operating data', () => {
 
       await page.goto('/business-os-preview.html');
       await expect(page.locator('#authGate')).toBeHidden();
-      await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
       await page.locator('.nav-item[data-view="settlement"]').click();
       // 지사는 접수 자체가 열리지 않아 펼칠 폼도 없다
       if (open) await openIntake(page);
@@ -2001,14 +2130,18 @@ test.describe('Business OS read-only operating data', () => {
 
   test('shows no invented amounts when the account has no sales rows', async ({ page }) => {
     await installFirebaseStub(page);
-    const peakStore = createPeakosStore('일반 영업자');
+    // 보고서 탭 권한은 유지하되 매출 자료만 비어 있는 계정으로 검증한다.
+    const peakStore = createPeakosStore('전현우');
 
     await page.route('**/api/**', route => {
       if (handlePeakos(peakStore, route)) return;
       const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
       let payload: unknown = [];
       if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: '일반 영업자', role: 'member', approved: true, is_active: true, group_name: '영업팀' };
+        payload = {
+          uid: 'e2e-test-user', name: '전현우', role: 'manager', approved: true, is_active: true,
+          group_name: '본사 경영지원팀', peakos_can_view_finance_operations: true,
+        };
       } else if (pathname === '/chat-rooms/unread') {
         payload = {};
       } else if (pathname === '/projects') {

@@ -2437,6 +2437,35 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 
 .ledger-remove:hover { border-color: #e2b8b5; color: #b4504a; }
 
+.ledger-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ledger-edit {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #d6e4ef;
+  border-radius: 8px;
+  background: #fff;
+  color: #2674ac;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ledger-edit:hover { border-color: #348ecd; background: #eef7fd; }
+.ledger-edit:disabled, .ledger-remove:disabled { cursor: wait; opacity: .58; }
+
+.paid-static-amount {
+  display: block;
+  margin-top: 8px;
+  color: #172b3d;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
 .ledger-total, .final-total {
   display: flex;
   flex-wrap: wrap;
@@ -2450,6 +2479,8 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   font-size: 15px;
   color: #41586c;
 }
+
+.ledger-total-top { margin: 0 0 22px; }
 
 /* ── 입금 확인 ───────────────────────────────────── */
 .paid-chip {
@@ -3763,6 +3794,9 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .est-preview { margin: 12px 0 4px; padding: 12px; border-radius: 12px; background: #f4f8fb;
   border: 1px solid #dbe6ef; overflow-x: auto; }
 .est-preview canvas { display: block; min-width: 620px; border: 1px solid #e3e9ef; background: #fff; }
+.namecard-sheet { max-width: 780px; margin-inline: auto; }
+.namecard-preview { max-width: 750px; margin-inline: auto; overflow: hidden; }
+.namecard-preview canvas { width: 100%; min-width: 0; height: auto; aspect-ratio: 750 / 848; }
 
 /* 월보장 · 월관리 정산 */
 .monthly-group { margin-bottom: 18px; border: 1px solid #e3e9ef; border-radius: 12px; overflow: hidden; }
@@ -4130,4 +4164,176 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 
 @media (prefers-reduced-motion: reduce) {
   .bank-load-state:not(.error) .bank-load-icon { animation: none; }
+}
+
+/* Existing Paragon collaboration data, editable from PEAK OS. */
+.collaboration-live-note {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid #b9dfef;
+  border-radius: 9px;
+  background: #eef8fc;
+  color: #2674ac;
+  font-size: 9px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.collaboration-toolbar-actions,
+.collaboration-inline-actions,
+.collaboration-form-actions,
+.collaboration-row-actions,
+.collaboration-task-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.collaboration-inline-actions { flex-wrap: wrap; margin: 10px 0; }
+.collaboration-inline-actions button,
+.collaboration-form-actions button,
+.collaboration-inline-form button,
+.collaboration-row-actions button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid #d5e1e9;
+  border-radius: 8px;
+  background: #fff;
+  color: #526575;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.collaboration-inline-actions button.primary,
+.collaboration-form-actions button.primary,
+.collaboration-inline-form button.primary,
+.project-comment-compose button.primary {
+  border-color: #348ecd;
+  background: #348ecd;
+  color: #fff;
+  opacity: 1;
+}
+
+.collaboration-form-actions button.danger,
+.collaboration-row-actions button.danger,
+.collaboration-member-row button.danger { border-color: #f0cecb; color: #b4534b; }
+.collaboration-form-actions { margin-top: 18px; }
+.collaboration-form-actions > span { flex: 1; }
+.collaboration-page-toolbar { align-items: center; }
+
+.collaboration-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.collaboration-form-grid label,
+.collaboration-member-field { min-width: 0; margin: 0; }
+.collaboration-form-grid label.wide,
+.collaboration-member-field.wide { grid-column: 1 / -1; }
+.collaboration-form-grid label > span,
+.collaboration-member-field legend {
+  display: block;
+  margin-bottom: 7px;
+  color: #405464;
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.collaboration-form-grid input,
+.collaboration-form-grid select,
+.collaboration-form-grid textarea,
+.collaboration-inline-form input,
+.collaboration-inline-form select,
+.collaboration-inline-form textarea {
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 11px;
+  border: 1px solid #d8e3ea;
+  border-radius: 9px;
+  background: #fff;
+  color: #2c3d4a;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.collaboration-form-grid textarea,
+.collaboration-inline-form textarea { resize: vertical; }
+
+.collaboration-member-field { padding: 12px; border: 1px solid #e0e8ee; border-radius: 10px; }
+.collaboration-member-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; max-height: 240px; overflow: auto; }
+.collaboration-member-option { display: flex; align-items: center; gap: 8px; padding: 9px; border: 1px solid #e5ebf0; border-radius: 8px; }
+.collaboration-member-option input { width: auto; min-height: 0; }
+.collaboration-member-option strong,
+.collaboration-member-option small,
+.collaboration-member-row strong,
+.collaboration-member-row small { display: block; }
+.collaboration-member-option strong,
+.collaboration-member-row strong { color: #344858; font-size: 10px; }
+.collaboration-member-option small,
+.collaboration-member-row small { margin-top: 3px; color: #8a98a5; font-size: 9px; }
+
+.collaboration-modal-section { margin-top: 18px; padding-top: 15px; border-top: 1px solid #e8edf1; }
+.collaboration-section-head { margin-bottom: 9px; color: #304454; font-size: 11px; }
+.collaboration-checklist-row,
+.collaboration-member-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 43px;
+  padding: 7px 0;
+  border-bottom: 1px solid #edf1f4;
+  color: #435665;
+  font-size: 11px;
+}
+.collaboration-member-row { grid-template-columns: minmax(0, 1fr) auto; }
+.collaboration-checklist-row.done > span { color: #8b98a4; text-decoration: line-through; }
+.collaboration-check,
+.collaboration-checklist-row > button {
+  min-width: 25px;
+  min-height: 25px;
+  padding: 0 7px;
+  border: 1px solid #cfdae2;
+  border-radius: 7px;
+  background: #fff;
+  color: #348ecd;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.collaboration-inline-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: 12px; }
+.collaboration-comment-form { align-items: end; }
+.collaboration-error { margin: 0; color: #b4534b; font-size: 12px; line-height: 1.6; }
+.collaboration-task-open { min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.collaboration-task-actions { align-items: flex-start; }
+.collaboration-row-actions { justify-content: flex-end; margin-top: 7px; }
+.collaboration-row-actions button { min-height: 27px; padding-inline: 8px; }
+.collaboration-task-conversation { max-height: 52vh; overflow: auto; }
+
+.project-comment-compose form { display: grid; gap: 8px; }
+.project-comment-compose form textarea { color: #405464; }
+.collaboration-file-label { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #788896; font-size: 10px; }
+.collaboration-file-label input { max-width: 70%; font-size: 9px; }
+
+.todo-task-check:not(:disabled),
+.project-detail-check:not(:disabled) { cursor: pointer; }
+.collaboration-task-open:focus-visible { outline: 2px solid #348ecd; outline-offset: 3px; border-radius: 5px; }
+
+@media (max-width: 700px) {
+  .collaboration-toolbar-actions { width: 100%; flex-wrap: wrap; justify-content: flex-start; }
+  .collaboration-form-grid,
+  .collaboration-member-list { grid-template-columns: minmax(0, 1fr); }
+  .collaboration-form-grid label.wide,
+  .collaboration-member-field.wide { grid-column: auto; }
+  .collaboration-form-actions { flex-wrap: wrap; }
+  .collaboration-form-actions > span { display: none; }
+  .collaboration-form-actions button { flex: 1; }
+  .project-detail-task { grid-template-columns: 22px minmax(0, 1fr); }
+  .collaboration-task-actions { grid-column: 2; }
+  .collaboration-inline-form { grid-template-columns: minmax(0, 1fr); }
 }

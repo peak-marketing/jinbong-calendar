@@ -918,11 +918,13 @@ export async function setupStubs(page: Page, initial?: ApiStubState) {
 }
 
 // ── PEAK OS 정산 API 스텁 ────────────────────────────────────
-// 서버 저장으로 옮긴 뒤 화면이 GET/POST/PUT/DELETE 를 쓴다.
+// 서버 저장으로 옮긴 뒤 화면이 GET/POST/PATCH/DELETE 를 쓴다.
 // 메모리에 들고 있다가 그대로 돌려주므로 새로고침 없이도 왕복이 확인된다.
 
-const COST_VIEWERS = ['김진봉', '패션TV봉이', '손명아', '김대호', '박종원', '전현우'];
+const COST_VIEWERS = ['패션TV봉이', '손명아', '김대호', '박종원', '전현우'];
 const FINANCE_REVIEWERS = ['패션TV봉이', '박종원', '김대호', '손명아'];
+const FINANCE_OPERATION_VIEWERS = ['패션TV봉이', '박종원', '김대호', '손명아', '전현우'];
+const ACCOUNT_PREVIEW_VIEWERS = ['패션TV봉이', '박종원', '김대호'];
 const FINAL_EXECUTION_VIEWERS = ['패션TV봉이', '박종원', '김대호', '손명아'];
 
 /** 서버처럼 기본 단가표를 담되, 권한이 없으면 회사원가를 지워서 준다. */
@@ -935,7 +937,7 @@ export function createPeakosStore(viewerName = '', viewerRole = 'manager'): any 
     prices: BASE_PRICES.map(([a, b, c, cost, unit]) => ({
       key: `${a}|${b}|${c}`, a, b, c,
       cost: showCost ? cost : null,
-      unit, custom: false,
+      unit, custom: false, edited: false,
     })),
     credit: [], creditRequests: [], financeRequests: [], serviceRequests: [], fund: null, monthly: {},
     bank: {
@@ -1049,8 +1051,16 @@ export function handlePeakos(store: any, route: any): boolean {
   }
 
   if (area === 'intake') {
+    const ensureVersions = () => {
+      store.intake.forEach((row: any) => {
+        if (!Number.isInteger(Number(row.rowVersion)) || Number(row.rowVersion) < 1) row.rowVersion = 1;
+      });
+    };
+    ensureVersions();
     if (method === 'GET') {
-      const owner = new URL(req.url()).searchParams.get('owner');
+      const params = new URL(req.url()).searchParams;
+      const owner = params.get('owner');
+      const scope = params.get('scope');
       if (owner) {
         // 서버와 같은 규칙: 지정 3계정만 미리보기 조회를 하고,
         // 패션TV봉이가 아니면 보호 대상 계정은 못 본다.
@@ -1067,14 +1077,115 @@ export function handlePeakos(store: any, route: any): boolean {
         send(store.intake.filter((x: any) => String(x.ownerName || '').trim() === owner));
         return true;
       }
-      send(store.intake);
+      if (scope === 'all') {
+        if (!FINANCE_OPERATION_VIEWERS.includes(String(store.viewer || '').trim())) {
+          send({ error: '전체 접수는 지정된 인원만 볼 수 있습니다.' }, 403);
+          return true;
+        }
+        send(store.intake);
+        return true;
+      }
+      // 기본 GET은 로그인 계정의 개인 원장만 반환한다. 최종정산은 반드시
+      // scope=all을 별도로 요청해야 두 범위가 테스트에서도 섞이지 않는다.
+      send(store.intake.filter((row: any) => {
+        const ownerName = String(row.ownerName || '').trim();
+        if (ownerName) return ownerName === String(store.viewer || '').trim();
+        const ownerId = String(row.owner || '').trim();
+        return !ownerId || ownerId === 'e2e-test-user';
+      }));
+    }
+    else if (method === 'PUT' && tail[1] === 'bank-match-eligibility') {
+      const index = store.intake.findIndex((row: any) => row.id === tail[0]);
+      if (index < 0) send({ error: '접수를 찾을 수 없습니다.' }, 404);
+      else if (Number(body.expectedRowVersion) !== Number(store.intake[index].rowVersion)) {
+        send({ error: '다른 작업자가 먼저 수정했습니다.' }, 409);
+      } else {
+        store.intake[index] = {
+          ...store.intake[index],
+          bankMatchEligible: body.eligible === true,
+          bankMatchApprovedAt: body.eligible === true ? '2026-08-09T00:00:00.000Z' : null,
+          rowVersion: Number(store.intake[index].rowVersion) + 1,
+        };
+        send(store.intake[index]);
+      }
     }
     else if (method === 'DELETE') {
-      store.intake = store.intake.filter((x: any) => x.id !== tail[0]);
-      send({ deleted: tail[0] });
+      const index = store.intake.findIndex((x: any) => x.id === tail[0]);
+      if (index < 0) send({ error: '접수를 찾을 수 없습니다.' }, 404);
+      else if (Number(body.expectedRowVersion) !== Number(store.intake[index].rowVersion)) {
+        send({ error: '다른 작업자가 먼저 수정했습니다.', code: 'INTAKE_VERSION_CONFLICT' }, 409);
+      } else if (['paid', 'partial', 'wrong'].includes(String(store.intake[index].paid || ''))
+        || Number(store.intake[index].paidAmount || 0) !== 0
+        || store.intake[index].vendorPaid === true) {
+        send({ error: '재무 확정 행은 삭제할 수 없습니다.', code: 'INTAKE_FINANCE_CONFIRMED' }, 409);
+      } else if (store.intake.some((row: any) => String(row.refOf || '') === String(tail[0]))) {
+        send({ error: '연결된 행을 먼저 정리해 주세요.', code: 'INTAKE_RELATION_PARENT' }, 409);
+      } else {
+        store.intake.splice(index, 1);
+        send({ deleted: tail[0] });
+      }
+    } else if (method === 'PATCH') {
+      const requested = Array.isArray(body.rows) ? body.rows : [];
+      const conflict = requested.find((entry: any) => {
+        const current = store.intake.find((row: any) => row.id === entry.id);
+        return !current || Number(current.rowVersion) !== Number(entry.expectedRowVersion);
+      });
+      if (conflict) {
+        const exists = store.intake.some((row: any) => row.id === conflict.id);
+        send({
+          error: exists ? '다른 작업자가 먼저 수정했습니다.' : '접수를 찾을 수 없습니다.',
+          ...(exists ? { code: 'INTAKE_VERSION_CONFLICT' } : {}),
+        }, exists ? 409 : 404);
+      } else {
+        const rows = requested.map((entry: any) => {
+          const index = store.intake.findIndex((row: any) => row.id === entry.id);
+          store.intake[index] = {
+            ...store.intake[index],
+            ...(entry.changes || {}),
+            rowVersion: Number(store.intake[index].rowVersion) + 1,
+          };
+          const recalculatesPaid = body.action === 'payment'
+            || (body.action === 'business'
+              && ['expectedDepositAmount', 'sell', 'qty', 'kind']
+                .some(field => Object.prototype.hasOwnProperty.call(entry.changes || {}, field)));
+          if (recalculatesPaid) {
+            const row = store.intake[index];
+            const sign = row.kind === 'refund' ? -1 : 1;
+            const expectedRaw = Number(row.expectedDepositAmount ?? (Number(row.sell) || 0) * (Number(row.qty) || 0)) || 0;
+            const paidRaw = Number(row.paidAmount) || 0;
+            const expected = expectedRaw < 0 ? expectedRaw : expectedRaw * sign;
+            const paid = paidRaw < 0 ? paidRaw : paidRaw * sign;
+            row.paid = !paid
+              ? 'none'
+              : paid === expected
+                ? 'paid'
+                : Math.sign(paid) === Math.sign(expected) && Math.abs(paid) < Math.abs(expected)
+                  ? 'partial'
+                  : 'wrong';
+            if (body.action === 'payment') row.paidAuto = false;
+          }
+          if (body.action === 'vendor') {
+            const row = store.intake[index];
+            const sign = row.kind === 'refund' ? -1 : 1;
+            const semanticQty = (Number(row.qty) || 0) * sign;
+            row.vendorPaidAmount = Number(row.cost) * semanticQty;
+            row.vendorBy = store.viewer;
+          }
+          return store.intake[index];
+        });
+        send({ rows });
+      }
+    } else if (method === 'POST') {
+      const requested = Array.isArray(body.rows) ? body.rows : [];
+      if (requested.some((row: any) => store.intake.some((current: any) => current.id === row.id))) {
+        send({ error: '이미 존재하는 접수입니다.', code: 'INTAKE_ID_CONFLICT' }, 409);
+      } else {
+        const rows = requested.map((row: any) => ({ ...row, rowVersion: 1 }));
+        store.intake.push(...rows);
+        send({ rows });
+      }
     } else {
-      (body.rows || []).forEach((row: any) => upsert(store.intake, row));
-      send({ saved: (body.rows || []).length });
+      send({ error: '허용되지 않은 요청입니다.' }, 405);
     }
     return true;
   }
@@ -1082,11 +1193,25 @@ export function handlePeakos(store: any, route: any): boolean {
   if (area === 'prices') {
     if (method === 'GET') send(store.prices);
     else if (method === 'DELETE') {
-      store.prices = store.prices.filter((x: any) => x.key !== tail[0]);
-      send({ deleted: tail[0] });
+      const base = BASE_PRICES.find(([a, b, c]) => `${a}|${b}|${c}` === tail[0]);
+      if (base) {
+        const [a, b, c, cost, unit] = base;
+        const reset = { key: tail[0], a, b, c, cost, unit, custom: false, edited: false };
+        const index = store.prices.findIndex((row: any) => row.key === tail[0]);
+        if (index >= 0) store.prices[index] = reset;
+        else store.prices.push(reset);
+        send({ reset: tail[0] });
+      } else {
+        store.prices = store.prices.filter((x: any) => x.key !== tail[0]);
+        send({ deleted: tail[0] });
+      }
     } else {
       const i = store.prices.findIndex((x: any) => x.key === body.key);
-      if (i >= 0) store.prices[i] = body; else store.prices.push(body);
+      const base = BASE_PRICES.find(([a, b, c]) => `${a}|${b}|${c}` === body.key);
+      const edited = Boolean(!body.custom && base
+        && (body.cost !== base[3] || body.unit !== base[4]));
+      const saved = { ...body, edited };
+      if (i >= 0) store.prices[i] = saved; else store.prices.push(saved);
       send({ saved: body.key });
     }
     return true;
@@ -1315,15 +1440,55 @@ export function handlePeakos(store: any, route: any): boolean {
   if (area === 'monthly') {
     const view = tail[0];
     store.monthly[view] = store.monthly[view] || [];
+    store.monthly[view].forEach((row: any) => {
+      if (!Number.isInteger(Number(row.rowVersion)) || Number(row.rowVersion) < 1) row.rowVersion = 1;
+    });
     if (method === 'GET') send(store.monthly[view]);
     else if (method === 'DELETE') {
-      // 판매 건을 지우면 붙어 있던 실행 건도 같이 지운다
       const id = tail[1];
-      store.monthly[view] = store.monthly[view].filter((x: any) => x.id !== id && x.parentId !== id);
-      send({ deleted: id });
+      const current = store.monthly[view].find((row: any) => row.id === id);
+      if (!current) send({ error: '월별 정산 행을 찾지 못했습니다.' }, 404);
+      else if (Number(body.expectedRowVersion) !== Number(current.rowVersion)) {
+        send({ error: '다른 작업자가 먼저 수정했습니다.' }, 409);
+      } else if (current.kind === 'sale'
+        && store.monthly[view].some((row: any) => String(row.parentId || '') === String(id))) {
+        send({ error: '붙어 있는 실행 건을 먼저 삭제해 주세요.' }, 409);
+      } else {
+        store.monthly[view] = store.monthly[view].filter((x: any) => x.id !== id);
+        send({ deleted: id });
+      }
+    } else if (method === 'PATCH') {
+      const requested = Array.isArray(body.rows) ? body.rows : [];
+      const conflict = requested.find((entry: any) => {
+        const current = store.monthly[view].find((row: any) => row.id === entry.id);
+        return !current || Number(current.rowVersion) !== Number(entry.expectedRowVersion);
+      });
+      if (conflict) {
+        const exists = store.monthly[view].some((row: any) => row.id === conflict.id);
+        send({ error: exists ? '다른 작업자가 먼저 수정했습니다.' : '월별 정산 행을 찾지 못했습니다.' }, exists ? 409 : 404);
+      } else {
+        const rows = requested.map((entry: any) => {
+          const index = store.monthly[view].findIndex((row: any) => row.id === entry.id);
+          store.monthly[view][index] = {
+            ...store.monthly[view][index],
+            ...(entry.changes || {}),
+            rowVersion: Number(store.monthly[view][index].rowVersion) + 1,
+          };
+          return store.monthly[view][index];
+        });
+        send({ rows });
+      }
+    } else if (method === 'POST') {
+      const requested = Array.isArray(body.rows) ? body.rows : [];
+      if (requested.some((row: any) => store.monthly[view].some((current: any) => current.id === row.id))) {
+        send({ error: '이미 존재하는 월별 정산 행입니다.' }, 409);
+      } else {
+        const rows = requested.map((row: any) => ({ ...row, rowVersion: 1 }));
+        store.monthly[view].push(...rows);
+        send({ rows });
+      }
     } else {
-      (body.rows || []).forEach((row: any) => upsert(store.monthly[view], row));
-      send({ saved: (body.rows || []).length });
+      send({ error: '허용되지 않은 요청입니다.' }, 405);
     }
     return true;
   }
@@ -1341,7 +1506,12 @@ export function handlePeakos(store: any, route: any): boolean {
 /** 계정 정보와 PEAK OS 스텁을 한 번에 깐다. */
 export async function installPeakosStub(
   page: Page,
-  user: { name: string; uid?: string; role?: string; group_name?: string; group_type?: string }
+  user: {
+    name: string; uid?: string; role?: string; group_name?: string; group_type?: string;
+    peakos_can_view_finance_operations?: boolean;
+    peakos_can_view_tax_purchase?: boolean;
+    peakos_can_preview_accounts?: boolean;
+  }
 ) {
   const store = createPeakosStore(user.name, user.role || 'manager');
   await page.route('**/api/**', route => {
@@ -1360,7 +1530,12 @@ export async function installPeakosStub(
         peakos_can_read_bank: true,
         peakos_can_view_bank_balances: FINANCE_REVIEWERS.includes(user.name),
         peakos_can_review_finance: FINANCE_REVIEWERS.includes(user.name),
-        peakos_can_view_tax_purchase: FINANCE_REVIEWERS.includes(user.name),
+        peakos_can_view_finance_operations: user.peakos_can_view_finance_operations
+          ?? FINANCE_OPERATION_VIEWERS.includes(user.name),
+        peakos_can_view_tax_purchase: user.peakos_can_view_tax_purchase
+          ?? FINANCE_OPERATION_VIEWERS.includes(user.name),
+        peakos_can_preview_accounts: user.peakos_can_preview_accounts
+          ?? ACCOUNT_PREVIEW_VIEWERS.includes(user.name),
         peakos_special_settlement_views:
           user.name === '김지홍' ? ['monthly-guarantee']
             : user.name === '박우진' ? ['monthly-manage']

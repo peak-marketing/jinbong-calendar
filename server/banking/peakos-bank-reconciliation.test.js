@@ -110,8 +110,13 @@ test('금액·정규화 이름이 정확하고 후보가 하나면 할당·입�
   assert.ok(sql.some(statement => statement.includes("INTERVAL '1 hour'")));
   const candidateQuery = mock.calls.find(call => call.sql.startsWith('SELECT i.id,'));
   assert.equal(candidateQuery.params[2], AUTO_MATCH_MAX_AGE_DAYS);
+  assert.match(candidateQuery.sql, /COALESCE\(i\.expected_deposit_amount,/);
+  assert.match(candidateQuery.sql, /COALESCE\(i\.sell, 0\).*COALESCE\(i\.qty, 0\)/);
   assert.ok(sql.some(statement => statement.startsWith('INSERT INTO peakos_bank_allocations')));
   assert.ok(sql.some(statement => statement.startsWith('UPDATE peakos_intake')));
+  const intakeUpdate = mock.calls.find(call => call.sql.startsWith('UPDATE peakos_intake'));
+  assert.match(intakeUpdate.sql, /COALESCE\(expected_deposit_amount,/);
+  assert.match(intakeUpdate.sql, /row_version = row_version \+ 1/);
   assert.ok(sql.some(statement => statement.includes("reconciliation_status = 'MATCHED'")));
   assert.ok(sql.some(statement => statement.startsWith('INSERT INTO peakos_bank_audit_log')));
   assert.ok(sql.indexOf('BEGIN') < sql.indexOf('COMMIT'));

@@ -76,7 +76,8 @@ function holdNextSession(state: OsAuthSharedState, tabId: string) {
 async function serveOsRoutes(page: Page) {
   await page.route('**/os/**', async route => {
     const pathname = new URL(route.request().url()).pathname;
-    if (pathname === '/os/' || pathname === '/os/login' || pathname === '/os/login/') {
+    if (pathname === '/os/' || pathname === '/os/login' || pathname === '/os/login/'
+      || pathname === '/os/w/peak' || pathname === '/os/w/peak/') {
       return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: OS_HTML });
     }
     if (pathname === '/os/business-os-preview.js') {
@@ -200,6 +201,18 @@ async function installOsApi(
       return send({ ok: true, verified: true });
     }
     if (pathname === '/os-auth/logout' && request.method() === 'POST') return send({ ok: true });
+    if (pathname === '/os/workspaces') return send({
+      default_slug: 'peak',
+      workspaces: [{ id: 'workspace-peak', slug: 'peak', name: '피크마케팅', kind: 'headquarters', role: 'manager' }],
+    });
+    if (pathname === '/os/workspaces/peak/context') return send({
+      workspace: { id: 'workspace-peak', slug: 'peak', name: '피크마케팅', kind: 'headquarters' },
+      membership: { role: 'manager' },
+      permissions: {
+        calendar: 'write', chat: 'write', projects: 'write', settlements: 'write', documents: 'write',
+        headquartersOversight: false,
+      },
+    });
     if (pathname === '/events') return send([]);
     if (pathname === '/events/checklist-summary') return send({});
     if (pathname === '/chat-rooms') return send([]);
@@ -259,7 +272,7 @@ test.describe('PEAK OS 이메일 2차 인증', () => {
     await expect(page.locator('.os-auth-identity')).toContainText('kim***@paragon-info.kr');
     await expect(page.locator('.os-auth-message')).toHaveText('');
     await expect(page.getByRole('button', { name: '등록 이메일로 인증번호 받기' })).toBeVisible();
-    expect(calls.some(call => call.path === '/events')).toBe(false);
+    expect(calls.some(call => call.path === '/peakos/collaboration/events')).toBe(false);
 
     await page.getByRole('button', { name: '등록 이메일로 인증번호 받기' }).click();
 
@@ -276,14 +289,14 @@ test.describe('PEAK OS 이메일 2차 인증', () => {
     await expect(verifyButton).toBeEnabled();
     await verifyButton.click();
 
-    await expect(page).toHaveURL(/\/os\/$/);
+    await expect(page).toHaveURL(/\/os\/w\/peak$/);
     await expect(page.locator('#authGate')).toBeHidden();
     const verifyCall = calls.find(call => call.path === '/os-auth/email/verify');
     expect(verifyCall).toMatchObject({
       method: 'POST',
       body: { code: '123456', challengeId: 'challenge-e2e-1' },
     });
-    expect(calls.some(call => call.path === '/events')).toBe(true);
+    await expect.poll(() => calls.some(call => call.path === '/os/workspaces/peak/context')).toBe(true);
   });
 
   test('다른 Google 계정 전환은 로그아웃 뒤 직접 클릭으로 계정 선택창을 연다', async ({ page }) => {
@@ -330,8 +343,8 @@ test.describe('PEAK OS 이메일 2차 인증', () => {
 
     await expect(tabA.locator('#authGate')).toBeHidden();
     await expect(tabB.locator('#authGate')).toBeHidden();
-    await expect(tabB).toHaveURL(/\/os\/$/);
-    expect(await tabB.evaluate(key => Number(sessionStorage.getItem(key) || 0), loadKey)).toBe(1);
+    await expect(tabB).toHaveURL(/\/os\/w\/peak$/);
+    expect(await tabB.evaluate(key => Number(sessionStorage.getItem(key) || 0), loadKey)).toBe(2);
     expect(state.calls.filter(call => call.tabId === 'tab-b' && call.path === '/os-auth/session').length)
       .toBeGreaterThanOrEqual(2);
   });
@@ -364,8 +377,8 @@ test.describe('PEAK OS 이메일 2차 인증', () => {
     }
 
     await expect(tabB.locator('#authGate')).toBeHidden();
-    await expect(tabB).toHaveURL(/\/os\/$/);
-    expect(await tabB.evaluate(key => Number(sessionStorage.getItem(key) || 0), loadKey)).toBe(1);
+    await expect(tabB).toHaveURL(/\/os\/w\/peak$/);
+    expect(await tabB.evaluate(key => Number(sessionStorage.getItem(key) || 0), loadKey)).toBe(2);
     expect(state.calls.filter(call => call.tabId === 'tab-b' && call.path === '/os-auth/session').length)
       .toBeGreaterThanOrEqual(3);
   });
@@ -403,9 +416,9 @@ test.describe('PEAK OS 이메일 2차 인증', () => {
     await page.goto('/os/');
 
     await expect(page.locator('#authGate')).toBeHidden();
-    await expect(page).toHaveURL(/\/os\/$/);
+    await expect(page).toHaveURL(/\/os\/w\/peak$/);
     expect(calls.some(call => call.path === '/os-auth/email/request')).toBe(false);
-    expect(calls.some(call => call.path === '/events')).toBe(true);
+    await expect.poll(() => calls.some(call => call.path === '/os/workspaces/peak/context')).toBe(true);
   });
 
   test('이미 인증한 계정은 /os/login을 다시 열어도 안전한 next로 이동한다', async ({ page }) => {
@@ -414,7 +427,7 @@ test.describe('PEAK OS 이메일 2차 인증', () => {
     await page.goto('/os/login?next=https%3A%2F%2Fevil.example%2F');
 
     await expect(page.locator('#authGate')).toBeHidden();
-    await expect(page).toHaveURL(/\/os\/$/);
+    await expect(page).toHaveURL(/\/os\/w\/peak$/);
   });
 
   test('OS 사용 중 /peakos API가 세션 만료를 알리면 재인증 화면으로 잠긴다', async ({ page }) => {
@@ -428,7 +441,7 @@ test.describe('PEAK OS 이메일 2차 인증', () => {
 
     await page.goto('/os/');
 
-    await expect(page).toHaveURL(/\/os\/login\?next=%2Fos%2F&reason=session-expired$/);
+    await expect(page).toHaveURL(/\/os\/login\?next=%2Fos%2Fw%2Fpeak&reason=session-expired$/);
     await expect(page.locator('#authGate')).toBeVisible();
     await expect(page.getByRole('button', { name: '등록 이메일로 인증번호 받기' })).toBeVisible();
     await expect(page.locator('.os-auth-message')).toContainText('인증 시간이 만료');

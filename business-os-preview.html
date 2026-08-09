@@ -4,8 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow,noarchive">
+  <base id="peakOsAssetBase" href="./">
+  <script>
+    // The workspace shell is nested at /os/w/:slug. Keep static assets rooted
+    // at /os/ there, while preserving the standalone preview URL used locally.
+    if (/^\/os(?:\/|$)/.test(window.location.pathname)) {
+      document.getElementById('peakOsAssetBase').setAttribute('href', '/os/');
+    }
+  </script>
   <title>PEAK OS · Business OS Preview</title>
-  <link rel="stylesheet" href="./business-os-live.css?v=20260808-taxbank1">
+  <link rel="stylesheet" href="./business-os-live.css?v=20260809-workspace1">
   <style>
     :root {
       color-scheme: light;
@@ -75,6 +83,7 @@
     .workspace {
       display: flex;
       align-items: center;
+      flex-wrap: wrap;
       gap: 10px;
       min-height: 48px;
       padding: 4px 8px 13px;
@@ -108,6 +117,57 @@
 
     .workspace-copy strong { color: var(--ink); font-size: 13px; }
     .workspace-copy small { margin-top: 4px; color: var(--muted-2); font-size: 9px; letter-spacing: .08em; }
+
+    .workspace-switcher {
+      position: relative;
+      flex: 1 0 100%;
+      min-width: 0;
+    }
+
+    .workspace-switcher::after {
+      position: absolute;
+      top: 50%;
+      right: 10px;
+      color: var(--muted);
+      content: "\2304";
+      font-size: 12px;
+      pointer-events: none;
+      transform: translateY(-54%);
+    }
+
+    .workspace-switcher select {
+      width: 100%;
+      height: 34px;
+      padding: 0 29px 0 10px;
+      border: 1px solid #d7e1e9;
+      border-radius: 8px;
+      outline: 0;
+      appearance: none;
+      background: rgba(255, 255, 255, .82);
+      color: var(--ink);
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .workspace-switcher select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(52, 142, 205, .09); }
+    .workspace-switcher select:disabled { cursor: wait; color: var(--muted); opacity: .8; }
+
+    .workspace-access-badge {
+      display: flex;
+      align-items: flex-start;
+      gap: 7px;
+      width: 100%;
+      padding: 8px 9px;
+      border: 1px solid #f1cf91;
+      border-radius: 8px;
+      background: #fff8e9;
+      color: #8b5c14;
+      font-size: 10px;
+      font-weight: 750;
+      line-height: 1.45;
+    }
+
+    .workspace-access-badge[hidden] { display: none; }
 
     .search-button {
       display: flex;
@@ -2016,10 +2076,20 @@
   <div class="app">
     <aside class="app-sidebar" aria-label="메인 메뉴">
       <div class="workspace">
-        <div class="workspace-logo">P</div>
+        <div class="workspace-logo" data-workspace-logo>P</div>
         <div class="workspace-copy">
-          <strong>PEAK OS</strong>
-          <small>PEAK MARKETING WORKSPACE</small>
+          <strong data-active-workspace-name>PEAK OS</strong>
+          <small data-active-workspace-meta>WORKSPACE 권한 확인 중</small>
+        </div>
+        <label class="workspace-switcher" for="workspaceSelector">
+          <span class="visually-hidden">워크스페이스 전환</span>
+          <select id="workspaceSelector" data-workspace-selector aria-label="워크스페이스 전환" disabled>
+            <option value="">워크스페이스 확인 중…</option>
+          </select>
+        </label>
+        <div class="workspace-access-badge" data-workspace-readonly hidden>
+          <span aria-hidden="true">▣</span>
+          <span>본사 열람 모드 · 이 워크스페이스에서는 저장하거나 수정할 수 없습니다.</span>
         </div>
       </div>
 
@@ -2034,8 +2104,8 @@
       </div>
 
       <nav class="sidebar-nav" aria-label="워크스페이스 바로가기">
-        <section class="nav-section nav-cluster" data-nav-cluster="main">
-          <button class="nav-cluster-toggle" type="button" aria-expanded="true"><span>주요 메뉴</span><span class="nav-cluster-caret">⌃</span></button>
+        <section class="nav-section nav-cluster closed" data-nav-cluster="main">
+          <button class="nav-cluster-toggle" type="button" aria-expanded="false"><span>주요 메뉴</span><span class="nav-cluster-caret">⌄</span></button>
           <div class="nav-cluster-items">
             <button class="nav-item active" type="button" data-view="calendar" data-tab-search="CALENDAR 캘린더 일정 스케줄"><span class="nav-icon">◫</span>캘린더</button>
             <button class="nav-item" type="button" data-view="todo" data-tab-search="TO DO LIST 오늘 할 일 업무 체크리스트"><span class="nav-icon">▦</span>할 일<span class="nav-badge">6</span></button>
@@ -2058,8 +2128,8 @@
           </div>
         </section>
 
-        <section class="nav-section nav-cluster" data-nav-cluster="company">
-          <button class="nav-cluster-toggle" type="button" aria-expanded="true"><span>회사 관리</span><span class="nav-cluster-caret">⌃</span></button>
+        <section class="nav-section nav-cluster closed" data-nav-cluster="company">
+          <button class="nav-cluster-toggle" type="button" aria-expanded="false"><span>회사 관리</span><span class="nav-cluster-caret">⌄</span></button>
           <div class="nav-cluster-items">
             <button class="nav-item" type="button" data-view="organization" data-tab-search="ORGANIZATION 조직도 조직 팀 직급 지사"><span class="nav-icon">♙</span>조직도</button>
             <button class="nav-item" type="button" data-view="company" data-tab-search="COMPANY 사업자등록증 회사 자료"><span class="nav-icon">◇</span>회사 자료</button>
@@ -3515,42 +3585,9 @@
       });
     });
     renderSalesRole('leader');
-    document.querySelectorAll('.chat-preview-action').forEach((button) => {
-      button.addEventListener('click', () => showToast('운영 채팅 기능과 연결될 디자인 시안입니다.'));
-    });
-    document.getElementById('chatSearchInput').addEventListener('input', renderChatRoomList);
-    document.getElementById('chatBulkToggle').addEventListener('click', () => {
-      chatBulkMode = !chatBulkMode;
-      if (!chatBulkMode) selectedChatRooms.clear();
-      renderChatRoomList();
-    });
-    document.querySelectorAll('.chat-filter').forEach((button) => {
-      button.addEventListener('click', () => {
-        if (button.dataset.filter === 'manager') return;
-        chatRoomFilter = button.dataset.filter;
-        document.querySelectorAll('.chat-filter').forEach((item) => item.classList.toggle('active', item === button));
-        renderChatRoomList();
-      });
-    });
-    document.getElementById('chatBackButton').addEventListener('click', () => {
-      closePreviewChatRoom();
-    });
-    document.getElementById('chatComposer').addEventListener('submit', (event) => {
-      event.preventDefault();
-      const input = document.getElementById('chatMessageInput');
-      const message = input.value.trim();
-      if (!message) return;
-      appendPreviewChatMessage(message);
-      input.value = '';
-      showToast('프리뷰 화면에만 메시지를 표시했습니다.');
-    });
-    document.getElementById('chatMessageInput').addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-        event.preventDefault();
-        document.getElementById('chatComposer').requestSubmit();
-      }
-    });
-    renderChatRoomList();
+    // 채팅은 인증 후 business-os-preview.js에서 파라곤 실데이터와 연결한다.
+    // 예전 프리뷰 이벤트를 여기에 등록하면 실제 전송기가 입력을 읽기 전에
+    // 문자열을 비워 메시지가 저장되지 않으므로 정적 프리뷰 핸들러는 두지 않는다.
 
     document.querySelectorAll('.todo-scope-button').forEach((button) => {
       button.addEventListener('click', () => setTodoScope(button.dataset.todoScope));
@@ -3680,6 +3717,6 @@
   </script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-  <script src="./business-os-preview.js?v=20260809-authswitch1"></script>
+  <script src="./business-os-preview.js?v=20260809-workspace1"></script>
 </body>
 </html>

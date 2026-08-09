@@ -15,7 +15,7 @@ function request(uid, name = '표시이름', overrides = {}) {
   };
 }
 
-test('공개 통장은 승인된 전 직원이 읽고 민감 금융 권한은 정확한 네 immutable UID만 가진다', async () => {
+test('재무운영·매입은 정확한 다섯 UID, 잔액·검토는 기존 네 UID로 분리한다', async () => {
   const configured = configuration();
   const pool = {
     query: async (_sql, values) => ({ rows: values[0].map(uid => ({ uid })) }),
@@ -32,18 +32,37 @@ test('공개 통장은 승인된 전 직원이 읽고 민감 금융 권한은 �
   assert.equal(access.canReadBank(request('ordinary-member', '일반 직원', { role: 'member' })), true);
   assert.equal(access.canReadBank(request('ordinary-admin', '패션TV봉이')), true);
 
-  // 잔액·민감 두 통장·금융 검토·매입 계산서는 같은 정확한 네 UID로만 판정한다.
+  // 잔액·금융 검토는 기존 네 UID로 유지한다.
   assert.equal(access.canViewBankBalances(request(configured['김진봉'])), false);
   for (const name of ['패션TV봉이', '박종원', '김대호', '손명아']) {
+    assert.equal(access.canSeeFinanceOperations(request(configured[name], '바뀐 표시이름')), true);
+    assert.equal(access.canSeeFinalSettlement(request(configured[name], '바뀐 표시이름')), true);
     assert.equal(access.canViewBankBalances(request(configured[name])), true);
     assert.equal(access.canReviewFinance(request(configured[name], '바뀐 표시이름')), true);
     assert.equal(access.canSeeTaxPurchase(request(configured[name], '바뀐 표시이름')), true);
   }
+  // 전현우는 재무운영과 매입만 추가된다. 잔액·금융 검토·최종실행은 넓히지 않는다.
+  assert.equal(access.canSeeFinanceOperations(request(configured['전현우'], '바뀐 표시이름')), true);
+  assert.equal(access.canSeeFinalSettlement(request(configured['전현우'], '바뀐 표시이름')), true);
+  assert.equal(access.canSeeTaxPurchase(request(configured['전현우'], '바뀐 표시이름')), true);
+  assert.equal(access.canViewBankBalances(request(configured['전현우'])), false);
+  assert.equal(access.canReviewFinance(request(configured['전현우'])), false);
+  assert.equal(access.canSeeFinalExecution(request(configured['전현우'])), false);
+
+  for (const name of ['김진봉', '김지홍', '박우진']) {
+    assert.equal(access.canSeeFinanceOperations(request(configured[name])), false);
+    assert.equal(access.canSeeFinalSettlement(request(configured[name])), false);
+    assert.equal(access.canSeeTaxPurchase(request(configured[name])), false);
+  }
+  // 김진봉의 기존 회사자료 상위 권한은 유지하되 재무 원장은 열지 않는다.
+  assert.equal(access.canSeeAll(request(configured['김진봉'])), true);
   assert.equal(access.canViewBankBalances(request('ordinary-admin', '손명아')), false);
   assert.equal(access.canReviewFinance(request('ordinary-admin', '박종원')), false);
   assert.equal(access.canSeeTaxPurchase(request('ordinary-admin', '김대호')), false);
+  assert.equal(access.canSeeFinanceOperations(request('ordinary-admin', '전현우')), false);
+  assert.equal(access.canSeeFinalSettlement(request('ordinary-admin', '전현우')), false);
   assert.equal(access.canReviewFinance(request(configured['김진봉'], '패션TV봉이')), false);
-  assert.equal(access.canSeeTaxPurchase(request(configured['전현우'], '손명아')), false);
+  assert.equal(access.canSeeTaxPurchase(request(configured['전현우'], '손명아')), true);
   assert.equal(access.canSeeAll(request(configured['김진봉'], '김진봉', { approved: false })), false);
   assert.equal(access.canReadBank(request('ordinary-member', '일반 직원', { approved: false })), false);
   assert.equal(access.canReadBank(request(configured['김진봉'], '김진봉', { is_active: false })), false);
@@ -126,14 +145,21 @@ test('계정 미리보기 owner 조회는 패션TV봉이·박종원·김대호 U
   });
   await access.load();
 
-  assert.equal(access.canReadOwner(request(configured['패션TV봉이']), '손명아'), true);
+  assert.equal(access.canPreviewAccounts(request(configured['패션TV봉이'], '바뀐 표시이름')), true);
+  assert.equal(access.canReadOwnerUid(request(configured['패션TV봉이']), configured['손명아']), true);
   for (const name of ['박종원', '김대호']) {
-    assert.equal(access.canReadOwner(request(configured[name]), '김용일'), true);
-    assert.equal(access.canReadOwner(request(configured[name]), '손명아'), false);
+    assert.equal(access.canPreviewAccounts(request(configured[name], '바뀐 표시이름')), true);
+    assert.equal(access.canReadOwnerUid(request(configured[name]), 'target-kimyongil-uid'), true);
+    assert.equal(access.canReadOwnerUid(request(configured[name]), configured['손명아']), false);
   }
-  assert.equal(access.canReadOwner(request(configured['김진봉']), '김용일'), false);
-  assert.equal(access.canReadOwner(request('ordinary-admin', '패션TV봉이'), '김용일'), false);
-  assert.equal(access.canReadOwner(request(configured['박종원'], '박종원', { is_active: false }), '김용일'), false);
+  for (const name of ['손명아', '전현우', '김진봉']) {
+    assert.equal(access.canPreviewAccounts(request(configured[name], '패션TV봉이')), false);
+  }
+  assert.equal(access.canReadOwnerUid(request(configured['김진봉']), 'target-kimyongil-uid'), false);
+  assert.equal(access.canReadOwnerUid(request('ordinary-admin', '패션TV봉이'), 'target-kimyongil-uid'), false);
+  assert.equal(access.canPreviewAccounts(request('ordinary-admin', '김대호')), false);
+  assert.equal(access.canReadOwnerUid(request(configured['박종원'], '박종원', { is_active: false }), 'target-kimyongil-uid'), false);
+  assert.equal(access.canPreviewAccounts(request(configured['박종원'], '박종원', { approved: false })), false);
 });
 
 test('누락·추가·중복 UID 설정과 비활성 대상은 시작 전에 fail closed한다', async () => {

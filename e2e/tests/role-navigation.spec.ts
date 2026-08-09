@@ -13,6 +13,39 @@ async function openBusinessOs(
 }
 
 test.describe('직무별 하위 메뉴', () => {
+  test('처음에는 영업 운영만 펼치고 나머지 대분류는 모두 접는다', async ({ page }) => {
+    await openBusinessOs(page, {
+      name: '김대호',
+      role: 'manager',
+      group_name: '본사 경영지원팀',
+      group_type: 'support',
+    });
+
+    const clusterNames = ['main', 'sales-operations', 'company', 'finance', 'tax-banking', 'tools'];
+    for (const name of clusterNames) {
+      const cluster = page.locator(`[data-nav-cluster="${name}"]`);
+      await expect(cluster).toBeVisible();
+      const shouldOpen = name === 'sales-operations';
+      await expect(cluster).toHaveClass(shouldOpen ? /^(?!.*\bclosed\b).*$/ : /\bclosed\b/);
+      await expect(cluster.locator(':scope > .nav-cluster-toggle')).toHaveAttribute(
+        'aria-expanded',
+        shouldOpen ? 'true' : 'false',
+      );
+      if (shouldOpen) await expect(cluster.locator(':scope > .nav-cluster-items')).toBeVisible();
+      else await expect(cluster.locator(':scope > .nav-cluster-items')).toBeHidden();
+    }
+
+    const company = page.locator('[data-nav-cluster="company"]');
+    await company.locator(':scope > .nav-cluster-toggle').click();
+    await expect(company).not.toHaveClass(/\bclosed\b/);
+    await expect(company.locator(':scope > .nav-cluster-toggle')).toHaveAttribute('aria-expanded', 'true');
+    await expect(company.locator(':scope > .nav-cluster-items')).toBeVisible();
+
+    await page.locator('#personaSelect').selectOption('손명아');
+    await expect(company).toHaveClass(/\bclosed\b/);
+    await expect(page.locator('[data-nav-cluster="sales-operations"]')).not.toHaveClass(/\bclosed\b/);
+  });
+
   test('영업자는 주요 메뉴를 그대로 보고 영업 운영의 개인 정산서와 입금체크를 본다', async ({ page }) => {
     const monthlyRequests: string[] = [];
     page.on('request', request => {
@@ -122,6 +155,57 @@ test.describe('직무별 하위 메뉴', () => {
     await expect(page.locator('.persona-preview-warning')).toHaveCount(0);
   });
 
+  test('계정 미리보기에서 김지홍 월보장·박우진 월관리를 서버 자료로 읽기만 한다', async ({ page }) => {
+    const monthlyRequests: Array<{ method: string; url: string }> = [];
+    page.on('request', request => {
+      if (request.url().includes('/api/peakos/monthly/')) {
+        monthlyRequests.push({ method: request.method(), url: request.url() });
+      }
+    });
+    const store = await openBusinessOs(page, {
+      name: '김대호',
+      role: 'manager',
+      group_name: '본사 경영지원팀',
+      group_type: 'support',
+    });
+    store.monthly['monthly-guarantee'] = [{
+      id: 'preview-guarantee-sale', rowVersion: 1, kind: 'sale', parentId: '',
+      date: '2026-08-01', client: '김지홍 월보장 미리보기',
+      a: '플레이스', b: '상위노출', c: '월보장', amount: 330000, qty: 1, period: '', memo: '',
+    }];
+    store.monthly['monthly-manage'] = [{
+      id: 'preview-manage-sale', rowVersion: 1, kind: 'sale', parentId: '',
+      date: '2026-08-02', client: '박우진 월관리 미리보기',
+      a: '플레이스', b: '관리', c: '월관리', amount: 440000, qty: 1, period: '8월', memo: '',
+    }];
+
+    const sales = page.locator('[data-nav-cluster="sales-operations"]');
+    await page.locator('#personaSelect').selectOption('김지홍');
+    await expect(sales.locator('[data-view="monthly-guarantee"]')).toBeVisible();
+    await expect(sales.locator('[data-view="monthly-manage"]')).toBeHidden();
+    await expect(sales.locator('[data-view="direct-execution"]')).toBeHidden();
+    await sales.locator('[data-view="monthly-guarantee"]').click();
+    await expect(page.getByText('김지홍 월보장 미리보기', { exact: true })).toBeVisible();
+    await expect(page.locator('[data-monthly-form]')).toHaveCount(0);
+    await expect(page.locator('[data-monthly-add], [data-monthly-edit], [data-monthly-remove]')).toHaveCount(0);
+    await expect(page.getByText('김지홍 계정의 정산서를 읽기 전용으로 보는 중입니다', { exact: true })).toBeVisible();
+
+    await page.locator('#personaSelect').selectOption('박우진');
+    await expect(sales.locator('[data-view="monthly-guarantee"]')).toBeHidden();
+    await expect(sales.locator('[data-view="monthly-manage"]')).toBeVisible();
+    await sales.locator('[data-view="monthly-manage"]').click();
+    await expect(page.getByText('박우진 월관리 미리보기', { exact: true })).toBeVisible();
+    await expect(page.locator('[data-monthly-form]')).toHaveCount(0);
+    await expect(page.locator('[data-monthly-add], [data-monthly-edit], [data-monthly-remove]')).toHaveCount(0);
+    await expect(page.getByText('박우진 계정의 정산서를 읽기 전용으로 보는 중입니다', { exact: true })).toBeVisible();
+
+    expect(monthlyRequests.some(request => request.method === 'GET'
+      && request.url.includes('/monthly/monthly-guarantee?owner=%EA%B9%80%EC%A7%80%ED%99%8D'))).toBe(true);
+    expect(monthlyRequests.some(request => request.method === 'GET'
+      && request.url.includes('/monthly/monthly-manage?owner=%EB%B0%95%EC%9A%B0%EC%A7%84'))).toBe(true);
+    expect(monthlyRequests.every(request => request.method === 'GET')).toBe(true);
+  });
+
   for (const account of [
     { name: '패션TV봉이', role: 'admin', visible: true },
     { name: '박종원', role: 'manager', visible: true },
@@ -198,6 +282,8 @@ test.describe('직무별 하위 메뉴', () => {
     await expect(page.locator('#authGate')).toBeHidden();
 
     await expect(page.locator('[data-nav-cluster="sales-operations"]')).toBeHidden();
+    const main = page.locator('[data-nav-cluster="main"]');
+    await main.locator(':scope > .nav-cluster-toggle').click();
     const requestTab = page.locator('[data-view="requests"]');
     await expect(requestTab).toHaveText(/개발수정요청/);
     await requestTab.click();

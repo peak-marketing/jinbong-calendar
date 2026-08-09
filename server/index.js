@@ -39,6 +39,33 @@ const {
   registerOsEmailAuth,
 } = require('./auth/peakos-os-email-auth');
 const { registerPeakosCompanyDocuments } = require('./auth/peakos-company-documents');
+const {
+  createPeakosWorkspaceDocumentService,
+} = require('./workspaces/peakos-workspace-documents');
+const { ensureSettlementImportInfrastructure } = require('./imports/settlement-database');
+const {
+  ensurePeakosPriceCatalog,
+  priceKey: peakosPriceKey,
+} = require('./banking/peakos-price-catalog');
+const {
+  registerPeakosSettlementRoutes,
+} = require('./banking/peakos-settlement-routes');
+const {
+  createPeakosCollaborationGateway,
+  isPeakosCollaborationAuthenticated,
+} = require('./collaboration/peakos-collaboration-routes');
+const {
+  authorizeEventReorder,
+  normalizeChatMessageId,
+  normalizeEventReorderItems,
+} = require('./collaboration/peakos-collaboration-policy');
+const {
+  PEAK_WORKSPACE_ID,
+  createPeakosWorkspaceService,
+  ensurePeakosWorkspaceInfrastructure,
+  registerPeakosWorkspaceRoutes,
+  workspacePublicAttachmentMutation,
+} = require('./workspaces/peakos-workspaces');
 
 const admin = require('firebase-admin');
 const serviceAccount = require('./firebase-service-account.json');
@@ -59,6 +86,7 @@ async function sendFirebaseMessage(message) {
 }
 
 const app = express();
+let peakosOsEmailAuth = null;
 // Nginx is the only production proxy. Trusting only the loopback hop lets
 // Express derive the real client IP without trusting a forged left-most XFF.
 app.set('trust proxy', 'loopback');
@@ -252,6 +280,54 @@ const pool = new Pool({
   port: Number(process.env.PGPORT || 5432),
   database: process.env.PGDATABASE || 'calendar_db',
 });
+const peakosWorkspaceService = createPeakosWorkspaceService({ pool });
+const peakosWorkspaceDocumentService = createPeakosWorkspaceDocumentService({
+  pool,
+  root: process.env.PEAKOS_WORKSPACE_DOCUMENT_ROOT || undefined,
+  logger: console,
+});
+
+function requestWorkspaceId(req) {
+  return peakosWorkspaceService.workspaceId(req);
+}
+
+function collaborationAreaForPath(pathname) {
+  const value = String(pathname || '');
+  if (/^\/api\/(?:events|event-types|todo-cats)(?:\/|$)/.test(value)) return 'calendar';
+  if (/^\/api\/(?:chat|chat-rooms|chat-room-groups)(?:\/|$)/.test(value)) return 'chat';
+  if (/^\/api\/projects(?:\/|$)/.test(value) || value === '/api/users/all-approved') return 'projects';
+  return null;
+}
+
+function workspacePermissionAllowsRequest(req, area) {
+  const permission = req.workspace?.permissions?.[area] || 'none';
+  const mutation = !['GET', 'HEAD', 'OPTIONS'].includes(String(req.method || '').toUpperCase());
+  if (mutation) return permission === 'write' && req.workspace?.headquartersOversight !== true;
+  return permission === 'read' || permission === 'write';
+}
+
+function rejectWorkspacePublicAttachment(req, res) {
+  if (req.workspace?.id === PEAK_WORKSPACE_ID || !workspacePublicAttachmentMutation(req)) return false;
+  res.set('Cache-Control', 'private, no-store');
+  res.vary('X-PeakOS-Workspace');
+  res.vary('Authorization');
+  res.status(403).json({
+    code: 'WORKSPACE_PRIVATE_STORAGE_REQUIRED',
+    error: '지사 첨부파일은 전용 비공개 저장소 연결 후 업로드할 수 있습니다.',
+  });
+  return true;
+}
+
+function isNonPeakWorkspaceSafePath(pathname) {
+  const value = String(pathname || '');
+  return collaborationAreaForPath(value) !== null
+    || /^\/api\/peakos(?:\/|$)/.test(value)
+    || /^\/api\/os-auth(?:\/|$)/.test(value)
+    || /^\/api\/os\/workspaces(?:\/|$)/.test(value)
+    || /^\/api\/users\/(?:me|register)(?:\/|$)/.test(value)
+    || /^\/api\/fcm(?:\/|$)/.test(value)
+    || /^\/api\/_debug(?:\/|$)/.test(value);
+}
 
 function normalizeReportAmountValue(value) {
   const digits = String(value ?? '').replace(/[^0-9]/g, '');
@@ -702,33 +778,34 @@ function projectTaskStatusLabel(value) {
 }
 
 async function canAccessProject(req, projectId) {
-  if (!projectId || !req.userDoc?.approved) return false;
-  if (req.userDoc.role === 'admin') return true;
+  if (!projectId || !req.userDoc?.approved || !req.workspace) return false;
+  const canSeeAllInWorkspace = req.userDoc.role === 'admin' || req.workspace.headquartersOversight === true;
   const result = await pool.query(
     `SELECT 1 FROM projects p
      LEFT JOIN project_details pd ON pd.project_id = p.id
      WHERE p.id = $1
        AND COALESCE(pd.deleted, false) = false
        AND p.status IS DISTINCT FROM 'archived'
-       AND (p.owner_id = $2 OR EXISTS (
+       AND (p.workspace_id = $3 OR (p.workspace_id IS NULL AND $3 = $4))
+       AND ($5::boolean OR p.owner_id = $2 OR EXISTS (
          SELECT 1 FROM project_members pm WHERE pm.project_id = p.id AND pm.user_id = $2
        ))`,
-    [projectId, req.uid]
+    [projectId, req.uid, requestWorkspaceId(req), PEAK_WORKSPACE_ID, canSeeAllInWorkspace]
   );
   return !!result.rows[0];
 }
 
 async function canManageProject(req, projectId) {
-  if (!projectId || !req.userDoc?.approved) return false;
-  if (req.userDoc.role === 'admin') return true;
+  if (!projectId || !req.userDoc?.approved || !req.workspace || req.workspace.headquartersOversight) return false;
   const result = await pool.query(
     `SELECT 1 FROM projects p
      LEFT JOIN project_details pd ON pd.project_id = p.id
      WHERE p.id = $1
        AND COALESCE(pd.deleted, false) = false
        AND p.status IS DISTINCT FROM 'archived'
-       AND p.owner_id = $2`,
-    [projectId, req.uid]
+       AND (p.workspace_id = $3 OR (p.workspace_id IS NULL AND $3 = $4))
+       AND ($5::boolean OR p.owner_id = $2)`,
+    [projectId, req.uid, requestWorkspaceId(req), PEAK_WORKSPACE_ID, req.userDoc.role === 'admin']
   );
   return !!result.rows[0];
 }
@@ -738,12 +815,18 @@ async function resolveProjectTaskAssignees(db, projectId, assignmentMode, assign
     const members = await db.query(
       `SELECT u.uid, u.name
        FROM project_members pm
+       JOIN projects p ON p.id = pm.project_id
        JOIN users u ON u.uid = pm.user_id
+       JOIN peakos_workspace_memberships pwm
+         ON pwm.user_uid = pm.user_id
+        AND pwm.workspace_id = COALESCE(p.workspace_id, $2)
+        AND pwm.active = TRUE
+        AND pwm.role <> 'oversight'
        WHERE pm.project_id = $1
          AND u.approved = true
          AND COALESCE(u.is_active, true) = true
        ORDER BY u.name`,
-      [projectId]
+      [projectId, PEAK_WORKSPACE_ID]
     );
     return members.rows;
   }
@@ -751,11 +834,17 @@ async function resolveProjectTaskAssignees(db, projectId, assignmentMode, assign
   const member = await db.query(
     `SELECT u.uid, u.name
      FROM project_members pm
+     JOIN projects p ON p.id = pm.project_id
      JOIN users u ON u.uid = pm.user_id
+     JOIN peakos_workspace_memberships pwm
+       ON pwm.user_uid = pm.user_id
+      AND pwm.workspace_id = COALESCE(p.workspace_id, $3)
+      AND pwm.active = TRUE
+      AND pwm.role <> 'oversight'
      WHERE pm.project_id = $1 AND pm.user_id = $2
        AND u.approved = true
        AND COALESCE(u.is_active, true) = true`,
-    [projectId, assigneeUid]
+    [projectId, assigneeUid, PEAK_WORKSPACE_ID]
   );
   if (!member.rows[0]) {
     throw Object.assign(new Error('담당자는 프로젝트 멤버여야 합니다'), { statusCode: 400 });
@@ -815,26 +904,33 @@ async function createProjectMeetingEvent(projectId, req, meeting = {}) {
      LEFT JOIN project_details pd ON pd.project_id = p.id
      WHERE p.id = $1
        AND COALESCE(pd.deleted, false) = false
-       AND p.status IS DISTINCT FROM 'archived'`,
-    [projectId]
+       AND p.status IS DISTINCT FROM 'archived'
+       AND (p.workspace_id = $2 OR (p.workspace_id IS NULL AND $2 = $3))`,
+    [projectId, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
   );
   if (!project.rows[0]) throw Object.assign(new Error('Project not found'), { statusCode: 404 });
 
   const event = await pool.query(
-    `INSERT INTO events (type, title, date, time, url, memo, todo_cat, reminder, scope, owner_id, owner_name, repeat_type, repeat_end, end_date, sort_order, project_id)
-     VALUES ('meeting',$1,$2,$3,'',$4,NULL,NULL,'team',$5,$6,NULL,NULL,$7,0,$8)
+    `INSERT INTO events (workspace_id, type, title, date, time, url, memo, todo_cat, reminder, scope, owner_id, owner_name, repeat_type, repeat_end, end_date, sort_order, project_id)
+     VALUES ($1,'meeting',$2,$3,$4,'',$5,NULL,NULL,'team',$6,$7,NULL,NULL,$8,0,$9)
      RETURNING *`,
-    [title, date, time || '', memo || `${project.rows[0].name} 프로젝트 회의`, req.uid, req.userName, endDate || null, projectId]
+    [requestWorkspaceId(req), title, date, time || '', memo || `${project.rows[0].name} 프로젝트 회의`, req.uid, req.userName, endDate || null, projectId]
   );
 
   const members = await pool.query(
     `SELECT pm.user_id
      FROM project_members pm
+     JOIN projects workspace_project ON workspace_project.id = pm.project_id
      JOIN users u ON u.uid = pm.user_id
+     JOIN peakos_workspace_memberships pwm
+       ON pwm.user_uid = pm.user_id
+      AND pwm.workspace_id = COALESCE(workspace_project.workspace_id, $2)
+      AND pwm.active = TRUE
+      AND pwm.role <> 'oversight'
      WHERE pm.project_id = $1
        AND u.approved = true
        AND COALESCE(u.is_active, true) = true`,
-    [projectId]
+    [projectId, PEAK_WORKSPACE_ID]
   );
   for (const member of members.rows) {
     if (!member.user_id || member.user_id === req.uid) continue;
@@ -864,11 +960,17 @@ async function notifyProjectMembers(projectId, actorUid, title, body, data = {})
          SELECT p.owner_id AS uid FROM projects p WHERE p.id = $1
        ) target
        JOIN users u ON u.uid = target.uid
+       JOIN projects workspace_project ON workspace_project.id = $1
+       JOIN peakos_workspace_memberships pwm
+         ON pwm.user_uid = target.uid
+        AND pwm.workspace_id = COALESCE(workspace_project.workspace_id, $3)
+        AND pwm.active = TRUE
+        AND pwm.role <> 'oversight'
        WHERE target.uid IS NOT NULL
          AND target.uid != $2
          AND u.approved = true
          AND u.is_active != false`,
-      [projectId, actorUid || '']
+      [projectId, actorUid || '', PEAK_WORKSPACE_ID]
     );
     await Promise.all(targets.rows.map(row => sendPushToUser(
       row.uid,
@@ -935,7 +1037,7 @@ async function processEventReminderSweep() {
   const rangeStart = formatLocalDate(shiftLocalDate(now, -1));
   const rangeEnd = formatLocalDate(shiftLocalDate(now, 2));
   const candidates = await pool.query(
-    `SELECT id, title, type, date, time, reminder, owner_id, owner_name, done
+    `SELECT id, workspace_id, title, type, date, time, reminder, owner_id, owner_name, done
      FROM events
      WHERE deleted = false
        AND COALESCE(reminder, '') <> ''
@@ -974,8 +1076,17 @@ async function processEventReminderSweep() {
     const reminderAt = new Date(startAt.getTime() - (config.minutes * 60 * 1000));
     if (reminderAt < windowStart || reminderAt > now) continue;
 
-    const recipients = new Set([event.owner_id, ...(shareMap.get(event.id) || [])]);
-    for (const userUid of recipients) {
+    const candidateRecipients = [...new Set([event.owner_id, ...(shareMap.get(event.id) || [])].filter(Boolean))];
+    const eligibleRecipients = await pool.query(
+      `SELECT user_uid
+         FROM peakos_workspace_memberships
+        WHERE workspace_id = $1
+          AND user_uid = ANY($2::text[])
+          AND active = TRUE
+          AND role <> 'oversight'`,
+      [event.workspace_id || PEAK_WORKSPACE_ID, candidateRecipients],
+    );
+    for (const userUid of eligibleRecipients.rows.map(row => row.user_uid)) {
       if (!userUid) continue;
       const inserted = await pool.query(
         `INSERT INTO event_reminder_deliveries (event_id, user_uid, reminder_at)
@@ -1038,6 +1149,13 @@ function verifyFirebaseToken(idToken) {
 
 // ── 인증 미들웨어 ──────────────────────────────────────────
 async function authMiddleware(req, res, next) {
+  // The protected collaboration gateway already verified the exact same
+  // Firebase token and loaded req.userDoc before rewriting to a legacy route.
+  // Do not repeat the remote-key verification and users query in that case.
+  if (isPeakosCollaborationAuthenticated(req)) {
+    if (rejectWorkspacePublicAttachment(req, res)) return undefined;
+    return next();
+  }
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'No token' });
   try {
@@ -1063,9 +1181,35 @@ async function authMiddleware(req, res, next) {
     if (req.userDoc?.external_calendar_only && !isExternalCalendarAllowedPath(req.path)) {
       return res.status(403).json({ error: 'This account is restricted to calendar and chat' });
     }
+    // Attach the authenticated user's default direct workspace to legacy
+    // Paragon routes, or resolve the explicit OS header. An untrusted header
+    // is never accepted without an active membership row.
+    await peakosWorkspaceService.attachRequestWorkspace(req, { required: false });
+    if (rejectWorkspacePublicAttachment(req, res)) return undefined;
+    const collaborationArea = collaborationAreaForPath(req.path);
+    if (collaborationArea && (!req.workspace || !workspacePermissionAllowsRequest(req, collaborationArea))) {
+      return res.status(403).json({
+        code: req.workspace?.headquartersOversight ? 'PEAKOS_WORKSPACE_READ_ONLY' : 'PEAKOS_WORKSPACE_AREA_FORBIDDEN',
+        error: '이 워크스페이스에서 해당 협업 기능을 사용할 수 없습니다.',
+      });
+    }
+    if (req.workspace?.id !== PEAK_WORKSPACE_ID && !isNonPeakWorkspaceSafePath(req.path)) {
+      return res.status(403).json({
+        code: 'PEAKOS_WORKSPACE_SURFACE_NOT_MIGRATED',
+        error: '이 기능은 워크스페이스 격리 적용 후 사용할 수 있습니다.',
+      });
+    }
+    if (req.workspace && (collaborationArea || req.workspaceSelectedByHeader)) {
+      res.set('Cache-Control', 'private, no-store');
+      res.vary('X-PeakOS-Workspace');
+      res.vary('Authorization');
+    }
     next();
   } catch (err) {
     console.error('Token verification error:', err.message);
+    if (err?.statusCode && err?.code?.startsWith('PEAKOS_')) {
+      return res.status(err.statusCode).json({ code: err.code, error: err.message });
+    }
     return res.status(401).json({ error: 'Invalid token' });
   }
 }
@@ -1077,6 +1221,12 @@ async function authMiddleware(req, res, next) {
 function isChatOnlyAllowedPath(pathname) {
   return /^\/api\/chat-rooms($|\/)/.test(pathname)
     || /^\/api\/chat($|\/)/.test(pathname)
+    || /^\/api\/peakos\/collaboration\/(?:chat|chat-rooms|chat-room-groups)(?:$|\/)/.test(pathname)
+    || /^\/api\/peakos\/collaboration\/users\/all-approved$/.test(pathname)
+    // Restricted accounts still enter PEAK OS through the same email
+    // second-factor endpoints before using their allowed collaboration tabs.
+    || /^\/api\/os-auth($|\/)/.test(pathname)
+    || /^\/api\/os\/workspaces($|\/)/.test(pathname)
     || /^\/api\/users\/me$/.test(pathname)
     || /^\/api\/users\/register$/.test(pathname)
     || /^\/api\/users\/me\/notification-settings$/.test(pathname)
@@ -1087,7 +1237,8 @@ function isChatOnlyAllowedPath(pathname) {
 
 function isExternalCalendarAllowedPath(pathname) {
   return isChatOnlyAllowedPath(pathname)
-    || /^\/api\/events($|\/)/.test(pathname);
+    || /^\/api\/events($|\/)/.test(pathname)
+    || /^\/api\/peakos\/collaboration\/(?:events|event-types|todo-cats)(?:$|\/)/.test(pathname);
 }
 
 function isExternalCalendarUser(req) {
@@ -1100,7 +1251,7 @@ const INTERNAL_CALENDAR_RULE_EVENT_SQL = `(COALESCE(e.todo_cat, '') = '보고서
   OR COALESCE(e.title, '') LIKE '%업무보고 작성%')`;
 
 async function canAccessEvent(req, eventId, { requireOwner = false } = {}) {
-  if (!eventId) return false;
+  if (!eventId || !req.workspace) return false;
   const result = await pool.query(
     `SELECT e.owner_id,
             e.scope,
@@ -1109,21 +1260,42 @@ async function canAccessEvent(req, eventId, { requireOwner = false } = {}) {
             EXISTS (SELECT 1 FROM event_shares es WHERE es.event_id = e.id AND es.user_id = $2) AS is_shared
      FROM events e
      LEFT JOIN users owner_user ON owner_user.uid = e.owner_id
-     WHERE e.id = $1 AND e.deleted = false`,
-    [eventId, req.uid]
+     WHERE e.id = $1 AND e.deleted = false
+       AND (e.workspace_id = $3 OR (e.workspace_id IS NULL AND $3 = $4))`,
+    [eventId, req.uid, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
   );
   const event = result.rows[0];
   if (!event) return false;
   if (isExternalCalendarUser(req) && event.is_internal_rule) return false;
   if (event.owner_id === req.uid) return true;
-  if (requireOwner) return false;
   if (req.userDoc?.role === 'admin') return true;
+  if (requireOwner) return false;
   if (req.userDoc?.role === 'manager'
       && event.scope === 'team'
       && event.owner_group_id
       && event.owner_group_id === req.userDoc.group_id) return true;
   return !!event.is_shared;
 }
+
+// PEAK OS collaboration requests use a reviewed, fail-closed alias surface.
+// The gateway verifies Firebase + the OS email session, rejects preview writes,
+// then rewrites to the canonical legacy path. The route below is therefore the
+// same handler and the same calendar_db transaction used by Paragon itself.
+app.use(createPeakosCollaborationGateway({
+  authMiddleware,
+  getRequireOsSession: () => peakosOsEmailAuth?.requireOsSession,
+  getRequireWorkspace: ({ req, target }) => {
+    const suffix = String(target?.suffix || '');
+    const area = suffix.startsWith('/chat-') ? 'chat'
+      : suffix.startsWith('/projects') ? 'projects'
+        : suffix.startsWith('/users/') ? 'projects'
+          : 'calendar';
+    const action = ['GET', 'HEAD', 'OPTIONS'].includes(String(req.method || '').toUpperCase())
+      ? 'read'
+      : 'write';
+    return peakosWorkspaceService.requireWorkspace({ area, action, requireHeader: true });
+  },
+}));
 
 // ── Users ──────────────────────────────────────────────────
 app.post('/api/users/register', authMiddleware, async (req, res) => {
@@ -1161,6 +1333,8 @@ app.get('/api/users/me', authMiddleware, async (req, res) => {
     ...user,
     peakos_special_settlement_views: peakosOwnedMonthlyViews(req),
     peakos_can_view_final_execution: peakosCanSeeFinalExecution(req),
+    peakos_can_view_finance_operations: peakosCanSeeFinanceOperations(req),
+    peakos_can_preview_accounts: peakosCanPreviewAccounts(req),
     peakos_can_read_bank: peakosBankCanRead(req),
     peakos_can_view_bank_balances: peakosBankCanViewBalances(req),
     peakos_can_review_finance: peakosCanReviewFinance(req),
@@ -1215,7 +1389,7 @@ app.post('/api/users/:uid/approve', authMiddleware, async (req, res) => {
   // flag in the same click instead of having to jump through three
   // separate UI dialogs. All fields are optional so legacy callers
   // that POST an empty body keep working.
-  const { role, groupId, chatOnly } = req.body || {};
+  const { role, groupId, chatOnly, workspaceSlug } = req.body || {};
   const sets = ['approved = true', 'is_active = true'];
   const params = [req.params.uid];
   if (role && ['member','manager'].includes(role)) {
@@ -1239,8 +1413,32 @@ app.post('/api/users/:uid/approve', authMiddleware, async (req, res) => {
       params.push(false);
     }
   }
-  await pool.query(`UPDATE users SET ${sets.join(', ')} WHERE uid = $1`, params);
-  res.json({ ok: true });
+  const membershipClient = await pool.connect();
+  try {
+    await membershipClient.query('BEGIN');
+    await membershipClient.query(`UPDATE users SET ${sets.join(', ')} WHERE uid = $1`, params);
+    const membership = await peakosWorkspaceService.syncUserDefaultMembership({
+      actorUid: req.uid,
+      targetUid: req.params.uid,
+      groupId,
+      workspaceSlug,
+      role,
+      client: membershipClient,
+    });
+    await peakosWorkspaceService.setUserMembershipsActive({
+      actorUid: req.uid,
+      targetUid: req.params.uid,
+      active: true,
+      client: membershipClient,
+    });
+    await membershipClient.query('COMMIT');
+    res.json({ ok: true, workspace: membership });
+  } catch (err) {
+    await membershipClient.query('ROLLBACK').catch(() => {});
+    res.status(err.statusCode || 500).json({ code: err.code, error: err.message });
+  } finally {
+    membershipClient.release();
+  }
 });
 
 app.post('/api/users/:uid/cancel-approval', authMiddleware, async (req, res) => {
@@ -1273,7 +1471,8 @@ app.get('/api/events', authMiddleware, async (req, res) => {
       ? req.query.from : null;
     const toParam = typeof req.query.to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.to)
       ? req.query.to : null;
-    const params = [req.uid];
+    if (!req.workspace) return res.status(403).json({ code: 'PEAKOS_WORKSPACE_REQUIRED', error: 'Workspace required' });
+    const params = [req.uid, requestWorkspaceId(req), PEAK_WORKSPACE_ID];
     const dateClauses = [];
     if (fromParam) { params.push(fromParam); dateClauses.push(`e.date >= $${params.length}`); }
     if (toParam) { params.push(toParam); dateClauses.push(`e.date <= $${params.length}`); }
@@ -1302,6 +1501,7 @@ app.get('/api/events', authMiddleware, async (req, res) => {
 	       LEFT JOIN projects ep ON ep.id = e.project_id
 	       LEFT JOIN project_details epd ON epd.project_id = ep.id
 	       WHERE e.deleted = false
+	         AND (e.workspace_id = $2 OR (e.workspace_id IS NULL AND $2 = $3))
 	         AND (e.project_id IS NULL OR (COALESCE(epd.deleted, false) = false AND ep.status IS DISTINCT FROM 'archived'))
 	         AND ${scopeWhere}${dateWhere}${externalRuleWhere}${sharedDoneWhere}
 	       GROUP BY e.id
@@ -1318,7 +1518,7 @@ app.get('/api/events', authMiddleware, async (req, res) => {
   }
 });
 
-async function getNextTodoSortOrder(date, todoCat, scope, ownerId) {
+async function getNextTodoSortOrder(date, todoCat, scope, ownerId, workspaceId) {
   const result = await pool.query(
     `SELECT COALESCE(MAX(sort_order), -1) + 1 AS next
      FROM events
@@ -1327,8 +1527,9 @@ async function getNextTodoSortOrder(date, todoCat, scope, ownerId) {
        AND date = $1
        AND scope = $2
        AND (($3::text IS NULL AND todo_cat IS NULL) OR todo_cat = $3)
-       AND ($2 <> 'personal' OR owner_id = $4)`,
-    [date, scope || 'personal', todoCat || null, ownerId || null]
+       AND ($2 <> 'personal' OR owner_id = $4)
+       AND (workspace_id = $5 OR (workspace_id IS NULL AND $5 = $6))`,
+    [date, scope || 'personal', todoCat || null, ownerId || null, workspaceId, PEAK_WORKSPACE_ID]
   );
   return parseInt(result.rows[0]?.next || '0', 10);
 }
@@ -1395,26 +1596,21 @@ app.post('/api/events', authMiddleware, async (req, res) => {
     const repeatDates = buildRepeatDates(date, repeatType, repeatEnd);
     let validShareIds = [];
     if (resolvedScope === 'team' && requestedShareIds.length) {
-      const shareUsers = await pool.query(
-        `SELECT uid FROM users
-         WHERE uid = ANY($1::text[])
-           AND approved = true
-           AND COALESCE(is_active, true) = true`,
-        [requestedShareIds]
+      validShareIds = await peakosWorkspaceService.assertUsersInWorkspace(
+        requestedShareIds,
+        requestWorkspaceId(req),
       );
-      validShareIds = shareUsers.rows.map(row => row.uid);
-      if (validShareIds.length !== requestedShareIds.length) {
-        return res.status(400).json({ error: '공유할 수 없는 사용자가 포함되어 있습니다.' });
-      }
     }
 
-    const sortOrder = type === 'todo' ? await getNextTodoSortOrder(date, todoCat, resolvedScope, req.uid) : 0;
+    const sortOrder = type === 'todo'
+      ? await getNextTodoSortOrder(date, todoCat, resolvedScope, req.uid, requestWorkspaceId(req))
+      : 0;
     client = await pool.connect();
     await client.query('BEGIN');
     const result = await client.query(
-      `INSERT INTO events (type, title, date, time, url, memo, todo_cat, reminder, scope, owner_id, owner_name, repeat_type, repeat_end, end_date, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
-      [type, title, date, time||'', url||'', memo||'', todoCat||null, reminder||null, resolvedScope, req.uid, req.userName, repeatType||null, repeatEnd||null, endDate||null, sortOrder]
+      `INSERT INTO events (workspace_id, type, title, date, time, url, memo, todo_cat, reminder, scope, owner_id, owner_name, repeat_type, repeat_end, end_date, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+      [requestWorkspaceId(req), type, title, date, time||'', url||'', memo||'', todoCat||null, reminder||null, resolvedScope, req.uid, req.userName, repeatType||null, repeatEnd||null, endDate||null, sortOrder]
     );
     const parent = result.rows[0];
     const eventIds = [parent.id];
@@ -1422,11 +1618,11 @@ app.post('/api/events', authMiddleware, async (req, res) => {
       await client.query('UPDATE events SET repeat_parent_id = $1 WHERE id = $1', [parent.id]);
       const children = await client.query(
         `INSERT INTO events
-           (type,title,date,time,url,memo,todo_cat,reminder,scope,owner_id,owner_name,repeat_type,repeat_end,repeat_parent_id,end_date,sort_order)
-         SELECT $1,$2,repeat_date,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,0
-         FROM unnest($15::text[]) AS repeat_dates(repeat_date)
+           (workspace_id,type,title,date,time,url,memo,todo_cat,reminder,scope,owner_id,owner_name,repeat_type,repeat_end,repeat_parent_id,end_date,sort_order)
+         SELECT $1,$2,$3,repeat_date,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,0
+         FROM unnest($16::text[]) AS repeat_dates(repeat_date)
          RETURNING id`,
-        [type, title, time||'', url||'', memo||'', todoCat||null, reminder||null, resolvedScope,
+        [requestWorkspaceId(req), type, title, time||'', url||'', memo||'', todoCat||null, reminder||null, resolvedScope,
           req.uid, req.userName, repeatType, repeatEnd, parent.id, endDate||null, repeatDates]
       );
       eventIds.push(...children.rows.map(row => row.id));
@@ -1559,7 +1755,13 @@ app.put('/api/events/:id', authMiddleware, async (req, res) => {
   try {
     client = await pool.connect();
     await client.query('BEGIN');
-    const ev = await client.query('SELECT * FROM events WHERE id = $1 FOR UPDATE', [req.params.id]);
+    const ev = await client.query(
+      `SELECT * FROM events
+        WHERE id = $1
+          AND (workspace_id = $2 OR (workspace_id IS NULL AND $2 = $3))
+        FOR UPDATE`,
+      [req.params.id, requestWorkspaceId(req), PEAK_WORKSPACE_ID],
+    );
     if (!ev.rows[0]) throw Object.assign(new Error('Not found'), { statusCode: 404 });
     if (req.userDoc.role !== 'admin' && ev.rows[0].owner_id !== req.uid) {
       throw Object.assign(new Error('Not owner'), { statusCode: 403 });
@@ -1571,17 +1773,10 @@ app.put('/api/events/:id', authMiddleware, async (req, res) => {
 
     let validShareIds = [];
     if (shouldSyncShares && resolvedScope === 'team' && requestedShareIds.length) {
-      const shareUsers = await client.query(
-        `SELECT uid FROM users
-         WHERE uid = ANY($1::text[])
-           AND approved = true
-           AND COALESCE(is_active, true) = true`,
-        [requestedShareIds]
+      validShareIds = await peakosWorkspaceService.assertUsersInWorkspace(
+        requestedShareIds,
+        requestWorkspaceId(req),
       );
-      validShareIds = shareUsers.rows.map(row => row.uid);
-      if (validShareIds.length !== requestedShareIds.length) {
-        throw Object.assign(new Error('공유할 수 없는 사용자가 포함되어 있습니다.'), { statusCode: 400 });
-      }
     }
     const oldShares = shouldSyncShares
       ? await client.query('SELECT user_id FROM event_shares WHERE event_id = $1', [req.params.id])
@@ -1748,8 +1943,11 @@ app.delete('/api/idea-cats/:id', authMiddleware, async (req, res) => {
 app.get('/api/event-types', authMiddleware, async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
   const result = await pool.query(
-    'SELECT * FROM custom_event_types WHERE owner_id = $1 ORDER BY sort_order, created_at',
-    [req.uid]
+    `SELECT * FROM custom_event_types
+      WHERE owner_id = $1
+        AND (workspace_id = $2 OR (workspace_id IS NULL AND $2 = $3))
+      ORDER BY sort_order, created_at`,
+    [req.uid, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
   );
   res.json(result.rows);
 });
@@ -1759,14 +1957,18 @@ app.post('/api/event-types', authMiddleware, async (req, res) => {
   const { name, icon, color } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
   const result = await pool.query(
-    'INSERT INTO custom_event_types (owner_id, name, icon, color) VALUES ($1,$2,$3,$4) RETURNING *',
-    [req.uid, name, icon || '📌', color || '#3B82F6']
+    'INSERT INTO custom_event_types (workspace_id, owner_id, name, icon, color) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+    [requestWorkspaceId(req), req.uid, name, icon || '📌', color || '#3B82F6']
   );
   res.json(result.rows[0]);
 });
 
 app.delete('/api/event-types/:id', authMiddleware, async (req, res) => {
-  await pool.query('DELETE FROM custom_event_types WHERE id = $1 AND owner_id = $2', [req.params.id, req.uid]);
+  await pool.query(
+    `DELETE FROM custom_event_types WHERE id = $1 AND owner_id = $2
+      AND (workspace_id = $3 OR (workspace_id IS NULL AND $3 = $4))`,
+    [req.params.id, req.uid, requestWorkspaceId(req), PEAK_WORKSPACE_ID],
+  );
   res.json({ ok: true });
 });
 
@@ -1774,8 +1976,11 @@ app.delete('/api/event-types/:id', authMiddleware, async (req, res) => {
 app.get('/api/todo-cats', authMiddleware, async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
   const result = await pool.query(
-    'SELECT * FROM custom_todo_cats WHERE owner_id = $1 ORDER BY sort_order, created_at',
-    [req.uid]
+    `SELECT * FROM custom_todo_cats
+      WHERE owner_id = $1
+        AND (workspace_id = $2 OR (workspace_id IS NULL AND $2 = $3))
+      ORDER BY sort_order, created_at`,
+    [req.uid, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
   );
   res.json(result.rows);
 });
@@ -1785,14 +1990,18 @@ app.post('/api/todo-cats', authMiddleware, async (req, res) => {
   const { name, color } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
   const result = await pool.query(
-    'INSERT INTO custom_todo_cats (owner_id, name, color) VALUES ($1,$2,$3) RETURNING *',
-    [req.uid, name, color || '#3B82F6']
+    'INSERT INTO custom_todo_cats (workspace_id, owner_id, name, color) VALUES ($1,$2,$3,$4) RETURNING *',
+    [requestWorkspaceId(req), req.uid, name, color || '#3B82F6']
   );
   res.json(result.rows[0]);
 });
 
 app.delete('/api/todo-cats/:id', authMiddleware, async (req, res) => {
-  await pool.query('DELETE FROM custom_todo_cats WHERE id = $1 AND owner_id = $2', [req.params.id, req.uid]);
+  await pool.query(
+    `DELETE FROM custom_todo_cats WHERE id = $1 AND owner_id = $2
+      AND (workspace_id = $3 OR (workspace_id IS NULL AND $3 = $4))`,
+    [req.params.id, req.uid, requestWorkspaceId(req), PEAK_WORKSPACE_ID],
+  );
   res.json({ ok: true });
 });
 
@@ -1805,6 +2014,7 @@ app.get('/api/chat-rooms', authMiddleware, async (req, res) => {
        FROM chat_rooms cr
        JOIN chat_room_members crm ON cr.id = crm.room_id
        WHERE crm.user_id = $1
+         AND (cr.workspace_id = $2 OR (cr.workspace_id IS NULL AND $2 = $3))
      ),
      member_counts AS (
        SELECT crm.room_id, COUNT(*)::int AS member_count
@@ -1813,6 +2023,11 @@ app.get('/api/chat-rooms', authMiddleware, async (req, res) => {
        JOIN users member_user ON member_user.uid = crm.user_id
          AND member_user.approved = true
          AND COALESCE(member_user.is_active, true) = true
+       JOIN peakos_workspace_memberships member_workspace
+         ON member_workspace.user_uid = crm.user_id
+        AND member_workspace.workspace_id = COALESCE(mr.workspace_id, $3)
+        AND member_workspace.active = TRUE
+        AND member_workspace.role <> 'oversight'
        GROUP BY crm.room_id
      ),
      last_messages AS (
@@ -1849,7 +2064,7 @@ app.get('/api/chat-rooms', authMiddleware, async (req, res) => {
      LEFT JOIN chat_room_groups crg ON crg.id = crgl.group_id AND crg.deleted = false
      LEFT JOIN last_messages lm ON lm.room_id = mr.id
      ORDER BY lm.last_message_at DESC NULLS LAST, mr.created_at DESC`,
-    [req.uid]
+    [req.uid, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
   );
   res.json(result.rows);
 });
@@ -1863,6 +2078,7 @@ app.get('/api/chat-room-groups', authMiddleware, async (req, res) => {
          FROM chat_rooms cr
          JOIN chat_room_members crm ON cr.id = crm.room_id
          WHERE crm.user_id = $1
+           AND (cr.workspace_id = $2 OR (cr.workspace_id IS NULL AND $2 = $3))
        )
        SELECT crg.*,
               COUNT(mr.id)::int AS room_count
@@ -1870,9 +2086,10 @@ app.get('/api/chat-room-groups', authMiddleware, async (req, res) => {
        LEFT JOIN chat_room_group_links crgl ON crgl.group_id = crg.id
        LEFT JOIN my_rooms mr ON mr.id = crgl.room_id
        WHERE crg.deleted = false
+         AND (crg.workspace_id = $2 OR (crg.workspace_id IS NULL AND $2 = $3))
        GROUP BY crg.id
        ORDER BY crg.sort_order, crg.created_at`,
-      [req.uid]
+      [req.uid, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
     );
     res.json({ canManage: canManageChatRoomGroups(req), groups: result.rows });
   } catch (err) {
@@ -1888,10 +2105,11 @@ app.post('/api/chat-room-groups', authMiddleware, async (req, res) => {
     const color = String(req.body?.color || '#007AFF').trim().slice(0, 20);
     if (!name) return res.status(400).json({ error: 'Name required' });
     const result = await pool.query(
-      `INSERT INTO chat_room_groups (id, name, color, sort_order, created_by)
-       VALUES ($1,$2,$3,(SELECT COALESCE(MAX(sort_order),0)+1 FROM chat_room_groups),$4)
+      `INSERT INTO chat_room_groups (workspace_id, id, name, color, sort_order, created_by)
+       VALUES ($1,$2,$3,$4,(SELECT COALESCE(MAX(sort_order),0)+1 FROM chat_room_groups
+                              WHERE workspace_id = $1 OR (workspace_id IS NULL AND $1 = $6)),$5)
        RETURNING *`,
-      [crypto.randomUUID(), name, color || '#007AFF', req.uid]
+      [requestWorkspaceId(req), crypto.randomUUID(), name, color || '#007AFF', req.uid, PEAK_WORKSPACE_ID]
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -1910,8 +2128,9 @@ app.put('/api/chat-room-groups/:id', authMiddleware, async (req, res) => {
       `UPDATE chat_room_groups
        SET name=$1, color=$2, updated_at=NOW()
        WHERE id=$3 AND deleted=false
+         AND (workspace_id = $4 OR (workspace_id IS NULL AND $4 = $5))
        RETURNING *`,
-      [name, color || '#007AFF', req.params.id]
+      [name, color || '#007AFF', req.params.id, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'Not found' });
     res.json(result.rows[0]);
@@ -1924,7 +2143,13 @@ app.delete('/api/chat-room-groups/:id', authMiddleware, async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
   if (!canManageChatRoomGroups(req)) return res.status(403).json({ error: 'Manager only' });
   try {
-    await pool.query('UPDATE chat_room_groups SET deleted=true, updated_at=NOW() WHERE id=$1', [req.params.id]);
+    const group = await pool.query(
+      `UPDATE chat_room_groups SET deleted=true, updated_at=NOW()
+        WHERE id=$1 AND (workspace_id = $2 OR (workspace_id IS NULL AND $2 = $3))
+        RETURNING id`,
+      [req.params.id, requestWorkspaceId(req), PEAK_WORKSPACE_ID],
+    );
+    if (!group.rows[0]) return res.status(404).json({ error: 'Not found' });
     await pool.query('DELETE FROM chat_room_group_links WHERE group_id=$1', [req.params.id]);
     res.json({ ok: true });
   } catch (err) {
@@ -1936,15 +2161,29 @@ function parseJsonSafely(value) {
   try { return JSON.parse(value); } catch (err) { return null; }
 }
 
-async function getChatRoomById(roomId) {
-  const result = await pool.query('SELECT * FROM chat_rooms WHERE id = $1', [roomId]);
+async function getChatRoomById(roomId, req) {
+  if (!req?.workspace) return null;
+  const result = await pool.query(
+    `SELECT * FROM chat_rooms WHERE id = $1
+      AND (workspace_id = $2 OR (workspace_id IS NULL AND $2 = $3))`,
+    [roomId, requestWorkspaceId(req), PEAK_WORKSPACE_ID],
+  );
   return result.rows[0] || null;
 }
 
-async function isChatRoomMember(roomId, userId) {
+async function isChatRoomMember(roomId, userId, req) {
+  if (!req?.workspace) return false;
   const result = await pool.query(
-    'SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2',
-    [roomId, userId]
+    `SELECT 1 FROM chat_room_members crm
+      JOIN chat_rooms cr ON cr.id = crm.room_id
+      JOIN peakos_workspace_memberships pwm
+        ON pwm.user_uid = crm.user_id
+       AND pwm.workspace_id = COALESCE(cr.workspace_id, $4)
+       AND pwm.active = TRUE
+       AND pwm.role <> 'oversight'
+      WHERE crm.room_id = $1 AND crm.user_id = $2
+        AND (cr.workspace_id = $3 OR (cr.workspace_id IS NULL AND $3 = $4))`,
+    [roomId, userId, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
   );
   return !!result.rows[0];
 }
@@ -1989,12 +2228,18 @@ async function notifyChatRoomMembers(roomId, senderUid, title, body) {
   const members = await pool.query(
     `SELECT crm.user_id
      FROM chat_room_members crm
+     JOIN chat_rooms cr ON cr.id = crm.room_id
      JOIN users u ON u.uid = crm.user_id
+     JOIN peakos_workspace_memberships pwm
+       ON pwm.user_uid = crm.user_id
+      AND pwm.workspace_id = COALESCE(cr.workspace_id, $3)
+      AND pwm.active = TRUE
+      AND pwm.role <> 'oversight'
      WHERE crm.room_id = $1
        AND crm.user_id != $2
        AND u.approved = true
        AND COALESCE(u.is_active, true) = true`,
-    [roomId, senderUid]
+    [roomId, senderUid, PEAK_WORKSPACE_ID]
   );
   for (const member of members.rows) {
     sendPushToUser(member.user_id, title, body, {
@@ -2054,22 +2299,23 @@ app.post('/api/chat-rooms', authMiddleware, async (req, res) => {
     let validMemberIds = [];
     if (requestedMemberIds.length) {
       const restrictedDirectory = req.userDoc.chat_only || req.userDoc.external_calendar_only;
-      const validUsers = await pool.query(
-        `SELECT uid FROM users
-         WHERE uid = ANY($1::text[])
-           AND approved = true
-           AND COALESCE(is_active, true) = true
-           AND ($2::boolean = false OR role = 'admin')`,
-        [requestedMemberIds, restrictedDirectory]
+      validMemberIds = await peakosWorkspaceService.assertUsersInWorkspace(
+        requestedMemberIds,
+        requestWorkspaceId(req),
       );
-      validMemberIds = validUsers.rows.map(row => row.uid);
-      if (validMemberIds.length !== requestedMemberIds.length) {
-        return res.status(400).json({ error: '초대할 수 없는 사용자가 포함되어 있습니다.' });
+      if (restrictedDirectory) {
+        const admins = await pool.query(
+          'SELECT uid FROM users WHERE uid = ANY($1::text[]) AND role = $2',
+          [validMemberIds, 'admin'],
+        );
+        if (admins.rows.length !== validMemberIds.length) {
+          return res.status(400).json({ error: '초대할 수 없는 사용자가 포함되어 있습니다.' });
+        }
       }
     }
     const room = await pool.query(
-      'INSERT INTO chat_rooms (name, creator_id) VALUES ($1, $2) RETURNING *',
-      [name, req.uid]
+      'INSERT INTO chat_rooms (workspace_id, name, creator_id) VALUES ($1, $2, $3) RETURNING *',
+      [requestWorkspaceId(req), name, req.uid]
     );
     const roomId = room.rows[0].id;
     // 생성자 자동 추가
@@ -2084,7 +2330,11 @@ app.post('/api/chat-rooms', authMiddleware, async (req, res) => {
       }
     }
     if (groupId) {
-      const group = await pool.query('SELECT id FROM chat_room_groups WHERE id=$1 AND deleted=false', [groupId]);
+      const group = await pool.query(
+        `SELECT id FROM chat_room_groups WHERE id=$1 AND deleted=false
+          AND (workspace_id = $2 OR (workspace_id IS NULL AND $2 = $3))`,
+        [groupId, requestWorkspaceId(req), PEAK_WORKSPACE_ID],
+      );
       if (group.rows[0]) {
         await pool.query(
           'INSERT INTO chat_room_group_links (room_id, group_id, updated_by) VALUES ($1,$2,$3) ON CONFLICT (room_id) DO UPDATE SET group_id=EXCLUDED.group_id, updated_by=EXCLUDED.updated_by, updated_at=NOW()',
@@ -2104,21 +2354,19 @@ app.put('/api/chat-rooms/:roomId', authMiddleware, async (req, res) => {
   if (!name) return res.status(400).json({ error: 'Name required' });
   if (name.length > 60) return res.status(400).json({ error: '이름은 60자 이하여야 합니다.' });
 
-  const room = await pool.query('SELECT * FROM chat_rooms WHERE id = $1', [req.params.roomId]);
-  if (!room.rows[0]) return res.status(404).json({ error: 'Not found' });
+  const room = await getChatRoomById(req.params.roomId, req);
+  if (!room) return res.status(404).json({ error: 'Not found' });
 
-  const member = await pool.query(
-    'SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2',
-    [req.params.roomId, req.uid]
-  );
-  if (!member.rows[0]) return res.status(403).json({ error: 'Not a member' });
+  const member = await isChatRoomMember(req.params.roomId, req.uid, req);
+  if (!member) return res.status(403).json({ error: 'Not a member' });
 
-  const canManage = room.rows[0].creator_id === req.uid || req.userDoc?.role === 'admin';
+  const canManage = room.creator_id === req.uid || req.userDoc?.role === 'admin';
   if (!canManage) return res.status(403).json({ error: '생성자 또는 관리자만 수정할 수 있습니다.' });
 
   const updated = await pool.query(
-    'UPDATE chat_rooms SET name = $1 WHERE id = $2 RETURNING *',
-    [name, req.params.roomId]
+    `UPDATE chat_rooms SET name = $1 WHERE id = $2
+      AND (workspace_id = $3 OR (workspace_id IS NULL AND $3 = $4)) RETURNING *`,
+    [name, req.params.roomId, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
   );
   res.json(updated.rows[0]);
 });
@@ -2134,8 +2382,9 @@ async function getManageableChatRoomsForBulk(roomIds, req) {
     `SELECT cr.*
      FROM chat_rooms cr
      JOIN chat_room_members crm ON crm.room_id = cr.id AND crm.user_id = $1
-     WHERE cr.id = ANY($2::text[])`,
-    [req.uid, ids]
+     WHERE cr.id = ANY($2::text[])
+       AND (cr.workspace_id = $3 OR (cr.workspace_id IS NULL AND $3 = $4))`,
+    [req.uid, ids, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
   );
   const roomMap = new Map(result.rows.map(room => [String(room.id), room]));
   const canManageGroups = canManageChatRoomGroups(req);
@@ -2159,7 +2408,11 @@ app.put('/api/chat-rooms/bulk/group', authMiddleware, async (req, res) => {
       return res.json({ ok: true, updated: ids.length, group_id: null });
     }
 
-    const group = await pool.query('SELECT id FROM chat_room_groups WHERE id=$1 AND deleted=false', [groupId]);
+    const group = await pool.query(
+      `SELECT id FROM chat_room_groups WHERE id=$1 AND deleted=false
+        AND (workspace_id = $2 OR (workspace_id IS NULL AND $2 = $3))`,
+      [groupId, requestWorkspaceId(req), PEAK_WORKSPACE_ID],
+    );
     if (!group.rows[0]) return res.status(404).json({ error: 'Group not found' });
 
     for (const roomId of ids) {
@@ -2179,9 +2432,9 @@ app.put('/api/chat-rooms/bulk/group', authMiddleware, async (req, res) => {
 app.put('/api/chat-rooms/:roomId/group', authMiddleware, async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
   try {
-    const room = await getChatRoomById(req.params.roomId);
+    const room = await getChatRoomById(req.params.roomId, req);
     if (!room) return res.status(404).json({ error: 'Not found' });
-    const member = await isChatRoomMember(req.params.roomId, req.uid);
+    const member = await isChatRoomMember(req.params.roomId, req.uid, req);
     if (!member) return res.status(403).json({ error: 'Not a member' });
     if (!canManageChatRoom(room, req) && !canManageChatRoomGroups(req)) {
       return res.status(403).json({ error: '생성자, 관리자 또는 그룹 관리자만 이동할 수 있습니다.' });
@@ -2191,7 +2444,11 @@ app.put('/api/chat-rooms/:roomId/group', authMiddleware, async (req, res) => {
       await pool.query('DELETE FROM chat_room_group_links WHERE room_id=$1', [req.params.roomId]);
       return res.json({ ok: true, group_id: null });
     }
-    const group = await pool.query('SELECT id FROM chat_room_groups WHERE id=$1 AND deleted=false', [groupId]);
+    const group = await pool.query(
+      `SELECT id FROM chat_room_groups WHERE id=$1 AND deleted=false
+        AND (workspace_id = $2 OR (workspace_id IS NULL AND $2 = $3))`,
+      [groupId, requestWorkspaceId(req), PEAK_WORKSPACE_ID],
+    );
     if (!group.rows[0]) return res.status(404).json({ error: 'Group not found' });
     await pool.query(
       `INSERT INTO chat_room_group_links (room_id, group_id, updated_by)
@@ -2207,7 +2464,7 @@ app.put('/api/chat-rooms/:roomId/group', authMiddleware, async (req, res) => {
 
 app.get('/api/chat-rooms/:roomId/members', authMiddleware, async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
-  const member = await isChatRoomMember(req.params.roomId, req.uid);
+  const member = await isChatRoomMember(req.params.roomId, req.uid, req);
   if (!member) return res.status(403).json({ error: 'Not a member' });
   const result = await pool.query(
     `SELECT u.uid, u.name, u.email, u.photo_url,
@@ -2215,11 +2472,16 @@ app.get('/api/chat-rooms/:roomId/members', authMiddleware, async (req, res) => {
      FROM chat_room_members crm
      JOIN users u ON crm.user_id = u.uid
      JOIN chat_rooms cr ON cr.id = crm.room_id
+     JOIN peakos_workspace_memberships pwm
+       ON pwm.user_uid = crm.user_id
+      AND pwm.workspace_id = COALESCE(cr.workspace_id, $2)
+      AND pwm.active = TRUE
+      AND pwm.role <> 'oversight'
      WHERE crm.room_id = $1
        AND u.approved = true
        AND COALESCE(u.is_active, true) = true
      ORDER BY (u.uid = cr.creator_id) DESC, u.name`,
-    [req.params.roomId]
+    [req.params.roomId, PEAK_WORKSPACE_ID]
   );
   res.json(result.rows);
 });
@@ -2227,16 +2489,24 @@ app.get('/api/chat-rooms/:roomId/members', authMiddleware, async (req, res) => {
 app.post('/api/chat-rooms/:roomId/members', authMiddleware, async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
   const { userId } = req.body;
-  const room = await getChatRoomById(req.params.roomId);
+  const room = await getChatRoomById(req.params.roomId, req);
   if (!room) return res.status(404).json({ error: 'Not found' });
-  const member = await isChatRoomMember(req.params.roomId, req.uid);
+  const member = await isChatRoomMember(req.params.roomId, req.uid, req);
   if (!member) return res.status(403).json({ error: 'Not a member' });
   if (!canManageChatRoom(room, req)) return res.status(403).json({ error: '생성자 또는 관리자만 멤버를 추가할 수 있습니다.' });
-  const user = await pool.query(
-    'SELECT uid FROM users WHERE uid = $1 AND approved = true AND COALESCE(is_active, true) = true',
-    [userId]
-  );
-  if (!user.rows[0]) return res.status(400).json({ error: '초대할 수 없는 사용자입니다.' });
+  // Restricted chat/calendar accounts only receive the admin directory.
+  // Enforce the same boundary here as well, so a caller cannot bypass the
+  // directory by submitting a known employee UID directly.
+  const restrictedDirectory = req.userDoc.chat_only || req.userDoc.external_calendar_only;
+  try {
+    await peakosWorkspaceService.assertUsersInWorkspace([userId], requestWorkspaceId(req));
+  } catch (error) {
+    return res.status(error.statusCode || 400).json({ code: error.code, error: error.message });
+  }
+  if (restrictedDirectory) {
+    const user = await pool.query('SELECT uid FROM users WHERE uid = $1 AND role = $2', [userId, 'admin']);
+    if (!user.rows[0]) return res.status(400).json({ error: '초대할 수 없는 사용자입니다.' });
+  }
   await pool.query(
     'INSERT INTO chat_room_members (room_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
     [req.params.roomId, userId]
@@ -2246,9 +2516,9 @@ app.post('/api/chat-rooms/:roomId/members', authMiddleware, async (req, res) => 
 
 app.delete('/api/chat-rooms/:roomId/members/:userId', authMiddleware, async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
-  const room = await getChatRoomById(req.params.roomId);
+  const room = await getChatRoomById(req.params.roomId, req);
   if (!room) return res.status(404).json({ error: 'Not found' });
-  const member = await isChatRoomMember(req.params.roomId, req.uid);
+  const member = await isChatRoomMember(req.params.roomId, req.uid, req);
   if (!member) return res.status(403).json({ error: 'Not a member' });
   if (!canManageChatRoom(room, req)) return res.status(403).json({ error: '생성자 또는 관리자만 멤버를 제외할 수 있습니다.' });
   if (room.creator_id === req.params.userId) return res.status(400).json({ error: '방 생성자는 제외할 수 없습니다.' });
@@ -2275,10 +2545,10 @@ app.post('/api/chat-rooms/:roomId/action-items/convert', authMiddleware, async (
   if (!normalizedDate) return res.status(400).json({ error: '날짜를 선택하세요.' });
   if (!['todo', 'meeting'].includes(targetType)) return res.status(400).json({ error: '잘못된 전환 타입입니다.' });
 
-  const room = await getChatRoomById(req.params.roomId);
+  const room = await getChatRoomById(req.params.roomId, req);
   if (!room) return res.status(404).json({ error: 'Not found' });
 
-  const requesterMember = await isChatRoomMember(req.params.roomId, req.uid);
+  const requesterMember = await isChatRoomMember(req.params.roomId, req.uid, req);
   if (!requesterMember) return res.status(403).json({ error: 'Not a member' });
 
   const manager = canManageChatRoom(room, req);
@@ -2286,7 +2556,7 @@ app.post('/api/chat-rooms/:roomId/action-items/convert', authMiddleware, async (
     return res.status(403).json({ error: '다른 담당자의 일정은 방 생성자 또는 관리자만 등록할 수 있습니다.' });
   }
 
-  const assigneeMember = await isChatRoomMember(req.params.roomId, normalizedAssignee);
+  const assigneeMember = await isChatRoomMember(req.params.roomId, normalizedAssignee, req);
   if (!assigneeMember) return res.status(400).json({ error: '담당자는 이 채팅방 멤버여야 합니다.' });
 
   const actionMessage = await pool.query(
@@ -2326,9 +2596,10 @@ app.post('/api/chat-rooms/:roomId/action-items/convert', authMiddleware, async (
 
   const eventType = targetType === 'todo' ? 'todo' : 'meeting';
   const createdEvent = await pool.query(
-    `INSERT INTO events (type, title, date, time, url, memo, todo_cat, reminder, scope, owner_id, owner_name, repeat_type, repeat_end, end_date)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+    `INSERT INTO events (workspace_id, type, title, date, time, url, memo, todo_cat, reminder, scope, owner_id, owner_name, repeat_type, repeat_end, end_date)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
     [
+      requestWorkspaceId(req),
       eventType,
       normalizedTitle,
       normalizedDate,
@@ -2349,11 +2620,17 @@ app.post('/api/chat-rooms/:roomId/action-items/convert', authMiddleware, async (
   const memberIds = await pool.query(
     `SELECT crm.user_id
      FROM chat_room_members crm
+     JOIN chat_rooms cr ON cr.id = crm.room_id
      JOIN users u ON u.uid = crm.user_id
+     JOIN peakos_workspace_memberships pwm
+       ON pwm.user_uid = crm.user_id
+      AND pwm.workspace_id = COALESCE(cr.workspace_id, $2)
+      AND pwm.active = TRUE
+      AND pwm.role <> 'oversight'
      WHERE crm.room_id = $1
        AND u.approved = true
        AND COALESCE(u.is_active, true) = true`,
-    [req.params.roomId]
+    [req.params.roomId, PEAK_WORKSPACE_ID]
   );
   for (const memberRow of memberIds.rows) {
     if (memberRow.user_id === normalizedAssignee) continue;
@@ -2393,6 +2670,9 @@ app.post('/api/chat-rooms/:roomId/action-items/convert', authMiddleware, async (
 
 // ── 채팅방 나가기 ──────────────────────────────────────────
 app.post('/api/chat-rooms/:roomId/leave', authMiddleware, async (req, res) => {
+  if (!(await isChatRoomMember(req.params.roomId, req.uid, req))) {
+    return res.status(403).json({ error: 'Not a member' });
+  }
   await pool.query('DELETE FROM chat_room_members WHERE room_id = $1 AND user_id = $2', [req.params.roomId, req.uid]);
   res.json({ ok: true });
 });
@@ -2409,8 +2689,9 @@ app.post('/api/chat-rooms/bulk/request-delete', authMiddleware, async (req, res)
     `SELECT cr.*
      FROM chat_rooms cr
      JOIN chat_room_members crm ON crm.room_id = cr.id AND crm.user_id = $1
-     WHERE cr.id = ANY($2::text[])`,
-    [req.uid, ids]
+     WHERE cr.id = ANY($2::text[])
+       AND (cr.workspace_id = $3 OR (cr.workspace_id IS NULL AND $3 = $4))`,
+    [req.uid, ids, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
   );
   const roomMap = new Map(result.rows.map(room => [String(room.id), room]));
   const forbidden = ids.filter(id => {
@@ -2420,24 +2701,32 @@ app.post('/api/chat-rooms/bulk/request-delete', authMiddleware, async (req, res)
   if (forbidden.length) return res.status(403).json({ error: '생성자가 아닌 채팅방이 포함되어 있습니다.' });
 
   await pool.query(
-    'UPDATE chat_rooms SET delete_requested = true, delete_requested_by = $1 WHERE id = ANY($2::text[])',
-    [req.uid, ids]
+    `UPDATE chat_rooms SET delete_requested = true, delete_requested_by = $1
+      WHERE id = ANY($2::text[])
+        AND (workspace_id = $3 OR (workspace_id IS NULL AND $3 = $4))`,
+    [req.uid, ids, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
   );
   res.json({ ok: true, updated: ids.length });
 });
 
 // ── 채팅방 삭제 요청 (생성자만) ──────────────────────────────
 app.post('/api/chat-rooms/:roomId/request-delete', authMiddleware, async (req, res) => {
-  const room = await pool.query('SELECT * FROM chat_rooms WHERE id = $1', [req.params.roomId]);
-  if (!room.rows[0]) return res.status(404).json({ error: 'Not found' });
-  if (room.rows[0].creator_id !== req.uid) return res.status(403).json({ error: '생성자만 삭제 요청 가능' });
-  await pool.query('UPDATE chat_rooms SET delete_requested = true, delete_requested_by = $1 WHERE id = $2', [req.uid, req.params.roomId]);
+  const room = await getChatRoomById(req.params.roomId, req);
+  if (!room) return res.status(404).json({ error: 'Not found' });
+  if (room.creator_id !== req.uid) return res.status(403).json({ error: '생성자만 삭제 요청 가능' });
+  await pool.query(
+    `UPDATE chat_rooms SET delete_requested = true, delete_requested_by = $1 WHERE id = $2
+      AND (workspace_id = $3 OR (workspace_id IS NULL AND $3 = $4))`,
+    [req.uid, req.params.roomId, requestWorkspaceId(req), PEAK_WORKSPACE_ID],
+  );
   res.json({ ok: true });
 });
 
 // ── 채팅방 삭제 승인 (admin만) ───────────────────────────────
 app.delete('/api/chat-rooms/:roomId', authMiddleware, async (req, res) => {
   if (req.userDoc?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  const room = await getChatRoomById(req.params.roomId, req);
+  if (!room) return res.status(404).json({ error: 'Not found' });
   await pool.query('DELETE FROM chat WHERE room_id = $1', [req.params.roomId]);
   await pool.query('DELETE FROM chat_room_members WHERE room_id = $1', [req.params.roomId]);
   await pool.query('DELETE FROM chat_rooms WHERE id = $1', [req.params.roomId]);
@@ -2451,18 +2740,29 @@ app.post('/api/chat-rooms/bulk/delete', authMiddleware, async (req, res) => {
     .filter(Boolean)))
     .slice(0, 200);
   if (!ids.length) return res.status(400).json({ error: '선택된 채팅방이 없습니다.' });
-  await pool.query('DELETE FROM chat_room_group_links WHERE room_id = ANY($1::text[])', [ids]);
-  await pool.query('DELETE FROM chat WHERE room_id = ANY($1::text[])', [ids]);
-  await pool.query('DELETE FROM chat_room_members WHERE room_id = ANY($1::text[])', [ids]);
-  await pool.query('DELETE FROM chat_rooms WHERE id = ANY($1::text[])', [ids]);
-  res.json({ ok: true, deleted: ids.length });
+  const scoped = await pool.query(
+    `SELECT id FROM chat_rooms WHERE id = ANY($1::text[])
+      AND (workspace_id = $2 OR (workspace_id IS NULL AND $2 = $3))`,
+    [ids, requestWorkspaceId(req), PEAK_WORKSPACE_ID],
+  );
+  const scopedIds = scoped.rows.map(row => row.id);
+  if (scopedIds.length !== ids.length) return res.status(404).json({ error: 'Not found' });
+  await pool.query('DELETE FROM chat_room_group_links WHERE room_id = ANY($1::text[])', [scopedIds]);
+  await pool.query('DELETE FROM chat WHERE room_id = ANY($1::text[])', [scopedIds]);
+  await pool.query('DELETE FROM chat_room_members WHERE room_id = ANY($1::text[])', [scopedIds]);
+  await pool.query('DELETE FROM chat_rooms WHERE id = ANY($1::text[])', [scopedIds]);
+  res.json({ ok: true, deleted: scopedIds.length });
 });
 
 // ── 삭제 요청된 채팅방 목록 (admin) ─────────────────────────
 app.get('/api/chat-rooms/delete-requests', authMiddleware, async (req, res) => {
   if (req.userDoc?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
   const result = await pool.query(
-    `SELECT cr.*, u.name as requester_name FROM chat_rooms cr JOIN users u ON cr.delete_requested_by = u.uid WHERE cr.delete_requested = true`
+    `SELECT cr.*, u.name as requester_name
+       FROM chat_rooms cr JOIN users u ON cr.delete_requested_by = u.uid
+      WHERE cr.delete_requested = true
+        AND (cr.workspace_id = $1 OR (cr.workspace_id IS NULL AND $1 = $2))`,
+    [requestWorkspaceId(req), PEAK_WORKSPACE_ID]
   );
   res.json(result.rows);
 });
@@ -2470,14 +2770,19 @@ app.get('/api/chat-rooms/delete-requests', authMiddleware, async (req, res) => {
 // ── 채팅방 삭제 요청 거절 ────────────────────────────────────
 app.post('/api/chat-rooms/:roomId/reject-delete', authMiddleware, async (req, res) => {
   if (req.userDoc?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
-  await pool.query('UPDATE chat_rooms SET delete_requested = false, delete_requested_by = null WHERE id = $1', [req.params.roomId]);
+  const updated = await pool.query(
+    `UPDATE chat_rooms SET delete_requested = false, delete_requested_by = null WHERE id = $1
+      AND (workspace_id = $2 OR (workspace_id IS NULL AND $2 = $3)) RETURNING id`,
+    [req.params.roomId, requestWorkspaceId(req), PEAK_WORKSPACE_ID],
+  );
+  if (!updated.rows[0]) return res.status(404).json({ error: 'Not found' });
   res.json({ ok: true });
 });
 
 // ── Chat Messages (방별 메시지) ─────────────────────────────
 app.get('/api/chat-rooms/:roomId/typing', authMiddleware, async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
-  if (!(await isChatRoomMember(req.params.roomId, req.uid))) {
+  if (!(await isChatRoomMember(req.params.roomId, req.uid, req))) {
     return res.status(403).json({ error: 'Not a member' });
   }
   res.json({ users: getLiveChatTypingUsers(req.params.roomId, req.uid) });
@@ -2485,7 +2790,7 @@ app.get('/api/chat-rooms/:roomId/typing', authMiddleware, async (req, res) => {
 
 app.post('/api/chat-rooms/:roomId/typing', authMiddleware, async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
-  if (!(await isChatRoomMember(req.params.roomId, req.uid))) {
+  if (!(await isChatRoomMember(req.params.roomId, req.uid, req))) {
     return res.status(403).json({ error: 'Not a member' });
   }
   const roomKey = String(req.params.roomId);
@@ -2505,11 +2810,9 @@ app.post('/api/chat-rooms/:roomId/typing', authMiddleware, async (req, res) => {
 app.get('/api/chat-rooms/:roomId/messages', authMiddleware, async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
   // 멤버인지 확인
-  const member = await pool.query(
-    'SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2',
-    [req.params.roomId, req.uid]
-  );
-  if (!member.rows[0]) return res.status(403).json({ error: 'Not a member' });
+  if (!(await isChatRoomMember(req.params.roomId, req.uid, req))) {
+    return res.status(403).json({ error: 'Not a member' });
+  }
   const result = await pool.query(
     `SELECT * FROM (
        SELECT * FROM chat
@@ -2525,11 +2828,9 @@ app.get('/api/chat-rooms/:roomId/messages', authMiddleware, async (req, res) => 
 
 app.post('/api/chat-rooms/:roomId/messages', authMiddleware, async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
-  const member = await pool.query(
-    'SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2',
-    [req.params.roomId, req.uid]
-  );
-  if (!member.rows[0]) return res.status(403).json({ error: 'Not a member' });
+  if (!(await isChatRoomMember(req.params.roomId, req.uid, req))) {
+    return res.status(403).json({ error: 'Not a member' });
+  }
   const text = String(req.body?.text || '').trim();
   if (!text) return res.status(400).json({ error: '메시지를 입력하세요.' });
   const result = await pool.query(
@@ -2547,14 +2848,24 @@ app.post('/api/chat-rooms/:roomId/messages', authMiddleware, async (req, res) =>
   const members = await pool.query(
     `SELECT crm.user_id, u.name
      FROM chat_room_members crm
+     JOIN chat_rooms cr ON cr.id = crm.room_id
      JOIN users u ON u.uid = crm.user_id
+     JOIN peakos_workspace_memberships pwm
+       ON pwm.user_uid = crm.user_id
+      AND pwm.workspace_id = COALESCE(cr.workspace_id, $3)
+      AND pwm.active = TRUE
+      AND pwm.role <> 'oversight'
      WHERE crm.room_id = $1
        AND crm.user_id != $2
        AND u.approved = true
        AND COALESCE(u.is_active, true) = true`,
-    [req.params.roomId, req.uid]
+    [req.params.roomId, req.uid, PEAK_WORKSPACE_ID]
   );
-  const roomInfo = await pool.query('SELECT name FROM chat_rooms WHERE id = $1', [req.params.roomId]);
+  const roomInfo = await pool.query(
+    `SELECT name FROM chat_rooms WHERE id = $1
+      AND (workspace_id = $2 OR (workspace_id IS NULL AND $2 = $3))`,
+    [req.params.roomId, requestWorkspaceId(req), PEAK_WORKSPACE_ID],
+  );
   const roomName = roomInfo.rows[0]?.name || '채팅';
   const msgPreview = getChatPreviewText(text || '');
   const mentionedUserIds = new Set(
@@ -2584,11 +2895,9 @@ app.post('/api/chat-rooms/:roomId/messages', authMiddleware, async (req, res) =>
 // 이미지 업로드 메시지
 app.post('/api/chat-rooms/:roomId/upload', authMiddleware, upload.single('image'), async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
-  const member = await pool.query(
-    'SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2',
-    [req.params.roomId, req.uid]
-  );
-  if (!member.rows[0]) return res.status(403).json({ error: 'Not a member' });
+  if (!(await isChatRoomMember(req.params.roomId, req.uid, req))) {
+    return res.status(403).json({ error: 'Not a member' });
+  }
   if (!req.file) return res.status(400).json({ error: 'No image' });
   const imageUrl = '/uploads/' + req.file.filename;
   const result = await pool.query(
@@ -2605,10 +2914,21 @@ app.post('/api/chat-rooms/:roomId/upload', authMiddleware, upload.single('image'
 
 // 읽음 표시 업데이트
 app.post('/api/chat-rooms/:roomId/read', authMiddleware, async (req, res) => {
-  const { lastMsgId } = req.body;
+  if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
+  if (!(await isChatRoomMember(req.params.roomId, req.uid, req))) {
+    return res.status(403).json({ error: 'Not a member' });
+  }
+  const lastMsgId = normalizeChatMessageId(req.body?.lastMsgId);
+  if (!lastMsgId) return res.status(400).json({ error: '유효한 마지막 메시지가 필요합니다.' });
+  const message = await pool.query(
+    'SELECT id FROM chat WHERE id = $1 AND room_id = $2',
+    [lastMsgId, req.params.roomId]
+  );
+  if (!message.rows[0]) return res.status(404).json({ error: 'Message not found in this room' });
   await pool.query(
     `INSERT INTO chat_read_status (room_id, user_id, last_read_msg_id, last_read_at)
-     VALUES ($1,$2,$3,NOW()) ON CONFLICT (room_id, user_id) DO UPDATE SET last_read_msg_id=$3, last_read_at=NOW()`,
+     VALUES ($1,$2,$3,NOW()) ON CONFLICT (room_id, user_id) DO UPDATE
+     SET last_read_msg_id=$3, last_read_at=NOW()`,
     [req.params.roomId, req.uid, lastMsgId]
   );
   res.json({ ok: true });
@@ -2616,6 +2936,10 @@ app.post('/api/chat-rooms/:roomId/read', authMiddleware, async (req, res) => {
 
 // 메시지별 안 읽은 수 조회
 app.get('/api/chat-rooms/:roomId/unread-counts', authMiddleware, async (req, res) => {
+  if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
+  if (!(await isChatRoomMember(req.params.roomId, req.uid, req))) {
+    return res.status(403).json({ error: 'Not a member' });
+  }
   const result = await pool.query(
     `WITH recent_messages AS (
        SELECT id, uid, created_at
@@ -2628,6 +2952,12 @@ app.get('/api/chat-rooms/:roomId/unread-counts', authMiddleware, async (req, res
        SELECT crm.user_id,
          COALESCE(crs.last_read_at, '1970-01-01'::timestamptz) AS last_read_at
        FROM chat_room_members crm
+       JOIN chat_rooms cr ON cr.id = crm.room_id
+       JOIN peakos_workspace_memberships pwm
+         ON pwm.user_uid = crm.user_id
+        AND pwm.workspace_id = COALESCE(cr.workspace_id, $2)
+        AND pwm.active = TRUE
+        AND pwm.role <> 'oversight'
        LEFT JOIN chat_read_status crs
          ON crs.room_id = $1 AND crs.user_id = crm.user_id
        WHERE crm.room_id = $1
@@ -2640,7 +2970,7 @@ app.get('/api/chat-rooms/:roomId/unread-counts', authMiddleware, async (req, res
       AND mr.last_read_at < rm.created_at
      GROUP BY rm.id, rm.created_at
      ORDER BY rm.created_at ASC, rm.id ASC`,
-    [req.params.roomId]
+    [req.params.roomId, PEAK_WORKSPACE_ID]
   );
   const counts = {};
   result.rows.forEach(r => { counts[r.msg_id] = parseInt(r.unread_count); });
@@ -2654,7 +2984,9 @@ app.get('/api/chat-rooms/unread', authMiddleware, async (req, res) => {
     `WITH my_rooms AS (
        SELECT crm.room_id AS id
        FROM chat_room_members crm
+       JOIN chat_rooms cr ON cr.id = crm.room_id
        WHERE crm.user_id = $1
+         AND (cr.workspace_id = $2 OR (cr.workspace_id IS NULL AND $2 = $3))
      ),
      last_reads AS (
        SELECT room_id, last_read_at
@@ -2671,7 +3003,7 @@ app.get('/api/chat-rooms/unread', authMiddleware, async (req, res) => {
       AND c.created_at > COALESCE(lr.last_read_at, '1970-01-01'::timestamptz)
      GROUP BY mr.id
      ORDER BY mr.id`,
-    [req.uid]
+    [req.uid, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
   );
   const counts = {};
   result.rows.forEach(r => { counts[r.room_id] = parseInt(r.unread); });
@@ -2702,6 +3034,7 @@ app.post('/api/events/:id/comments', authMiddleware, async (req, res) => {
 });
 
 app.delete('/api/events/:eventId/comments/:commentId', authMiddleware, async (req, res) => {
+  if (!(await canAccessEvent(req, req.params.eventId))) return res.status(403).json({ error: 'No access' });
   const comment = await pool.query('SELECT * FROM event_comments WHERE id = $1', [req.params.commentId]);
   if (!comment.rows[0]) return res.status(404).json({ error: 'Not found' });
   if (req.userDoc.role !== 'admin' && comment.rows[0].uid !== req.uid) return res.status(403).json({ error: 'Not owner' });
@@ -2712,6 +3045,7 @@ app.delete('/api/events/:eventId/comments/:commentId', authMiddleware, async (re
 // ── 승인된 유저 목록 (채팅방 멤버 초대용) ─────────────────────
 app.get('/api/users/all-approved', authMiddleware, async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
+  if (!req.workspace) return res.status(403).json({ code: 'PEAKOS_WORKSPACE_REQUIRED', error: 'Workspace required' });
   // A chat_only user should not see the rest of the member directory
   // when picking who to add to a chat room — only themselves and the
   // admin accounts, so they can at most talk to an admin. The admin
@@ -2721,11 +3055,16 @@ app.get('/api/users/all-approved', authMiddleware, async (req, res) => {
       `SELECT u.uid, u.name, u.email, u.photo_url, u.group_id, g.name AS group_name
        FROM users u
        LEFT JOIN groups g ON g.id = u.group_id
+       JOIN peakos_workspace_memberships pwm
+         ON pwm.user_uid = u.uid
+        AND pwm.workspace_id = $2
+        AND pwm.active = TRUE
+        AND pwm.role <> 'oversight'
        WHERE u.approved = true
          AND COALESCE(u.is_active, true) = true
          AND (u.uid = $1 OR u.role = 'admin')
        ORDER BY u.role DESC, u.name`,
-      [req.uid]
+      [req.uid, requestWorkspaceId(req)]
     );
     return res.json(result.rows);
   }
@@ -2733,8 +3072,14 @@ app.get('/api/users/all-approved', authMiddleware, async (req, res) => {
     `SELECT u.uid, u.name, u.email, u.photo_url, u.group_id, g.name AS group_name
      FROM users u
      LEFT JOIN groups g ON g.id = u.group_id
+     JOIN peakos_workspace_memberships pwm
+       ON pwm.user_uid = u.uid
+      AND pwm.workspace_id = $1
+      AND pwm.active = TRUE
+      AND pwm.role <> 'oversight'
      WHERE u.approved = true AND COALESCE(u.is_active, true) = true
-     ORDER BY g.created_at NULLS LAST, u.name`
+     ORDER BY g.created_at NULLS LAST, u.name`,
+    [requestWorkspaceId(req)]
   );
   res.json(result.rows);
 });
@@ -2742,11 +3087,9 @@ app.get('/api/users/all-approved', authMiddleware, async (req, res) => {
 // ── 파일 첨부 (채팅) ──────────────────────────────────────────
 app.post('/api/chat-rooms/:roomId/upload-file', authMiddleware, uploadFile.single('file'), async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
-  const member = await pool.query(
-    'SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2',
-    [req.params.roomId, req.uid]
-  );
-  if (!member.rows[0]) return res.status(403).json({ error: 'Not a member' });
+  if (!(await isChatRoomMember(req.params.roomId, req.uid, req))) {
+    return res.status(403).json({ error: 'Not a member' });
+  }
   if (!req.file) return res.status(400).json({ error: 'No file' });
   const fileUrl = '/uploads/' + req.file.filename;
   const originalName = decodeMultipartFilename(req.file.originalname);
@@ -2773,8 +3116,11 @@ app.get('/api/weekly-report', authMiddleware, async (req, res) => {
     let evQuery;
     if (req.userDoc.role === 'admin') {
       evQuery = await pool.query(
-        'SELECT * FROM events WHERE deleted = false AND date >= $1 AND date <= $2 ORDER BY date, time',
-        [monStr, sunStr]
+        `SELECT * FROM events
+          WHERE deleted = false AND date >= $1 AND date <= $2
+            AND (workspace_id = $3 OR (workspace_id IS NULL AND $3 = $4))
+          ORDER BY date, time`,
+        [monStr, sunStr, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
       );
     } else if (req.userDoc.role === 'manager') {
       evQuery = await pool.query(
@@ -2783,6 +3129,7 @@ app.get('/api/weekly-report', authMiddleware, async (req, res) => {
          LEFT JOIN users owner_user ON owner_user.uid = e.owner_id
          WHERE e.deleted = false
            AND e.date >= $1 AND e.date <= $2
+           AND (e.workspace_id = $5 OR (e.workspace_id IS NULL AND $5 = $6))
            AND (
              e.owner_id = $3
              OR EXISTS (SELECT 1 FROM event_shares es WHERE es.event_id = e.id AND es.user_id = $3)
@@ -2790,19 +3137,20 @@ app.get('/api/weekly-report', authMiddleware, async (req, res) => {
            )
            AND NOT (e.scope = 'team' AND e.done = true AND e.owner_id <> $3)
          ORDER BY e.date, e.time`,
-        [monStr, sunStr, req.uid, req.userDoc.group_id || null]
+        [monStr, sunStr, req.uid, req.userDoc.group_id || null, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
       );
     } else {
       evQuery = await pool.query(
         `SELECT e.* FROM events e
          WHERE e.deleted = false
            AND e.date >= $1 AND e.date <= $2
+           AND (e.workspace_id = $4 OR (e.workspace_id IS NULL AND $4 = $5))
            AND (e.owner_id = $3 OR EXISTS (
              SELECT 1 FROM event_shares es WHERE es.event_id = e.id AND es.user_id = $3
            ))
            AND NOT (e.scope = 'team' AND e.done = true AND e.owner_id <> $3)
          ORDER BY e.date, e.time`,
-        [monStr, sunStr, req.uid]
+        [monStr, sunStr, req.uid, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
       );
     }
     const weekEvents = evQuery.rows;
@@ -2977,25 +3325,38 @@ app.post('/api/reports', authMiddleware, async (req, res) => {
     }
     // 일일 보고서 작성 할일 자동 완료
     await pool.query(
-      `UPDATE events SET done = true WHERE owner_id = $1 AND date = $2 AND title = '📝 일일 보고서 작성' AND deleted = false`,
-      [req.uid, reportDate]
+      `UPDATE events SET done = true
+       WHERE owner_id = $1 AND date = $2 AND title = '📝 일일 보고서 작성' AND deleted = false
+         AND (workspace_id = $3 OR (workspace_id IS NULL AND $3 = $4))`,
+      [req.uid, reportDate, PEAK_WORKSPACE_ID, PEAK_WORKSPACE_ID]
     );
 
     // admin + 같은 그룹 팀장에게 캘린더 알림
     const targets = await pool.query(
-      `SELECT uid, name FROM users WHERE uid != $1 AND (role = 'admin' OR (role = 'manager' AND group_id = $2))`,
-      [req.uid, req.userDoc.group_id]
+      `SELECT u.uid, u.name
+         FROM users u
+         JOIN peakos_workspace_memberships pwm
+           ON pwm.user_uid = u.uid
+          AND pwm.workspace_id = $3
+          AND pwm.active = TRUE
+          AND pwm.is_default = TRUE
+          AND pwm.role <> 'oversight'
+        WHERE u.uid != $1
+          AND (u.role = 'admin' OR (u.role = 'manager' AND u.group_id = $2))`,
+      [req.uid, req.userDoc.group_id, PEAK_WORKSPACE_ID]
     );
     for (const a of targets.rows) {
       const exists = await pool.query(
-        `SELECT 1 FROM events WHERE type='todo' AND owner_id=$1 AND date=$2 AND title LIKE $3 AND deleted=false`,
-        [a.uid, reportDate, `📄 ${req.userName}%보고서%`]
+        `SELECT 1 FROM events
+          WHERE type='todo' AND owner_id=$1 AND date=$2 AND title LIKE $3 AND deleted=false
+            AND (workspace_id = $4 OR (workspace_id IS NULL AND $4 = $5))`,
+        [a.uid, reportDate, `📄 ${req.userName}%보고서%`, PEAK_WORKSPACE_ID, PEAK_WORKSPACE_ID]
       );
       if (!exists.rows[0]) {
         await pool.query(
-          `INSERT INTO events (type, title, date, scope, owner_id, owner_name, todo_cat)
-           VALUES ('todo', $1, $2, 'personal', $3, $4, '보고서')`,
-          [`📄 ${req.userName} 보고서 확인`, reportDate, a.uid, a.name || '']
+          `INSERT INTO events (workspace_id, type, title, date, scope, owner_id, owner_name, todo_cat)
+           VALUES ($1, 'todo', $2, $3, 'personal', $4, $5, '보고서')`,
+          [PEAK_WORKSPACE_ID, `📄 ${req.userName} 보고서 확인`, reportDate, a.uid, a.name || '']
         );
       }
     }
@@ -3076,15 +3437,17 @@ app.put('/api/reports/:id', authMiddleware, async (req, res) => {
       if (!remainingOldDateReports.rows[0]) {
         await client.query(
           `UPDATE events SET done = false
-           WHERE owner_id = $1 AND date = $2 AND title = '📝 일일 보고서 작성' AND deleted = false`,
-          [report.author_id, report.report_date]
+           WHERE owner_id = $1 AND date = $2 AND title = '📝 일일 보고서 작성' AND deleted = false
+             AND (workspace_id = $3 OR (workspace_id IS NULL AND $3 = $4))`,
+          [report.author_id, report.report_date, PEAK_WORKSPACE_ID, PEAK_WORKSPACE_ID]
         );
       }
     }
     await client.query(
       `UPDATE events SET done = true
-       WHERE owner_id = $1 AND date = $2 AND title = '📝 일일 보고서 작성' AND deleted = false`,
-      [report.author_id, reportDate]
+       WHERE owner_id = $1 AND date = $2 AND title = '📝 일일 보고서 작성' AND deleted = false
+         AND (workspace_id = $3 OR (workspace_id IS NULL AND $3 = $4))`,
+      [report.author_id, reportDate, PEAK_WORKSPACE_ID, PEAK_WORKSPACE_ID]
     );
 
     await client.query('COMMIT');
@@ -3401,9 +3764,26 @@ app.post('/api/groups', authMiddleware, async (req, res) => {
 
 app.put('/api/users/:uid/group', authMiddleware, async (req, res) => {
   if (req.userDoc?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
-  const { groupId } = req.body;
-  await pool.query('UPDATE users SET group_id = $1 WHERE uid = $2', [groupId, req.params.uid]);
-  res.json({ ok: true });
+  const { groupId, workspaceSlug } = req.body;
+  const membershipClient = await pool.connect();
+  try {
+    await membershipClient.query('BEGIN');
+    await membershipClient.query('UPDATE users SET group_id = $1 WHERE uid = $2', [groupId, req.params.uid]);
+    const membership = await peakosWorkspaceService.syncUserDefaultMembership({
+      actorUid: req.uid,
+      targetUid: req.params.uid,
+      groupId,
+      workspaceSlug,
+      client: membershipClient,
+    });
+    await membershipClient.query('COMMIT');
+    res.json({ ok: true, workspace: membership });
+  } catch (err) {
+    await membershipClient.query('ROLLBACK').catch(() => {});
+    res.status(err.statusCode || 500).json({ code: err.code, error: err.message });
+  } finally {
+    membershipClient.release();
+  }
 });
 
 app.put('/api/users/:uid/permissions', authMiddleware, async (req, res) => {
@@ -3422,6 +3802,12 @@ app.put('/api/users/:uid/deactivate', authMiddleware, async (req, res) => {
   try {
     await client.query('BEGIN');
     await client.query('UPDATE users SET is_active = false, approved = false WHERE uid = $1', [req.params.uid]);
+    await peakosWorkspaceService.setUserMembershipsActive({
+      actorUid: req.uid,
+      targetUid: req.params.uid,
+      active: false,
+      client,
+    });
     await client.query('DELETE FROM fcm_tokens WHERE user_uid = $1', [req.params.uid]);
     await client.query('COMMIT');
     res.json({ ok: true });
@@ -3435,16 +3821,53 @@ app.put('/api/users/:uid/deactivate', authMiddleware, async (req, res) => {
 
 app.put('/api/users/:uid/activate', authMiddleware, async (req, res) => {
   if (req.userDoc?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
-  await pool.query('UPDATE users SET is_active = true, approved = true WHERE uid = $1', [req.params.uid]);
-  res.json({ ok: true });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('UPDATE users SET is_active = true, approved = true WHERE uid = $1', [req.params.uid]);
+    const membership = await peakosWorkspaceService.syncUserDefaultMembership({
+      actorUid: req.uid,
+      targetUid: req.params.uid,
+      client,
+    });
+    await peakosWorkspaceService.setUserMembershipsActive({
+      actorUid: req.uid,
+      targetUid: req.params.uid,
+      active: true,
+      client,
+    });
+    await client.query('COMMIT');
+    res.json({ ok: true, workspace: membership });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    res.status(err.statusCode || 500).json({ code: err.code, error: err.message });
+  } finally {
+    client.release();
+  }
 });
 
 app.put('/api/users/:uid/role', authMiddleware, async (req, res) => {
   if (req.userDoc?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
   const { role } = req.body;
   if (!['member','manager','admin'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
-  await pool.query('UPDATE users SET role = $1 WHERE uid = $2', [role, req.params.uid]);
-  res.json({ ok: true });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('UPDATE users SET role = $1 WHERE uid = $2', [role, req.params.uid]);
+    const membership = await peakosWorkspaceService.syncUserDefaultMembership({
+      actorUid: req.uid,
+      targetUid: req.params.uid,
+      role,
+      client,
+    });
+    await client.query('COMMIT');
+    res.json({ ok: true, workspace: membership });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    res.status(err.statusCode || 500).json({ code: err.code, error: err.message });
+  } finally {
+    client.release();
+  }
 });
 
 // Toggle chat-only restriction. A chat_only user's client hides every
@@ -3603,9 +4026,11 @@ app.get('/api/attendance/monthly-summary', authMiddleware, async (req, res) => {
 // ══ 프로젝트 ══════════════════════════════════════════════════
 app.get('/api/projects', authMiddleware, async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
-  const params = [];
-  let where = "COALESCE(pd.deleted, false) = false AND p.status IS DISTINCT FROM 'archived'";
-  if (req.userDoc.role !== 'admin') {
+  const params = [requestWorkspaceId(req), PEAK_WORKSPACE_ID];
+  let where = `COALESCE(pd.deleted, false) = false
+    AND p.status IS DISTINCT FROM 'archived'
+    AND (p.workspace_id = $1 OR (p.workspace_id IS NULL AND $1 = $2))`;
+  if (req.userDoc.role !== 'admin' && !req.workspace?.headquartersOversight) {
     params.push(req.uid);
     where += ` AND (p.owner_id = $${params.length} OR EXISTS (
       SELECT 1 FROM project_members pmx WHERE pmx.project_id = p.id AND pmx.user_id = $${params.length}
@@ -3627,7 +4052,15 @@ app.get('/api/projects', authMiddleware, async (req, res) => {
      FROM projects p
      LEFT JOIN project_details pd ON pd.project_id = p.id
      LEFT JOIN users owner_user ON owner_user.uid = p.owner_id
-     LEFT JOIN project_members pm ON pm.project_id = p.id
+     LEFT JOIN project_members pm
+       ON pm.project_id = p.id
+      AND EXISTS (
+        SELECT 1 FROM peakos_workspace_memberships pwm
+        WHERE pwm.user_uid = pm.user_id
+          AND pwm.workspace_id = COALESCE(p.workspace_id, $2)
+          AND pwm.active = TRUE
+          AND pwm.role <> 'oversight'
+      )
      LEFT JOIN users u ON u.uid = pm.user_id
      LEFT JOIN project_tasks pt ON pt.project_id = p.id
      LEFT JOIN project_comments pc ON pc.project_id = p.id
@@ -3646,7 +4079,11 @@ app.get('/api/projects', authMiddleware, async (req, res) => {
        p.created_at DESC`,
     params
   );
-  res.json({ canManageAll: req.userDoc.role === 'admin', projects: result.rows });
+  res.json({
+    canManageAll: req.userDoc.role === 'admin' && !req.workspace?.headquartersOversight,
+    readOnly: req.workspace?.headquartersOversight === true,
+    projects: result.rows,
+  });
 });
 
 app.post('/api/projects', authMiddleware, async (req, res) => {
@@ -3658,11 +4095,13 @@ app.post('/api/projects', authMiddleware, async (req, res) => {
   const memberIds = Array.isArray(req.body.memberIds) ? req.body.memberIds : [];
   if (!name) return res.status(400).json({ error: '프로젝트명을 입력하세요' });
   try {
+    const uniqueMemberIds = [...new Set(memberIds.map(uid => String(uid || '').trim()).filter(Boolean))];
+    await peakosWorkspaceService.assertUsersInWorkspace(uniqueMemberIds, requestWorkspaceId(req));
     const id = crypto.randomUUID();
     const project = await pool.query(
-      `INSERT INTO projects (id, name, description, owner_id, status)
-       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [id, name, description, req.uid, status]
+      `INSERT INTO projects (workspace_id, id, name, description, owner_id, status)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [requestWorkspaceId(req), id, name, description, req.uid, status]
     );
     await pool.query(
       `INSERT INTO project_details (project_id, owner_name, deadline, updated_at)
@@ -3671,7 +4110,6 @@ app.post('/api/projects', authMiddleware, async (req, res) => {
       [id, req.userName || req.userEmail || '사용자', deadline]
     );
     await pool.query('INSERT INTO project_members (project_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [id, req.uid]);
-    const uniqueMemberIds = [...new Set(memberIds.map(uid => String(uid || '').trim()).filter(Boolean))];
     for (const uid of uniqueMemberIds) {
       await pool.query(
         `INSERT INTO project_members (project_id, user_id)
@@ -3713,8 +4151,9 @@ app.get('/api/projects/:id', authMiddleware, async (req, res) => {
      LEFT JOIN users u ON u.uid = p.owner_id
      WHERE p.id = $1
        AND COALESCE(pd.deleted, false) = false
-       AND p.status IS DISTINCT FROM 'archived'`,
-    [req.params.id]
+       AND p.status IS DISTINCT FROM 'archived'
+       AND (p.workspace_id = $2 OR (p.workspace_id IS NULL AND $2 = $3))`,
+    [req.params.id, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
   );
   if (!result.rows[0]) return res.status(404).json({ error: 'Not found' });
   const members = await pool.query(
@@ -3723,11 +4162,16 @@ app.get('/api/projects/:id', authMiddleware, async (req, res) => {
      FROM project_members pm
      JOIN users u ON pm.user_id = u.uid
      JOIN projects p ON p.id = pm.project_id
+     JOIN peakos_workspace_memberships pwm
+       ON pwm.user_uid = pm.user_id
+      AND pwm.workspace_id = COALESCE(p.workspace_id, $2)
+      AND pwm.active = TRUE
+      AND pwm.role <> 'oversight'
      WHERE pm.project_id = $1
        AND u.approved = true
        AND COALESCE(u.is_active, true) = true
      ORDER BY CASE WHEN u.uid = p.owner_id THEN 0 ELSE 1 END, u.name`,
-    [req.params.id]
+    [req.params.id, PEAK_WORKSPACE_ID]
   );
   const tasks = await pool.query(
     `SELECT
@@ -3747,11 +4191,20 @@ app.get('/api/projects/:id', authMiddleware, async (req, res) => {
        COUNT(pta.user_uid)::int AS assignee_count,
        COUNT(pta.user_uid) FILTER (WHERE pta.completed)::int AS completed_assignee_count
      FROM project_tasks pt
-     LEFT JOIN project_task_assignees pta ON pta.task_id = pt.id
+     JOIN projects task_project ON task_project.id = pt.project_id
+     LEFT JOIN project_task_assignees pta
+       ON pta.task_id = pt.id
+      AND EXISTS (
+        SELECT 1 FROM peakos_workspace_memberships pwm
+        WHERE pwm.user_uid = pta.user_uid
+          AND pwm.workspace_id = COALESCE(task_project.workspace_id, $2)
+          AND pwm.active = TRUE
+          AND pwm.role <> 'oversight'
+      )
      WHERE pt.project_id = $1
      GROUP BY pt.id
      ORDER BY pt.sort_order, pt.created_at`,
-    [req.params.id]
+    [req.params.id, PEAK_WORKSPACE_ID]
   );
   const updates = await pool.query(
     'SELECT * FROM project_updates WHERE project_id = $1 ORDER BY created_at DESC',
@@ -3765,7 +4218,13 @@ app.get('/api/projects/:id', authMiddleware, async (req, res) => {
     'SELECT * FROM project_task_comments WHERE project_id = $1 AND deleted = false ORDER BY created_at ASC',
     [req.params.id]
   );
-  const events = await pool.query('SELECT * FROM events WHERE project_id = $1 AND deleted = false ORDER BY date', [req.params.id]);
+  const events = await pool.query(
+    `SELECT * FROM events
+      WHERE project_id = $1 AND deleted = false
+        AND (workspace_id = $2 OR (workspace_id IS NULL AND $2 = $3))
+      ORDER BY date`,
+    [req.params.id, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
+  );
   res.json({
     ...result.rows[0],
     canManage: await canManageProject(req, req.params.id),
@@ -3799,16 +4258,21 @@ app.put('/api/projects/:id', authMiddleware, async (req, res) => {
     }
     let result;
     if (sets.length) {
+      params.push(requestWorkspaceId(req), PEAK_WORKSPACE_ID);
+      const workspaceParam = params.length - 1;
+      const peakParam = params.length;
       result = await pool.query(
         `UPDATE projects SET ${sets.join(', ')}
          WHERE id = $1 AND status IS DISTINCT FROM 'archived'
+           AND (workspace_id = $${workspaceParam} OR (workspace_id IS NULL AND $${workspaceParam} = $${peakParam}))
          RETURNING *`,
         params
       );
     } else {
       result = await pool.query(
-        `SELECT * FROM projects WHERE id = $1 AND status IS DISTINCT FROM 'archived'`,
-        [req.params.id]
+        `SELECT * FROM projects WHERE id = $1 AND status IS DISTINCT FROM 'archived'
+          AND (workspace_id = $2 OR (workspace_id IS NULL AND $2 = $3))`,
+        [req.params.id, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
       );
     }
     if (!result.rows[0]) return res.status(404).json({ error: 'Not found' });
@@ -3831,6 +4295,7 @@ app.put('/api/projects/:id', authMiddleware, async (req, res) => {
     if (Array.isArray(req.body.memberIds)) {
       const memberIds = [...new Set(req.body.memberIds.map(uid => String(uid || '').trim()).filter(Boolean))];
       if (!memberIds.includes(result.rows[0].owner_id)) memberIds.push(result.rows[0].owner_id);
+      await peakosWorkspaceService.assertUsersInWorkspace(memberIds, requestWorkspaceId(req));
       await pool.query('DELETE FROM project_members WHERE project_id = $1 AND user_id <> $2', [req.params.id, result.rows[0].owner_id]);
       for (const uid of memberIds) {
         await pool.query(
@@ -3861,8 +4326,18 @@ app.delete('/api/projects/:id', authMiddleware, async (req, res) => {
 
 app.post('/api/projects/:id/events', authMiddleware, async (req, res) => {
   if (!await canAccessProject(req, req.params.id)) return res.status(403).json({ error: 'Not authorized' });
-  const { eventId } = req.body;
-  await pool.query('UPDATE events SET project_id = $1 WHERE id = $2', [req.params.id, eventId]);
+  const eventId = String(req.body?.eventId || '').trim();
+  if (!eventId) return res.status(400).json({ error: 'Event required' });
+  // Linking changes the event row itself. Project membership must not let a
+  // caller attach an unrelated private event whose ID they happen to know.
+  if (!(await canAccessEvent(req, eventId, { requireOwner: true }))) {
+    return res.status(403).json({ error: 'Not authorized to modify this event' });
+  }
+  const linked = await pool.query(
+    'UPDATE events SET project_id = $1 WHERE id = $2 AND deleted = false RETURNING id',
+    [req.params.id, eventId]
+  );
+  if (!linked.rows[0]) return res.status(404).json({ error: 'Event not found' });
   await syncProjectStatus(req.params.id);
   res.json({ ok: true });
 });
@@ -4193,6 +4668,7 @@ app.post('/api/projects/:id/updates', authMiddleware, async (req, res) => {
 });
 
 app.put('/api/projects/:id/updates/:updateId', authMiddleware, async (req, res) => {
+  if (!await canAccessProject(req, req.params.id)) return res.status(403).json({ error: 'Not authorized' });
   const current = await pool.query(
     'SELECT * FROM project_updates WHERE id = $1 AND project_id = $2',
     [req.params.updateId, req.params.id]
@@ -4216,6 +4692,7 @@ app.put('/api/projects/:id/updates/:updateId', authMiddleware, async (req, res) 
 });
 
 app.delete('/api/projects/:id/updates/:updateId', authMiddleware, async (req, res) => {
+  if (!await canAccessProject(req, req.params.id)) return res.status(403).json({ error: 'Not authorized' });
   const update = await pool.query('SELECT * FROM project_updates WHERE id = $1 AND project_id = $2', [req.params.updateId, req.params.id]);
   if (!update.rows[0]) return res.status(404).json({ error: 'Not found' });
   if (req.userDoc.role !== 'admin' && update.rows[0].author_uid !== req.uid && !await canManageProject(req, req.params.id)) {
@@ -4751,8 +5228,9 @@ app.post('/api/monthly-reports', authMiddleware, async (req, res) => {
   );
   await pool.query(
     `UPDATE events SET done = true
-     WHERE owner_id = $1 AND date = $2 AND title = '📈 월간 보고서 작성' AND deleted = false`,
-    [req.uid, getMonthlyReportTodoDate(month)]
+     WHERE owner_id = $1 AND date = $2 AND title = '📈 월간 보고서 작성' AND deleted = false
+       AND (workspace_id = $3 OR (workspace_id IS NULL AND $3 = $4))`,
+    [req.uid, getMonthlyReportTodoDate(month), PEAK_WORKSPACE_ID, PEAK_WORKSPACE_ID]
   );
   console.log(`[monthly-submit] uid=${req.uid} name=${req.userName} requested=${requestedMonth} month=${month} reports=${autoSummary.reportCount || 0}`);
   res.json(result.rows[0]);
@@ -4760,22 +5238,53 @@ app.post('/api/monthly-reports', authMiddleware, async (req, res) => {
 
 // ── 할 일 순서/카테고리 변경 ───────────────────────────────
 app.post('/api/events/reorder', authMiddleware, async (req, res) => {
-  const { items } = req.body; // [{id, sortOrder, todoCat}]
-  if (!items || !items.length) return res.status(400).json({ error: 'No items' });
-  for (const item of items) {
-    if (isExternalCalendarUser(req)) {
-      await pool.query(
-        'UPDATE events SET sort_order = $1, todo_cat = COALESCE($2, todo_cat) WHERE id = $3 AND owner_id = $4',
-        [item.sortOrder, item.todoCat || null, item.id, req.uid]
-      );
-    } else {
-      await pool.query(
-        'UPDATE events SET sort_order = $1, todo_cat = COALESCE($2, todo_cat) WHERE id = $3',
-        [item.sortOrder, item.todoCat || null, item.id]
+  if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
+  const normalized = normalizeEventReorderItems(req.body?.items);
+  if (!normalized.ok) {
+    return res.status(normalized.status).json({ code: normalized.code, error: normalized.error });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const ids = normalized.items.map(item => item.id);
+    const current = await client.query(
+      `SELECT e.id, e.type, e.owner_id,
+              ${INTERNAL_CALENDAR_RULE_EVENT_SQL} AS is_internal_rule
+       FROM events e
+       WHERE e.id = ANY($1::text[]) AND e.deleted = false
+         AND (e.workspace_id = $2 OR (e.workspace_id IS NULL AND $2 = $3))
+       FOR UPDATE`,
+      [ids, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
+    );
+    const permission = authorizeEventReorder({
+      items: normalized.items,
+      rows: current.rows,
+      uid: req.uid,
+      role: req.userDoc.role,
+      externalCalendarOnly: isExternalCalendarUser(req),
+    });
+    if (!permission.ok) {
+      await client.query('ROLLBACK');
+      return res.status(permission.status).json({ code: permission.code, error: permission.error });
+    }
+
+    for (const item of normalized.items) {
+      await client.query(
+        `UPDATE events SET sort_order = $1, todo_cat = COALESCE($2, todo_cat)
+          WHERE id = $3
+            AND (workspace_id = $4 OR (workspace_id IS NULL AND $4 = $5))`,
+        [item.sortOrder, item.todoCat ?? null, item.id, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
       );
     }
+    await client.query('COMMIT');
+    res.json({ ok: true, updated: normalized.items.length });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
-  res.json({ ok: true });
 });
 
 // ══ 휴무일 관리 ══════════════════════════════════════════════
@@ -4813,27 +5322,39 @@ app.get('/api/holidays/check', authMiddleware, async (req, res) => {
 // ── 반복 일정 삭제 ─────────────────────────────────────────
 app.post('/api/events/:id/delete-repeat-future', authMiddleware, async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
-  const ev = await pool.query('SELECT * FROM events WHERE id = $1', [req.params.id]);
+  const ev = await pool.query(
+    `SELECT * FROM events WHERE id = $1
+      AND (workspace_id = $2 OR (workspace_id IS NULL AND $2 = $3))`,
+    [req.params.id, requestWorkspaceId(req), PEAK_WORKSPACE_ID],
+  );
   if (!ev.rows[0]) return res.status(404).json({ error: 'Not found' });
   if (req.userDoc.role !== 'admin' && ev.rows[0].owner_id !== req.uid) return res.status(403).json({ error: 'Not owner' });
   const parentId = ev.rows[0].repeat_parent_id || ev.rows[0].id;
   const { fromDate } = req.body;
   await pool.query(
-    'UPDATE events SET deleted = true WHERE (repeat_parent_id = $1 OR id = $1) AND date >= $2',
-    [parentId, fromDate]
+    `UPDATE events SET deleted = true
+      WHERE (repeat_parent_id = $1 OR id = $1) AND date >= $2
+        AND (workspace_id = $3 OR (workspace_id IS NULL AND $3 = $4))`,
+    [parentId, fromDate, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
   );
   res.json({ ok: true });
 });
 
 app.post('/api/events/:id/delete-repeat-all', authMiddleware, async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
-  const ev = await pool.query('SELECT * FROM events WHERE id = $1', [req.params.id]);
+  const ev = await pool.query(
+    `SELECT * FROM events WHERE id = $1
+      AND (workspace_id = $2 OR (workspace_id IS NULL AND $2 = $3))`,
+    [req.params.id, requestWorkspaceId(req), PEAK_WORKSPACE_ID],
+  );
   if (!ev.rows[0]) return res.status(404).json({ error: 'Not found' });
   if (req.userDoc.role !== 'admin' && ev.rows[0].owner_id !== req.uid) return res.status(403).json({ error: 'Not owner' });
   const parentId = ev.rows[0].repeat_parent_id || ev.rows[0].id;
   await pool.query(
-    'UPDATE events SET deleted = true WHERE repeat_parent_id = $1 OR id = $1',
-    [parentId]
+    `UPDATE events SET deleted = true
+      WHERE (repeat_parent_id = $1 OR id = $1)
+        AND (workspace_id = $2 OR (workspace_id IS NULL AND $2 = $3))`,
+    [parentId, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
   );
   res.json({ ok: true });
 });
@@ -4916,13 +5437,18 @@ app.get('/api/events/checklist-summary', authMiddleware, async (req, res) => {
        JOIN events e ON e.id = ec.event_id
        LEFT JOIN event_shares es ON es.event_id = e.id AND es.user_id = $1
        WHERE e.deleted = false AND (e.owner_id = $1 OR es.user_id = $1)
+         AND (e.workspace_id = $2 OR (e.workspace_id IS NULL AND $2 = $3))
          AND NOT ${INTERNAL_CALENDAR_RULE_EVENT_SQL}
        GROUP BY ec.event_id`,
-      [req.uid]
+      [req.uid, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
     )
     : await pool.query(
-      `SELECT event_id, COUNT(*) as total, COUNT(*) FILTER (WHERE done=true) as completed
-       FROM event_checklist GROUP BY event_id`
+      `SELECT ec.event_id, COUNT(*) as total, COUNT(*) FILTER (WHERE ec.done=true) as completed
+       FROM event_checklist ec
+       JOIN events e ON e.id = ec.event_id
+       WHERE e.workspace_id = $1 OR (e.workspace_id IS NULL AND $1 = $2)
+       GROUP BY ec.event_id`,
+      [requestWorkspaceId(req), PEAK_WORKSPACE_ID]
     );
   const summary = {};
   result.rows.forEach(r => { summary[r.event_id] = { total: parseInt(r.total), completed: parseInt(r.completed) }; });
@@ -5074,12 +5600,14 @@ function getKstDateParts(now = Date.now()) {
   };
 }
 
-async function softDeleteEventIds(ids) {
+async function softDeleteEventIds(ids, workspaceId = PEAK_WORKSPACE_ID) {
   const BATCH_SIZE = 1000;
   for (let i = 0; i < ids.length; i += BATCH_SIZE) {
     await pool.query(
-      'UPDATE events SET deleted = true WHERE id = ANY($1::text[])',
-      [ids.slice(i, i + BATCH_SIZE)]
+      `UPDATE events SET deleted = true
+        WHERE id = ANY($1::text[])
+          AND (workspace_id = $2 OR (workspace_id IS NULL AND $2 = $3))`,
+      [ids.slice(i, i + BATCH_SIZE), workspaceId, PEAK_WORKSPACE_ID]
     );
   }
 }
@@ -5091,19 +5619,27 @@ async function syncTodayReportReminders(now = Date.now()) {
       `SELECT u.uid, u.name, g.group_type
        FROM users u
        LEFT JOIN groups g ON u.group_id = g.id
+       JOIN peakos_workspace_memberships pwm
+         ON pwm.user_uid = u.uid
+        AND pwm.workspace_id = $1
+        AND pwm.active = TRUE
+        AND pwm.is_default = TRUE
+        AND pwm.role <> 'oversight'
        WHERE u.approved = true
          AND COALESCE(u.is_active, true) = true
          AND u.role != 'admin'
          AND COALESCE(u.chat_only, false) = false
-         AND COALESCE(u.external_calendar_only, false) = false`
+         AND COALESCE(u.external_calendar_only, false) = false`,
+      [PEAK_WORKSPACE_ID]
     ),
     pool.query('SELECT 1 FROM holidays WHERE holiday_date = $1 LIMIT 1', [date]),
     pool.query(
       `SELECT id, owner_id, date, title, done, created_at
        FROM events
        WHERE deleted = false AND title = ANY($1::text[])
+         AND (workspace_id = $2 OR (workspace_id IS NULL AND $2 = $3))
        ORDER BY owner_id, date, title, done DESC, created_at, id`,
-      [REPORT_REMINDER_TITLES]
+      [REPORT_REMINDER_TITLES, PEAK_WORKSPACE_ID, PEAK_WORKSPACE_ID]
     )
   ]);
 
@@ -5141,19 +5677,19 @@ async function syncTodayReportReminders(now = Date.now()) {
     }
     keptKeys.add(key);
   }
-  await softDeleteEventIds(deleteIds);
+  await softDeleteEventIds(deleteIds, PEAK_WORKSPACE_ID);
 
   const missing = expected.filter(row => !keptKeys.has(reminderKey(row.ownerId, date, row.title)));
   if (missing.length) {
     const values = [];
     const params = [];
     missing.forEach((row, index) => {
-      const base = index * 4;
-      values.push(`('todo',$${base + 1},$${base + 2},'personal',$${base + 3},$${base + 4},'보고서')`);
-      params.push(row.title, date, row.ownerId, row.ownerName);
+      const base = index * 5;
+      values.push(`($${base + 1},'todo',$${base + 2},$${base + 3},'personal',$${base + 4},$${base + 5},'보고서')`);
+      params.push(PEAK_WORKSPACE_ID, row.title, date, row.ownerId, row.ownerName);
     });
     await pool.query(
-      `INSERT INTO events (type,title,date,scope,owner_id,owner_name,todo_cat)
+      `INSERT INTO events (workspace_id,type,title,date,scope,owner_id,owner_name,todo_cat)
        VALUES ${values.join(',')}
        ON CONFLICT DO NOTHING`,
       params
@@ -5256,20 +5792,36 @@ app.post('/api/work-reports', authMiddleware, async (req, res) => {
   );
   // 캘린더 업무보고 작성 할일 자동 완료
   await pool.query(
-    `UPDATE events SET done = true WHERE owner_id = $1 AND date = $2 AND title = '📋 업무보고 작성' AND deleted = false`,
-    [req.uid, reportDate]
+    `UPDATE events SET done = true
+      WHERE owner_id = $1 AND date = $2 AND title = '📋 업무보고 작성' AND deleted = false
+        AND (workspace_id = $3 OR (workspace_id IS NULL AND $3 = $4))`,
+    [req.uid, reportDate, PEAK_WORKSPACE_ID, PEAK_WORKSPACE_ID]
   );
   // admin에게 업무보고 확인 할일 추가
-  const admins = await pool.query("SELECT uid, name FROM users WHERE role = 'admin' AND uid != $1", [req.uid]);
+  const admins = await pool.query(
+    `SELECT u.uid, u.name
+       FROM users u
+       JOIN peakos_workspace_memberships pwm
+         ON pwm.user_uid = u.uid
+        AND pwm.workspace_id = $2
+        AND pwm.active = TRUE
+        AND pwm.is_default = TRUE
+        AND pwm.role <> 'oversight'
+      WHERE u.role = 'admin' AND u.uid != $1`,
+    [req.uid, PEAK_WORKSPACE_ID]
+  );
   for (const a of admins.rows) {
     const exists = await pool.query(
-      `SELECT 1 FROM events WHERE owner_id=$1 AND date=$2 AND title LIKE $3 AND deleted=false`,
-      [a.uid, reportDate, `📋 ${req.userName}%업무보고%`]
+      `SELECT 1 FROM events
+        WHERE owner_id=$1 AND date=$2 AND title LIKE $3 AND deleted=false
+          AND (workspace_id = $4 OR (workspace_id IS NULL AND $4 = $5))`,
+      [a.uid, reportDate, `📋 ${req.userName}%업무보고%`, PEAK_WORKSPACE_ID, PEAK_WORKSPACE_ID]
     );
     if (!exists.rows[0]) {
       await pool.query(
-        `INSERT INTO events (type,title,date,scope,owner_id,owner_name,todo_cat) VALUES ('todo',$1,$2,'personal',$3,$4,'보고서')`,
-        [`📋 ${req.userName} 업무보고 확인`, reportDate, a.uid, a.name||'']
+        `INSERT INTO events (workspace_id,type,title,date,scope,owner_id,owner_name,todo_cat)
+         VALUES ($1,'todo',$2,$3,'personal',$4,$5,'보고서')`,
+        [PEAK_WORKSPACE_ID, `📋 ${req.userName} 업무보고 확인`, reportDate, a.uid, a.name||'']
       );
     }
   }
@@ -5621,9 +6173,10 @@ app.get('/api/timetable/available-events', authMiddleware, async (req, res) => {
     const result = await pool.query(
       `SELECT e.* FROM events e
        WHERE e.owner_id = $1 AND e.date = $2 AND e.deleted = false
+       AND (e.workspace_id = $3 OR (e.workspace_id IS NULL AND $3 = $4))
        AND NOT EXISTS (SELECT 1 FROM timetable_entries t WHERE t.event_id = e.id AND t.owner_id = $1 AND t.date = $2)
        ORDER BY e.time, e.created_at`,
-      [req.uid, date]
+      [req.uid, date, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
     );
     console.log('[available-events] found:', result.rows.length);
     res.json(result.rows);
@@ -5705,18 +6258,32 @@ scheduleCron('0 10 * * *', async () => {
   try {
     const today = new Date().toISOString().slice(0, 10);
     // 각 사용자별 미완료 할일 수 조회
-    const users = await pool.query('SELECT uid, name FROM users WHERE approved = true AND is_active != false');
+    const users = await pool.query(
+      `SELECT u.uid, u.name, pwm.workspace_id
+         FROM users u
+         JOIN peakos_workspace_memberships pwm
+           ON pwm.user_uid = u.uid
+          AND pwm.active = TRUE
+          AND pwm.is_default = TRUE
+          AND pwm.role <> 'oversight'
+        WHERE u.approved = true AND u.is_active != false`,
+    );
     for (const user of users.rows) {
       const overdue = await pool.query(
-        "SELECT COUNT(*) FROM events WHERE owner_id = $1 AND deleted = false AND type = 'todo' AND done = false AND date < $2",
-        [user.uid, today]
+        `SELECT COUNT(*) FROM events
+          WHERE owner_id = $1 AND deleted = false AND type = 'todo' AND done = false AND date < $2
+            AND (workspace_id = $3 OR (workspace_id IS NULL AND $3 = $4))`,
+        [user.uid, today, user.workspace_id, PEAK_WORKSPACE_ID]
       );
       const count = parseInt(overdue.rows[0].count);
       if (count > 0) {
         // 상위 3개 제목 가져오기
         const top = await pool.query(
-          "SELECT title FROM events WHERE owner_id = $1 AND deleted = false AND type = 'todo' AND done = false AND date < $2 ORDER BY date LIMIT 3",
-          [user.uid, today]
+          `SELECT title FROM events
+            WHERE owner_id = $1 AND deleted = false AND type = 'todo' AND done = false AND date < $2
+              AND (workspace_id = $3 OR (workspace_id IS NULL AND $3 = $4))
+            ORDER BY date LIMIT 3`,
+          [user.uid, today, user.workspace_id, PEAK_WORKSPACE_ID]
         );
         const titles = top.rows.map(r => r.title).join(', ');
         const extra = count > 3 ? ` 외 ${count - 3}건` : '';
@@ -5739,17 +6306,31 @@ scheduleCron('0 19 * * 1-5', async () => {
   console.log('[CRON] 오늘 미완료 할일 알림 전송 시작');
   try {
     const today = new Date().toISOString().slice(0, 10);
-    const users = await pool.query('SELECT uid FROM users WHERE approved = true AND is_active != false');
+    const users = await pool.query(
+      `SELECT u.uid, pwm.workspace_id
+         FROM users u
+         JOIN peakos_workspace_memberships pwm
+           ON pwm.user_uid = u.uid
+          AND pwm.active = TRUE
+          AND pwm.is_default = TRUE
+          AND pwm.role <> 'oversight'
+        WHERE u.approved = true AND u.is_active != false`,
+    );
     for (const user of users.rows) {
       const pending = await pool.query(
-        "SELECT COUNT(*) FROM events WHERE owner_id = $1 AND deleted = false AND type = 'todo' AND done = false AND date = $2",
-        [user.uid, today]
+        `SELECT COUNT(*) FROM events
+          WHERE owner_id = $1 AND deleted = false AND type = 'todo' AND done = false AND date = $2
+            AND (workspace_id = $3 OR (workspace_id IS NULL AND $3 = $4))`,
+        [user.uid, today, user.workspace_id, PEAK_WORKSPACE_ID]
       );
       const count = parseInt(pending.rows[0].count);
       if (count > 0) {
         const top = await pool.query(
-          "SELECT title FROM events WHERE owner_id = $1 AND deleted = false AND type = 'todo' AND done = false AND date = $2 ORDER BY time NULLS FIRST, created_at LIMIT 3",
-          [user.uid, today]
+          `SELECT title FROM events
+            WHERE owner_id = $1 AND deleted = false AND type = 'todo' AND done = false AND date = $2
+              AND (workspace_id = $3 OR (workspace_id IS NULL AND $3 = $4))
+            ORDER BY time NULLS FIRST, created_at LIMIT 3`,
+          [user.uid, today, user.workspace_id, PEAK_WORKSPACE_ID]
         );
         const titles = top.rows.map(r => r.title).join(', ');
         const extra = count > 3 ? ` 외 ${count - 3}건` : '';
@@ -5835,7 +6416,7 @@ const PORT = Number(process.env.PORT || 4100);
 // 명시한다. 메일 transport가 없더라도 서버는 기동하되 대상 사용자의
 // 발송 요청은 안전하게 503으로 거부한다.
 const peakosOsEmailMailer = createEmailMailerFromEnv(process.env);
-const peakosOsEmailAuth = registerOsEmailAuth({
+peakosOsEmailAuth = registerOsEmailAuth({
   app,
   authMiddleware,
   pool,
@@ -5843,14 +6424,45 @@ const peakosOsEmailAuth = registerOsEmailAuth({
   hmacSecret: process.env.PEAKOS_OS_AUTH_HMAC_SECRET,
 });
 
+registerPeakosWorkspaceRoutes({
+  app,
+  authMiddleware,
+  requireOsSession: peakosOsEmailAuth.requireOsSession,
+  service: peakosWorkspaceService,
+});
+
 // PEAK OS 정산·통장 API는 화면을 숨기는 것에 의존하지 않는다.
 // 파일럿 대상이면 Firebase 인증 뒤 서버 발급 OS 세션까지 매 요청 확인한다.
-app.use('/api/peakos', authMiddleware, peakosOsEmailAuth.requireOsSession);
+app.use(
+  '/api/peakos',
+  authMiddleware,
+  peakosOsEmailAuth.requireOsSession,
+  peakosWorkspaceService.requireSelectedWorkspace(),
+);
+
+// Until a PEAK OS route explicitly includes workspace_id in every read/write,
+// branch requests fail closed. This is intentionally stricter than returning
+// Peak data. Prices, workspace documents, and the settlement module below are
+// explicitly workspace-scoped; banking/reporting routes remain blocked until
+// their query modules are fully migrated.
+app.use('/api/peakos', (req, res, next) => {
+  if (req.workspace?.id === PEAK_WORKSPACE_ID) return next();
+  const routePath = String(req.path || '');
+  if (/^\/prices(?:\/|$)/.test(routePath)
+      || /^\/company-documents(?:\/|$)/.test(routePath)
+      || /^\/intake(?:\/|$)/.test(routePath)
+      || /^\/monthly(?:\/|$)/.test(routePath)
+      || /^\/final-execution(?:\/|$)/.test(routePath)) return next();
+  return res.status(403).json({
+    code: 'PEAKOS_WORKSPACE_SURFACE_NOT_MIGRATED',
+    error: '이 기능은 지사 워크스페이스 격리 적용 후 사용할 수 있습니다.',
+  });
+});
 
 
 // ─────────────────────────────────────────────────────────────
-// PEAK OS 정산 — 브라우저 초안을 계정 기준 서버 저장으로 옮긴다.
-// 본사(hq)만 쓰며 지사(대구·전주)는 별도 체계를 따로 만든다.
+// PEAK OS 정산 — 브라우저 초안을 계정·workspace 기준 서버 저장으로 옮긴다.
+// direct member는 자기 workspace만 쓰고, 본사 oversight는 지사 원장을 읽기만 한다.
 // 화면 쪽 권한과 같은 기준을 서버에서도 다시 막는다.
 // ─────────────────────────────────────────────────────────────
 const PEAKOS_MONTHLY_OWNERS = PEAKOS_ACCESS_POLICY.monthlyOwners;
@@ -5862,14 +6474,59 @@ const peakosCanSeeTeam = req => peakosAccess.canSeeTeam(req);
 const peakosCanSeeMonthly = (req, view) => peakosAccess.canSeeMonthly(req, view);
 const peakosCanManageMonthly = (req, view) => peakosAccess.canManageMonthly(req, view);
 const peakosCanSeeFinalExecution = req => peakosAccess.canSeeFinalExecution(req);
+const peakosCanSeeFinanceOperations = req => peakosAccess.canSeeFinanceOperations(req);
+const peakosCanSeeFinalSettlement = req => peakosAccess.canSeeFinalSettlement(req);
+const peakosIsNonPeakSettlementManager = req => (
+  req.workspace?.id
+  && req.workspace.id !== PEAK_WORKSPACE_ID
+  && req.workspace.headquartersOversight !== true
+  && req.workspace.permissions?.settlements === 'write'
+  && ['admin', 'manager'].includes(req.workspace.role)
+);
+const peakosCanSeeWorkspaceSettlementAll = req => (
+  peakosCanSeeFinalSettlement(req) || peakosIsNonPeakSettlementManager(req)
+);
+const peakosCanSeeWorkspaceFinalExecution = req => (
+  peakosCanSeeFinalExecution(req) || peakosIsNonPeakSettlementManager(req)
+);
+const peakosCanSeeTeamFinance = req => (
+  peakosCanSeeFinanceOperations(req) && peakosCanSeeTeam(req)
+);
+const peakosCanPreviewAccounts = req => peakosAccess.canPreviewAccounts(req);
 function peakosOwnedMonthlyViews(req) {
   return Object.keys(PEAKOS_MONTHLY_OWNERS).filter(view => peakosCanManageMonthly(req, view));
 }
-const peakosCanReadOwner = (req, owner) => peakosAccess.canReadOwner(req, owner);
+const peakosCanReadOwnerUid = (req, ownerUid) => peakosAccess.canReadOwnerUid(req, ownerUid);
 const peakosBankCanRead = req => peakosAccess.canReadBank(req);
 const peakosBankCanViewBalances = req => peakosAccess.canViewBankBalances(req);
 const peakosCanReviewFinance = req => peakosAccess.canReviewFinance(req);
 const peakosCanSeeTaxPurchase = req => peakosAccess.canSeeTaxPurchase(req);
+
+app.use(
+  '/api/peakos/company-documents',
+  peakosWorkspaceService.requireWorkspace({ area: 'documents', action: 'read', requireHeader: true }),
+  (req, res, next) => {
+    if (req.workspace?.id === PEAK_WORKSPACE_ID) return next();
+    if (String(req.method).toUpperCase() !== 'GET') {
+      return res.status(403).json({
+        code: 'PEAKOS_WORKSPACE_READ_ONLY',
+        error: '지사 자료 업로드는 전용 비공개 저장소 쓰기 기능 연결 후 사용할 수 있습니다.',
+      });
+    }
+    const contentMatch = String(req.path || '').match(/^\/([A-Za-z0-9:_-]{1,160})\/content\/?$/);
+    if (contentMatch) {
+      req.params = { ...req.params, id: contentMatch[1] };
+      return peakosWorkspaceDocumentService.content(req, res);
+    }
+    if (req.path === '/' || req.path === '') {
+      return peakosWorkspaceDocumentService.list(req, res);
+    }
+    return res.status(404).json({
+      code: 'WORKSPACE_DOCUMENT_NOT_FOUND',
+      error: '이 워크스페이스에는 해당 자료가 없습니다.',
+    });
+  },
+);
 
 registerPeakosCompanyDocuments({
   app,
@@ -5902,6 +6559,7 @@ const peakosBankService = registerPeakosBanking({
   authMiddleware,
   pool,
   canRead: peakosBankCanRead,
+  canReadTaxPurchase: peakosCanSeeTaxPurchase,
   canViewBalances: peakosBankCanViewBalances,
   // 민감 두 통장과 잔액 권한을 가진 동일 4명만 수동 동기화한다.
   canSync: peakosBankCanViewBalances,
@@ -5950,346 +6608,51 @@ registerPeakosCreditRequests({
   getActor: req => ({ uid: req.uid, name: peakosName(req) }),
 });
 
-const PEAKOS_INTAKE_COLUMNS = [
-  'id', 'owner_uid', 'owner_name', 'date', 'client', 'expected_payer', 'a', 'b', 'c', 'unit', 'qty', 'sell', 'cost',
-  'memo', 'kind', 'ref_of', 'supplier', 'manager', 'final_only', 'paid', 'paid_amount', 'payer',
-  'paid_date', 'paid_memo', 'paid_auto', 'vendor_paid', 'vendor_paid_date', 'vendor_bank',
-  'vendor_by', 'vendor_memo'
-];
-
-function peakosIntakeRow(body, req) {
-  const num = value => (value === '' || value === null || value === undefined ? null : Number(value));
-  return {
-    id: String(body.id || '').slice(0, 80),
-    owner_uid: req.uid,
-    owner_name: peakosName(req),
-    date: String(body.date || '').slice(0, 10),
-    client: String(body.client || '').slice(0, 200),
-    expected_payer: String(body.expectedPayer || body.client || '').slice(0, 120),
-    a: String(body.a || '').slice(0, 80),
-    b: String(body.b || '').slice(0, 80),
-    c: String(body.c || '').slice(0, 120),
-    unit: num(body.unit) ?? 0,
-    qty: num(body.qty) ?? 0,
-    sell: num(body.sell) ?? 0,
-    cost: num(body.cost),
-    memo: String(body.memo || '').slice(0, 500),
-    kind: ['normal', 'reserve', 'use', 'refund'].includes(body.kind) ? body.kind : 'normal',
-    ref_of: String(body.refOf || '').slice(0, 80),
-    supplier: String(body.supplier || '').slice(0, 120),
-    manager: String(body.manager || '').slice(0, 80),
-    final_only: Boolean(body.finalOnly),
-    paid: ['none', 'paid', 'partial', 'wrong'].includes(body.paid) ? body.paid : 'none',
-    paid_amount: num(body.paidAmount) ?? 0,
-    payer: String(body.payer || '').slice(0, 120),
-    paid_date: String(body.paidDate || '').slice(0, 10),
-    paid_memo: String(body.paidMemo || '').slice(0, 500),
-    // paid_auto는 은행 reconciliation만 true로 만들 수 있는 서버 전용 값이다.
-    paid_auto: false,
-    vendor_paid: Boolean(body.vendorPaid),
-    vendor_paid_date: String(body.vendorPaidDate || '').slice(0, 10),
-    vendor_bank: String(body.vendorBank || '').slice(0, 80),
-    vendor_by: String(body.vendorBy || '').slice(0, 80),
-    vendor_memo: String(body.vendorMemo || '').slice(0, 500)
-  };
-}
-
-function peakosIntakeOut(row) {
-  return {
-    id: row.id,
-    owner: row.owner_uid,
-    ownerName: row.owner_name || '',
-    date: row.date instanceof Date ? row.date.toISOString().slice(0, 10) : String(row.date).slice(0, 10),
-    client: row.client || '',
-    expectedPayer: row.expected_payer || row.client || '',
-    bankMatchEligible: row.bank_match_eligible === true,
-    bankMatchApprovedAt: row.bank_match_approved_at || null,
-    a: row.a || '', b: row.b || '', c: row.c || '',
-    unit: Number(row.unit) || 0,
-    qty: Number(row.qty) || 0,
-    sell: Number(row.sell) || 0,
-    cost: row.cost === null ? null : Number(row.cost),
-    memo: row.memo || '',
-    kind: row.kind,
-    refOf: row.ref_of || '',
-    supplier: row.supplier || '',
-    manager: row.manager || '',
-    finalOnly: row.final_only,
-    paid: row.paid,
-    paidAmount: Number(row.paid_amount) || 0,
-    payer: row.payer || '',
-    paidDate: row.paid_date || '',
-    paidMemo: row.paid_memo || '',
-    paidAuto: row.paid_auto,
-    vendorPaid: row.vendor_paid,
-    vendorPaidDate: row.vendor_paid_date || '',
-    vendorBank: row.vendor_bank || '',
-    vendorBy: row.vendor_by || '',
-    vendorMemo: row.vendor_memo || ''
-  };
-}
-
-// 접수 조회. scope=mine 은 내 것, all 은 전 영업자(지정 인원만).
-app.get('/api/peakos/intake', authMiddleware, async (req, res) => {
-  if (!peakosApprovedActive(req)) {
-    return res.status(403).json({ error: '승인된 활성 계정만 접수를 볼 수 있습니다.' });
-  }
-  try {
-    // owner 를 지정하면 그 사람 것만. 미리보기가 쓰는 길이라 자격을 따로 본다.
-    const owner = String(req.query.owner || '').trim();
-    if (owner) {
-      if (!peakosCanReadOwner(req, owner)) {
-        return res.status(403).json({ error: `${owner} 계정의 접수는 볼 수 없습니다.` });
-      }
-      const one = await pool.query(
-        'SELECT * FROM peakos_intake WHERE owner_name = $1 ORDER BY date DESC, created_at DESC', [owner]);
-      return res.json(one.rows.map(peakosIntakeOut));
-    }
-    const wantsAll = req.query.scope === 'all';
-    if (wantsAll && !peakosCanSeeAll(req)) {
-      return res.status(403).json({ error: '전체 접수는 지정된 인원만 볼 수 있습니다.' });
-    }
-    const result = wantsAll
-      ? await pool.query('SELECT * FROM peakos_intake ORDER BY date DESC, created_at DESC')
-      : await pool.query('SELECT * FROM peakos_intake WHERE owner_uid = $1 ORDER BY date DESC, created_at DESC', [req.uid]);
-    res.json(result.rows.map(peakosIntakeOut));
-  } catch (err) {
-    console.error('peakos intake read error:', err.message);
-    res.status(500).json({ error: '접수를 불러오지 못했습니다.' });
-  }
+registerPeakosSettlementRoutes({
+  app,
+  authMiddleware,
+  pool,
+  monthlyOwners: PEAKOS_MONTHLY_OWNERS,
+  approvedActive: peakosApprovedActive,
+  getName: peakosName,
+  // Peak 전체 원장은 지정 계정만, 지점 전체 원장은 해당 지점의 direct
+  // admin/manager만 조회·관리한다. HQ oversight는 module에서 GET-only다.
+  canSeeAll: peakosCanSeeWorkspaceSettlementAll,
+  canReadOwnerUid: peakosCanReadOwnerUid,
+  canManageMonthly: peakosCanManageMonthly,
+  canSeeMonthly: peakosCanSeeMonthly,
+  canSeeFinalExecution: peakosCanSeeWorkspaceFinalExecution,
+  canReviewFinance: peakosCanReviewFinance,
+  canManageBankEligibility: peakosBankCanViewBalances,
+  autoReconciliationEnabled: peakosAutoReconciliationEnabled,
+  getWorkspaceId: req => requestWorkspaceId(req),
+  logger: console,
 });
 
-// 저장은 통째로 덮어쓰지 않고 건별로 넣거나 고친다.
-app.post('/api/peakos/intake', authMiddleware, async (req, res) => {
-  if (!peakosApprovedActive(req)) {
-    return res.status(403).json({ error: '승인된 활성 계정만 접수를 저장할 수 있습니다.' });
-  }
-  const rows = Array.isArray(req.body?.rows) ? req.body.rows : [req.body];
-  if (!rows.length || rows.length > 500) {
-    return res.status(400).json({ error: '한 번에 1~500건까지 저장할 수 있습니다.' });
-  }
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    for (const body of rows) {
-      const row = peakosIntakeRow(body, req);
-      if (!row.id || !row.date) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ error: 'id와 일자는 반드시 있어야 합니다.' });
-      }
-      const cols = PEAKOS_INTAKE_COLUMNS;
-      const values = cols.map(col => row[col]);
-      const holders = cols.map((_, i) => `$${i + 1}`).join(', ');
-      // 없는 ID는 먼저 insert-only로 선점한다. 동시에 같은 ID를 만든
-      // 후발 요청은 충돌 후 아래 잠금·소유권·allocation 검사를 반드시
-      // 다시 거치므로 blind upsert가 일어나지 않는다.
-      let own = await client.query(
-        'SELECT owner_uid, bank_match_eligible FROM peakos_intake WHERE id = $1 FOR UPDATE',
-        [row.id],
-      );
-      if (!own.rows[0]) {
-        const inserted = await client.query(
-          `INSERT INTO peakos_intake (${cols.join(', ')}) VALUES (${holders})
-           ON CONFLICT (id) DO NOTHING RETURNING id`,
-          values,
-        );
-        if (inserted.rows[0]) continue;
-        own = await client.query(
-          'SELECT owner_uid, bank_match_eligible FROM peakos_intake WHERE id = $1 FOR UPDATE',
-          [row.id],
-        );
-      }
-      if (own.rows[0] && own.rows[0].owner_uid !== req.uid) {
-        await client.query('ROLLBACK');
-        return res.status(403).json({ error: '다른 사람의 접수는 고칠 수 없습니다.' });
-      }
-      if (!own.rows[0]) throw new Error('접수 ID 충돌 상태를 확인하지 못했습니다.');
-      if (own.rows[0].bank_match_eligible) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ error: '자동 입금확인 대상으로 확정된 접수는 확정을 해제한 뒤 수정할 수 있습니다.' });
-      }
-      const bankLock = await client.query(
-        `SELECT 1 FROM peakos_bank_allocations
-          WHERE intake_id = $1 AND status = 'ACTIVE' LIMIT 1`,
-        [row.id],
-      );
-      if (bankLock.rows[0]) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ error: '통장에서 자동 확인된 접수는 입금 연결을 해제한 뒤 수정할 수 있습니다.' });
-      }
-      const updateCols = cols.filter(col => col !== 'id' && col !== 'owner_uid');
-      const updateValues = updateCols.map(col => row[col]);
-      const updates = updateCols.map((col, index) => `${col} = $${index + 1}`).join(', ');
-      await client.query(
-        `UPDATE peakos_intake SET ${updates}, updated_at = now()
-          WHERE id = $${updateValues.length + 1}`,
-        [...updateValues, row.id],
-      );
-    }
-    await client.query('COMMIT');
-    res.json({ saved: rows.length });
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    console.error('peakos intake write error:', err.message);
-    res.status(500).json({ error: '접수를 저장하지 못했습니다.' });
-  } finally {
-    client.release();
-  }
-});
-
-app.delete('/api/peakos/intake/:id', authMiddleware, async (req, res) => {
-  if (!peakosApprovedActive(req)) {
-    return res.status(403).json({ error: '승인된 활성 계정만 접수를 지울 수 있습니다.' });
-  }
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const existing = await client.query(
-      'SELECT owner_uid, bank_match_eligible FROM peakos_intake WHERE id = $1 FOR UPDATE',
-      [req.params.id],
-    );
-    if (!existing.rows[0] || existing.rows[0].owner_uid !== req.uid) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: '내 접수에서 찾지 못했습니다.' });
-    }
-    if (existing.rows[0].bank_match_eligible) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: '자동 입금확인 대상으로 확정된 접수는 확정을 해제한 뒤 삭제할 수 있습니다.' });
-    }
-    const bankLock = await client.query(
-      `SELECT 1 FROM peakos_bank_allocations
-        WHERE intake_id = $1 AND status = 'ACTIVE' LIMIT 1`,
-      [req.params.id],
-    );
-    if (bankLock.rows[0]) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: '통장에서 자동 확인된 접수는 입금 연결을 해제한 뒤 삭제할 수 있습니다.' });
-    }
-    const result = await client.query(
-      'DELETE FROM peakos_intake WHERE id = $1 RETURNING id',
-      [req.params.id],
-    );
-    await client.query('COMMIT');
-    res.json({ deleted: result.rows[0].id });
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    if (err.code === '23503') {
-      return res.status(409).json({ error: '통장 입금과 연결된 접수는 삭제할 수 없습니다.' });
-    }
-    console.error('peakos intake delete error:', err.message);
-    res.status(500).json({ error: '접수를 지우지 못했습니다.' });
-  } finally {
-    client.release();
-  }
-});
-
-// 자동 입금확인 후보는 지정 재무 담당자가 확정한 뒤부터 immutable하게
-// 만든다. 영업자가 expected payer/금액을 임의로 바꿔 실제 입금을 가로채는
-// 일을 막기 위한 별도 capability 경계다.
-app.put('/api/peakos/intake/:id/bank-match-eligibility', authMiddleware, async (req, res) => {
-  if (!peakosBankCanViewBalances(req) || !peakosApprovedActive(req)) {
-    return res.status(403).json({ error: '자동 입금확인 대상 확정 권한이 없습니다.' });
-  }
-  if (!peakosAutoReconciliationEnabled) {
-    return res.status(409).json({ error: 'IBK 공식 거래번호 연동 전까지 자동 입금확인은 안전상 보류되어 있습니다.' });
-  }
-  if (typeof req.body?.eligible !== 'boolean') {
-    return res.status(400).json({ error: 'eligible 값은 true 또는 false여야 합니다.' });
-  }
-  const reason = String(req.body?.reason || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 500);
-  if (reason.length < 5) return res.status(400).json({ error: '확정 또는 해제 사유를 5자 이상 입력해 주세요.' });
-  const intakeId = String(req.params.id || '').trim();
-  if (!intakeId || intakeId.length > 80) return res.status(400).json({ error: '접수 ID가 올바르지 않습니다.' });
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const intake = await client.query(
-      `SELECT id, owner_uid, kind, client, expected_payer, sell, qty, paid_amount,
-              paid_auto, bank_match_eligible
-         FROM peakos_intake WHERE id = $1 FOR UPDATE`,
-      [intakeId],
-    );
-    const row = intake.rows[0];
-    if (!row) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: '접수를 찾지 못했습니다.' });
-    }
-    const allocation = await client.query(
-      `SELECT 1 FROM peakos_bank_allocations
-        WHERE intake_id = $1 AND status = 'ACTIVE' LIMIT 1`,
-      [intakeId],
-    );
-    if (allocation.rows[0] || row.paid_auto) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: '이미 통장 입금과 연결된 접수의 확정 상태는 바꿀 수 없습니다.' });
-    }
-    if (req.body.eligible) {
-      const owner = await client.query(
-        `SELECT 1 FROM users
-          WHERE uid = $1 AND approved = true AND COALESCE(is_active, true) = true`,
-        [row.owner_uid],
-      );
-      const expectedPayer = String(row.expected_payer || row.client || '').trim();
-      const remaining = (Number(row.sell) || 0) * (Number(row.qty) || 0) - (Number(row.paid_amount) || 0);
-      if (!owner.rows[0] || !['normal', 'reserve'].includes(row.kind)
-          || !expectedPayer || !Number.isSafeInteger(remaining) || remaining <= 0) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ error: '활성 영업자·예상 입금자명·정확한 미입금액이 있는 접수만 확정할 수 있습니다.' });
-      }
-    }
-    const updated = await client.query(
-      `UPDATE peakos_intake
-          SET bank_match_eligible = $2,
-              bank_match_approved_by_uid = CASE WHEN $2 THEN $3 ELSE NULL END,
-              bank_match_approved_at = CASE WHEN $2 THEN NOW() ELSE NULL END,
-              updated_at = NOW()
-        WHERE id = $1
-      RETURNING id, bank_match_eligible, bank_match_approved_at`,
-      [intakeId, req.body.eligible, req.uid],
-    );
-    await client.query(
-      `INSERT INTO peakos_bank_audit_log
-        (action, entity_type, entity_id, actor_uid, actor_name, reason, metadata)
-       VALUES ($1, 'INTAKE', $2, $3, $4, $5, $6::jsonb)`,
-      [
-        req.body.eligible ? 'BANK_MATCH_ELIGIBILITY_GRANTED' : 'BANK_MATCH_ELIGIBILITY_REVOKED',
-        intakeId,
-        req.uid,
-        peakosName(req),
-        reason,
-        JSON.stringify({ eligible: req.body.eligible }),
-      ],
-    );
-    await client.query('COMMIT');
-    res.json({
-      id: updated.rows[0].id,
-      bankMatchEligible: updated.rows[0].bank_match_eligible,
-      bankMatchApprovedAt: updated.rows[0].bank_match_approved_at,
-    });
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    console.error('peakos bank match eligibility error:', err.message);
-    res.status(500).json({ error: '자동 입금확인 대상 상태를 저장하지 못했습니다.' });
-  } finally {
-    client.release();
-  }
-});
 
 // 단가표는 회사 공용. 읽기는 전원, 쓰기는 지정 인원만.
-app.get('/api/peakos/prices', authMiddleware, async (req, res) => {
+app.get('/api/peakos/prices', authMiddleware, peakosWorkspaceService.requireWorkspace({ area: 'settlements', action: 'read', requireHeader: true }), async (req, res) => {
   if (!peakosApprovedActive(req)) {
     return res.status(403).json({ error: '승인된 활성 계정만 단가표를 볼 수 있습니다.' });
   }
   try {
     // 회사 원가는 지정된 인원에게만 내려보낸다. 그 밖에는 서버 밖으로 나가지 않는다.
-    const showCost = peakosCanSeeAll(req);
-    const result = await pool.query('SELECT * FROM peakos_price ORDER BY a, b, c');
+    const showCost = peakosCanSeeFinalSettlement(req)
+      || (!req.workspace?.headquartersOversight && ['admin', 'manager'].includes(req.workspace?.role));
+    const result = await pool.query(
+      `SELECT *,
+              (is_base AND (cost IS DISTINCT FROM default_cost
+                OR unit IS DISTINCT FROM default_unit)) AS edited
+         FROM peakos_price
+        WHERE workspace_id = $1
+        ORDER BY a, b, c`,
+      [requestWorkspaceId(req)],
+    );
     res.json(result.rows.map(row => ({
       key: row.key, a: row.a, b: row.b, c: row.c,
       cost: showCost && row.cost !== null ? Number(row.cost) : null,
       unit: row.unit === null ? null : Number(row.unit),
-      custom: row.is_custom, updatedBy: row.updated_by || ''
+      custom: row.is_custom, edited: row.edited === true, updatedBy: row.updated_by || ''
     })));
   } catch (err) {
     console.error('peakos price read error:', err.message);
@@ -6297,45 +6660,125 @@ app.get('/api/peakos/prices', authMiddleware, async (req, res) => {
   }
 });
 
-app.put('/api/peakos/prices', authMiddleware, async (req, res) => {
-  if (!peakosCanSeeAll(req)) {
+app.put('/api/peakos/prices', authMiddleware, peakosWorkspaceService.requireWorkspace({ area: 'settlements', action: 'write', requireHeader: true }), async (req, res) => {
+  if (!peakosCanSeeFinalSettlement(req)
+      && !(!req.workspace?.headquartersOversight && ['admin', 'manager'].includes(req.workspace?.role))) {
     return res.status(403).json({ error: '단가표는 지정된 인원만 고칠 수 있습니다.' });
   }
   const { key, a, b, c, cost, unit, custom } = req.body || {};
   if (!key || !a || !b || !c) return res.status(400).json({ error: '분류를 모두 채워 주세요.' });
   const num = value => (value === '' || value === null || value === undefined ? null : Number(value));
+  const rawParts = [String(a), String(b), String(c)];
+  if (rawParts[0].length > 80 || rawParts[1].length > 80 || rawParts[2].length > 120
+      || rawParts.some(value => /[\u0000-\u001f\u007f|]/u.test(value))) {
+    return res.status(400).json({ error: '단가표 분류에 허용되지 않은 문자나 길이가 있습니다.' });
+  }
+  const canonicalKey = peakosPriceKey(
+    rawParts[0],
+    rawParts[1],
+    rawParts[2],
+  );
+  if (String(key) !== canonicalKey) {
+    return res.status(400).json({ error: '단가표 키와 분류가 일치하지 않습니다.' });
+  }
+  const normalizedCost = num(cost);
+  const normalizedUnit = num(unit);
+  if ((normalizedCost !== null && (!Number.isSafeInteger(normalizedCost)
+        || normalizedCost < 0 || normalizedCost > 1_000_000_000_000))
+      || (normalizedUnit !== null && (!Number.isSafeInteger(normalizedUnit)
+        || normalizedUnit < 0 || normalizedUnit > 1_000_000_000_000))) {
+    return res.status(400).json({ error: '원가와 단가를 올바른 숫자로 입력해 주세요.' });
+  }
+  const client = await pool.connect();
   try {
-    await pool.query(
-      `INSERT INTO peakos_price (key, a, b, c, cost, unit, is_custom, updated_by, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
-       ON CONFLICT (key) DO UPDATE SET cost = EXCLUDED.cost, unit = EXCLUDED.unit,
-         updated_by = EXCLUDED.updated_by, updated_at = now()`,
-      [String(key).slice(0, 300), String(a).slice(0, 80), String(b).slice(0, 80), String(c).slice(0, 120),
-       num(cost), num(unit), Boolean(custom), peakosName(req)]
+    await client.query('BEGIN');
+    const existing = await client.query(
+      'SELECT key, a, b, c, is_base, is_custom FROM peakos_price WHERE workspace_id = $1 AND key = $2 FOR UPDATE',
+      [requestWorkspaceId(req), canonicalKey],
     );
-    res.json({ saved: key });
+    if (existing.rows[0]
+        && (existing.rows[0].a !== rawParts[0]
+          || existing.rows[0].b !== rawParts[1]
+          || existing.rows[0].c !== rawParts[2])) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: '기존 단가표 키의 분류 정보와 충돌합니다.' });
+    }
+    if (!existing.rows[0] && custom !== true) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: '새 상품은 사용자 추가 상품으로만 등록할 수 있습니다.' });
+    }
+    if (!existing.rows[0] && rawParts.some(value => value !== value.trim())) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: '새 상품 분류 앞뒤의 공백을 제거해 주세요.' });
+    }
+    await client.query(
+      `INSERT INTO peakos_price (workspace_id, key, a, b, c, cost, unit, is_custom, updated_by, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+       ON CONFLICT (workspace_id, key) DO UPDATE SET cost = EXCLUDED.cost, unit = EXCLUDED.unit,
+         updated_by = EXCLUDED.updated_by, updated_at = now()`,
+      [requestWorkspaceId(req), canonicalKey, rawParts[0], rawParts[1], rawParts[2],
+       normalizedCost, normalizedUnit, existing.rows[0]?.is_custom === true || custom === true, peakosName(req)]
+    );
+    await client.query('COMMIT');
+    res.json({ saved: canonicalKey });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('peakos price write error:', err.message);
     res.status(500).json({ error: '단가표를 저장하지 못했습니다.' });
+  } finally {
+    client.release();
   }
 });
 
-app.delete('/api/peakos/prices/:key', authMiddleware, async (req, res) => {
-  if (!peakosCanSeeAll(req)) {
+app.delete('/api/peakos/prices/:key', authMiddleware, peakosWorkspaceService.requireWorkspace({ area: 'settlements', action: 'write', requireHeader: true }), async (req, res) => {
+  if (!peakosCanSeeFinalSettlement(req)
+      && !(!req.workspace?.headquartersOversight && ['admin', 'manager'].includes(req.workspace?.role))) {
     return res.status(403).json({ error: '단가표는 지정된 인원만 고칠 수 있습니다.' });
   }
+  const client = await pool.connect();
   try {
-    await pool.query('DELETE FROM peakos_price WHERE key = $1', [req.params.key]);
+    await client.query('BEGIN');
+    const found = await client.query(
+      'SELECT key, is_base, is_custom FROM peakos_price WHERE workspace_id = $1 AND key = $2 FOR UPDATE',
+      [requestWorkspaceId(req), req.params.key],
+    );
+    if (!found.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: '단가표 항목을 찾지 못했습니다.' });
+    }
+    if (found.rows[0].is_base) {
+      await client.query(
+        `UPDATE peakos_price
+            SET cost = default_cost, unit = default_unit,
+                updated_by = $3, updated_at = NOW()
+          WHERE workspace_id = $1 AND key = $2`,
+        [requestWorkspaceId(req), req.params.key, peakosName(req)],
+      );
+      await client.query('COMMIT');
+      return res.json({ reset: req.params.key });
+    }
+    if (!found.rows[0].is_custom) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: '기본·시스템 단가표 항목은 삭제할 수 없습니다.' });
+    }
+    await client.query(
+      'DELETE FROM peakos_price WHERE workspace_id = $1 AND key = $2',
+      [requestWorkspaceId(req), req.params.key],
+    );
+    await client.query('COMMIT');
     res.json({ deleted: req.params.key });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('peakos price delete error:', err.message);
     res.status(500).json({ error: '단가표를 지우지 못했습니다.' });
+  } finally {
+    client.release();
   }
 });
 
 // 충전금 — 회사 돈이라 지정 인원만.
 app.get('/api/peakos/credit', authMiddleware, async (req, res) => {
-  if (!peakosCanSeeAll(req)) return res.status(403).json({ error: '충전금은 지정된 인원만 볼 수 있습니다.' });
+  if (!peakosCanSeeFinanceOperations(req)) return res.status(403).json({ error: '충전금은 지정된 인원만 볼 수 있습니다.' });
   try {
     const result = await pool.query('SELECT * FROM peakos_credit ORDER BY date DESC, created_at DESC');
     res.json(result.rows.map(row => ({
@@ -6351,7 +6794,7 @@ app.get('/api/peakos/credit', authMiddleware, async (req, res) => {
 });
 
 app.post('/api/peakos/credit', authMiddleware, async (req, res) => {
-  if (!peakosCanSeeAll(req)) return res.status(403).json({ error: '충전금은 지정된 인원만 기입할 수 있습니다.' });
+  if (!peakosCanSeeFinanceOperations(req)) return res.status(403).json({ error: '충전금은 지정된 인원만 기입할 수 있습니다.' });
   const rows = Array.isArray(req.body?.rows) ? req.body.rows : [req.body];
   if (!rows.length || rows.length > 500) return res.status(400).json({ error: '한 번에 1~500건까지 저장할 수 있습니다.' });
   try {
@@ -6378,7 +6821,7 @@ app.post('/api/peakos/credit', authMiddleware, async (req, res) => {
 });
 
 app.delete('/api/peakos/credit/:id', authMiddleware, async (req, res) => {
-  if (!peakosCanSeeAll(req)) return res.status(403).json({ error: '충전금은 지정된 인원만 지울 수 있습니다.' });
+  if (!peakosCanSeeFinanceOperations(req)) return res.status(403).json({ error: '충전금은 지정된 인원만 지울 수 있습니다.' });
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -6411,162 +6854,14 @@ app.delete('/api/peakos/credit/:id', authMiddleware, async (req, res) => {
   }
 });
 
-function peakosMonthlyOut(row, { includeView = false } = {}) {
-  return {
-    ...(includeView ? { view: row.view, ownerName: row.owner_name || '' } : {}),
-    id: row.id, kind: row.kind, parentId: row.parent_id || '',
-    date: String(row.date instanceof Date ? row.date.toISOString().slice(0, 10) : row.date).slice(0, 10),
-    client: row.client || '', a: row.a || '', b: row.b || '', c: row.c || '',
-    amount: Number(row.amount) || 0, qty: Number(row.qty) || 0,
-    period: row.period || '', memo: row.memo || ''
-  };
-}
-
-// 세 개인 전용 실행 정산서를 한 번에 읽는 최종 탭. 수정 API와 분리해
-// 지정된 네 UID가 취합 자료만 읽고 원본은 건드리지 못하게 한다.
-app.get('/api/peakos/final-execution', authMiddleware, async (req, res) => {
-  if (!peakosCanSeeFinalExecution(req)) {
-    return res.status(403).json({ error: '최종실행정산서 열람 권한이 없습니다.' });
-  }
-  try {
-    const views = Object.keys(PEAKOS_MONTHLY_OWNERS);
-    const result = await pool.query(
-      `SELECT id, view, owner_name, kind, parent_id, date, client, a, b, c,
-              amount, qty, period, memo, created_at
-         FROM peakos_monthly
-        WHERE view = ANY($1::text[])
-        ORDER BY date DESC, view, created_at, id`,
-      [views],
-    );
-    res.set('Cache-Control', 'no-store');
-    res.json({ rows: result.rows.map(row => peakosMonthlyOut(row, { includeView: true })) });
-  } catch (err) {
-    console.error('peakos final execution read error:', err.message);
-    res.status(500).json({ error: '최종실행정산서를 불러오지 못했습니다.' });
-  }
-});
-
-// 개인 전용 정산서 — 화면별 소유자 한 명만 조회·편집한다.
-app.get('/api/peakos/monthly/:view', authMiddleware, async (req, res) => {
-  const view = req.params.view;
-  if (!PEAKOS_MONTHLY_OWNERS[view]) return res.status(404).json({ error: '없는 화면입니다.' });
-  if (!peakosCanSeeMonthly(req, view)) return res.status(403).json({ error: '열람 권한이 없습니다.' });
-  try {
-    const result = await pool.query('SELECT * FROM peakos_monthly WHERE view = $1 ORDER BY created_at', [view]);
-    res.json(result.rows.map(row => peakosMonthlyOut(row)));
-  } catch (err) {
-    console.error('peakos monthly read error:', err.message);
-    res.status(500).json({ error: '정산을 불러오지 못했습니다.' });
-  }
-});
-
-app.post('/api/peakos/monthly/:view', authMiddleware, async (req, res) => {
-  const view = req.params.view;
-  if (!PEAKOS_MONTHLY_OWNERS[view]) return res.status(404).json({ error: '없는 화면입니다.' });
-  if (!peakosCanManageMonthly(req, view)) return res.status(403).json({ error: '본인 정산서만 수정할 수 있습니다.' });
-  const rows = Array.isArray(req.body?.rows) ? req.body.rows : [req.body];
-  if (!rows.length || rows.length > 500) return res.status(400).json({ error: '한 번에 1~500건까지 저장할 수 있습니다.' });
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    for (const body of rows) {
-      const id = String(body?.id || '').trim().slice(0, 80);
-      const date = String(body?.date || '').slice(0, 10);
-      const kind = body?.kind === 'run' ? 'run' : 'sale';
-      const parentId = kind === 'run' ? String(body?.parentId || '').trim().slice(0, 80) : '';
-      const amount = Number(body?.amount);
-      const qty = Number(body?.qty);
-      if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ error: 'id와 올바른 일자는 반드시 있어야 합니다.' });
-      }
-      if (!Number.isFinite(amount) || amount < 0 || !Number.isFinite(qty) || qty <= 0) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ error: '금액과 수량이 올바르지 않습니다.' });
-      }
-
-      const existing = await client.query(
-        'SELECT view, kind FROM peakos_monthly WHERE id = $1 FOR UPDATE',
-        [id],
-      );
-      if (existing.rows[0] && (existing.rows[0].view !== view || existing.rows[0].kind !== kind)) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ error: '다른 정산서의 항목 ID는 사용할 수 없습니다.' });
-      }
-      if (kind === 'run') {
-        if (!parentId || parentId === id) {
-          await client.query('ROLLBACK');
-          return res.status(400).json({ error: '실행 건에는 연결할 판매 건이 필요합니다.' });
-        }
-        const parent = await client.query(
-          `SELECT 1 FROM peakos_monthly
-            WHERE id = $1 AND view = $2 AND kind = 'sale' FOR SHARE`,
-          [parentId, view],
-        );
-        if (!parent.rows[0]) {
-          await client.query('ROLLBACK');
-          return res.status(409).json({ error: '같은 정산서의 판매 건에만 실행 건을 연결할 수 있습니다.' });
-        }
-      }
-
-      const values = [
-        id, view, req.uid, peakosName(req), kind, parentId, date,
-        String(body.client || '').slice(0, 200), String(body.a || '').slice(0, 80),
-        String(body.b || '').slice(0, 80), String(body.c || '').slice(0, 120),
-        amount, qty, String(body.period || '').slice(0, 120), String(body.memo || '').slice(0, 500),
-      ];
-      if (existing.rows[0]) {
-        await client.query(
-          `UPDATE peakos_monthly
-              SET owner_uid = $3, owner_name = $4, kind = $5, parent_id = $6, date = $7,
-                  client = $8, a = $9, b = $10, c = $11, amount = $12,
-                  qty = $13, period = $14, memo = $15
-            WHERE id = $1 AND view = $2`,
-          values,
-        );
-      } else {
-        await client.query(
-          `INSERT INTO peakos_monthly
-            (id, view, owner_uid, owner_name, kind, parent_id, date, client, a, b, c, amount, qty, period, memo)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
-          values,
-        );
-      }
-    }
-    await client.query('COMMIT');
-    res.json({ saved: rows.length });
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    console.error('peakos monthly write error:', err.message);
-    res.status(500).json({ error: '정산을 저장하지 못했습니다.' });
-  } finally {
-    client.release();
-  }
-});
-
-app.delete('/api/peakos/monthly/:view/:id', authMiddleware, async (req, res) => {
-  const view = req.params.view;
-  if (!PEAKOS_MONTHLY_OWNERS[view]) return res.status(404).json({ error: '없는 화면입니다.' });
-  if (!peakosCanManageMonthly(req, view)) return res.status(403).json({ error: '본인 정산서만 수정할 수 있습니다.' });
-  try {
-    // 판매 건을 지우면 붙어 있던 실행 건도 같이 지운다.
-    const result = await pool.query(
-      'DELETE FROM peakos_monthly WHERE view = $1 AND (id = $2 OR parent_id = $2) RETURNING id',
-      [view, req.params.id],
-    );
-    if (!result.rows.length) return res.status(404).json({ error: '정산 항목을 찾지 못했습니다.' });
-    res.json({ deleted: req.params.id });
-  } catch (err) {
-    console.error('peakos monthly delete error:', err.message);
-    res.status(500).json({ error: '정산을 지우지 못했습니다.' });
-  }
-});
-
 // 자금 현황판 — 회사에 하나. 대표·김대호·박종원만.
 app.get('/api/peakos/fund', authMiddleware, async (req, res) => {
-  if (!peakosCanSeeTeam(req)) return res.status(403).json({ error: '자금 현황은 지정된 인원만 볼 수 있습니다.' });
+  if (!peakosCanSeeTeamFinance(req)) return res.status(403).json({ error: '자금 현황은 지정된 인원만 볼 수 있습니다.' });
   try {
-    const result = await pool.query('SELECT board, updated_by, updated_at FROM peakos_fund WHERE id = 1');
+    const result = await pool.query(
+      'SELECT board, updated_by, updated_at FROM peakos_fund WHERE workspace_id = $1 AND id = 1',
+      [requestWorkspaceId(req)],
+    );
     res.json(result.rows[0]?.board || null);
   } catch (err) {
     console.error('peakos fund read error:', err.message);
@@ -6575,14 +6870,14 @@ app.get('/api/peakos/fund', authMiddleware, async (req, res) => {
 });
 
 app.put('/api/peakos/fund', authMiddleware, async (req, res) => {
-  if (!peakosCanSeeTeam(req)) return res.status(403).json({ error: '자금 현황은 지정된 인원만 고칠 수 있습니다.' });
+  if (!peakosCanSeeTeamFinance(req)) return res.status(403).json({ error: '자금 현황은 지정된 인원만 고칠 수 있습니다.' });
   const board = req.body?.board;
   if (!board || typeof board !== 'object') return res.status(400).json({ error: '보낼 내용이 없습니다.' });
   try {
     await pool.query(
-      `INSERT INTO peakos_fund (id, board, updated_by, updated_at) VALUES (1, $1, $2, now())
-       ON CONFLICT (id) DO UPDATE SET board = EXCLUDED.board, updated_by = EXCLUDED.updated_by, updated_at = now()`,
-      [JSON.stringify(board), peakosName(req)]
+      `INSERT INTO peakos_fund (workspace_id, id, board, updated_by, updated_at) VALUES ($1, 1, $2, $3, now())
+       ON CONFLICT (workspace_id, id) DO UPDATE SET board = EXCLUDED.board, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+      [requestWorkspaceId(req), JSON.stringify(board), peakosName(req)]
     );
     res.json({ saved: true });
   } catch (err) {
@@ -6594,6 +6889,10 @@ app.put('/api/peakos/fund', authMiddleware, async (req, res) => {
 async function startServer() {
   try {
     await peakosAccess.load();
+    // Fail before any startup helper can write when the operator-owned
+    // workspace migration has not been applied. This is a SELECT-only
+    // readiness check; application startup never attempts owner DDL here.
+    await ensurePeakosWorkspaceInfrastructure(pool);
     await ensureReminderInfrastructure();
     await ensureChatPerformanceIndexes();
     await ensureChatRoomGroupInfrastructure();
@@ -6605,9 +6904,12 @@ async function startServer() {
     await ensurePeakosCoreInfrastructure(pool);
     await ensurePeakosBankInfrastructure(pool);
     await ensurePeakosBankReconciliationInfrastructure(pool);
+    await ensureSettlementImportInfrastructure(pool);
     await ensurePeakosCreditRequestInfrastructure(pool);
     await ensurePeakosFinanceRequestInfrastructure(pool);
     await ensureOsEmailAuthInfrastructure(pool);
+    await peakosWorkspaceService.seedOversightMemberships();
+    await ensurePeakosPriceCatalog(pool);
     await peakosOsEmailAuth.repository.purgeExpired(new Date());
     registerPeakosFinanceRequests({
       app,

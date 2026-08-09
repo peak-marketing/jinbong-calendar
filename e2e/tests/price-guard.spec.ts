@@ -77,3 +77,94 @@ test('영업자는 회사원가에 닿을 수 없다 - 김용일', async ({ page
   // 서버가 내려보낸 회사원가는 비어 있다
   expect(sentCost).toBeNull();
 });
+
+test('단가 저장 실패는 성공 표시를 하지 않고 서버 단가로 되돌린다', async ({ page }) => {
+  await installFirebaseStub(page);
+  await installPeakosStub(page, {
+    name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀',
+  });
+  let failNext = true;
+  await page.route('**/api/peakos/prices', async route => {
+    if (route.request().method() === 'PUT' && failNext) {
+      failNext = false;
+      await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: '단가 저장 테스트 실패' }) });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await page.goto('/business-os-preview.html');
+  await expect(page.locator('#authGate')).toBeHidden();
+  // 재무 메뉴가 접혀 있을 수 있어 권한 검증이 끝난 실제 메뉴 버튼을 직접 연다.
+  await page.evaluate(() => (document.querySelector('.nav-item[data-view="final-settlement"]') as HTMLElement)?.click());
+  await page.locator('[data-price-table]').click();
+  await page.locator('#priceSearch').fill('자동완성 슬롯');
+  const row = page.locator('.price-table tbody tr').filter({ hasText: '슬롯' }).first();
+  await expect(row).toContainText('15,000');
+  await row.locator('[data-price-edit-open]').click();
+  await page.locator('[data-price-edit="unit"]').fill('99999');
+  await page.locator('[data-price-edit-save]').click();
+  await expect(page.locator('.toast')).toContainText('단가를 저장하지 못했습니다. 단가 저장 테스트 실패');
+  await expect(page.locator('.toast')).not.toContainText('서버에 저장했습니다');
+  await expect(page.locator('.price-table tbody tr').filter({ hasText: '슬롯' }).first()).toContainText('15,000');
+});
+
+test('수정한 기본 단가는 새로고침 뒤에도 되돌리기 상태를 복원한다', async ({ page }) => {
+  await installFirebaseStub(page);
+  await installPeakosStub(page, {
+    name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀',
+  });
+
+  const openPrices = async () => {
+    await page.evaluate(() => (document.querySelector('.nav-item[data-view="final-settlement"]') as HTMLElement)?.click());
+    await page.locator('[data-price-table]').click();
+    await page.locator('#priceSearch').fill('자동완성 슬롯');
+  };
+
+  await page.goto('/business-os-preview.html');
+  await expect(page.locator('#authGate')).toBeHidden();
+  await openPrices();
+  let row = page.locator('.price-table tbody tr').filter({ hasText: '슬롯' }).first();
+  await row.locator('[data-price-edit-open]').click();
+  await page.locator('[data-price-edit="unit"]').fill('99999');
+  await page.locator('[data-price-edit-save]').click();
+  await expect(page.locator('.toast')).toContainText('단가를 서버에 저장했습니다.');
+
+  await page.reload();
+  await expect(page.locator('#authGate')).toBeHidden();
+  await openPrices();
+  row = page.locator('.price-table tbody tr').filter({ hasText: '슬롯' }).first();
+  await expect(row).toContainText('99,999');
+  await expect(row.locator('[data-price-edit-reset]')).toHaveCount(1);
+  await row.locator('[data-price-edit-reset]').click();
+  row = page.locator('.price-table tbody tr').filter({ hasText: '슬롯' }).first();
+  await expect(row).toContainText('15,000');
+  await expect(row.locator('[data-price-edit-reset]')).toHaveCount(0);
+});
+
+test('추가 상품은 기본단가 되돌리기가 아니라 서버에서 실제 삭제한다', async ({ page }) => {
+  await installFirebaseStub(page);
+  const store = await installPeakosStub(page, {
+    name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀',
+  });
+  await page.goto('/business-os-preview.html');
+  await expect(page.locator('#authGate')).toBeHidden();
+  await page.evaluate(() => (document.querySelector('.nav-item[data-view="final-settlement"]') as HTMLElement)?.click());
+  await page.locator('[data-price-table]').click();
+  await page.locator('[data-price-add]').click();
+  await page.locator('#newMajor').fill('블로그');
+  await page.locator('#newMiddle').fill('서버삭제테스트');
+  await page.locator('#newMinor').fill('추가상품');
+  await page.locator('#newCost').fill('8000');
+  await page.locator('#newUnit').fill('9000');
+  await page.locator('[data-price-add-save]').click();
+  await expect(page.locator('.toast')).toContainText('서버 단가표에 추가했습니다.');
+
+  await page.locator('#priceSearch').fill('서버삭제테스트');
+  const row = page.locator('.price-table tbody tr').filter({ hasText: '추가상품' }).first();
+  await expect(row.locator('[data-price-edit-reset]')).toHaveText('삭제');
+  await row.locator('[data-price-edit-reset]').click();
+  await expect(page.locator('.toast')).toContainText('서버 단가표에서 삭제했습니다.');
+  await expect(page.locator('.price-table tbody')).toContainText('찾는 상품이 없습니다.');
+  expect(store.prices.some((item: any) => item.key === '블로그|서버삭제테스트|추가상품')).toBe(false);
+});

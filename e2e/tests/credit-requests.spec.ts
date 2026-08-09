@@ -15,43 +15,22 @@ async function openCredit(page: Page) {
 }
 
 test.describe('PEAK OS credit requests', () => {
-  test('sales user creates and cancels a pending request without seeing the company credit ledger', async ({ page }) => {
+  test('sales user cannot enter the credit request screen after finance navigation is restricted', async ({ page }) => {
     await installFirebaseStub(page);
     const store = await installPeakosStub(page, {
       name: '박우진',
       role: 'manager',
       group_name: '본사 영업팀',
     });
-    page.on('dialog', dialog => dialog.accept());
-
-    await openCredit(page);
-    await expect(page.getByText('내 충전 요청', { exact: true })).toBeVisible();
-    await expect(page.getByText('재무 장부 직접 기입', { exact: true })).toHaveCount(0);
-
-    await page.locator('[data-credit-request="targetAccountId"]').selectOption('ibk-reward-space');
-    await page.locator('[data-credit-request="client"]').fill('이투이 업체');
-    await page.locator('[data-credit-request="depositorName"]').fill('정확입금자');
-    await page.locator('[data-credit-request="product"]').selectOption({ index: 1 });
-    await page.locator('[data-credit-request="vendor"]').selectOption({ index: 1 });
-    await page.locator('[data-credit-request="expectedAmount"]').fill('250000');
-    await page.locator('[data-credit-request="pointAmount"]').fill('240000');
-    await page.locator('[data-credit-request="memo"]').fill('자동승인 검증');
-    await page.locator('[data-credit-request-submit]').click();
-
-    await expect(page.getByText('이투이 업체', { exact: true })).toBeVisible();
-    await expect(page.getByText('정확입금자', { exact: true })).toBeVisible();
-    await expect(page.getByText('입금 대기', { exact: true })).toBeVisible();
-    expect(store.creditRequests).toHaveLength(1);
-    expect(store.creditRequests[0]).toMatchObject({
-      targetAccountId: 'ibk-reward-space',
-      expectedAmount: 250000,
-      pointAmount: 240000,
-      status: 'PENDING',
-    });
-
-    await page.locator('[data-credit-request-cancel]').click();
-    await expect(page.getByText('취소', { exact: true })).toBeVisible();
-    expect(store.creditRequests[0].status).toBe('CANCELLED');
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+    const finance = page.locator('[data-nav-cluster="finance"]');
+    await expect(finance).toBeHidden();
+    await finance.locator('[data-view="credit"]')
+      .evaluate(element => (element as HTMLElement).click());
+    await expect(page.locator('#pageCrumb')).toHaveText('피크마케팅');
+    await expect(page.locator('[data-credit-request-form]')).toHaveCount(0);
+    expect(store.creditRequests).toHaveLength(0);
   });
 
   test('designated finance reviewer sees all requests and the separate company ledger', async ({ page }) => {

@@ -1,6 +1,10 @@
 'use strict';
 
 const FINANCE_OPERATOR_NAMES = Object.freeze(['패션TV봉이', '박종원', '김대호', '손명아']);
+const FINANCE_OPERATION_VIEWER_NAMES = Object.freeze([
+  '패션TV봉이', '박종원', '김대호', '손명아', '전현우',
+]);
+const TAX_PURCHASE_VIEWER_NAMES = FINANCE_OPERATION_VIEWER_NAMES;
 
 const POLICY = Object.freeze({
   finalViewers: Object.freeze(['김진봉', '패션TV봉이', '손명아', '김대호', '박종원', '전현우']),
@@ -14,8 +18,10 @@ const POLICY = Object.freeze({
     'direct-execution': '김대호',
   }),
   finalExecutionViewers: FINANCE_OPERATOR_NAMES,
+  financeOperationViewers: FINANCE_OPERATION_VIEWER_NAMES,
   financeOperators: FINANCE_OPERATOR_NAMES,
   bankBalanceViewers: FINANCE_OPERATOR_NAMES,
+  taxPurchaseViewers: TAX_PURCHASE_VIEWER_NAMES,
 });
 
 const ACCESS_NAMES = Object.freeze([...new Set([
@@ -25,8 +31,10 @@ const ACCESS_NAMES = Object.freeze([...new Set([
   ...POLICY.masters,
   ...Object.values(POLICY.monthlyOwners),
   ...POLICY.finalExecutionViewers,
+  ...POLICY.financeOperationViewers,
   ...POLICY.financeOperators,
   ...POLICY.bankBalanceViewers,
+  ...POLICY.taxPurchaseViewers,
 ])]);
 
 function approvedActive(req) {
@@ -40,10 +48,13 @@ function createPeakosAccess({ userPool, environment = process.env, logger = cons
   const teamViewerUids = new Set();
   const previewViewerUids = new Set();
   const masterUids = new Set();
+  const protectedOwnerUids = new Set();
   const monthlyOwnerUids = new Map();
   const finalExecutionViewerUids = new Set();
+  const financeOperationViewerUids = new Set();
   const financeOperatorUids = new Set();
   const bankBalanceViewerUids = new Set();
+  const taxPurchaseViewerUids = new Set();
   let loaded = false;
 
   const has = (req, uidSet) => loaded && approvedActive(req) && uidSet.has(String(req.uid || ''));
@@ -97,16 +108,19 @@ function createPeakosAccess({ userPool, environment = process.env, logger = cons
     fill(teamViewerUids, POLICY.teamViewers);
     fill(previewViewerUids, POLICY.previewViewers);
     fill(masterUids, POLICY.masters);
+    fill(protectedOwnerUids, POLICY.protectedOwners);
     fill(finalExecutionViewerUids, POLICY.finalExecutionViewers);
+    fill(financeOperationViewerUids, POLICY.financeOperationViewers);
     fill(financeOperatorUids, POLICY.financeOperators);
     fill(bankBalanceViewerUids, POLICY.bankBalanceViewers);
+    fill(taxPurchaseViewerUids, POLICY.taxPurchaseViewers);
     monthlyOwnerUids.clear();
     Object.entries(POLICY.monthlyOwners).forEach(([view, policyName]) => {
       monthlyOwnerUids.set(view, uidByName.get(policyName));
     });
     loaded = true;
     logger?.log?.(
-      `[PEAK OS] UID 권한 로드 final=${finalViewerUids.size} finalExecution=${finalExecutionViewerUids.size} preview=${previewViewerUids.size} finance=${financeOperatorUids.size} balance=${bankBalanceViewerUids.size}`,
+      `[PEAK OS] UID 권한 로드 final=${finalViewerUids.size} finalExecution=${finalExecutionViewerUids.size} preview=${previewViewerUids.size} financeOperations=${financeOperationViewerUids.size} finance=${financeOperatorUids.size} taxPurchase=${taxPurchaseViewerUids.size} balance=${bankBalanceViewerUids.size}`,
     );
   }
 
@@ -123,25 +137,32 @@ function createPeakosAccess({ userPool, environment = process.env, logger = cons
       loaded && approvedActive(req) && monthlyOwnerUids.get(view) === String(req.uid || '')
     ),
     canSeeFinalExecution: req => has(req, finalExecutionViewerUids),
+    canSeeFinanceOperations: req => has(req, financeOperationViewerUids),
+    // 최종정산서·결산은 재무 운영 메뉴와 같은 지정 5명만 접근한다.
+    // canSeeAll은 회사자료 등 기존 상위 조회 권한에도 쓰이므로 별도로 유지한다.
+    canSeeFinalSettlement: req => has(req, financeOperationViewerUids),
+    canPreviewAccounts: req => has(req, previewViewerUids),
     isMaster: req => has(req, masterUids),
-    canReadOwner: (req, ownerName) => {
+    canReadOwnerUid: (req, targetUid) => {
       if (!loaded || !approvedActive(req)) return false;
       if (masterUids.has(String(req.uid || ''))) return true;
       if (!previewViewerUids.has(String(req.uid || ''))) return false;
-      return !POLICY.protectedOwners.includes(String(ownerName || '').trim());
+      return !protectedOwnerUids.has(String(targetUid || ''));
     },
     // 공개 세 통장의 조회는 승인된 활성 PEAK OS 직원 모두에게 연다. 서버
     // 권한 설정이 완전히 로드되기 전에는 false로 닫아 startup 경계를 지킨다.
     canReadBank: req => loaded && approvedActive(req),
     canViewBankBalances: req => has(req, bankBalanceViewerUids),
     canReviewFinance: req => has(req, financeOperatorUids),
-    canSeeTaxPurchase: req => has(req, financeOperatorUids),
+    canSeeTaxPurchase: req => has(req, taxPurchaseViewerUids),
   });
 }
 
 module.exports = {
   ACCESS_NAMES,
   FINANCE_OPERATOR_NAMES,
+  FINANCE_OPERATION_VIEWER_NAMES,
+  TAX_PURCHASE_VIEWER_NAMES,
   POLICY,
   approvedActive,
   createPeakosAccess,

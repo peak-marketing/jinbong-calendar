@@ -144,6 +144,7 @@ function createRouteHarness(options = {}) {
     authMiddleware: (_req, _res, next) => next(),
     pool: options.pool,
     canRead: options.canRead || (() => true),
+    canReadTaxPurchase: options.canReadTaxPurchase || (() => false),
     canViewBalances: options.canViewBalances || (() => false),
     canSync: options.canSync || (() => false),
     canManage: options.canManage || (() => false),
@@ -231,6 +232,10 @@ const PUBLIC_ACCOUNT_IDS = [
   'ibk-review-space',
   'ibk-reward-space',
 ];
+const TAX_PURCHASE_ACCOUNT_IDS = [
+  'ibk-hq-fixed',
+  'ibk-hq-supplier',
+];
 const FUTURE_ACCOUNT_ID = 'ibk-future-new-account';
 
 test('일반 조회자의 계좌 목록은 SQL·응답 모두 공개 3계좌 allowlist로 제한한다', async () => {
@@ -259,9 +264,9 @@ test('일반 조회자의 계좌 목록은 SQL·응답 모두 공개 3계좌 all
   assert.equal(response.body.accounts[0].latestBalance, null);
   assert.equal(response.body.accounts[0].latestBalanceAt, null);
   assert.match(calls[0].sql, /CASE WHEN \$1::boolean THEN a\.latest_balance ELSE NULL::bigint/);
-  assert.match(calls[0].sql, /a\.id = ANY\(\$2::text\[\]\)/);
+  assert.match(calls[0].sql, /a\.id = ANY\(\$3::text\[\]\)/);
   assert.doesNotMatch(calls[0].sql, /NOT \(a\.id = ANY/);
-  assert.deepEqual(calls[0].values, [false, PUBLIC_ACCOUNT_IDS]);
+  assert.deepEqual(calls[0].values, [false, false, PUBLIC_ACCOUNT_IDS]);
 });
 
 test('잔액 capability exact4 사용자는 allowlist 밖 기존·신규 계좌와 잔액을 모두 보고 감사 로그를 남긴다', async () => {
@@ -294,9 +299,131 @@ test('잔액 capability exact4 사용자는 allowlist 밖 기존·신규 계좌�
   assert.equal(response.body.autoReconciliationEnabled, true);
   assert.deepEqual(response.body.accounts.map(account => account.id), ['ibk-hq-supplier', FUTURE_ACCOUNT_ID]);
   assert.equal(response.body.accounts.every(account => account.latestBalance === 987654321), true);
-  assert.deepEqual(calls[0].values, [true, PUBLIC_ACCOUNT_IDS]);
+  assert.deepEqual(calls[0].values, [true, true, PUBLIC_ACCOUNT_IDS]);
   const audit = calls.find(call => /INSERT INTO peakos_bank_audit_log/.test(call.sql));
   assert.equal(audit.values[0], 'BANK_BALANCE_ACCOUNTS_READ');
+});
+
+test('전현우는 tax-purchase scope에서 매입 두 계좌만 잔액 없이 읽는다', async () => {
+  const calls = [];
+  const pool = {
+    query: async (sql, values) => {
+      calls.push({ sql, values });
+      return {
+        rows: [
+          ...TAX_PURCHASE_ACCOUNT_IDS.map(id => ({ ...accountRow, id })),
+          { ...accountRow, id: PUBLIC_ACCOUNT_IDS[0] },
+          { ...accountRow, id: FUTURE_ACCOUNT_ID },
+        ],
+      };
+    },
+  };
+  const route = createRouteHarness({
+    pool,
+    canReadTaxPurchase: req => req.uid === 'uid-jeon',
+  });
+  const response = makeResponse();
+
+  await route('GET', '/api/peakos/bank/accounts')(
+    makeRequest({ uid: 'uid-jeon', query: { scope: 'tax-purchase' } }),
+    response,
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.scope, 'tax-purchase');
+  assert.equal(response.body.canViewBalances, false);
+  assert.deepEqual(response.body.accounts.map(account => account.id), TAX_PURCHASE_ACCOUNT_IDS);
+  assert.equal(response.body.accounts.every(account => account.latestBalance === null), true);
+  assert.equal(response.body.accounts.every(account => account.latestBalanceAt === null), true);
+  assert.equal(response.body.accounts.every(account => account.canSync === false), true);
+  assert.equal(response.body.accounts.every(account => account.canManage === false), true);
+  assert.match(calls[0].sql, /WHERE \$2::boolean OR a\.id = ANY\(\$3::text\[\]\)/);
+  assert.deepEqual(calls[0].values, [false, false, TAX_PURCHASE_ACCOUNT_IDS]);
+});
+
+test('전현우도 scope 없는 일반 계좌 목록에서는 공개 3계좌만 읽는다', async () => {
+  const calls = [];
+  const pool = {
+    query: async (sql, values) => {
+      calls.push({ sql, values });
+      return {
+        rows: [
+          ...TAX_PURCHASE_ACCOUNT_IDS.map(id => ({ ...accountRow, id })),
+          { ...accountRow, id: FUTURE_ACCOUNT_ID },
+          ...PUBLIC_ACCOUNT_IDS.map(id => ({ ...accountRow, id })),
+        ],
+      };
+    },
+  };
+  const route = createRouteHarness({
+    pool,
+    canReadTaxPurchase: req => req.uid === 'uid-jeon',
+  });
+  const response = makeResponse();
+
+  await route('GET', '/api/peakos/bank/accounts')(
+    makeRequest({ uid: 'uid-jeon' }),
+    response,
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.scope, 'bank');
+  assert.deepEqual(response.body.accounts.map(account => account.id), PUBLIC_ACCOUNT_IDS);
+  assert.equal(response.body.accounts.every(account => account.latestBalance === null), true);
+  assert.deepEqual(calls[0].values, [false, false, PUBLIC_ACCOUNT_IDS]);
+});
+
+test('tax-purchase 계좌 scope는 exact UID 권한과 정확한 scope를 모두 요구한다', async () => {
+  let queryCount = 0;
+  const pool = { query: async () => { queryCount += 1; return { rows: [] }; } };
+  const route = createRouteHarness({
+    pool,
+    canReadTaxPurchase: req => req.uid === 'uid-jeon',
+  });
+
+  const ordinary = makeResponse();
+  await route('GET', '/api/peakos/bank/accounts')(
+    makeRequest({ uid: 'ordinary-reader', query: { scope: 'tax-purchase' } }),
+    ordinary,
+  );
+  assert.equal(ordinary.statusCode, 403);
+
+  for (const scope of ['purchase', 'tax-purchase-extra', ['tax-purchase']]) {
+    const invalid = makeResponse();
+    await route('GET', '/api/peakos/bank/accounts')(
+      makeRequest({ uid: 'uid-jeon', query: { scope } }),
+      invalid,
+    );
+    assert.equal(invalid.statusCode, 400);
+    assert.equal(invalid.body.code, 'BANK_INVALID_SCOPE');
+  }
+  assert.equal(queryCount, 0);
+});
+
+test('거래의 알 수 없는 scope와 동기화 이력의 tax-purchase scope는 DB 전에 거부한다', async () => {
+  let queryCount = 0;
+  const pool = { query: async () => { queryCount += 1; return { rows: [] }; } };
+  const route = createRouteHarness({
+    pool,
+    canReadTaxPurchase: () => true,
+  });
+
+  const transaction = makeResponse();
+  await route('GET', '/api/peakos/bank/transactions')(
+    makeRequest({ query: { scope: 'unknown' } }),
+    transaction,
+  );
+  assert.equal(transaction.statusCode, 400);
+  assert.equal(transaction.body.code, 'BANK_INVALID_SCOPE');
+
+  const syncRuns = makeResponse();
+  await route('GET', '/api/peakos/bank/sync-runs')(
+    makeRequest({ query: { scope: 'tax-purchase' } }),
+    syncRuns,
+  );
+  assert.equal(syncRuns.statusCode, 400);
+  assert.equal(syncRuns.body.code, 'BANK_INVALID_SCOPE');
+  assert.equal(queryCount, 0);
 });
 
 test('민감 조회 감사 로그 저장에 실패하면 잔액 응답을 보내지 않는다', async () => {
@@ -384,6 +511,104 @@ test('일반 조회자가 allowlist 밖 기존·신규 accountId를 직접 지�
     }
   }
   assert.equal(queryCount, 0);
+});
+
+test('전현우의 매입 거래는 명시적 tax-purchase scope에서만 열리고 잔액·합계는 제거된다', async () => {
+  const calls = [];
+  const pool = {
+    query: async (sql, values) => {
+      calls.push({ sql, values });
+      if (/SELECT COUNT\(\*\)::integer AS total/.test(sql)) {
+        return { rows: [{ total: 1, deposit_total: 1100000, withdrawal_total: 0, unmatched_count: 1 }] };
+      }
+      return {
+        rows: [
+          { ...transactionRow, id: 31, account_id: 'ibk-hq-fixed' },
+          { ...transactionRow, id: 32, account_id: PUBLIC_ACCOUNT_IDS[0] },
+          { ...transactionRow, id: 33, account_id: FUTURE_ACCOUNT_ID },
+        ],
+      };
+    },
+  };
+  const route = createRouteHarness({
+    pool,
+    canReadTaxPurchase: req => req.uid === 'uid-jeon',
+  });
+
+  const withoutScope = makeResponse();
+  await route('GET', '/api/peakos/bank/transactions')(
+    makeRequest({ uid: 'uid-jeon', query: { accountId: 'ibk-hq-fixed' } }),
+    withoutScope,
+  );
+  assert.equal(withoutScope.statusCode, 403);
+  assert.equal(calls.length, 0);
+
+  const scoped = makeResponse();
+  await route('GET', '/api/peakos/bank/transactions')(
+    makeRequest({
+      uid: 'uid-jeon',
+      query: { scope: 'tax-purchase', accountId: 'ibk-hq-fixed' },
+    }),
+    scoped,
+  );
+  assert.equal(scoped.statusCode, 200);
+  assert.equal(scoped.body.scope, 'tax-purchase');
+  assert.deepEqual(scoped.body.transactions.map(transaction => transaction.accountId), ['ibk-hq-fixed']);
+  assert.equal(scoped.body.transactions[0].balance, null);
+  assert.equal(scoped.body.summary.depositTotal, null);
+  assert.equal(scoped.body.summary.withdrawalTotal, null);
+  assert.match(calls[0].sql, /NULL::bigint AS balance/);
+  assert.match(calls[0].sql, /t\.account_id = ANY\(\$1::text\[\]\)/);
+  assert.deepEqual(calls[0].values.slice(0, 2), [TAX_PURCHASE_ACCOUNT_IDS, 'ibk-hq-fixed']);
+});
+
+test('tax-purchase scope는 공개·미래 계좌를 거부하고 잔액 권한자에게도 매입 두 계좌로 고정한다', async () => {
+  const calls = [];
+  const pool = {
+    query: async (sql, values) => {
+      calls.push({ sql, values });
+      if (/INSERT INTO peakos_bank_audit_log/.test(sql)) return { rows: [] };
+      if (/SELECT COUNT\(\*\)::integer AS total/.test(sql)) {
+        return { rows: [{ total: 2, deposit_total: 2200000, withdrawal_total: 0, unmatched_count: 2 }] };
+      }
+      return {
+        rows: [
+          ...TAX_PURCHASE_ACCOUNT_IDS.map((accountId, index) => ({
+            ...transactionRow,
+            id: 41 + index,
+            account_id: accountId,
+          })),
+          { ...transactionRow, id: 43, account_id: FUTURE_ACCOUNT_ID },
+        ],
+      };
+    },
+  };
+  const route = createRouteHarness({
+    pool,
+    canReadTaxPurchase: req => req.uid === 'uid-kim',
+    canViewBalances: req => req.uid === 'uid-kim',
+  });
+
+  for (const accountId of [PUBLIC_ACCOUNT_IDS[0], FUTURE_ACCOUNT_ID]) {
+    const denied = makeResponse();
+    await route('GET', '/api/peakos/bank/transactions')(
+      makeRequest({ uid: 'uid-kim', query: { scope: 'tax-purchase', accountId } }),
+      denied,
+    );
+    assert.equal(denied.statusCode, 403);
+  }
+  assert.equal(calls.length, 0);
+
+  const scoped = makeResponse();
+  await route('GET', '/api/peakos/bank/transactions')(
+    makeRequest({ uid: 'uid-kim', query: { scope: 'tax-purchase' } }),
+    scoped,
+  );
+  assert.equal(scoped.statusCode, 200);
+  assert.deepEqual(scoped.body.transactions.map(transaction => transaction.accountId), TAX_PURCHASE_ACCOUNT_IDS);
+  assert.equal(scoped.body.transactions.every(transaction => transaction.balance === 987654321), true);
+  assert.match(calls[0].sql, /t\.account_id = ANY\(\$1::text\[\]\)/);
+  assert.deepEqual(calls[0].values[0], TAX_PURCHASE_ACCOUNT_IDS);
 });
 
 test('일반 조회자의 무필터 동기화 이력도 SQL·응답 모두 공개 3계좌 allowlist로 제한한다', async () => {
