@@ -110,6 +110,13 @@
   let serviceFilter = 'all';
   let companyDocumentState = { uid: '', status: 'idle', documents: [], error: '' };
   let companyDocumentLoadGeneration = 0;
+  let companyDocumentFolder = 'branches';
+  let clientCompanyDocumentState = {
+    uid: '', status: 'idle', documents: [], error: '', query: '', draftQuery: '',
+    pagination: { page: 1, limit: 25, total: 0, totalPages: 0 }
+  };
+  let clientCompanyDocumentLoadGeneration = 0;
+  let clientCompanyDocumentSearchTimer = 0;
   let companyDocumentPreviewGeneration = 0;
   let companyDocumentPreviewTrigger = null;
   let companyDocumentPreviewCleanup = null;
@@ -2537,6 +2544,13 @@
     { id: 'jeonju-office', branch: '전주 지사', filename: '전주 지사 사업자등록증.png' },
     { id: 'daegu-office', branch: '대구 지사', filename: '대구 지사 사업자등록증.png' }
   ]);
+  const CLIENT_COMPANY_DOCUMENT_LIMIT = 25;
+  const COMPANY_DOCUMENT_MAX_BYTES = 50 * 1024 * 1024;
+  const COMPANY_DOCUMENT_MIME = Object.freeze({
+    'image/png': { label: 'PNG', extension: '.png', minimumBytes: 24, signature: [137, 80, 78, 71, 13, 10, 26, 10] },
+    'image/jpeg': { label: 'JPEG', extension: '.jpg', minimumBytes: 4, signature: [255, 216, 255] },
+    'application/pdf': { label: 'PDF', extension: '.pdf', minimumBytes: 5, signature: [37, 80, 68, 70, 45] }
+  });
 
   function ensureCompanyDocumentState() {
     const uid = String(currentUser?.uid || '');
@@ -2545,9 +2559,30 @@
     companyDocumentState = { uid, status: 'idle', documents: [], error: '' };
   }
 
+  function ensureClientCompanyDocumentState() {
+    const uid = String(currentUser?.uid || '');
+    if (clientCompanyDocumentState.uid === uid) return;
+    window.clearTimeout(clientCompanyDocumentSearchTimer);
+    clientCompanyDocumentSearchTimer = 0;
+    clientCompanyDocumentLoadGeneration += 1;
+    clientCompanyDocumentState = {
+      uid, status: 'idle', documents: [], error: '', query: '', draftQuery: '',
+      pagination: { page: 1, limit: CLIENT_COMPANY_DOCUMENT_LIMIT, total: 0, totalPages: 0 }
+    };
+  }
+
   function resetCompanyDocumentState() {
+    window.clearTimeout(clientCompanyDocumentSearchTimer);
+    clientCompanyDocumentSearchTimer = 0;
     companyDocumentLoadGeneration += 1;
+    clientCompanyDocumentLoadGeneration += 1;
+    companyDocumentFolder = 'branches';
     companyDocumentState = { uid: '', status: 'idle', documents: [], error: '' };
+    clientCompanyDocumentState = {
+      uid: '', status: 'idle', documents: [], error: '', query: '', draftQuery: '',
+      pagination: { page: 1, limit: CLIENT_COMPANY_DOCUMENT_LIMIT, total: 0, totalPages: 0 }
+    };
+    if (activeView === 'company') moduleView.replaceChildren();
   }
 
   function loadCompanyDocuments() {
@@ -2583,12 +2618,144 @@
     }).finally(() => {
       if (generation === companyDocumentLoadGeneration
         && accessGeneration === osAuthAccessGeneration
-        && activeView === 'company') renderPlannedModule('company');
+        && activeView === 'company'
+        && companyDocumentFolder === 'branches') renderPlannedModule('company');
     });
   }
 
-  async function protectedCompanyDocumentBlob(id) {
+  function normalizeClientCompanyDocument(document) {
+    if (!document || typeof document !== 'object') return null;
+    const id = String(document.id || '').trim().slice(0, 160);
+    const mimeType = String(document.mimeType || '').trim().toLowerCase();
+    if (!id || !COMPANY_DOCUMENT_MIME[mimeType]) return null;
+    const rawSize = Number(document.size);
+    const size = Number.isSafeInteger(rawSize) && rawSize >= 0 ? rawSize : 0;
+    return {
+      id,
+      clientName: String(document.clientName || '거래처명 없음').trim().slice(0, 200) || '거래처명 없음',
+      filename: String(document.filename || '사업자등록증').trim().slice(0, 240) || '사업자등록증',
+      mimeType,
+      size,
+      updatedAt: String(document.updatedAt || '').trim().slice(0, 64),
+      available: document.available === true,
+      canPreview: document.canPreview === true && mimeType !== 'application/pdf'
+    };
+  }
+
+  function normalizeClientCompanyPagination(pagination, requestedPage, documentCount) {
+    const rawTotal = Number(pagination?.total);
+    const total = Number.isSafeInteger(rawTotal) && rawTotal >= 0
+      ? Math.max(documentCount, rawTotal)
+      : documentCount;
+    const calculatedPages = total ? Math.ceil(total / CLIENT_COMPANY_DOCUMENT_LIMIT) : 0;
+    const rawTotalPages = Number(pagination?.totalPages);
+    const totalPages = Number.isSafeInteger(rawTotalPages) && rawTotalPages >= calculatedPages
+      ? rawTotalPages
+      : calculatedPages;
+    const rawPage = Number(pagination?.page);
+    const page = Number.isSafeInteger(rawPage) && rawPage > 0 ? rawPage : requestedPage;
+    return {
+      page: totalPages ? Math.min(page, totalPages) : 1,
+      limit: CLIENT_COMPANY_DOCUMENT_LIMIT,
+      total,
+      totalPages
+    };
+  }
+
+  async function loadClientCompanyDocuments({
+    query = clientCompanyDocumentState.query,
+    page = clientCompanyDocumentState.pagination.page,
+    restoreSearchFocus = false
+  } = {}) {
+    ensureClientCompanyDocumentState();
+    if (!currentUser || previewPersona) return;
+    const uid = String(currentUser.uid || '');
+    const accessGeneration = osAuthAccessGeneration;
+    const generation = ++clientCompanyDocumentLoadGeneration;
+    const normalizedQuery = String(query || '').trim().slice(0, 80);
+    const normalizedPage = Number.isSafeInteger(Number(page)) && Number(page) > 0 ? Number(page) : 1;
+    const params = new URLSearchParams({
+      folder: 'clients',
+      q: normalizedQuery,
+      page: String(normalizedPage),
+      limit: String(CLIENT_COMPANY_DOCUMENT_LIMIT)
+    });
+    clientCompanyDocumentState = {
+      ...clientCompanyDocumentState,
+      uid,
+      status: 'loading',
+      documents: [],
+      error: '',
+      query: normalizedQuery,
+      pagination: {
+        ...clientCompanyDocumentState.pagination,
+        page: normalizedPage,
+        limit: CLIENT_COMPANY_DOCUMENT_LIMIT
+      }
+    };
+
+    try {
+      const payload = await readOnlyApi(`/peakos/company-documents?${params.toString()}`);
+      if (generation !== clientCompanyDocumentLoadGeneration
+        || accessGeneration !== osAuthAccessGeneration
+        || String(currentUser?.uid || '') !== uid) return;
+      const seen = new Set();
+      const documents = (Array.isArray(payload?.documents) ? payload.documents : [])
+        .map(normalizeClientCompanyDocument)
+        .filter(document => {
+          if (!document || seen.has(document.id)) return false;
+          seen.add(document.id);
+          return true;
+        })
+        .slice(0, CLIENT_COMPANY_DOCUMENT_LIMIT);
+      clientCompanyDocumentState = {
+        ...clientCompanyDocumentState,
+        uid,
+        status: 'ready',
+        documents,
+        error: '',
+        query: normalizedQuery,
+        pagination: normalizeClientCompanyPagination(payload?.pagination, normalizedPage, documents.length)
+      };
+    } catch (error) {
+      if (generation !== clientCompanyDocumentLoadGeneration
+        || accessGeneration !== osAuthAccessGeneration
+        || String(currentUser?.uid || '') !== uid) return;
+      clientCompanyDocumentState = {
+        ...clientCompanyDocumentState,
+        uid,
+        status: 'error',
+        documents: [],
+        error: error.message || '거래처 보호 자료를 불러오지 못했습니다.',
+        query: normalizedQuery,
+        pagination: { page: normalizedPage, limit: CLIENT_COMPANY_DOCUMENT_LIMIT, total: 0, totalPages: 0 }
+      };
+    } finally {
+      if (generation === clientCompanyDocumentLoadGeneration
+        && accessGeneration === osAuthAccessGeneration
+        && activeView === 'company'
+        && companyDocumentFolder === 'clients') {
+        const restoreFolderFocus = document.activeElement?.dataset?.companyFolder === 'clients';
+        renderPlannedModule('company');
+        if (restoreSearchFocus) {
+          window.requestAnimationFrame(() => {
+            const input = moduleView.querySelector('[data-company-client-search]');
+            if (!input) return;
+            input.focus();
+            input.setSelectionRange?.(input.value.length, input.value.length);
+          });
+        } else if (restoreFolderFocus) {
+          window.requestAnimationFrame(() => moduleView.querySelector('[data-company-folder="clients"]')?.focus());
+        }
+      }
+    }
+  }
+
+  async function protectedCompanyDocumentBlob(id, allowedMimeTypes = ['image/png']) {
     if (!currentUser) throw new Error('로그인이 필요합니다.');
+    const documentId = String(id || '').trim();
+    const allowedTypes = new Set(allowedMimeTypes.filter(mimeType => COMPANY_DOCUMENT_MIME[mimeType]));
+    if (!documentId || documentId.length > 160 || !allowedTypes.size) throw new Error('보호 원본 정보가 올바르지 않습니다.');
     const requestUser = currentUser;
     const requestUid = requestUser.uid;
     const accessGeneration = osAuthAccessGeneration;
@@ -2605,7 +2772,7 @@
     };
     const token = await requestUser.getIdToken();
     assertFresh();
-    const response = await fetch(`/api/peakos/company-documents/${encodeURIComponent(id)}/content`, {
+    const response = await fetch(`/api/peakos/company-documents/${encodeURIComponent(documentId)}/content`, {
       method: 'GET',
       headers: { Authorization: 'Bearer ' + token },
       cache: 'no-store',
@@ -2625,26 +2792,55 @@
       throw error;
     }
     const contentType = String(response.headers.get('content-type') || '').split(';')[0].toLowerCase();
-    if (contentType !== 'image/png') throw new Error('보호 원본의 파일 형식이 올바르지 않습니다.');
+    const fileType = COMPANY_DOCUMENT_MIME[contentType];
+    if (!fileType || !allowedTypes.has(contentType)) throw new Error('보호 원본의 파일 형식이 올바르지 않습니다.');
     const blob = await response.blob();
     assertFresh();
-    if (blob.size < 24 || blob.size > 5 * 1024 * 1024) throw new Error('보호 원본의 파일 크기가 올바르지 않습니다.');
-    const signature = [...new Uint8Array(await blob.slice(0, 8).arrayBuffer())];
+    if (blob.size < fileType.minimumBytes || blob.size > COMPANY_DOCUMENT_MAX_BYTES) throw new Error('보호 원본의 파일 크기가 올바르지 않습니다.');
+    const signature = [...new Uint8Array(await blob.slice(0, fileType.signature.length).arrayBuffer())];
     assertFresh();
-    if (signature.join(',') !== '137,80,78,71,13,10,26,10') throw new Error('보호 원본이 PNG 파일이 아닙니다.');
+    if (signature.some((byte, index) => byte !== fileType.signature[index])) {
+      throw new Error(`보호 원본이 올바른 ${fileType.label} 파일이 아닙니다.`);
+    }
     return blob;
   }
 
+  function companyDocumentForAction(button, action) {
+    const id = String(button.dataset[action] || '');
+    if (button.dataset.companyDocumentFolder === 'clients') {
+      return clientCompanyDocumentState.documents.find(document => document.id === id && document.available) || null;
+    }
+    const file = COMPANY_CERTIFICATE_SLOTS.find(document => document.id === id);
+    const stored = companyDocumentState.documents.find(document => document.id === id);
+    return file && stored?.available
+      ? { ...file, mimeType: 'image/png', available: true, canPreview: true }
+      : null;
+  }
+
+  function safeCompanyDocumentFilename(file) {
+    const type = COMPANY_DOCUMENT_MIME[file.mimeType] || COMPANY_DOCUMENT_MIME['image/png'];
+    const cleaned = String(file.filename || '사업자등록증')
+      .replace(/[\\/\u0000-\u001f\u007f]/g, '_')
+      .trim()
+      .slice(0, 180) || '사업자등록증';
+    if (cleaned.toLowerCase().endsWith(type.extension)) return cleaned;
+    return `${cleaned.replace(/\.[^.]{1,8}$/, '')}${type.extension}`;
+  }
+
   async function previewCompanyDocument(button) {
-    const file = COMPANY_CERTIFICATE_SLOTS.find(item => item.id === button.dataset.companyDocumentPreview);
+    const file = companyDocumentForAction(button, 'companyDocumentPreview');
     if (!file) return;
+    if (!file.canPreview || !['image/png', 'image/jpeg'].includes(file.mimeType)) {
+      showToast('PDF 원본은 미리보기 없이 다운로드로만 제공합니다.');
+      return;
+    }
     openDetailModal(file.filename, '<div class="data-unavailable"><span class="data-unavailable-icon">▥</span><div><strong>보호 원본을 확인하고 있습니다</strong><p>권한과 파일 무결성을 검사한 뒤 화면에 표시합니다.</p></div></div>');
     companyDocumentPreviewTrigger = button;
     const generation = ++companyDocumentPreviewGeneration;
     button.disabled = true;
     document.getElementById('readonlyModalClose')?.focus();
     try {
-      const blob = await protectedCompanyDocumentBlob(file.id);
+      const blob = await protectedCompanyDocumentBlob(file.id, [file.mimeType]);
       if (generation !== companyDocumentPreviewGeneration) return;
       const modal = document.getElementById('readonlyDetailModal');
       if (!modal || modal.hidden) return;
@@ -2686,22 +2882,22 @@
   }
 
   async function downloadCompanyDocument(button) {
-    const file = COMPANY_CERTIFICATE_SLOTS.find(item => item.id === button.dataset.companyDocumentDownload);
+    const file = companyDocumentForAction(button, 'companyDocumentDownload');
     if (!file) return;
     button.disabled = true;
     const previousText = button.textContent;
     button.textContent = '확인 중…';
     try {
-      const blob = await protectedCompanyDocumentBlob(file.id);
+      const blob = await protectedCompanyDocumentBlob(file.id, [file.mimeType]);
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = objectUrl;
-      link.download = file.filename;
+      link.download = safeCompanyDocumentFilename(file);
       document.body.appendChild(link);
       link.click();
       link.remove();
       setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-      showToast(`${file.branch} 사업자등록증을 저장했습니다.`);
+      showToast(`${file.branch || file.clientName || '거래처'} 사업자등록증을 저장했습니다.`);
     } catch (error) {
       showToast(`사업자등록증을 저장하지 못했습니다. ${error.message}`);
     } finally {
@@ -2712,9 +2908,50 @@
     }
   }
 
+  function companyDocumentSizeLabel(size) {
+    const bytes = Number(size);
+    if (!Number.isFinite(bytes) || bytes <= 0) return '크기 확인 필요';
+    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}MB`;
+    return `${Math.ceil(bytes / 1024).toLocaleString('ko-KR')}KB`;
+  }
+
+  function selectCompanyDocumentFolder(folder) {
+    if (!['branches', 'clients'].includes(folder) || companyDocumentFolder === folder) return;
+    if (folder === 'branches' && clientCompanyDocumentSearchTimer) {
+      window.clearTimeout(clientCompanyDocumentSearchTimer);
+      clientCompanyDocumentSearchTimer = 0;
+    }
+    companyDocumentFolder = folder;
+    renderPlannedModule('company');
+    window.requestAnimationFrame(() => moduleView.querySelector(`[data-company-folder="${folder}"]`)?.focus());
+  }
+
+  function runClientCompanyDocumentSearch({ immediate = false } = {}) {
+    window.clearTimeout(clientCompanyDocumentSearchTimer);
+    clientCompanyDocumentSearchTimer = 0;
+    clientCompanyDocumentLoadGeneration += 1;
+    if (clientCompanyDocumentState.status === 'loading') {
+      clientCompanyDocumentState = { ...clientCompanyDocumentState, status: 'idle', documents: [], error: '' };
+    }
+    const start = () => {
+      clientCompanyDocumentSearchTimer = 0;
+      loadClientCompanyDocuments({
+        query: clientCompanyDocumentState.draftQuery,
+        page: 1,
+        restoreSearchFocus: true
+      });
+    };
+    if (immediate) start();
+    else clientCompanyDocumentSearchTimer = window.setTimeout(start, 300);
+  }
+
   function renderCompanyModule() {
     ensureCompanyDocumentState();
+    ensureClientCompanyDocumentState();
     if (!previewPersona && companyDocumentState.status === 'idle') loadCompanyDocuments();
+    if (!previewPersona && companyDocumentFolder === 'clients' && clientCompanyDocumentState.status === 'idle') {
+      loadClientCompanyDocuments();
+    }
     const metadata = new Map(companyDocumentState.documents.map(document => [document.id, document]));
     const previewLocked = Boolean(previewPersona);
     const availableCount = previewLocked
@@ -2722,10 +2959,16 @@
       : COMPANY_CERTIFICATE_SLOTS.filter(document => metadata.get(document.id)?.available).length;
     const canRetry = !previewLocked && (companyDocumentState.status === 'error'
       || (companyDocumentState.status === 'ready' && availableCount < COMPANY_CERTIFICATE_SLOTS.length));
-    const statusLabel = previewLocked
+    const branchStatusLabel = previewLocked
       ? '미리보기 중 비공개'
       : (companyDocumentState.status === 'loading' ? '보호 저장소 확인 중'
         : (companyDocumentState.status === 'error' ? '보호 저장소 연결 실패' : `보호 연결 ${availableCount}/3`));
+    const clientTotal = previewLocked ? 0 : Number(clientCompanyDocumentState.pagination.total || 0);
+    const clientStatusLabel = previewLocked ? '미리보기 중 비공개'
+      : (clientCompanyDocumentState.status === 'loading' ? '거래처 문서 확인 중'
+        : (clientCompanyDocumentState.status === 'error' ? '거래처 문서 조회 실패'
+          : (clientCompanyDocumentState.status === 'ready' ? `거래처 문서 ${clientTotal.toLocaleString('ko-KR')}개` : '선택 후 조회')));
+    const statusLabel = companyDocumentFolder === 'clients' ? clientStatusLabel : branchStatusLabel;
     const branchRows = COMPANY_CERTIFICATE_SLOTS.map(document => {
       const stored = metadata.get(document.id);
       const available = !previewLocked && stored?.available === true;
@@ -2737,23 +2980,23 @@
         : '권한 확인 후 열람';
       return `<tr data-company-certificate="${esc(document.id)}"><th scope="row">${esc(document.branch)}</th><td>${esc(document.filename)}</td><td><span class="vendor-chip ${available ? 'done' : ''}">${esc(stateText)}</span></td><td>${esc(metaText)}</td><td><span style="display:flex;gap:6px;flex-wrap:wrap"><button class="module-action" type="button" data-company-document-preview="${esc(document.id)}" aria-label="${esc(`${document.branch} 사업자등록증 미리보기`)}" ${available ? '' : 'disabled'}>미리보기</button><button class="module-action" type="button" data-company-document-download="${esc(document.id)}" aria-label="${esc(`${document.branch} 사업자등록증 PNG 저장`)}" ${available ? '' : 'disabled'}>PNG 저장</button></span></td></tr>`;
     }).join('');
-    moduleView.innerHTML = `
-      ${moduleStatusbar('회사 자료 모듈', '사업자등록증을 회사·지사 자료와 거래처 자료로 나눠 관리합니다.', statusLabel)}
-      <section class="module-grid two" data-company-certificate-folders>
-        <article class="module-card" data-company-folder="branches">
-          <div class="module-card-top"><span class="module-card-icon">▥</span><span class="module-chip restricted">${availableCount}/3 연결</span></div>
-          <h2>본사 및 지사 사업자등록증</h2>
-          <p>본사, 전주 지사, 대구 지사의 보호 원본을 권한 확인 후 열람하고 저장합니다.</p>
-          <div class="module-card-footer"><span>본사 · 전주 · 대구</span><span class="module-chip">회사 문서</span></div>
-        </article>
-        <article class="module-card" data-company-folder="clients">
-          <div class="module-card-top"><span class="module-card-icon violet">▤</span><span class="module-chip visible">0개 문서</span></div>
-          <h2>거래처 사업자등록증</h2>
-          <p>거래처에서 받은 사업자등록증을 회사 문서와 섞이지 않도록 별도 폴더에서 관리합니다.</p>
-          <div class="module-card-footer"><span>거래처별 분류</span><span class="module-chip">거래처 문서</span></div>
-        </article>
-      </section>
-      <section class="module-section" data-company-folder-content="branches">
+    const clientCanRetry = !previewLocked && (clientCompanyDocumentState.status === 'error'
+      || (clientCompanyDocumentState.status === 'ready'
+        && clientCompanyDocumentState.documents.some(document => !document.available)));
+    const clientRows = previewLocked ? '' : clientCompanyDocumentState.documents.map(document => {
+      const type = COMPANY_DOCUMENT_MIME[document.mimeType];
+      const available = !previewLocked && document.available;
+      const previewable = available && document.canPreview && document.mimeType !== 'application/pdf';
+      const ownerAndFile = `${document.clientName} ${document.filename}`;
+      const previewAction = document.mimeType === 'application/pdf'
+        ? `<span class="module-chip" data-company-document-download-only="${esc(document.id)}" aria-label="${esc(`${ownerAndFile} PDF는 다운로드만 가능`)}">PDF · 다운로드만</span>`
+        : `<button class="module-action" type="button" data-company-document-preview="${esc(document.id)}" data-company-document-folder="clients" aria-label="${esc(`${ownerAndFile} 미리보기${previewable ? '' : ' 불가'}`)}" ${previewable ? '' : 'disabled'}>${previewable ? '미리보기' : '미리보기 불가'}</button>`;
+      const changed = document.updatedAt ? formatDate(document.updatedAt, { year: 'numeric', month: '2-digit', day: '2-digit' }) : '수정일 확인 필요';
+      return `<tr data-company-client-document="${esc(document.id)}"><th scope="row" title="${esc(document.clientName)}" style="max-width:260px;white-space:normal;overflow-wrap:anywhere;word-break:break-word">${esc(document.clientName)}</th><td title="${esc(document.filename)}" style="max-width:280px;white-space:normal;overflow-wrap:anywhere;word-break:break-word">${esc(document.filename)}</td><td>${esc(type.label)} · ${esc(companyDocumentSizeLabel(document.size))}<br><span class="sales-basis">${esc(changed)}</span></td><td><span class="vendor-chip ${available ? 'done' : ''}">${available ? '보호 연결 완료' : '원본 점검 필요'}</span></td><td><span style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${previewAction}<button class="module-action" type="button" data-company-document-download="${esc(document.id)}" data-company-document-folder="clients" aria-label="${esc(`${ownerAndFile} ${type.label} 저장`)}" ${available ? '' : 'disabled'}>${esc(type.label)} 저장</button></span></td></tr>`;
+    }).join('');
+    const branchSelected = companyDocumentFolder === 'branches';
+    const clientSelected = companyDocumentFolder === 'clients';
+    const branchSection = `<section class="module-section" id="companyFolderContent" data-company-folder-content="branches">
         <div class="module-section-head"><span><strong>본사 및 지사 사업자등록증</strong><small>Firebase 로그인·추가 이메일 인증·지정 UID 권한을 모두 확인합니다</small></span>${canRetry ? '<button class="module-action" type="button" data-company-document-refresh>다시 확인</button>' : '<span class="module-chip restricted">민감자료 · 3개</span>'}</div>
         <div class="module-section-body" style="padding:0">
           ${companyDocumentState.status === 'error' && !previewLocked ? `<div class="data-unavailable"><span class="data-unavailable-icon">!</span><div><strong>보호 자료를 불러오지 못했습니다</strong><p>${esc(companyDocumentState.error)}</p></div></div>` : ''}
@@ -2762,20 +3005,100 @@
             <tbody>${branchRows}</tbody>
           </table></div>
         </div>
+      </section>`;
+    const clientResultStatus = previewLocked ? '계정 미리보기에서는 거래처 원본을 표시하지 않습니다.'
+      : (clientCompanyDocumentState.status === 'loading' ? '거래처 문서를 불러오고 있습니다.'
+        : (clientCompanyDocumentState.status === 'error' ? '거래처 문서 조회에 실패했습니다.'
+          : `전체 ${clientTotal.toLocaleString('ko-KR')}건 중 ${clientCompanyDocumentState.documents.length.toLocaleString('ko-KR')}건 표시`));
+    const clientPagination = clientCompanyDocumentState.pagination;
+    const clientEmpty = !previewLocked && clientCompanyDocumentState.status === 'ready' && !clientCompanyDocumentState.documents.length;
+    const clientSection = `<section class="module-section" id="companyFolderContent" data-company-folder-content="clients">
+        <div class="module-section-head"><span><strong>거래처 사업자등록증</strong><small>회사·지사 문서와 분리된 거래처 전용 보호 폴더입니다</small></span>${clientCanRetry ? '<button class="module-action" type="button" data-company-client-refresh>다시 확인</button>' : `<span class="module-chip">${esc(clientTotal.toLocaleString('ko-KR'))}개</span>`}</div>
+        <div class="module-section-body">
+          <form class="ledger-filter" data-company-client-search-form role="search" aria-label="거래처 사업자등록증 검색">
+            <label class="ledger-filter-field"><span>거래처명 또는 파일명</span><input type="search" data-company-client-search maxlength="80" autocomplete="off" value="${previewLocked ? '' : esc(clientCompanyDocumentState.draftQuery)}" placeholder="거래처명 검색" aria-describedby="companyClientResultStatus" style="min-width:min(360px,72vw);max-width:100%" ${previewLocked ? 'disabled' : ''}></label>
+            <button class="module-action" type="submit" aria-label="거래처 사업자등록증 검색 실행" ${previewLocked ? 'disabled' : ''}>검색</button>
+            ${!previewLocked && (clientCompanyDocumentState.draftQuery || clientCompanyDocumentState.query) ? '<button class="module-action" type="button" data-company-client-search-reset aria-label="거래처 검색어 지우기">검색어 지우기</button>' : ''}
+            <span id="companyClientResultStatus" role="status" aria-live="polite">${esc(clientResultStatus)}</span>
+          </form>
+          ${clientCompanyDocumentState.status === 'error' && !previewLocked ? `<div class="data-unavailable"><span class="data-unavailable-icon">!</span><div><strong>거래처 보호 자료를 불러오지 못했습니다</strong><p>${esc(clientCompanyDocumentState.error)}</p></div></div>` : ''}
+          ${previewLocked ? '<div class="data-unavailable"><span class="data-unavailable-icon">▤</span><div><strong>계정 미리보기 중에는 열 수 없습니다</strong><p>실제 로그인 계정으로 돌아온 뒤 권한을 다시 확인해 주세요.</p></div></div>' : ''}
+          ${!previewLocked && clientCompanyDocumentState.status === 'loading' ? '<p class="sales-state" data-company-client-loading>거래처 보호 문서를 불러오고 있습니다.</p>' : ''}
+          ${!previewLocked && clientCompanyDocumentState.status === 'ready' && clientRows ? `<div class="sales-table-scroll"><table class="empty-table" data-company-client-documents>
+            <thead><tr><th>거래처</th><th>파일명</th><th>파일 정보</th><th>원본 상태</th><th>작업</th></tr></thead><tbody>${clientRows}</tbody>
+          </table></div>` : ''}
+          ${clientEmpty ? `<div class="data-unavailable"><span class="data-unavailable-icon">▤</span><div><strong>${clientCompanyDocumentState.query ? '검색 결과가 없습니다' : '등록된 거래처 사업자등록증이 없습니다'}</strong><p>${clientCompanyDocumentState.query ? '다른 거래처명 또는 파일명으로 검색해 주세요.' : '거래처 원본이 등록되면 이 보호 폴더에 표시합니다.'}</p></div></div>` : ''}
+          ${!previewLocked && clientCompanyDocumentState.status === 'ready' && Number(clientPagination.totalPages || 0) > 1 ? `<div class="bank-pagination" aria-label="거래처 사업자등록증 페이지">
+            <button class="module-action" type="button" data-company-client-page="${Math.max(1, Number(clientPagination.page) - 1)}" aria-label="이전 거래처 문서 페이지" ${Number(clientPagination.page) <= 1 ? 'disabled' : ''}>이전</button>
+            <span>${Number(clientPagination.page).toLocaleString('ko-KR')} / ${Number(clientPagination.totalPages).toLocaleString('ko-KR')} 페이지</span>
+            <button class="module-action" type="button" data-company-client-page="${Math.min(Number(clientPagination.totalPages), Number(clientPagination.page) + 1)}" aria-label="다음 거래처 문서 페이지" ${Number(clientPagination.page) >= Number(clientPagination.totalPages) ? 'disabled' : ''}>다음</button>
+          </div>` : ''}
+        </div>
+      </section>`;
+    moduleView.innerHTML = `
+      ${moduleStatusbar('회사 자료 모듈', '사업자등록증을 회사·지사 자료와 거래처 자료로 나눠 관리합니다.', statusLabel)}
+      <section class="module-grid two" data-company-certificate-folders>
+        <article class="module-card" data-company-folder="branches" role="button" tabindex="0" aria-pressed="${branchSelected}" aria-controls="companyFolderContent" aria-label="본사 및 지사 사업자등록증 폴더 열기" style="cursor:pointer;${branchSelected ? 'border-color:#348ecd;box-shadow:0 0 0 2px rgba(52,142,205,.12)' : ''}">
+          <div class="module-card-top"><span class="module-card-icon">▥</span><span class="module-chip restricted">${availableCount}/3 연결</span></div>
+          <h2>본사 및 지사 사업자등록증</h2>
+          <p>본사, 전주 지사, 대구 지사의 보호 원본을 권한 확인 후 열람하고 저장합니다.</p>
+          <div class="module-card-footer"><span>본사 · 전주 · 대구</span><span class="module-chip">${branchSelected ? '선택됨' : '회사 문서'}</span></div>
+        </article>
+        <article class="module-card" data-company-folder="clients" role="button" tabindex="0" aria-pressed="${clientSelected}" aria-controls="companyFolderContent" aria-label="거래처 사업자등록증 폴더 열기" style="cursor:pointer;${clientSelected ? 'border-color:#6658bd;box-shadow:0 0 0 2px rgba(102,88,189,.12)' : ''}">
+          <div class="module-card-top"><span class="module-card-icon violet">▤</span><span class="module-chip visible">${esc(clientStatusLabel)}</span></div>
+          <h2>거래처 사업자등록증</h2>
+          <p>거래처에서 받은 사업자등록증을 회사 문서와 섞이지 않도록 별도 폴더에서 관리합니다.</p>
+          <div class="module-card-footer"><span>거래처별 분류</span><span class="module-chip">${clientSelected ? '선택됨' : '거래처 문서'}</span></div>
+        </article>
       </section>
-      <section class="module-section" data-company-folder-content="clients">
-        <div class="module-section-head"><span><strong>거래처 사업자등록증</strong><small>회사·지사 문서와 분리된 거래처 전용 폴더입니다</small></span><span class="module-chip">0개</span></div>
-        <div class="module-section-body"><div class="data-unavailable"><span class="data-unavailable-icon">▤</span><div><strong>등록된 거래처 사업자등록증이 없습니다</strong><p>보호 저장소가 연결되면 거래처별 폴더와 변경 이력을 이곳에 표시합니다.</p></div></div></div>
-      </section>
+      ${branchSelected ? branchSection : clientSection}
       <section class="module-grid">
         ${moduleCard({ icon: '◇', tone: 'violet', title: '기타 회사 자료', description: '회사소개서, 법인 기본자료, 계좌 사본과 계약에 필요한 공식 자료를 관리합니다.', chip: '권한 적용', chipClass: 'visible', footer: '직급·팀별 접근 제어', action: '분류 보기' })}
       </section>
       <div class="module-security"><span>▣</span><span><strong>원본은 GitHub와 공개 URL에 저장되지 않습니다</strong><br>서버 전용 저장소에서 파일 무결성을 확인하고 모든 목록·열람 요청을 기록합니다.</span></div>`;
 
+    moduleView.querySelectorAll('[data-company-folder]').forEach(card => {
+      const select = () => selectCompanyDocumentFolder(card.dataset.companyFolder);
+      card.addEventListener('click', select);
+      card.addEventListener('keydown', event => {
+        if (!['Enter', ' '].includes(event.key)) return;
+        event.preventDefault();
+        select();
+      });
+    });
     moduleView.querySelector('[data-company-document-refresh]')?.addEventListener('click', () => {
       companyDocumentState = { ...companyDocumentState, status: 'idle', documents: [], error: '' };
       renderPlannedModule('company');
     });
+    moduleView.querySelector('[data-company-client-refresh]')?.addEventListener('click', event => {
+      event.currentTarget.disabled = true;
+      loadClientCompanyDocuments({
+        query: clientCompanyDocumentState.query,
+        page: clientCompanyDocumentState.pagination.page
+      });
+    });
+    const clientSearch = moduleView.querySelector('[data-company-client-search]');
+    clientSearch?.addEventListener('input', () => {
+      clientCompanyDocumentState.draftQuery = String(clientSearch.value || '').slice(0, 80);
+      runClientCompanyDocumentSearch();
+    });
+    moduleView.querySelector('[data-company-client-search-form]')?.addEventListener('submit', event => {
+      event.preventDefault();
+      clientCompanyDocumentState.draftQuery = String(clientSearch?.value || '').slice(0, 80);
+      runClientCompanyDocumentSearch({ immediate: true });
+    });
+    moduleView.querySelector('[data-company-client-search-reset]')?.addEventListener('click', () => {
+      clientCompanyDocumentState.draftQuery = '';
+      if (clientSearch) clientSearch.value = '';
+      runClientCompanyDocumentSearch({ immediate: true });
+    });
+    moduleView.querySelectorAll('[data-company-client-page]').forEach(button => button.addEventListener('click', () => {
+      const page = Number(button.dataset.companyClientPage);
+      const totalPages = Number(clientCompanyDocumentState.pagination.totalPages || 0);
+      if (!Number.isSafeInteger(page) || page < 1 || page > totalPages) return;
+      button.disabled = true;
+      loadClientCompanyDocuments({ query: clientCompanyDocumentState.query, page });
+    }));
     moduleView.querySelectorAll('[data-company-document-preview]').forEach(button => {
       button.addEventListener('click', () => previewCompanyDocument(button));
     });
