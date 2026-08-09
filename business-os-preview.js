@@ -6473,104 +6473,281 @@
       <div class="module-security"><span>▣</span><span><strong>회사 전체 결산이나 과거 월말 잔액이 아닙니다</strong><br>현재 로그인 계정의 접수와 현재 입금·공급사 정산 상태를 묶은 요약입니다. 고정비·인건비·세금·통장 지출은 아직 포함하지 않습니다.</span></div>`;
   }
 
-  // 명함 — 조직도 정보로 명함을 만들어 이미지로 내려받는다.
-  let namecardForm = { name: '', rank: '', team: '', phone: '', email: '' };
+  // 명함 — 제공받은 실제 명함을 90:50 비율의 고해상도 앞·뒷면으로 다시 그린다.
+  const NAMECARD_WIDTH = 900;
+  const NAMECARD_HEIGHT = 500;
+  const NAMECARD_SCALE = 2;
+  const NAMECARD_BLUE = '#3a94c9';
+  const NAMECARD_ADDRESSES = [
+    ['서울 본사', '경기 남양주시 순화궁로 249 N동 1707호'],
+    ['전주 지사', '전북 전주시 완산구 홍산로 260, 엠스퀘어 307호'],
+    ['대구 지사', '대구 중구 태평로 28길 14']
+  ];
+  let namecardForm = { name: '', englishName: '', rank: '', team: '', phone: '', email: '' };
+  let namecardInitialized = false;
 
-  function drawNamecard(canvas, data) {
-    const W = 900;
-    const H = 520;
-    const scale = 2;
-    canvas.width = W * scale;
-    canvas.height = H * scale;
-    canvas.style.width = '100%';
-    canvas.style.height = 'auto';
-    const g = canvas.getContext('2d');
-    g.scale(scale, scale);
-    const font = (size, weight = '400') => `${weight} ${size}px "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif`;
+  function namecardFont(size, weight = '400', family = 'ko') {
+    const fonts = family === 'en'
+      ? '"Helvetica Neue", Arial, sans-serif'
+      : 'Pretendard, "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif';
+    return `${weight} ${size}px ${fonts}`;
+  }
 
-    g.fillStyle = '#ffffff';
-    g.fillRect(0, 0, W, H);
-    g.strokeStyle = '#e3e9ef';
-    g.strokeRect(0.5, 0.5, W - 1, H - 1);
-    g.fillStyle = '#348ecd';
-    g.fillRect(0, 0, 14, H);
+  function fitNamecardText(g, value, maxWidth, startSize, minSize, weight = '400', family = 'ko') {
+    const text = String(value || '');
+    let size = startSize;
+    while (size > minSize) {
+      g.font = namecardFont(size, weight, family);
+      if (g.measureText(text).width <= maxWidth) return text;
+      size -= 1;
+    }
 
-    // 로고는 글자 폭을 재서 그 왼쪽에 놓는다. 안 그러면 글자를 덮는다.
-    g.font = font(21, '700');
-    g.textBaseline = 'middle';
-    const brand = 'PEAK MARKETING';
-    const brandWidth = g.measureText(brand).width;
-    const markX = W - 44 - brandWidth - 48;
-    g.fillStyle = '#e8734a';
-    g.fillRect(markX, 44, 34, 34);
-    g.fillStyle = '#ffffff';
-    [50, 59, 68].forEach(y => g.fillRect(markX + 5, y, 24, 5));
-    g.fillStyle = '#3f3f46';
-    g.textAlign = 'right';
-    g.fillText(brand, W - 44, 61);
+    g.font = namecardFont(minSize, weight, family);
+    if (g.measureText(text).width <= maxWidth) return text;
 
-    g.textAlign = 'left';
-    g.fillStyle = '#1d2b38';
-    g.font = font(46, '800');
-    g.fillText(data.name || '이름', 64, 214);
-    g.fillStyle = '#2674ac';
-    g.font = font(21, '700');
-    g.fillText([data.team, data.rank].filter(Boolean).join(' · ') || '소속 · 직급', 64, 262);
+    const chars = [...text];
+    const ellipsis = '…';
+    let low = 0;
+    let high = chars.length;
+    while (low < high) {
+      const middle = Math.ceil((low + high) / 2);
+      if (g.measureText(`${chars.slice(0, middle).join('')}${ellipsis}`).width <= maxWidth) low = middle;
+      else high = middle - 1;
+    }
+    return low ? `${chars.slice(0, low).join('').trimEnd()}${ellipsis}` : '';
+  }
 
-    g.strokeStyle = '#e3e9ef';
+  function drawNamecardTrackedText(g, text, x, y, tracking) {
+    let offset = x;
+    [...String(text)].forEach(char => {
+      g.fillText(char, offset, y);
+      offset += g.measureText(char).width + tracking;
+    });
+    return offset - x;
+  }
+
+  // 피크의 원형 화살표 심볼을 Canvas path로 그려 확대해도 가장자리가 깨지지 않게 한다.
+  function drawNamecardMark(g, x, y, size, color) {
+    const cx = x + size * .43;
+    const cy = y + size * .60;
+    const radius = size * .285;
+    const stroke = size * .105;
+    const arrowX = x + size * .64;
+
+    g.save();
+    g.strokeStyle = color;
+    g.lineWidth = stroke;
+    g.lineCap = 'butt';
     g.beginPath();
-    g.moveTo(64, 300);
-    g.lineTo(W - 64, 300);
+    g.arc(cx, cy, radius, -Math.PI / 2, -Math.PI / 5, true);
     g.stroke();
 
-    g.font = font(17, '600');
-    [['M', data.phone || ''], ['E', data.email || ''], ['A', '주식회사 피크마케팅']].forEach((row, i) => {
-      const y = 340 + i * 34;
-      g.fillStyle = '#8b98a5';
-      g.fillText(row[0], 64, y);
-      g.fillStyle = '#35434f';
-      g.fillText(row[1], 92, y);
-    });
+    g.fillStyle = color;
+    g.fillRect(arrowX - stroke / 2, y + size * .28, stroke, size * .39);
+    g.beginPath();
+    g.moveTo(arrowX, y + size * .02);
+    g.lineTo(arrowX + size * .205, y + size * .33);
+    g.lineTo(arrowX + stroke / 2, y + size * .33);
+    g.lineTo(arrowX - stroke / 2, y + size * .33);
+    g.lineTo(arrowX - size * .205, y + size * .33);
+    g.closePath();
+    g.fill();
+
+    g.beginPath();
+    g.arc(x + size * .84, y + size * .79, size * .045, 0, Math.PI * 2);
+    g.fill();
+    g.restore();
+  }
+
+  // 워드마크의 a 자리에 원형 화살표를 넣어 예시 명함의 로고 인상을 유지한다.
+  function drawNamecardWordmark(g, x, baseline, size, color, accent = color, weight = '500') {
+    g.save();
+    g.textAlign = 'left';
+    g.textBaseline = 'alphabetic';
+    g.font = namecardFont(size, weight, 'en');
+    g.fillStyle = color;
+    g.fillText('Pe', x, baseline);
+    const peWidth = g.measureText('Pe').width;
+    const markSize = size * .78;
+    const markX = x + peWidth - size * .02;
+    drawNamecardMark(g, markX, baseline - size * .82, markSize, accent);
+    const kX = markX + markSize * .72;
+    g.fillStyle = color;
+    g.fillText('k', kX, baseline);
+    const width = kX + g.measureText('k').width - x;
+    g.restore();
+    return width;
+  }
+
+  function setupNamecardCanvas(canvas, background) {
+    canvas.width = NAMECARD_WIDTH * NAMECARD_SCALE;
+    canvas.height = NAMECARD_HEIGHT * NAMECARD_SCALE;
+    canvas.style.width = '100%';
+    canvas.style.height = 'auto';
+    canvas.style.minWidth = '0';
+    const g = canvas.getContext('2d');
+    g.setTransform(NAMECARD_SCALE, 0, 0, NAMECARD_SCALE, 0, 0);
+    g.imageSmoothingEnabled = true;
+    g.imageSmoothingQuality = 'high';
+    g.fillStyle = background;
+    g.fillRect(0, 0, NAMECARD_WIDTH, NAMECARD_HEIGHT);
+    return g;
+  }
+
+  function drawNamecardBrandSide(canvas) {
+    const g = setupNamecardCanvas(canvas, NAMECARD_BLUE);
+    drawNamecardWordmark(g, 42, 94, 72, '#ffffff', '#ffffff', '400');
+    drawNamecardMark(g, 445, 8, 430, '#ffffff');
+
+    g.fillStyle = '#ffffff';
+    g.textAlign = 'left';
+    g.textBaseline = 'alphabetic';
+    g.font = namecardFont(24, '700', 'en');
+    drawNamecardTrackedText(g, 'PEAK MARKETING', 45, 421, 8);
+    g.font = namecardFont(18, '500');
+    g.fillText('(주) 피크마케팅 | 종합온라인광고대행사', 45, 456);
+  }
+
+  function drawNamecardAddress(g, label, address, y) {
+    const maxWidth = 515;
+    let size = 18;
+    while (size > 13) {
+      g.font = namecardFont(size, '800');
+      const labelWidth = g.measureText(label).width;
+      g.font = namecardFont(size, '400');
+      const addressWidth = g.measureText(` | ${address}`).width;
+      if (labelWidth + addressWidth <= maxWidth) break;
+      size -= 1;
+    }
+
+    g.fillStyle = '#111111';
+    g.font = namecardFont(size, '800');
+    g.fillText(label, 350, y);
+    const labelWidth = g.measureText(label).width;
+    const addressText = fitNamecardText(g, ` | ${address}`, maxWidth - labelWidth, size, 13);
+    g.fillStyle = '#2f2f32';
+    g.fillText(addressText, 350 + labelWidth, y);
+  }
+
+  function drawNamecardContact(g, label, value, y) {
+    g.fillStyle = '#050505';
+    g.font = namecardFont(25, '700', 'en');
+    g.fillText(`${label}.`, 572, y);
+    const text = String(value || '').trim() || (label === 'T' ? '010-0000-0000' : 'name@peak.kr');
+    const fittedText = fitNamecardText(g, text, 260, 25, 16, '300', 'en');
+    g.fillStyle = value ? '#111111' : '#a0a0a5';
+    g.fillText(fittedText, 614, y);
+  }
+
+  function drawNamecardInfoSide(canvas, data) {
+    const g = setupNamecardCanvas(canvas, '#ffffff');
+    g.textAlign = 'left';
+    g.textBaseline = 'alphabetic';
+
+    const name = String(data.name || '').trim() || '이름';
+    const fittedName = fitNamecardText(g, name, 245, 48, 32, '700');
+    g.fillStyle = '#050505';
+    g.fillText(fittedName, 42, 91);
+    const nameWidth = g.measureText(fittedName).width;
+
+    const role = [data.team, data.rank].map(value => String(value || '').trim()).filter(Boolean).join(' ') || '소속 직급';
+    const roleX = Math.min(310, 42 + nameWidth + 18);
+    const fittedRole = fitNamecardText(g, role, 520 - roleX, 22, 14, '600');
+    g.fillStyle = data.team || data.rank ? '#111111' : '#a0a0a5';
+    g.fillText(fittedRole, roleX, 91);
+
+    const englishName = String(data.englishName || '').trim() || 'English Name';
+    const fittedEnglishName = fitNamecardText(g, englishName, 420, 24, 17, '300', 'en');
+    g.fillStyle = data.englishName ? '#3c3c40' : '#a0a0a5';
+    g.fillText(fittedEnglishName, 42, 130);
+
+    drawNamecardContact(g, 'T', data.phone, 88);
+    drawNamecardContact(g, 'E', data.email, 128);
+
+    drawNamecardWordmark(g, 43, 428, 70, '#050505', NAMECARD_BLUE, '600');
+    g.fillStyle = '#111111';
+    g.font = namecardFont(12, '800', 'en');
+    drawNamecardTrackedText(g, 'PEAK MARKETING', 46, 456, 3.6);
+
+    NAMECARD_ADDRESSES.forEach((row, index) => drawNamecardAddress(g, row[0], row[1], 335 + index * 48));
+  }
+
+  function drawNamecards(data) {
+    const brandCanvas = document.getElementById('namecardBrandCanvas');
+    const infoCanvas = document.getElementById('namecardInfoCanvas');
+    if (brandCanvas) drawNamecardBrandSide(brandCanvas);
+    if (infoCanvas) drawNamecardInfoSide(infoCanvas, data);
+  }
+
+  function safeNamecardFilename(value) {
+    const cleaned = String(value || '')
+      .replace(/[\u0000-\u001f\u007f\\/:*?"<>|]/g, '')
+      .trim()
+      .replace(/[. ]+$/g, '');
+    const shortened = [...cleaned].slice(0, 40).join('');
+    if (!shortened || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(shortened)) return '이름';
+    return shortened;
   }
 
   function renderNamecardModule() {
     const roster = orgRoster();
     const me = roster.find(row => row.name === String(userDoc?.name || '').trim());
-    if (!namecardForm.name) {
+    if (!namecardInitialized) {
       namecardForm = {
         name: String(userDoc?.name || '').trim(),
+        englishName: '',
         rank: me ? orgRankOf(me) : '',
         team: me ? orgDisplayName(me.teamName || me.divisionName) : '',
         phone: '',
-        email: ''
+        email: String(userDoc?.email || currentUser?.email || '').trim()
       };
+      namecardInitialized = true;
     }
+    if (namecardForm.englishName === undefined) namecardForm.englishName = '';
     const form = namecardForm;
 
     moduleView.innerHTML = `
-      ${moduleStatusbar('명함', '조직도 정보로 명함을 만들어 이미지로 내려받습니다.', '이미지 저장')}
+      ${moduleStatusbar('명함', '실제 명함 디자인의 브랜드 면과 정보 면을 고해상도 이미지로 만듭니다.', '앞·뒷면 PNG')}
       <section class="module-section">
         <div class="module-section-head">
-          <span><strong>명함 만들기</strong><small>이름과 직급은 조직도에서 가져왔습니다. 연락처만 넣으세요</small></span>
-          <span class="module-chip live">PNG 저장</span>
+          <span><strong>명함 정보</strong><small>이름과 직급은 조직도에서 가져왔습니다. 영문 이름과 연락처를 확인하세요</small></span>
+          <span class="module-chip live">1800 × 1000 PNG</span>
         </div>
         <div class="module-section-body">
           <div class="intake-form">
             <label class="intake-field"><span>이름</span><input type="text" data-card="name" value="${esc(form.name)}"></label>
+            <label class="intake-field"><span>영문 이름</span><input type="text" data-card="englishName" value="${esc(form.englishName)}" placeholder="English Name"></label>
             <label class="intake-field"><span>직급</span><input type="text" data-card="rank" value="${esc(form.rank)}"></label>
             <label class="intake-field"><span>소속</span><input type="text" data-card="team" value="${esc(form.team)}"></label>
             <label class="intake-field"><span>휴대폰</span><input type="text" data-card="phone" value="${esc(form.phone)}" placeholder="010-0000-0000"></label>
             <label class="intake-field"><span>이메일</span><input type="text" data-card="email" value="${esc(form.email)}" placeholder="name@peak.kr"></label>
           </div>
-          <div class="est-preview"><canvas id="cardCanvas"></canvas></div>
-          <div class="intake-foot">
-            <p class="sales-basis">회사 로고와 배치는 임시입니다. 실제 명함 디자인을 주시면 그대로 맞춥니다.</p>
-            <button class="module-action primary" type="button" data-card-download>이미지 저장</button>
-          </div>
         </div>
-      </section>`;
+      </section>
+      <div class="module-grid two">
+        <section class="module-section">
+          <div class="module-section-head"><span><strong>브랜드 면</strong><small>피크마케팅 로고와 브랜드 심볼</small></span><span class="module-chip live">90:50</span></div>
+          <div class="module-section-body">
+            <div class="est-preview"><canvas id="namecardBrandCanvas" aria-label="명함 브랜드 면 미리보기"></canvas></div>
+            <div class="intake-foot">
+              <p class="sales-basis">고해상도 PNG로 저장됩니다.</p>
+              <button class="module-action primary" type="button" data-card-download="brand">브랜드 면 PNG 저장</button>
+            </div>
+          </div>
+        </section>
+        <section class="module-section">
+          <div class="module-section-head"><span><strong>정보 면</strong><small>이름·소속·연락처·지사 주소</small></span><span class="module-chip live">90:50</span></div>
+          <div class="module-section-body">
+            <div class="est-preview"><canvas id="namecardInfoCanvas" aria-label="명함 정보 면 미리보기"></canvas></div>
+            <div class="intake-foot">
+              <p class="sales-basis">입력한 정보가 이미지에 실시간 반영됩니다.</p>
+              <button class="module-action primary" type="button" data-card-download="info">정보 면 PNG 저장</button>
+            </div>
+          </div>
+        </section>
+      </div>`;
 
-    drawNamecard(document.getElementById('cardCanvas'), form);
+    drawNamecards(form);
   }
 
   // 자금 현황판. 대표님 시트를 그대로 옮겼다.
@@ -8035,10 +8212,12 @@
     // 명함 — 글자를 칠 때마다 미리보기만 다시 그린다
     moduleView.querySelectorAll('[data-card]').forEach(input => input.addEventListener('input', () => {
       namecardForm[input.dataset.card] = input.value;
-      drawNamecard(document.getElementById('cardCanvas'), namecardForm);
+      drawNamecards(namecardForm);
     }));
-    moduleView.querySelector('[data-card-download]')?.addEventListener('click', () => {
-      document.getElementById('cardCanvas').toBlob(blob => {
+    moduleView.querySelectorAll('[data-card-download]').forEach(button => button.addEventListener('click', () => {
+      const side = button.dataset.cardDownload === 'brand' ? 'brand' : 'info';
+      const canvas = document.getElementById(side === 'brand' ? 'namecardBrandCanvas' : 'namecardInfoCanvas');
+      canvas.toBlob(blob => {
         if (!blob) {
           showToast('이미지를 만들지 못했습니다.');
           return;
@@ -8046,14 +8225,15 @@
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `명함_${(namecardForm.name || '이름').replace(/[\\/:*?"<>|]/g, '')}.png`;
+        const safeName = safeNamecardFilename(namecardForm.name);
+        link.download = `명함_${safeName}_${side === 'brand' ? '브랜드면' : '정보면'}.png`;
         document.body.appendChild(link);
         link.click();
         link.remove();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-        showToast('명함 이미지를 저장했습니다.');
+        showToast(`명함 ${side === 'brand' ? '브랜드 면' : '정보 면'} 이미지를 저장했습니다.`);
       }, 'image/png');
-    });
+    }));
 
     moduleView.querySelectorAll('[data-monthly-remove]').forEach(button => button.addEventListener('click', async () => {
       const view = monthlyForm.view;

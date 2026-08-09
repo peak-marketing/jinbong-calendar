@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Download, type Page } from '@playwright/test';
 import { createPeakosStore, handlePeakos, installFirebaseStub, installPeakosStub } from './helpers';
 
 
@@ -1262,19 +1262,94 @@ test.describe('Business OS read-only operating data', () => {
     await expect(creditRow).toContainText('330,000');
     await expect(creditRow).toContainText('30,000');
 
-    // 명함 — 조직도에서 이름·직급을 가져오고 이미지로 받는다
+    // 명함 — 조직도 정보와 영문 이름을 넣어 고해상도 앞·뒷면으로 받는다
     await go('namecard');
     await expect(page.locator('[data-card="name"]')).toHaveValue('김대호');
     await expect(page.locator('[data-card="rank"]')).toHaveValue('부장');
+    await page.locator('[data-card="englishName"]').fill('Dae Ho Kim');
     await page.locator('[data-card="phone"]').fill('010-1234-5678');
-    const download = page.waitForEvent('download');
-    await page.locator('[data-card-download]').click();
-    expect((await download).suggestedFilename()).toBe('명함_김대호.png');
+    await expect(page.locator('#namecardBrandCanvas')).toHaveJSProperty('width', 1800);
+    await expect(page.locator('#namecardBrandCanvas')).toHaveJSProperty('height', 1000);
+    await expect(page.locator('#namecardInfoCanvas')).toHaveJSProperty('width', 1800);
+    await expect(page.locator('#namecardInfoCanvas')).toHaveJSProperty('height', 1000);
+
+    const brandDownload = page.waitForEvent('download');
+    await page.locator('[data-card-download="brand"]').click();
+    expect((await brandDownload).suggestedFilename()).toBe('명함_김대호_브랜드면.png');
+    const infoDownload = page.waitForEvent('download');
+    await page.locator('[data-card-download="info"]').click();
+    expect((await infoDownload).suggestedFilename()).toBe('명함_김대호_정보면.png');
 
     // 현재 로그인한 재무 검토 계정에는 다섯 화면이 모두 열린다.
     for (const view of ['credit', 'closing', 'deposit-check', 'invoice', 'namecard']) {
       await expect(page.locator(`.nav-item[data-view="${view}"]`)).toBeVisible();
     }
+  });
+
+  test('renders and downloads the high-resolution two-sided namecard', async ({ page }) => {
+    await installFirebaseStub(page);
+    await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
+    const pageErrors: string[] = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+    await page.evaluate(() => {
+      (document.querySelector('.nav-item[data-view="namecard"]') as HTMLElement)?.click();
+    });
+
+    await expect(page.locator('[data-card="name"]')).toHaveValue('김대호');
+    await expect(page.locator('[data-card="rank"]')).toHaveValue('부장');
+    await page.locator('[data-card="englishName"]').fill('Dae Ho Kim');
+    await page.locator('[data-card="phone"]').fill('010-1234-5678');
+    await page.locator('[data-card="email"]').fill('name@peak.kr');
+
+    for (const id of ['namecardBrandCanvas', 'namecardInfoCanvas']) {
+      const canvas = page.locator(`#${id}`);
+      await expect(canvas).toHaveJSProperty('width', 1800);
+      await expect(canvas).toHaveJSProperty('height', 1000);
+      await expect(canvas).toHaveCSS('min-width', '0px');
+    }
+    const colors = await page.evaluate(() => {
+      const pixel = (id: string) => {
+        const canvas = document.getElementById(id) as HTMLCanvasElement;
+        return [...canvas.getContext('2d')!.getImageData(4, 4, 1, 1).data];
+      };
+      return { brand: pixel('namecardBrandCanvas'), info: pixel('namecardInfoCanvas') };
+    });
+    expect(colors.brand.slice(0, 3)).toEqual([58, 148, 201]);
+    expect(colors.info.slice(0, 3)).toEqual([255, 255, 255]);
+
+    const verifyPng = async (download: Download) => {
+      const stream = await download.createReadStream();
+      if (!stream) throw new Error('다운로드 PNG 스트림이 없습니다.');
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+      const png = Buffer.concat(chunks);
+      expect([...png.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+      expect(png.readUInt32BE(16)).toBe(1800);
+      expect(png.readUInt32BE(20)).toBe(1000);
+    };
+
+    const brandDownload = page.waitForEvent('download');
+    await page.locator('[data-card-download="brand"]').click();
+    const downloadedBrand = await brandDownload;
+    expect(downloadedBrand.suggestedFilename()).toBe('명함_김대호_브랜드면.png');
+    await verifyPng(downloadedBrand);
+    const infoDownload = page.waitForEvent('download');
+    await page.locator('[data-card-download="info"]').click();
+    const downloadedInfo = await infoDownload;
+    expect(downloadedInfo.suggestedFilename()).toBe('명함_김대호_정보면.png');
+    await verifyPng(downloadedInfo);
+
+    // 비정상적으로 긴 입력도 각 정보 영역 안에서 줄임표로 처리하고 Canvas 크기를 유지한다.
+    await page.locator('[data-card="name"]').fill('김대호'.repeat(40));
+    await page.locator('[data-card="englishName"]').fill('Dae Ho Kim With A Very Long English Name '.repeat(8));
+    await page.locator('[data-card="team"]').fill('본사 경영지원 전략기획 마케팅 운영팀'.repeat(12));
+    await page.locator('[data-card="email"]').fill('very-long-business-email-address-'.repeat(12) + '@peak.kr');
+    await expect(page.locator('#namecardInfoCanvas')).toHaveJSProperty('width', 1800);
+    await expect(page.locator('#namecardInfoCanvas')).toHaveJSProperty('height', 1000);
+    expect(pageErrors).toEqual([]);
   });
 
   // 김지홍 월보장, 박우진 월관리, 김대호 직접실행은 판매 한 건에 실행 여러 건이 붙어
