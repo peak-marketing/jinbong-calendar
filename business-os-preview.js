@@ -2512,17 +2512,44 @@
   }
 
   function renderCompanyModule() {
+    const branchCertificates = [
+      { id: 'head-office', branch: '본사', filename: '본사 사업자등록증' },
+      { id: 'jeonju-office', branch: '전주 지사', filename: '전주 지사 사업자등록증' },
+      { id: 'daegu-office', branch: '대구 지사', filename: '대구 지사 사업자등록증' }
+    ];
     moduleView.innerHTML = `
-      ${moduleStatusbar('회사 자료 모듈', '사업자등록증과 회사 공식 자료를 지사·법인 단위로 관리합니다.')}
-      <section class="module-grid two">
-        ${moduleCard({ icon: '▥', title: '사업자등록증', description: '본사와 지사별 사업자등록증 원본, 발급일, 사업자번호와 사용 범위를 관리합니다.', chip: '민감자료', chipClass: 'restricted', footer: '허용된 지사만 조회', action: '자료함 보기' })}
-        ${moduleCard({ icon: '◇', tone: 'violet', title: '회사 자료', description: '회사소개서, 법인 기본자료, 계좌 사본과 계약에 필요한 공식 자료를 관리합니다.', chip: '권한 적용', chipClass: 'visible', footer: '직급·팀별 접근 제어', action: '분류 보기' })}
+      ${moduleStatusbar('회사 자료 모듈', '사업자등록증을 회사·지사 자료와 거래처 자료로 나눠 관리합니다.', '권한형 자료함')}
+      <section class="module-grid two" data-company-certificate-folders>
+        <article class="module-card" data-company-folder="branches">
+          <div class="module-card-top"><span class="module-card-icon">▥</span><span class="module-chip restricted">3개 문서</span></div>
+          <h2>본사 및 지사 사업자등록증</h2>
+          <p>본사, 전주 지사, 대구 지사의 사업자등록증을 한곳에서 구분해 관리합니다.</p>
+          <div class="module-card-footer"><span>본사 · 전주 · 대구</span><span class="module-chip">회사 문서</span></div>
+        </article>
+        <article class="module-card" data-company-folder="clients">
+          <div class="module-card-top"><span class="module-card-icon violet">▤</span><span class="module-chip visible">0개 문서</span></div>
+          <h2>거래처 사업자등록증</h2>
+          <p>거래처에서 받은 사업자등록증을 회사 문서와 섞이지 않도록 별도 폴더에서 관리합니다.</p>
+          <div class="module-card-footer"><span>거래처별 분류</span><span class="module-chip">거래처 문서</span></div>
+        </article>
       </section>
-      <section class="module-section">
-        <div class="module-section-head"><span><strong>지사·법인별 자료 구조</strong><small>대표가 전체 범위를 관리하고 사용자에게 허용된 지사 자료만 노출합니다</small></span><button class="module-action" type="button" data-module-action="지사 분류">지사 분류</button></div>
-        <div class="module-section-body"><div class="data-unavailable"><span class="data-unavailable-icon">◇</span><div><strong>회사 자료가 아직 연결되지 않았습니다</strong><p>사업자등록증과 회사 공식 자료를 전달받으면 지사·법인 단위 폴더와 열람 권한을 구성합니다.</p></div></div></div>
+      <section class="module-section" data-company-folder-content="branches">
+        <div class="module-section-head"><span><strong>본사 및 지사 사업자등록증</strong><small>첨부된 세 곳의 문서 항목을 먼저 구성했습니다</small></span><span class="module-chip restricted">민감자료 · 3개</span></div>
+        <div class="module-section-body" style="padding:0">
+          <div class="sales-table-scroll"><table class="empty-table">
+            <thead><tr><th>구분</th><th>파일명</th><th>원본 상태</th><th>열람 방식</th></tr></thead>
+            <tbody>${branchCertificates.map(file => `<tr data-company-certificate="${esc(file.id)}"><th scope="row">${esc(file.branch)}</th><td>${esc(file.filename)}</td><td><span class="vendor-chip">보호 저장소 연결 대기</span></td><td>권한 확인 후 열람</td></tr>`).join('')}</tbody>
+          </table></div>
+        </div>
       </section>
-      <div class="module-security"><span>▣</span><span><strong>민감자료 보호</strong><br>파일 주소를 직접 노출하지 않고 서버 권한 확인, 열람 기록, 다운로드 권한을 함께 적용합니다.</span></div>`;
+      <section class="module-section" data-company-folder-content="clients">
+        <div class="module-section-head"><span><strong>거래처 사업자등록증</strong><small>회사·지사 문서와 분리된 거래처 전용 폴더입니다</small></span><span class="module-chip">0개</span></div>
+        <div class="module-section-body"><div class="data-unavailable"><span class="data-unavailable-icon">▤</span><div><strong>등록된 거래처 사업자등록증이 없습니다</strong><p>보호 저장소가 연결되면 거래처별 폴더와 변경 이력을 이곳에 표시합니다.</p></div></div></div>
+      </section>
+      <section class="module-grid">
+        ${moduleCard({ icon: '◇', tone: 'violet', title: '기타 회사 자료', description: '회사소개서, 법인 기본자료, 계좌 사본과 계약에 필요한 공식 자료를 관리합니다.', chip: '권한 적용', chipClass: 'visible', footer: '직급·팀별 접근 제어', action: '분류 보기' })}
+      </section>
+      <div class="module-security"><span>▣</span><span><strong>사업자등록증 원본은 공개 코드에 넣지 않습니다</strong><br>보호 저장소와 서버 권한 확인, 열람 기록, 다운로드 권한을 연결한 뒤 원본을 표시합니다.</span></div>`;
   }
 
   const ORG_RANK_STORAGE_KEY = 'peakos.orgRankDraft';
