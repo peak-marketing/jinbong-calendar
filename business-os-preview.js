@@ -7055,9 +7055,10 @@
       <div class="module-security"><span>▣</span><span><strong>회사 전체 결산이나 과거 월말 잔액이 아닙니다</strong><br>현재 로그인 계정의 접수와 현재 입금·공급사 정산 상태를 묶은 요약입니다. 고정비·인건비·세금·통장 지출은 아직 포함하지 않습니다.</span></div>`;
   }
 
-  // 명함 — 제공받은 실제 명함을 90:50 비율의 고해상도 앞·뒷면으로 다시 그린다.
+  // 명함 — 제공받은 앞·뒷면 디자인을 한 장의 세로형 고해상도 이미지로 그린다.
   const NAMECARD_WIDTH = 900;
-  const NAMECARD_HEIGHT = 500;
+  const NAMECARD_SIDE_HEIGHT = 500;
+  const NAMECARD_HEIGHT = NAMECARD_SIDE_HEIGHT * 2;
   const NAMECARD_SCALE = 2;
   const NAMECARD_BLUE = '#3a94c9';
   const NAMECARD_ADDRESSES = [
@@ -7161,7 +7162,7 @@
     return width;
   }
 
-  function setupNamecardCanvas(canvas, background) {
+  function setupNamecardCanvas(canvas) {
     canvas.width = NAMECARD_WIDTH * NAMECARD_SCALE;
     canvas.height = NAMECARD_HEIGHT * NAMECARD_SCALE;
     canvas.style.width = '100%';
@@ -7171,13 +7172,14 @@
     g.setTransform(NAMECARD_SCALE, 0, 0, NAMECARD_SCALE, 0, 0);
     g.imageSmoothingEnabled = true;
     g.imageSmoothingQuality = 'high';
-    g.fillStyle = background;
+    g.fillStyle = '#ffffff';
     g.fillRect(0, 0, NAMECARD_WIDTH, NAMECARD_HEIGHT);
     return g;
   }
 
-  function drawNamecardBrandSide(canvas) {
-    const g = setupNamecardCanvas(canvas, NAMECARD_BLUE);
+  function drawNamecardBrandPanel(g) {
+    g.fillStyle = NAMECARD_BLUE;
+    g.fillRect(0, 0, NAMECARD_WIDTH, NAMECARD_SIDE_HEIGHT);
     drawNamecardWordmark(g, 42, 94, 72, '#ffffff', '#ffffff', '400');
     drawNamecardMark(g, 445, 8, 430, '#ffffff');
 
@@ -7221,8 +7223,9 @@
     g.fillText(fittedText, 614, y);
   }
 
-  function drawNamecardInfoSide(canvas, data) {
-    const g = setupNamecardCanvas(canvas, '#ffffff');
+  function drawNamecardInfoPanel(g, data) {
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, NAMECARD_WIDTH, NAMECARD_SIDE_HEIGHT);
     g.textAlign = 'left';
     g.textBaseline = 'alphabetic';
 
@@ -7254,11 +7257,15 @@
     NAMECARD_ADDRESSES.forEach((row, index) => drawNamecardAddress(g, row[0], row[1], 335 + index * 48));
   }
 
-  function drawNamecards(data) {
-    const brandCanvas = document.getElementById('namecardBrandCanvas');
-    const infoCanvas = document.getElementById('namecardInfoCanvas');
-    if (brandCanvas) drawNamecardBrandSide(brandCanvas);
-    if (infoCanvas) drawNamecardInfoSide(infoCanvas, data);
+  function drawNamecard(data) {
+    const canvas = document.getElementById('namecardCanvas');
+    if (!canvas) return;
+    const g = setupNamecardCanvas(canvas);
+    drawNamecardBrandPanel(g);
+    g.save();
+    g.translate(0, NAMECARD_SIDE_HEIGHT);
+    drawNamecardInfoPanel(g, data);
+    g.restore();
   }
 
   function safeNamecardFilename(value) {
@@ -7289,11 +7296,11 @@
     const form = namecardForm;
 
     moduleView.innerHTML = `
-      ${moduleStatusbar('명함', '실제 명함 디자인의 브랜드 면과 정보 면을 고해상도 이미지로 만듭니다.', '앞·뒷면 PNG')}
+      ${moduleStatusbar('명함', '실제 명함 디자인의 브랜드 면과 정보 면을 한 장의 이미지로 만듭니다.', '한 장 PNG')}
       <section class="module-section">
         <div class="module-section-head">
           <span><strong>명함 정보</strong><small>이름과 직급은 조직도에서 가져왔습니다. 영문 이름과 연락처를 확인하세요</small></span>
-          <span class="module-chip live">1800 × 1000 PNG</span>
+          <span class="module-chip live">1800 × 2000 PNG</span>
         </div>
         <div class="module-section-body">
           <div class="intake-form">
@@ -7306,30 +7313,18 @@
           </div>
         </div>
       </section>
-      <div class="module-grid two">
-        <section class="module-section">
-          <div class="module-section-head"><span><strong>브랜드 면</strong><small>피크마케팅 로고와 브랜드 심볼</small></span><span class="module-chip live">90:50</span></div>
-          <div class="module-section-body">
-            <div class="est-preview"><canvas id="namecardBrandCanvas" aria-label="명함 브랜드 면 미리보기"></canvas></div>
-            <div class="intake-foot">
-              <p class="sales-basis">고해상도 PNG로 저장됩니다.</p>
-              <button class="module-action primary" type="button" data-card-download="brand">브랜드 면 PNG 저장</button>
-            </div>
+      <section class="module-section" style="max-width:960px;margin-inline:auto">
+        <div class="module-section-head"><span><strong>명함 한 장 미리보기</strong><small>브랜드 영역과 입력 정보가 한 이미지에 이어집니다</small></span><span class="module-chip live">단일 이미지</span></div>
+        <div class="module-section-body">
+          <div class="est-preview" style="max-width:900px;margin-inline:auto"><canvas id="namecardCanvas" aria-label="한 장으로 합친 명함 미리보기"></canvas></div>
+          <div class="intake-foot">
+            <p class="sales-basis">위 정보를 입력하면 흰색 정보 영역에 바로 반영됩니다.</p>
+            <button class="module-action primary" type="button" data-card-download>명함 PNG 저장</button>
           </div>
-        </section>
-        <section class="module-section">
-          <div class="module-section-head"><span><strong>정보 면</strong><small>이름·소속·연락처·지사 주소</small></span><span class="module-chip live">90:50</span></div>
-          <div class="module-section-body">
-            <div class="est-preview"><canvas id="namecardInfoCanvas" aria-label="명함 정보 면 미리보기"></canvas></div>
-            <div class="intake-foot">
-              <p class="sales-basis">입력한 정보가 이미지에 실시간 반영됩니다.</p>
-              <button class="module-action primary" type="button" data-card-download="info">정보 면 PNG 저장</button>
-            </div>
-          </div>
-        </section>
-      </div>`;
+        </div>
+      </section>`;
 
-    drawNamecards(form);
+    drawNamecard(form);
   }
 
   // 자금 현황판. 대표님 시트를 그대로 옮겼다.
@@ -8791,14 +8786,14 @@
       }
     }));
 
-    // 명함 — 글자를 칠 때마다 미리보기만 다시 그린다
+    // 명함 — 글자를 칠 때마다 한 장짜리 미리보기만 다시 그린다
     moduleView.querySelectorAll('[data-card]').forEach(input => input.addEventListener('input', () => {
       namecardForm[input.dataset.card] = input.value;
-      drawNamecards(namecardForm);
+      drawNamecard(namecardForm);
     }));
     moduleView.querySelectorAll('[data-card-download]').forEach(button => button.addEventListener('click', () => {
-      const side = button.dataset.cardDownload === 'brand' ? 'brand' : 'info';
-      const canvas = document.getElementById(side === 'brand' ? 'namecardBrandCanvas' : 'namecardInfoCanvas');
+      const canvas = document.getElementById('namecardCanvas');
+      if (!canvas) return;
       canvas.toBlob(blob => {
         if (!blob) {
           showToast('이미지를 만들지 못했습니다.');
@@ -8808,12 +8803,12 @@
         const link = document.createElement('a');
         link.href = url;
         const safeName = safeNamecardFilename(namecardForm.name);
-        link.download = `명함_${safeName}_${side === 'brand' ? '브랜드면' : '정보면'}.png`;
+        link.download = `명함_${safeName}.png`;
         document.body.appendChild(link);
         link.click();
         link.remove();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-        showToast(`명함 ${side === 'brand' ? '브랜드 면' : '정보 면'} 이미지를 저장했습니다.`);
+        showToast('한 장짜리 명함 이미지를 저장했습니다.');
       }, 'image/png');
     }));
 
