@@ -38,6 +38,7 @@ const {
   ensureOsEmailAuthInfrastructure,
   registerOsEmailAuth,
 } = require('./auth/peakos-os-email-auth');
+const { registerPeakosCompanyDocuments } = require('./auth/peakos-company-documents');
 
 const admin = require('firebase-admin');
 const serviceAccount = require('./firebase-service-account.json');
@@ -5869,6 +5870,13 @@ const peakosBankCanRead = req => peakosAccess.canReadBank(req);
 const peakosBankCanViewBalances = req => peakosAccess.canViewBankBalances(req);
 const peakosCanReviewFinance = req => peakosAccess.canReviewFinance(req);
 const peakosCanSeeTaxPurchase = req => peakosAccess.canSeeTaxPurchase(req);
+
+registerPeakosCompanyDocuments({
+  app,
+  root: process.env.PEAKOS_COMPANY_DOCUMENT_ROOT || undefined,
+  canRead: peakosCanSeeAll,
+  logger: console,
+});
 
 async function peakosAfterBankSync(context) {
   // 거래 원장 자체를 durable work queue로 사용한다. 매 동기화 때 조회기간과

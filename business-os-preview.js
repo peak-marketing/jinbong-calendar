@@ -108,6 +108,11 @@
   // 직급 수정은 아직 운영 DB에 쓰지 않는다. 브라우저에만 남는 초안이다.
   let orgRankDraft = {};
   let serviceFilter = 'all';
+  let companyDocumentState = { uid: '', status: 'idle', documents: [], error: '' };
+  let companyDocumentLoadGeneration = 0;
+  let companyDocumentPreviewGeneration = 0;
+  let companyDocumentPreviewTrigger = null;
+  let companyDocumentPreviewCleanup = null;
   // 통장 원장은 권한이 있는 사용자가 탭을 처음 열 때만 읽는다.
   // 계정 미리보기로 전환하면 메모리에서도 비워 민감한 재무자료가 남지 않게 한다.
   let bankData = emptyBankData();
@@ -955,7 +960,7 @@
         <div class="readonly-modal-body" id="readonlyModalBody"></div>
       </article>`;
     body.append(modal);
-    modal.querySelector('#readonlyModalClose').addEventListener('click', closeDetailModal);
+    modal.querySelector('#readonlyModalClose').addEventListener('click', () => closeDetailModal());
     // 입력 중인 창은 바깥을 눌러도 닫지 않는다. 실수로 내용이 날아간다.
     modal.addEventListener('click', event => {
       if (event.target === modal && modal.dataset.locked !== 'true') closeDetailModal();
@@ -965,7 +970,19 @@
     });
   }
 
+  function clearCompanyDocumentPreview() {
+    companyDocumentPreviewGeneration += 1;
+    const trigger = companyDocumentPreviewTrigger;
+    const cleanup = companyDocumentPreviewCleanup;
+    companyDocumentPreviewTrigger = null;
+    companyDocumentPreviewCleanup = null;
+    if (trigger?.isConnected) trigger.disabled = false;
+    cleanup?.();
+    return trigger;
+  }
+
   function openDetailModal(title, content, { locked = false } = {}) {
+    clearCompanyDocumentPreview();
     const modal = document.getElementById('readonlyDetailModal');
     document.getElementById('readonlyModalTitle').textContent = title;
     document.getElementById('readonlyModalBody').innerHTML = content;
@@ -974,11 +991,15 @@
     body.style.overflow = 'hidden';
   }
 
-  function closeDetailModal() {
+  function closeDetailModal({ restoreFocus = true } = {}) {
+    const trigger = clearCompanyDocumentPreview();
     const modal = document.getElementById('readonlyDetailModal');
     modal.dataset.locked = 'false';
     modal.hidden = true;
     body.style.overflow = '';
+    if (restoreFocus && trigger?.isConnected) {
+      window.requestAnimationFrame(() => trigger.focus());
+    }
   }
 
   function setAuthStatus(message, isError = false) {
@@ -2511,19 +2532,218 @@
     });
   }
 
+  const COMPANY_CERTIFICATE_SLOTS = Object.freeze([
+    { id: 'head-office', branch: '본사', filename: '본사 사업자등록증.png' },
+    { id: 'jeonju-office', branch: '전주 지사', filename: '전주 지사 사업자등록증.png' },
+    { id: 'daegu-office', branch: '대구 지사', filename: '대구 지사 사업자등록증.png' }
+  ]);
+
+  function ensureCompanyDocumentState() {
+    const uid = String(currentUser?.uid || '');
+    if (companyDocumentState.uid === uid) return;
+    companyDocumentLoadGeneration += 1;
+    companyDocumentState = { uid, status: 'idle', documents: [], error: '' };
+  }
+
+  function resetCompanyDocumentState() {
+    companyDocumentLoadGeneration += 1;
+    companyDocumentState = { uid: '', status: 'idle', documents: [], error: '' };
+  }
+
+  function loadCompanyDocuments() {
+    ensureCompanyDocumentState();
+    if (!currentUser || previewPersona || companyDocumentState.status === 'loading') return;
+    const uid = String(currentUser.uid || '');
+    const accessGeneration = osAuthAccessGeneration;
+    const generation = ++companyDocumentLoadGeneration;
+    companyDocumentState = { uid, status: 'loading', documents: [], error: '' };
+
+    readOnlyApi('/peakos/company-documents').then(payload => {
+      if (generation !== companyDocumentLoadGeneration
+        || accessGeneration !== osAuthAccessGeneration
+        || String(currentUser?.uid || '') !== uid) return;
+      const allowed = new Set(COMPANY_CERTIFICATE_SLOTS.map(document => document.id));
+      const documents = (Array.isArray(payload?.documents) ? payload.documents : [])
+        .filter(document => allowed.has(String(document?.id || '')))
+        .map(document => ({
+          id: String(document.id),
+          available: document.available === true,
+          size: Math.max(0, Number(document.size) || 0),
+          updatedAt: String(document.updatedAt || '')
+        }));
+      companyDocumentState = { uid, status: 'ready', documents, error: '' };
+    }).catch(error => {
+      if (generation !== companyDocumentLoadGeneration
+        || accessGeneration !== osAuthAccessGeneration
+        || String(currentUser?.uid || '') !== uid) return;
+      companyDocumentState = {
+        uid, status: 'error', documents: [],
+        error: error.message || '보호 자료를 불러오지 못했습니다.'
+      };
+    }).finally(() => {
+      if (generation === companyDocumentLoadGeneration
+        && accessGeneration === osAuthAccessGeneration
+        && activeView === 'company') renderPlannedModule('company');
+    });
+  }
+
+  async function protectedCompanyDocumentBlob(id) {
+    if (!currentUser) throw new Error('로그인이 필요합니다.');
+    const requestUser = currentUser;
+    const requestUid = requestUser.uid;
+    const accessGeneration = osAuthAccessGeneration;
+    const stale = () => {
+      const error = new Error('로그인 또는 추가 인증 상태가 바뀌어 요청을 취소했습니다.');
+      error.code = 'AUTH_CONTEXT_CHANGED';
+      return error;
+    };
+    const assertFresh = () => {
+      if (!currentUser
+        || currentUser.uid !== requestUid
+        || accessGeneration !== osAuthAccessGeneration
+        || (isOsRoute() && osAuthExpired)) throw stale();
+    };
+    const token = await requestUser.getIdToken();
+    assertFresh();
+    const response = await fetch(`/api/peakos/company-documents/${encodeURIComponent(id)}/content`, {
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + token },
+      cache: 'no-store',
+      credentials: 'same-origin'
+    });
+    assertFresh();
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      assertFresh();
+      const error = new Error(payload.error || `원본 조회 실패 (${response.status})`);
+      error.status = response.status;
+      error.code = payload.code || '';
+      if (response.status === 401
+        && ['OS_AUTH_SESSION_REQUIRED', 'OS_AUTH_SESSION_INVALID'].includes(error.code)) {
+        lockOsAfterSessionExpiry();
+      }
+      throw error;
+    }
+    const contentType = String(response.headers.get('content-type') || '').split(';')[0].toLowerCase();
+    if (contentType !== 'image/png') throw new Error('보호 원본의 파일 형식이 올바르지 않습니다.');
+    const blob = await response.blob();
+    assertFresh();
+    if (blob.size < 24 || blob.size > 5 * 1024 * 1024) throw new Error('보호 원본의 파일 크기가 올바르지 않습니다.');
+    const signature = [...new Uint8Array(await blob.slice(0, 8).arrayBuffer())];
+    assertFresh();
+    if (signature.join(',') !== '137,80,78,71,13,10,26,10') throw new Error('보호 원본이 PNG 파일이 아닙니다.');
+    return blob;
+  }
+
+  async function previewCompanyDocument(button) {
+    const file = COMPANY_CERTIFICATE_SLOTS.find(item => item.id === button.dataset.companyDocumentPreview);
+    if (!file) return;
+    openDetailModal(file.filename, '<div class="data-unavailable"><span class="data-unavailable-icon">▥</span><div><strong>보호 원본을 확인하고 있습니다</strong><p>권한과 파일 무결성을 검사한 뒤 화면에 표시합니다.</p></div></div>');
+    companyDocumentPreviewTrigger = button;
+    const generation = ++companyDocumentPreviewGeneration;
+    button.disabled = true;
+    document.getElementById('readonlyModalClose')?.focus();
+    try {
+      const blob = await protectedCompanyDocumentBlob(file.id);
+      if (generation !== companyDocumentPreviewGeneration) return;
+      const modal = document.getElementById('readonlyDetailModal');
+      if (!modal || modal.hidden) return;
+      const bodySlot = document.getElementById('readonlyModalBody');
+      bodySlot.innerHTML = '<div data-company-document-preview style="display:grid;gap:12px;justify-items:center"><p class="sales-basis">이 이미지는 브라우저 저장소에 보관하지 않습니다.</p></div>';
+      const preview = bodySlot.querySelector('[data-company-document-preview]');
+      const image = document.createElement('img');
+      image.alt = file.filename;
+      image.dataset.companyDocumentImage = file.id;
+      image.style.cssText = 'display:block;max-width:100%;max-height:72vh;width:auto;height:auto;object-fit:contain';
+      const objectUrl = URL.createObjectURL(blob);
+      let released = false;
+      const release = () => {
+        if (released) return;
+        released = true;
+        URL.revokeObjectURL(objectUrl);
+      };
+      companyDocumentPreviewCleanup = () => {
+        image.removeAttribute('src');
+        image.remove();
+        release();
+      };
+      image.addEventListener('load', release, { once: true });
+      image.addEventListener('error', () => {
+        release();
+        preview.innerHTML = '<p class="sales-state">원본 이미지를 표시하지 못했습니다.</p>';
+      }, { once: true });
+      preview.prepend(image);
+      image.src = objectUrl;
+    } catch (error) {
+      const modal = document.getElementById('readonlyDetailModal');
+      if (generation === companyDocumentPreviewGeneration && modal && !modal.hidden) {
+        document.getElementById('readonlyModalTitle').textContent = file.filename;
+        document.getElementById('readonlyModalBody').innerHTML = `<div class="data-unavailable"><span class="data-unavailable-icon">!</span><div><strong>원본을 열지 못했습니다</strong><p>${esc(error.message)}</p></div></div>`;
+      }
+    } finally {
+      if (button.isConnected) button.disabled = false;
+    }
+  }
+
+  async function downloadCompanyDocument(button) {
+    const file = COMPANY_CERTIFICATE_SLOTS.find(item => item.id === button.dataset.companyDocumentDownload);
+    if (!file) return;
+    button.disabled = true;
+    const previousText = button.textContent;
+    button.textContent = '확인 중…';
+    try {
+      const blob = await protectedCompanyDocumentBlob(file.id);
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = file.filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      showToast(`${file.branch} 사업자등록증을 저장했습니다.`);
+    } catch (error) {
+      showToast(`사업자등록증을 저장하지 못했습니다. ${error.message}`);
+    } finally {
+      if (button.isConnected) {
+        button.disabled = false;
+        button.textContent = previousText;
+      }
+    }
+  }
+
   function renderCompanyModule() {
-    const branchCertificates = [
-      { id: 'head-office', branch: '본사', filename: '본사 사업자등록증' },
-      { id: 'jeonju-office', branch: '전주 지사', filename: '전주 지사 사업자등록증' },
-      { id: 'daegu-office', branch: '대구 지사', filename: '대구 지사 사업자등록증' }
-    ];
+    ensureCompanyDocumentState();
+    if (!previewPersona && companyDocumentState.status === 'idle') loadCompanyDocuments();
+    const metadata = new Map(companyDocumentState.documents.map(document => [document.id, document]));
+    const previewLocked = Boolean(previewPersona);
+    const availableCount = previewLocked
+      ? 0
+      : COMPANY_CERTIFICATE_SLOTS.filter(document => metadata.get(document.id)?.available).length;
+    const canRetry = !previewLocked && (companyDocumentState.status === 'error'
+      || (companyDocumentState.status === 'ready' && availableCount < COMPANY_CERTIFICATE_SLOTS.length));
+    const statusLabel = previewLocked
+      ? '미리보기 중 비공개'
+      : (companyDocumentState.status === 'loading' ? '보호 저장소 확인 중'
+        : (companyDocumentState.status === 'error' ? '보호 저장소 연결 실패' : `보호 연결 ${availableCount}/3`));
+    const branchRows = COMPANY_CERTIFICATE_SLOTS.map(document => {
+      const stored = metadata.get(document.id);
+      const available = !previewLocked && stored?.available === true;
+      const stateText = previewLocked ? '미리보기 중 비공개'
+        : (companyDocumentState.status === 'loading' ? '원본 확인 중'
+          : (available ? '보호 연결 완료' : '원본 점검 필요'));
+      const metaText = available && stored.size
+        ? `PNG · ${Math.ceil(stored.size / 1024).toLocaleString('ko-KR')}KB`
+        : '권한 확인 후 열람';
+      return `<tr data-company-certificate="${esc(document.id)}"><th scope="row">${esc(document.branch)}</th><td>${esc(document.filename)}</td><td><span class="vendor-chip ${available ? 'done' : ''}">${esc(stateText)}</span></td><td>${esc(metaText)}</td><td><span style="display:flex;gap:6px;flex-wrap:wrap"><button class="module-action" type="button" data-company-document-preview="${esc(document.id)}" aria-label="${esc(`${document.branch} 사업자등록증 미리보기`)}" ${available ? '' : 'disabled'}>미리보기</button><button class="module-action" type="button" data-company-document-download="${esc(document.id)}" aria-label="${esc(`${document.branch} 사업자등록증 PNG 저장`)}" ${available ? '' : 'disabled'}>PNG 저장</button></span></td></tr>`;
+    }).join('');
     moduleView.innerHTML = `
-      ${moduleStatusbar('회사 자료 모듈', '사업자등록증을 회사·지사 자료와 거래처 자료로 나눠 관리합니다.', '권한형 자료함')}
+      ${moduleStatusbar('회사 자료 모듈', '사업자등록증을 회사·지사 자료와 거래처 자료로 나눠 관리합니다.', statusLabel)}
       <section class="module-grid two" data-company-certificate-folders>
         <article class="module-card" data-company-folder="branches">
-          <div class="module-card-top"><span class="module-card-icon">▥</span><span class="module-chip restricted">3개 문서</span></div>
+          <div class="module-card-top"><span class="module-card-icon">▥</span><span class="module-chip restricted">${availableCount}/3 연결</span></div>
           <h2>본사 및 지사 사업자등록증</h2>
-          <p>본사, 전주 지사, 대구 지사의 사업자등록증을 한곳에서 구분해 관리합니다.</p>
+          <p>본사, 전주 지사, 대구 지사의 보호 원본을 권한 확인 후 열람하고 저장합니다.</p>
           <div class="module-card-footer"><span>본사 · 전주 · 대구</span><span class="module-chip">회사 문서</span></div>
         </article>
         <article class="module-card" data-company-folder="clients">
@@ -2534,11 +2754,12 @@
         </article>
       </section>
       <section class="module-section" data-company-folder-content="branches">
-        <div class="module-section-head"><span><strong>본사 및 지사 사업자등록증</strong><small>첨부된 세 곳의 문서 항목을 먼저 구성했습니다</small></span><span class="module-chip restricted">민감자료 · 3개</span></div>
+        <div class="module-section-head"><span><strong>본사 및 지사 사업자등록증</strong><small>Firebase 로그인·추가 이메일 인증·지정 UID 권한을 모두 확인합니다</small></span>${canRetry ? '<button class="module-action" type="button" data-company-document-refresh>다시 확인</button>' : '<span class="module-chip restricted">민감자료 · 3개</span>'}</div>
         <div class="module-section-body" style="padding:0">
+          ${companyDocumentState.status === 'error' && !previewLocked ? `<div class="data-unavailable"><span class="data-unavailable-icon">!</span><div><strong>보호 자료를 불러오지 못했습니다</strong><p>${esc(companyDocumentState.error)}</p></div></div>` : ''}
           <div class="sales-table-scroll"><table class="empty-table">
-            <thead><tr><th>구분</th><th>파일명</th><th>원본 상태</th><th>열람 방식</th></tr></thead>
-            <tbody>${branchCertificates.map(file => `<tr data-company-certificate="${esc(file.id)}"><th scope="row">${esc(file.branch)}</th><td>${esc(file.filename)}</td><td><span class="vendor-chip">보호 저장소 연결 대기</span></td><td>권한 확인 후 열람</td></tr>`).join('')}</tbody>
+            <thead><tr><th>구분</th><th>파일명</th><th>원본 상태</th><th>파일 정보</th><th>작업</th></tr></thead>
+            <tbody>${branchRows}</tbody>
           </table></div>
         </div>
       </section>
@@ -2549,7 +2770,18 @@
       <section class="module-grid">
         ${moduleCard({ icon: '◇', tone: 'violet', title: '기타 회사 자료', description: '회사소개서, 법인 기본자료, 계좌 사본과 계약에 필요한 공식 자료를 관리합니다.', chip: '권한 적용', chipClass: 'visible', footer: '직급·팀별 접근 제어', action: '분류 보기' })}
       </section>
-      <div class="module-security"><span>▣</span><span><strong>사업자등록증 원본은 공개 코드에 넣지 않습니다</strong><br>보호 저장소와 서버 권한 확인, 열람 기록, 다운로드 권한을 연결한 뒤 원본을 표시합니다.</span></div>`;
+      <div class="module-security"><span>▣</span><span><strong>원본은 GitHub와 공개 URL에 저장되지 않습니다</strong><br>서버 전용 저장소에서 파일 무결성을 확인하고 모든 목록·열람 요청을 기록합니다.</span></div>`;
+
+    moduleView.querySelector('[data-company-document-refresh]')?.addEventListener('click', () => {
+      companyDocumentState = { ...companyDocumentState, status: 'idle', documents: [], error: '' };
+      renderPlannedModule('company');
+    });
+    moduleView.querySelectorAll('[data-company-document-preview]').forEach(button => {
+      button.addEventListener('click', () => previewCompanyDocument(button));
+    });
+    moduleView.querySelectorAll('[data-company-document-download]').forEach(button => {
+      button.addEventListener('click', () => downloadCompanyDocument(button));
+    });
   }
 
   const ORG_RANK_STORAGE_KEY = 'peakos.orgRankDraft';
@@ -8874,6 +9106,8 @@
       if (!user) {
         osAuthSessionCheckGeneration += 1;
         osAuthAccessGeneration += 1;
+        closeDetailModal({ restoreFocus: false });
+        resetCompanyDocumentState();
         clearOsAuthTimer();
         clearOsSessionExpiryTimer();
         currentUser = null;
@@ -8899,6 +9133,8 @@
       if (currentUser && currentUser.uid !== user.uid) {
         osAuthSessionCheckGeneration += 1;
         osAuthAccessGeneration += 1;
+        closeDetailModal({ restoreFocus: false });
+        resetCompanyDocumentState();
         clearOsSessionExpiryTimer();
         signedInLoadPromise = null;
         signedInLoadUid = '';
