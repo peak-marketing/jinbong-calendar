@@ -9,6 +9,35 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const {
+  ensurePeakosBankInfrastructure,
+  registerPeakosBanking,
+} = require('./banking/peakos-banking');
+const { ensurePeakosCoreInfrastructure } = require('./banking/peakos-core');
+const {
+  ensurePeakosBankReconciliationInfrastructure,
+  reconcileAccountTransactions,
+} = require('./banking/peakos-bank-reconciliation');
+const {
+  ensurePeakosCreditRequestInfrastructure,
+  reconcileCreditRequests,
+  registerPeakosCreditRequests,
+} = require('./banking/peakos-credit-requests');
+const {
+  ensurePeakosFinanceRequestInfrastructure,
+  registerPeakosFinanceRequests,
+} = require('./banking/peakos-finance-requests');
+const {
+  createIbkQuickCollector,
+  IBK_ACCOUNT_IDS,
+} = require('./banking/collectors/ibk-quick-collector');
+const { POLICY: PEAKOS_ACCESS_POLICY, createPeakosAccess } = require('./banking/peakos-access');
+const { AUTO_MATCH_MAX_AGE_DAYS } = require('./banking/peakos-auto-match-policy');
+const {
+  createEmailMailerFromEnv,
+  ensureOsEmailAuthInfrastructure,
+  registerOsEmailAuth,
+} = require('./auth/peakos-os-email-auth');
 
 const admin = require('firebase-admin');
 const serviceAccount = require('./firebase-service-account.json');
@@ -29,6 +58,9 @@ async function sendFirebaseMessage(message) {
 }
 
 const app = express();
+// Nginx is the only production proxy. Trusting only the loopback hop lets
+// Express derive the real client IP without trusting a forged left-most XFF.
+app.set('trust proxy', 'loopback');
 app.use(cors());
 // Raise JSON limit a bit so debug log batches (max 500 entries × small
 // JSON args) never get rejected. Normal requests are well under this.
@@ -868,7 +900,7 @@ async function notifyServiceRequestManagers(request, actorUid) {
     );
     await Promise.all(targets.rows.map(row => sendPushToUser(
       row.uid,
-      '새 수정 요청',
+      '새 개발수정요청',
       `${request.product_name || '서비스'} · ${request.title}`,
       { kind: 'service-request', requestId: request.id, link: '/?page=request' }
     )));
@@ -1013,7 +1045,13 @@ async function authMiddleware(req, res, next) {
     req.userName = decoded.name || decoded.email;
     req.userEmail = decoded.email;
     req.userPhoto = decoded.picture || '';
-    const userRes = await pool.query('SELECT * FROM users WHERE uid = $1', [req.uid]);
+    const userRes = await pool.query(
+      `SELECT u.*, g.name AS group_name, g.group_type, g.show_sales_report
+         FROM users u
+         LEFT JOIN groups g ON g.id = u.group_id
+        WHERE u.uid = $1`,
+      [req.uid],
+    );
     req.userDoc = userRes.rows[0] || null;
     // Hard server-side enforcement of restricted account modes. The
     // client hides disallowed routes, but direct API calls must be
@@ -1117,7 +1155,16 @@ app.post('/api/users/register', authMiddleware, async (req, res) => {
 
 app.get('/api/users/me', authMiddleware, async (req, res) => {
   if (!req.userDoc) return res.status(404).json({ error: 'User not found' });
-  res.json(await attachEventReminderPreference(req.userDoc));
+  const user = await attachEventReminderPreference(req.userDoc);
+  res.json({
+    ...user,
+    peakos_special_settlement_views: peakosOwnedMonthlyViews(req),
+    peakos_can_view_final_execution: peakosCanSeeFinalExecution(req),
+    peakos_can_read_bank: peakosBankCanRead(req),
+    peakos_can_view_bank_balances: peakosBankCanViewBalances(req),
+    peakos_can_review_finance: peakosCanReviewFinance(req),
+    peakos_can_view_tax_purchase: peakosCanSeeTaxPurchase(req),
+  });
 });
 
 app.put('/api/users/me/notification-settings', authMiddleware, async (req, res) => {
@@ -4259,7 +4306,7 @@ app.delete('/api/bookmarks/:id', authMiddleware, async (req, res) => {
   res.json({ ok: true });
 });
 
-// ══ 피크마케팅 서비스 수정 요청 ═══════════════════════════════
+// ══ 피크마케팅 서비스 개발수정요청 ════════════════════════════
 app.get('/api/service-requests', authMiddleware, async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
   try {
@@ -4404,7 +4451,7 @@ app.put('/api/service-requests/:id', authMiddleware, async (req, res) => {
     if (canManage && req.body.status !== undefined && updated.status !== current.status) {
       await notifyServiceRequestRequester(
         updated,
-        updated.status === 'done' ? '수정 요청 완료' : '수정 요청 상태 변경',
+        updated.status === 'done' ? '개발수정요청 완료' : '개발수정요청 상태 변경',
         `${updated.product_name || '서비스'} · ${updated.title}`
       );
     }
@@ -5782,34 +5829,121 @@ app.post('/api/fcm/register', authMiddleware, async (req, res) => {
 
 const PORT = Number(process.env.PORT || 4100);
 
+// ── PEAK OS 추가 이메일 인증 ────────────────────────────────
+// OS_EMAIL_OTP_MODE=off/all 또는 OS_EMAIL_OTP_REQUIRED_UIDS를 반드시
+// 명시한다. 메일 transport가 없더라도 서버는 기동하되 대상 사용자의
+// 발송 요청은 안전하게 503으로 거부한다.
+const peakosOsEmailMailer = createEmailMailerFromEnv(process.env);
+const peakosOsEmailAuth = registerOsEmailAuth({
+  app,
+  authMiddleware,
+  pool,
+  mailer: peakosOsEmailMailer,
+  hmacSecret: process.env.PEAKOS_OS_AUTH_HMAC_SECRET,
+});
+
+// PEAK OS 정산·통장 API는 화면을 숨기는 것에 의존하지 않는다.
+// 파일럿 대상이면 Firebase 인증 뒤 서버 발급 OS 세션까지 매 요청 확인한다.
+app.use('/api/peakos', authMiddleware, peakosOsEmailAuth.requireOsSession);
+
 
 // ─────────────────────────────────────────────────────────────
 // PEAK OS 정산 — 브라우저 초안을 계정 기준 서버 저장으로 옮긴다.
 // 본사(hq)만 쓰며 지사(대구·전주)는 별도 체계를 따로 만든다.
 // 화면 쪽 권한과 같은 기준을 서버에서도 다시 막는다.
 // ─────────────────────────────────────────────────────────────
-const PEAKOS_FINAL_VIEWERS = ['김진봉', '패션TV봉이', '손명아', '김대호', '박종원', '전현우'];
-const PEAKOS_TEAM_VIEWERS = ['김진봉', '패션TV봉이', '김대호', '박종원'];
-const PEAKOS_MONTHLY_OWNERS = { 'monthly-guarantee': '김지홍', 'monthly-manage': '박우진' };
+const PEAKOS_MONTHLY_OWNERS = PEAKOS_ACCESS_POLICY.monthlyOwners;
+const peakosAccess = createPeakosAccess({ userPool: pool });
+const peakosName = req => peakosAccess.name(req);
+const peakosApprovedActive = req => peakosAccess.approvedActive(req);
+const peakosCanSeeAll = req => peakosAccess.canSeeAll(req);
+const peakosCanSeeTeam = req => peakosAccess.canSeeTeam(req);
+const peakosCanSeeMonthly = (req, view) => peakosAccess.canSeeMonthly(req, view);
+const peakosCanManageMonthly = (req, view) => peakosAccess.canManageMonthly(req, view);
+const peakosCanSeeFinalExecution = req => peakosAccess.canSeeFinalExecution(req);
+function peakosOwnedMonthlyViews(req) {
+  return Object.keys(PEAKOS_MONTHLY_OWNERS).filter(view => peakosCanManageMonthly(req, view));
+}
+const peakosCanReadOwner = (req, owner) => peakosAccess.canReadOwner(req, owner);
+const peakosBankCanRead = req => peakosAccess.canReadBank(req);
+const peakosBankCanViewBalances = req => peakosAccess.canViewBankBalances(req);
+const peakosCanReviewFinance = req => peakosAccess.canReviewFinance(req);
+const peakosCanSeeTaxPurchase = req => peakosAccess.canSeeTaxPurchase(req);
 
-function peakosName(req) {
-  return String(req.userDoc?.name || req.userName || '').trim();
+async function peakosAfterBankSync(context) {
+  // 거래 원장 자체를 durable work queue로 사용한다. 매 동기화 때 조회기간과
+  // 무관하게 남아 있는 모든 UNMATCHED/PROPOSED를 재시도하므로 일시 장애가
+  // 하루 조회창 밖으로 밀려 영구 누락되지 않는다.
+  const base = { pool, accountId: context.accountId, requestId: context.requestId };
+  const intake = await reconcileAccountTransactions(base);
+  const credit = await reconcileCreditRequests(base);
+  return { intake, credit };
 }
-function peakosIsAdmin(req) {
-  return req.userDoc?.role === 'admin';
+
+const peakosIbkCollector = createIbkQuickCollector({
+  enabled: process.env.PEAKOS_IBK_ENABLED === 'true',
+});
+const peakosIbkSchedulerEnabled = process.env.PEAKOS_IBK_SCHEDULER_ENABLED === 'true';
+const peakosAutoReconciliationEnabled = AUTO_MATCH_MAX_AGE_DAYS > 0;
+
+// 통장 원장은 대표·경영지원 지정 인원만 본다. collector는 아래 조립부에서
+// 조회 전용 자식 worker만 주입하며, 정산/충전 후속 처리는 은행 원장 COMMIT
+// 이후 별도 트랜잭션으로 실행한다.
+const peakosBankService = registerPeakosBanking({
+  app,
+  authMiddleware,
+  pool,
+  canRead: peakosBankCanRead,
+  canViewBalances: peakosBankCanViewBalances,
+  // 민감 두 통장과 잔액 권한을 가진 동일 4명만 수동 동기화한다.
+  canSync: peakosBankCanViewBalances,
+  getActor: req => ({ uid: req.uid, name: peakosName(req) }),
+  collector: peakosIbkCollector,
+  afterSync: peakosAfterBankSync,
+  autoReconciliationEnabled: peakosAutoReconciliationEnabled,
+});
+
+let peakosScheduledSyncRunning = false;
+function startPeakosBankScheduler() {
+  if (!peakosIbkCollector || !peakosIbkSchedulerEnabled) return null;
+  return scheduleCron('*/10 * * * *', async () => {
+    if (peakosScheduledSyncRunning) return;
+    peakosScheduledSyncRunning = true;
+    try {
+      for (const accountId of IBK_ACCOUNT_IDS) {
+        try {
+          const result = await peakosBankService.syncAccount({
+            accountId,
+            triggerType: 'SCHEDULED',
+            actor: { uid: 'system:ibk-scheduler', name: 'IBK 자동동기화' },
+            requestId: crypto.randomUUID(),
+          });
+          console.log(
+            `[PEAK OS] IBK sync account=${accountId} fetched=${result.fetched} inserted=${result.inserted} updated=${result.updated} afterSync=${result.afterSync?.ok === true}`,
+          );
+        } catch (error) {
+          const safeCode = /^[A-Z0-9_]{1,80}$/.test(String(error?.code || ''))
+            ? error.code
+            : 'BANK_SYNC_FAILED';
+          console.error(`[PEAK OS] IBK sync account=${accountId} code=${safeCode}`);
+        }
+      }
+    } finally {
+      peakosScheduledSyncRunning = false;
+    }
+  }, { timezone: 'Asia/Seoul' });
 }
-function peakosCanSeeAll(req) {
-  return peakosIsAdmin(req) || PEAKOS_FINAL_VIEWERS.includes(peakosName(req));
-}
-function peakosCanSeeTeam(req) {
-  return peakosIsAdmin(req) || PEAKOS_TEAM_VIEWERS.includes(peakosName(req));
-}
-function peakosCanSeeMonthly(req, view) {
-  return peakosCanSeeAll(req) || peakosName(req) === PEAKOS_MONTHLY_OWNERS[view];
-}
+
+registerPeakosCreditRequests({
+  app,
+  authMiddleware,
+  pool,
+  canReview: peakosBankCanViewBalances,
+  getActor: req => ({ uid: req.uid, name: peakosName(req) }),
+});
 
 const PEAKOS_INTAKE_COLUMNS = [
-  'id', 'owner_uid', 'owner_name', 'date', 'client', 'a', 'b', 'c', 'unit', 'qty', 'sell', 'cost',
+  'id', 'owner_uid', 'owner_name', 'date', 'client', 'expected_payer', 'a', 'b', 'c', 'unit', 'qty', 'sell', 'cost',
   'memo', 'kind', 'ref_of', 'supplier', 'manager', 'final_only', 'paid', 'paid_amount', 'payer',
   'paid_date', 'paid_memo', 'paid_auto', 'vendor_paid', 'vendor_paid_date', 'vendor_bank',
   'vendor_by', 'vendor_memo'
@@ -5823,6 +5957,7 @@ function peakosIntakeRow(body, req) {
     owner_name: peakosName(req),
     date: String(body.date || '').slice(0, 10),
     client: String(body.client || '').slice(0, 200),
+    expected_payer: String(body.expectedPayer || body.client || '').slice(0, 120),
     a: String(body.a || '').slice(0, 80),
     b: String(body.b || '').slice(0, 80),
     c: String(body.c || '').slice(0, 120),
@@ -5841,7 +5976,8 @@ function peakosIntakeRow(body, req) {
     payer: String(body.payer || '').slice(0, 120),
     paid_date: String(body.paidDate || '').slice(0, 10),
     paid_memo: String(body.paidMemo || '').slice(0, 500),
-    paid_auto: Boolean(body.paidAuto),
+    // paid_auto는 은행 reconciliation만 true로 만들 수 있는 서버 전용 값이다.
+    paid_auto: false,
     vendor_paid: Boolean(body.vendorPaid),
     vendor_paid_date: String(body.vendorPaidDate || '').slice(0, 10),
     vendor_bank: String(body.vendorBank || '').slice(0, 80),
@@ -5857,6 +5993,9 @@ function peakosIntakeOut(row) {
     ownerName: row.owner_name || '',
     date: row.date instanceof Date ? row.date.toISOString().slice(0, 10) : String(row.date).slice(0, 10),
     client: row.client || '',
+    expectedPayer: row.expected_payer || row.client || '',
+    bankMatchEligible: row.bank_match_eligible === true,
+    bankMatchApprovedAt: row.bank_match_approved_at || null,
     a: row.a || '', b: row.b || '', c: row.c || '',
     unit: Number(row.unit) || 0,
     qty: Number(row.qty) || 0,
@@ -5884,7 +6023,20 @@ function peakosIntakeOut(row) {
 
 // 접수 조회. scope=mine 은 내 것, all 은 전 영업자(지정 인원만).
 app.get('/api/peakos/intake', authMiddleware, async (req, res) => {
+  if (!peakosApprovedActive(req)) {
+    return res.status(403).json({ error: '승인된 활성 계정만 접수를 볼 수 있습니다.' });
+  }
   try {
+    // owner 를 지정하면 그 사람 것만. 미리보기가 쓰는 길이라 자격을 따로 본다.
+    const owner = String(req.query.owner || '').trim();
+    if (owner) {
+      if (!peakosCanReadOwner(req, owner)) {
+        return res.status(403).json({ error: `${owner} 계정의 접수는 볼 수 없습니다.` });
+      }
+      const one = await pool.query(
+        'SELECT * FROM peakos_intake WHERE owner_name = $1 ORDER BY date DESC, created_at DESC', [owner]);
+      return res.json(one.rows.map(peakosIntakeOut));
+    }
     const wantsAll = req.query.scope === 'all';
     if (wantsAll && !peakosCanSeeAll(req)) {
       return res.status(403).json({ error: '전체 접수는 지정된 인원만 볼 수 있습니다.' });
@@ -5901,6 +6053,9 @@ app.get('/api/peakos/intake', authMiddleware, async (req, res) => {
 
 // 저장은 통째로 덮어쓰지 않고 건별로 넣거나 고친다.
 app.post('/api/peakos/intake', authMiddleware, async (req, res) => {
+  if (!peakosApprovedActive(req)) {
+    return res.status(403).json({ error: '승인된 활성 계정만 접수를 저장할 수 있습니다.' });
+  }
   const rows = Array.isArray(req.body?.rows) ? req.body.rows : [req.body];
   if (!rows.length || rows.length > 500) {
     return res.status(400).json({ error: '한 번에 1~500건까지 저장할 수 있습니다.' });
@@ -5914,21 +6069,53 @@ app.post('/api/peakos/intake', authMiddleware, async (req, res) => {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'id와 일자는 반드시 있어야 합니다.' });
       }
-      // 남의 건을 덮어쓰지 못하게 막는다.
-      const own = await client.query('SELECT owner_uid FROM peakos_intake WHERE id = $1', [row.id]);
+      const cols = PEAKOS_INTAKE_COLUMNS;
+      const values = cols.map(col => row[col]);
+      const holders = cols.map((_, i) => `$${i + 1}`).join(', ');
+      // 없는 ID는 먼저 insert-only로 선점한다. 동시에 같은 ID를 만든
+      // 후발 요청은 충돌 후 아래 잠금·소유권·allocation 검사를 반드시
+      // 다시 거치므로 blind upsert가 일어나지 않는다.
+      let own = await client.query(
+        'SELECT owner_uid, bank_match_eligible FROM peakos_intake WHERE id = $1 FOR UPDATE',
+        [row.id],
+      );
+      if (!own.rows[0]) {
+        const inserted = await client.query(
+          `INSERT INTO peakos_intake (${cols.join(', ')}) VALUES (${holders})
+           ON CONFLICT (id) DO NOTHING RETURNING id`,
+          values,
+        );
+        if (inserted.rows[0]) continue;
+        own = await client.query(
+          'SELECT owner_uid, bank_match_eligible FROM peakos_intake WHERE id = $1 FOR UPDATE',
+          [row.id],
+        );
+      }
       if (own.rows[0] && own.rows[0].owner_uid !== req.uid) {
         await client.query('ROLLBACK');
         return res.status(403).json({ error: '다른 사람의 접수는 고칠 수 없습니다.' });
       }
-      const cols = PEAKOS_INTAKE_COLUMNS;
-      const values = cols.map(col => row[col]);
-      const holders = cols.map((_, i) => `$${i + 1}`).join(', ');
-      const updates = cols.filter(col => col !== 'id' && col !== 'owner_uid')
-        .map(col => `${col} = EXCLUDED.${col}`).join(', ');
+      if (!own.rows[0]) throw new Error('접수 ID 충돌 상태를 확인하지 못했습니다.');
+      if (own.rows[0].bank_match_eligible) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: '자동 입금확인 대상으로 확정된 접수는 확정을 해제한 뒤 수정할 수 있습니다.' });
+      }
+      const bankLock = await client.query(
+        `SELECT 1 FROM peakos_bank_allocations
+          WHERE intake_id = $1 AND status = 'ACTIVE' LIMIT 1`,
+        [row.id],
+      );
+      if (bankLock.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: '통장에서 자동 확인된 접수는 입금 연결을 해제한 뒤 수정할 수 있습니다.' });
+      }
+      const updateCols = cols.filter(col => col !== 'id' && col !== 'owner_uid');
+      const updateValues = updateCols.map(col => row[col]);
+      const updates = updateCols.map((col, index) => `${col} = $${index + 1}`).join(', ');
       await client.query(
-        `INSERT INTO peakos_intake (${cols.join(', ')}) VALUES (${holders})
-         ON CONFLICT (id) DO UPDATE SET ${updates}, updated_at = now()`,
-        values
+        `UPDATE peakos_intake SET ${updates}, updated_at = now()
+          WHERE id = $${updateValues.length + 1}`,
+        [...updateValues, row.id],
       );
     }
     await client.query('COMMIT');
@@ -5943,26 +6130,156 @@ app.post('/api/peakos/intake', authMiddleware, async (req, res) => {
 });
 
 app.delete('/api/peakos/intake/:id', authMiddleware, async (req, res) => {
+  if (!peakosApprovedActive(req)) {
+    return res.status(403).json({ error: '승인된 활성 계정만 접수를 지울 수 있습니다.' });
+  }
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
-      'DELETE FROM peakos_intake WHERE id = $1 AND owner_uid = $2 RETURNING id',
-      [req.params.id, req.uid]
+    await client.query('BEGIN');
+    const existing = await client.query(
+      'SELECT owner_uid, bank_match_eligible FROM peakos_intake WHERE id = $1 FOR UPDATE',
+      [req.params.id],
     );
-    if (!result.rows[0]) return res.status(404).json({ error: '내 접수에서 찾지 못했습니다.' });
+    if (!existing.rows[0] || existing.rows[0].owner_uid !== req.uid) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: '내 접수에서 찾지 못했습니다.' });
+    }
+    if (existing.rows[0].bank_match_eligible) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: '자동 입금확인 대상으로 확정된 접수는 확정을 해제한 뒤 삭제할 수 있습니다.' });
+    }
+    const bankLock = await client.query(
+      `SELECT 1 FROM peakos_bank_allocations
+        WHERE intake_id = $1 AND status = 'ACTIVE' LIMIT 1`,
+      [req.params.id],
+    );
+    if (bankLock.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: '통장에서 자동 확인된 접수는 입금 연결을 해제한 뒤 삭제할 수 있습니다.' });
+    }
+    const result = await client.query(
+      'DELETE FROM peakos_intake WHERE id = $1 RETURNING id',
+      [req.params.id],
+    );
+    await client.query('COMMIT');
     res.json({ deleted: result.rows[0].id });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (err.code === '23503') {
+      return res.status(409).json({ error: '통장 입금과 연결된 접수는 삭제할 수 없습니다.' });
+    }
     console.error('peakos intake delete error:', err.message);
     res.status(500).json({ error: '접수를 지우지 못했습니다.' });
+  } finally {
+    client.release();
+  }
+});
+
+// 자동 입금확인 후보는 지정 재무 담당자가 확정한 뒤부터 immutable하게
+// 만든다. 영업자가 expected payer/금액을 임의로 바꿔 실제 입금을 가로채는
+// 일을 막기 위한 별도 capability 경계다.
+app.put('/api/peakos/intake/:id/bank-match-eligibility', authMiddleware, async (req, res) => {
+  if (!peakosBankCanViewBalances(req) || !peakosApprovedActive(req)) {
+    return res.status(403).json({ error: '자동 입금확인 대상 확정 권한이 없습니다.' });
+  }
+  if (!peakosAutoReconciliationEnabled) {
+    return res.status(409).json({ error: 'IBK 공식 거래번호 연동 전까지 자동 입금확인은 안전상 보류되어 있습니다.' });
+  }
+  if (typeof req.body?.eligible !== 'boolean') {
+    return res.status(400).json({ error: 'eligible 값은 true 또는 false여야 합니다.' });
+  }
+  const reason = String(req.body?.reason || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 500);
+  if (reason.length < 5) return res.status(400).json({ error: '확정 또는 해제 사유를 5자 이상 입력해 주세요.' });
+  const intakeId = String(req.params.id || '').trim();
+  if (!intakeId || intakeId.length > 80) return res.status(400).json({ error: '접수 ID가 올바르지 않습니다.' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const intake = await client.query(
+      `SELECT id, owner_uid, kind, client, expected_payer, sell, qty, paid_amount,
+              paid_auto, bank_match_eligible
+         FROM peakos_intake WHERE id = $1 FOR UPDATE`,
+      [intakeId],
+    );
+    const row = intake.rows[0];
+    if (!row) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: '접수를 찾지 못했습니다.' });
+    }
+    const allocation = await client.query(
+      `SELECT 1 FROM peakos_bank_allocations
+        WHERE intake_id = $1 AND status = 'ACTIVE' LIMIT 1`,
+      [intakeId],
+    );
+    if (allocation.rows[0] || row.paid_auto) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: '이미 통장 입금과 연결된 접수의 확정 상태는 바꿀 수 없습니다.' });
+    }
+    if (req.body.eligible) {
+      const owner = await client.query(
+        `SELECT 1 FROM users
+          WHERE uid = $1 AND approved = true AND COALESCE(is_active, true) = true`,
+        [row.owner_uid],
+      );
+      const expectedPayer = String(row.expected_payer || row.client || '').trim();
+      const remaining = (Number(row.sell) || 0) * (Number(row.qty) || 0) - (Number(row.paid_amount) || 0);
+      if (!owner.rows[0] || !['normal', 'reserve'].includes(row.kind)
+          || !expectedPayer || !Number.isSafeInteger(remaining) || remaining <= 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: '활성 영업자·예상 입금자명·정확한 미입금액이 있는 접수만 확정할 수 있습니다.' });
+      }
+    }
+    const updated = await client.query(
+      `UPDATE peakos_intake
+          SET bank_match_eligible = $2,
+              bank_match_approved_by_uid = CASE WHEN $2 THEN $3 ELSE NULL END,
+              bank_match_approved_at = CASE WHEN $2 THEN NOW() ELSE NULL END,
+              updated_at = NOW()
+        WHERE id = $1
+      RETURNING id, bank_match_eligible, bank_match_approved_at`,
+      [intakeId, req.body.eligible, req.uid],
+    );
+    await client.query(
+      `INSERT INTO peakos_bank_audit_log
+        (action, entity_type, entity_id, actor_uid, actor_name, reason, metadata)
+       VALUES ($1, 'INTAKE', $2, $3, $4, $5, $6::jsonb)`,
+      [
+        req.body.eligible ? 'BANK_MATCH_ELIGIBILITY_GRANTED' : 'BANK_MATCH_ELIGIBILITY_REVOKED',
+        intakeId,
+        req.uid,
+        peakosName(req),
+        reason,
+        JSON.stringify({ eligible: req.body.eligible }),
+      ],
+    );
+    await client.query('COMMIT');
+    res.json({
+      id: updated.rows[0].id,
+      bankMatchEligible: updated.rows[0].bank_match_eligible,
+      bankMatchApprovedAt: updated.rows[0].bank_match_approved_at,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('peakos bank match eligibility error:', err.message);
+    res.status(500).json({ error: '자동 입금확인 대상 상태를 저장하지 못했습니다.' });
+  } finally {
+    client.release();
   }
 });
 
 // 단가표는 회사 공용. 읽기는 전원, 쓰기는 지정 인원만.
 app.get('/api/peakos/prices', authMiddleware, async (req, res) => {
+  if (!peakosApprovedActive(req)) {
+    return res.status(403).json({ error: '승인된 활성 계정만 단가표를 볼 수 있습니다.' });
+  }
   try {
+    // 회사 원가는 지정된 인원에게만 내려보낸다. 그 밖에는 서버 밖으로 나가지 않는다.
+    const showCost = peakosCanSeeAll(req);
     const result = await pool.query('SELECT * FROM peakos_price ORDER BY a, b, c');
     res.json(result.rows.map(row => ({
       key: row.key, a: row.a, b: row.b, c: row.c,
-      cost: row.cost === null ? null : Number(row.cost),
+      cost: showCost && row.cost !== null ? Number(row.cost) : null,
       unit: row.unit === null ? null : Number(row.unit),
       custom: row.is_custom, updatedBy: row.updated_by || ''
     })));
@@ -6054,29 +6371,81 @@ app.post('/api/peakos/credit', authMiddleware, async (req, res) => {
 
 app.delete('/api/peakos/credit/:id', authMiddleware, async (req, res) => {
   if (!peakosCanSeeAll(req)) return res.status(403).json({ error: '충전금은 지정된 인원만 지울 수 있습니다.' });
+  const client = await pool.connect();
   try {
-    await pool.query('DELETE FROM peakos_credit WHERE id = $1', [req.params.id]);
-    res.json({ deleted: req.params.id });
+    await client.query('BEGIN');
+    // 자동 승인기는 먼저 request 행을 잠근다. 같은 행을 여기서도 잠가
+    // 승인 직후 생성된 장부가 수동 삭제로 사라지는 경쟁 상태를 막는다.
+    const request = await client.query(
+      'SELECT status FROM peakos_credit_requests WHERE id = $1 FOR UPDATE',
+      [req.params.id],
+    );
+    if (request.rows[0]?.status === 'APPROVED') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: '통장 입금으로 자동 승인된 충전금은 요청·거래 감사기록과 함께 보존해야 합니다.' });
+    }
+    const deleted = await client.query(
+      'DELETE FROM peakos_credit WHERE id = $1 RETURNING id',
+      [req.params.id],
+    );
+    if (!deleted.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: '충전금 장부에서 찾지 못했습니다.' });
+    }
+    await client.query('COMMIT');
+    res.json({ deleted: deleted.rows[0].id });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('peakos credit delete error:', err.message);
     res.status(500).json({ error: '충전금을 지우지 못했습니다.' });
+  } finally {
+    client.release();
   }
 });
 
-// 월보장 / 월관리 — 본인과 지정 인원만.
+function peakosMonthlyOut(row, { includeView = false } = {}) {
+  return {
+    ...(includeView ? { view: row.view, ownerName: row.owner_name || '' } : {}),
+    id: row.id, kind: row.kind, parentId: row.parent_id || '',
+    date: String(row.date instanceof Date ? row.date.toISOString().slice(0, 10) : row.date).slice(0, 10),
+    client: row.client || '', a: row.a || '', b: row.b || '', c: row.c || '',
+    amount: Number(row.amount) || 0, qty: Number(row.qty) || 0,
+    period: row.period || '', memo: row.memo || ''
+  };
+}
+
+// 세 개인 전용 실행 정산서를 한 번에 읽는 최종 탭. 수정 API와 분리해
+// 지정된 네 UID가 취합 자료만 읽고 원본은 건드리지 못하게 한다.
+app.get('/api/peakos/final-execution', authMiddleware, async (req, res) => {
+  if (!peakosCanSeeFinalExecution(req)) {
+    return res.status(403).json({ error: '최종실행정산서 열람 권한이 없습니다.' });
+  }
+  try {
+    const views = Object.keys(PEAKOS_MONTHLY_OWNERS);
+    const result = await pool.query(
+      `SELECT id, view, owner_name, kind, parent_id, date, client, a, b, c,
+              amount, qty, period, memo, created_at
+         FROM peakos_monthly
+        WHERE view = ANY($1::text[])
+        ORDER BY date DESC, view, created_at, id`,
+      [views],
+    );
+    res.set('Cache-Control', 'no-store');
+    res.json({ rows: result.rows.map(row => peakosMonthlyOut(row, { includeView: true })) });
+  } catch (err) {
+    console.error('peakos final execution read error:', err.message);
+    res.status(500).json({ error: '최종실행정산서를 불러오지 못했습니다.' });
+  }
+});
+
+// 개인 전용 정산서 — 화면별 소유자 한 명만 조회·편집한다.
 app.get('/api/peakos/monthly/:view', authMiddleware, async (req, res) => {
   const view = req.params.view;
   if (!PEAKOS_MONTHLY_OWNERS[view]) return res.status(404).json({ error: '없는 화면입니다.' });
   if (!peakosCanSeeMonthly(req, view)) return res.status(403).json({ error: '열람 권한이 없습니다.' });
   try {
     const result = await pool.query('SELECT * FROM peakos_monthly WHERE view = $1 ORDER BY created_at', [view]);
-    res.json(result.rows.map(row => ({
-      id: row.id, kind: row.kind, parentId: row.parent_id || '',
-      date: String(row.date instanceof Date ? row.date.toISOString().slice(0, 10) : row.date).slice(0, 10),
-      client: row.client || '', a: row.a || '', b: row.b || '', c: row.c || '',
-      amount: Number(row.amount) || 0, qty: Number(row.qty) || 0,
-      period: row.period || '', memo: row.memo || ''
-    })));
+    res.json(result.rows.map(row => peakosMonthlyOut(row)));
   } catch (err) {
     console.error('peakos monthly read error:', err.message);
     res.status(500).json({ error: '정산을 불러오지 못했습니다.' });
@@ -6086,40 +6455,98 @@ app.get('/api/peakos/monthly/:view', authMiddleware, async (req, res) => {
 app.post('/api/peakos/monthly/:view', authMiddleware, async (req, res) => {
   const view = req.params.view;
   if (!PEAKOS_MONTHLY_OWNERS[view]) return res.status(404).json({ error: '없는 화면입니다.' });
-  if (!peakosCanSeeMonthly(req, view)) return res.status(403).json({ error: '열람 권한이 없습니다.' });
+  if (!peakosCanManageMonthly(req, view)) return res.status(403).json({ error: '본인 정산서만 수정할 수 있습니다.' });
   const rows = Array.isArray(req.body?.rows) ? req.body.rows : [req.body];
   if (!rows.length || rows.length > 500) return res.status(400).json({ error: '한 번에 1~500건까지 저장할 수 있습니다.' });
+  const client = await pool.connect();
   try {
+    await client.query('BEGIN');
     for (const body of rows) {
-      if (!body.id || !body.date) return res.status(400).json({ error: 'id와 일자는 반드시 있어야 합니다.' });
-      await pool.query(
-        `INSERT INTO peakos_monthly (id, view, owner_uid, owner_name, kind, parent_id, date, client, a, b, c, amount, qty, period, memo)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-         ON CONFLICT (id) DO UPDATE SET kind = EXCLUDED.kind, parent_id = EXCLUDED.parent_id,
-           date = EXCLUDED.date, client = EXCLUDED.client, a = EXCLUDED.a, b = EXCLUDED.b, c = EXCLUDED.c,
-           amount = EXCLUDED.amount, qty = EXCLUDED.qty, period = EXCLUDED.period, memo = EXCLUDED.memo`,
-        [String(body.id).slice(0, 80), view, req.uid, peakosName(req),
-         body.kind === 'run' ? 'run' : 'sale', String(body.parentId || '').slice(0, 80),
-         String(body.date).slice(0, 10), String(body.client || '').slice(0, 200),
-         String(body.a || '').slice(0, 80), String(body.b || '').slice(0, 80), String(body.c || '').slice(0, 120),
-         Number(body.amount) || 0, Number(body.qty) || 0,
-         String(body.period || '').slice(0, 120), String(body.memo || '').slice(0, 500)]
+      const id = String(body?.id || '').trim().slice(0, 80);
+      const date = String(body?.date || '').slice(0, 10);
+      const kind = body?.kind === 'run' ? 'run' : 'sale';
+      const parentId = kind === 'run' ? String(body?.parentId || '').trim().slice(0, 80) : '';
+      const amount = Number(body?.amount);
+      const qty = Number(body?.qty);
+      if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'id와 올바른 일자는 반드시 있어야 합니다.' });
+      }
+      if (!Number.isFinite(amount) || amount < 0 || !Number.isFinite(qty) || qty <= 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: '금액과 수량이 올바르지 않습니다.' });
+      }
+
+      const existing = await client.query(
+        'SELECT view, kind FROM peakos_monthly WHERE id = $1 FOR UPDATE',
+        [id],
       );
+      if (existing.rows[0] && (existing.rows[0].view !== view || existing.rows[0].kind !== kind)) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: '다른 정산서의 항목 ID는 사용할 수 없습니다.' });
+      }
+      if (kind === 'run') {
+        if (!parentId || parentId === id) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: '실행 건에는 연결할 판매 건이 필요합니다.' });
+        }
+        const parent = await client.query(
+          `SELECT 1 FROM peakos_monthly
+            WHERE id = $1 AND view = $2 AND kind = 'sale' FOR SHARE`,
+          [parentId, view],
+        );
+        if (!parent.rows[0]) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({ error: '같은 정산서의 판매 건에만 실행 건을 연결할 수 있습니다.' });
+        }
+      }
+
+      const values = [
+        id, view, req.uid, peakosName(req), kind, parentId, date,
+        String(body.client || '').slice(0, 200), String(body.a || '').slice(0, 80),
+        String(body.b || '').slice(0, 80), String(body.c || '').slice(0, 120),
+        amount, qty, String(body.period || '').slice(0, 120), String(body.memo || '').slice(0, 500),
+      ];
+      if (existing.rows[0]) {
+        await client.query(
+          `UPDATE peakos_monthly
+              SET owner_uid = $3, owner_name = $4, kind = $5, parent_id = $6, date = $7,
+                  client = $8, a = $9, b = $10, c = $11, amount = $12,
+                  qty = $13, period = $14, memo = $15
+            WHERE id = $1 AND view = $2`,
+          values,
+        );
+      } else {
+        await client.query(
+          `INSERT INTO peakos_monthly
+            (id, view, owner_uid, owner_name, kind, parent_id, date, client, a, b, c, amount, qty, period, memo)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+          values,
+        );
+      }
     }
+    await client.query('COMMIT');
     res.json({ saved: rows.length });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('peakos monthly write error:', err.message);
     res.status(500).json({ error: '정산을 저장하지 못했습니다.' });
+  } finally {
+    client.release();
   }
 });
 
 app.delete('/api/peakos/monthly/:view/:id', authMiddleware, async (req, res) => {
   const view = req.params.view;
   if (!PEAKOS_MONTHLY_OWNERS[view]) return res.status(404).json({ error: '없는 화면입니다.' });
-  if (!peakosCanSeeMonthly(req, view)) return res.status(403).json({ error: '열람 권한이 없습니다.' });
+  if (!peakosCanManageMonthly(req, view)) return res.status(403).json({ error: '본인 정산서만 수정할 수 있습니다.' });
   try {
     // 판매 건을 지우면 붙어 있던 실행 건도 같이 지운다.
-    await pool.query('DELETE FROM peakos_monthly WHERE view = $1 AND (id = $2 OR parent_id = $2)', [view, req.params.id]);
+    const result = await pool.query(
+      'DELETE FROM peakos_monthly WHERE view = $1 AND (id = $2 OR parent_id = $2) RETURNING id',
+      [view, req.params.id],
+    );
+    if (!result.rows.length) return res.status(404).json({ error: '정산 항목을 찾지 못했습니다.' });
     res.json({ deleted: req.params.id });
   } catch (err) {
     console.error('peakos monthly delete error:', err.message);
@@ -6158,6 +6585,7 @@ app.put('/api/peakos/fund', authMiddleware, async (req, res) => {
 
 async function startServer() {
   try {
+    await peakosAccess.load();
     await ensureReminderInfrastructure();
     await ensureChatPerformanceIndexes();
     await ensureChatRoomGroupInfrastructure();
@@ -6166,6 +6594,24 @@ async function startServer() {
     await ensureExternalCalendarInfrastructure();
     await ensureProjectInfrastructure();
     await ensureReportReminderInfrastructure();
+    await ensurePeakosCoreInfrastructure(pool);
+    await ensurePeakosBankInfrastructure(pool);
+    await ensurePeakosBankReconciliationInfrastructure(pool);
+    await ensurePeakosCreditRequestInfrastructure(pool);
+    await ensurePeakosFinanceRequestInfrastructure(pool);
+    await ensureOsEmailAuthInfrastructure(pool);
+    await peakosOsEmailAuth.repository.purgeExpired(new Date());
+    registerPeakosFinanceRequests({
+      app,
+      authMiddleware,
+      pool,
+      canReview: peakosCanReviewFinance,
+      getActor: req => ({ uid: req.uid, name: peakosName(req) }),
+      // 금융 계좌 암호화 키는 로그인 2차 인증 키와 수명주기가 달라야 한다.
+      // 누락 시 서버가 fail-closed로 시작을 거부해 키 교체로 장부가 깨지는 일을 막는다.
+      encryptionSecret: process.env.PEAKOS_FINANCE_ENCRYPTION_SECRET,
+    });
+    startPeakosBankScheduler();
     app.listen(PORT, '127.0.0.1', () => {
       console.log(`Calendar API running on port ${PORT}`);
     });

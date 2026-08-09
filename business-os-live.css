@@ -75,15 +75,473 @@
 .auth-google:hover { background: #2674ac; }
 .auth-google:disabled { cursor: wait; opacity: .6; }
 
-.prototype-bar.live {
-  border-bottom-color: #cbe8da;
-  background: #effaf5;
-  color: #287a55;
+/* /os/login 전용 이메일 2차 인증. 진행 단계와 인증 카드 두 영역만 보여 준다. */
+.auth-gate.os-auth-mode {
+  overflow: auto;
+  padding: 32px 24px;
+  background:
+    radial-gradient(circle at 10% 8%, rgba(52, 142, 205, .12), transparent 30rem),
+    radial-gradient(circle at 92% 90%, rgba(53, 168, 115, .1), transparent 30rem),
+    #f1f6f9;
+  backdrop-filter: none;
 }
 
-.prototype-bar.live i {
-  background: #35a873;
-  box-shadow: 0 0 0 4px rgba(53, 168, 115, .12);
+.os-auth-shell {
+  display: grid;
+  width: min(980px, 100%);
+  grid-template-columns: minmax(320px, 400px) minmax(420px, 474px);
+  align-items: center;
+  justify-content: center;
+  gap: 76px;
+  color: #344252;
+  letter-spacing: -.025em;
+}
+
+.os-auth-progress {
+  width: 100%;
+  padding: 24px 10px;
+}
+
+.os-auth-step {
+  position: relative;
+  display: grid;
+  min-height: 68px;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 13px;
+}
+
+.os-auth-step:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 46px;
+  bottom: -10px;
+  left: 18px;
+  width: 1px;
+  background: #cddbe5;
+}
+
+.os-auth-step-icon {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid #d5e1e9;
+  border-radius: 12px;
+  background: #fff;
+  color: #718091;
+  box-shadow: 0 4px 12px rgba(36, 67, 90, .06);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.os-auth-step.done .os-auth-step-icon {
+  border-color: #bfe2d1;
+  background: #eaf8f1;
+  color: #2f9f70;
+}
+
+.os-auth-step.active .os-auth-step-icon {
+  border-color: #348ecd;
+  background: #348ecd;
+  color: #fff;
+  box-shadow: 0 7px 18px rgba(52, 142, 205, .24);
+}
+
+.os-auth-step-copy strong,
+.os-auth-step-copy small {
+  display: block;
+}
+
+.os-auth-step-copy strong {
+  color: #17212b;
+  font-size: 13px;
+}
+
+.os-auth-step-copy small {
+  margin-top: 4px;
+  color: #718091;
+  font-size: 11px;
+}
+
+.os-auth-step-status {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .72);
+  color: #9aa7b4;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.os-auth-step.done .os-auth-step-status { background: #eaf8f1; color: #2f9f70; }
+.os-auth-step.active .os-auth-step-status { background: #eaf5fc; color: #2674ac; }
+
+.os-auth-card {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  padding: 31px 32px 25px;
+  border: 1px solid rgba(207, 221, 232, .92);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, .97);
+  box-shadow: 0 28px 80px rgba(26, 64, 92, .14);
+}
+
+.os-auth-card::before {
+  content: "";
+  position: absolute;
+  top: -110px;
+  right: -105px;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(52, 142, 205, .12), transparent 68%);
+  pointer-events: none;
+}
+
+.os-auth-card-top {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.os-auth-kicker {
+  color: #2674ac;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .08em;
+}
+
+.os-auth-card h1 {
+  margin: 7px 0;
+  color: #17212b;
+  font-size: 25px;
+  line-height: 1.25;
+  letter-spacing: -.045em;
+}
+
+.os-auth-card p {
+  margin: 0;
+  color: #718091;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.os-auth-shield {
+  display: grid;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 13px;
+  background: #eaf5fc;
+  color: #348ecd;
+}
+
+.os-auth-shield svg { width: 22px; height: 22px; }
+
+.os-auth-verified {
+  display: flex;
+  min-height: 34px;
+  margin: 23px 0 12px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 11px;
+  border: 1px solid #cbe7d8;
+  border-radius: 9px;
+  background: #eaf8f1;
+  color: #287d59;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.os-auth-verified > span {
+  display: grid;
+  width: 15px;
+  height: 15px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 9px;
+}
+
+.os-auth-identity {
+  display: flex;
+  min-height: 76px;
+  align-items: center;
+  gap: 13px;
+  padding: 13px 14px;
+  border: 1px solid #e9eff4;
+  border-radius: 13px;
+  background: #f8fafc;
+}
+
+.os-auth-avatar {
+  display: grid;
+  flex: 0 0 auto;
+  width: 43px;
+  height: 43px;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #eaf5fc, #d6eaf7);
+  color: #2674ac;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.os-auth-identity-copy { flex: 1; min-width: 0; }
+
+.os-auth-identity-copy > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.os-auth-identity-copy strong {
+  overflow: hidden;
+  color: #17212b;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.os-auth-identity-copy div > span {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border: 1px solid #cfe4f3;
+  border-radius: 999px;
+  background: #eaf5fc;
+  color: #2674ac;
+  font-size: 9px;
+  font-weight: 850;
+}
+
+.os-auth-identity-copy small {
+  display: block;
+  overflow: hidden;
+  margin-top: 5px;
+  color: #718091;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.os-auth-lock { flex: 0 0 auto; color: #9aa7b4; }
+.os-auth-lock svg { width: 15px; height: 15px; }
+
+.os-auth-email-guide {
+  display: grid;
+  gap: 5px;
+  margin-top: 20px;
+  padding: 14px;
+  border: 1px solid #dbe8f1;
+  border-radius: 11px;
+  background: #f6fbff;
+}
+
+.os-auth-email-guide strong { color: #344252; font-size: 12px; }
+.os-auth-email-guide span { color: #718091; font-size: 10px; }
+
+.os-auth-field-label {
+  display: flex;
+  margin: 22px 0 9px;
+  align-items: center;
+  justify-content: space-between;
+  color: #17212b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.os-auth-field-label small { color: #9aa7b4; font-size: 9px; font-weight: 700; }
+
+.os-auth-otp-row {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.os-auth-otp {
+  width: 100%;
+  min-width: 0;
+  height: 52px;
+  border: 1px solid #cfdce6;
+  border-radius: 11px;
+  outline: 0;
+  background: #fff;
+  color: #17212b;
+  text-align: center;
+  caret-color: #348ecd;
+  font-size: 20px;
+  font-weight: 850;
+  transition: border-color .15s, box-shadow .15s, transform .15s;
+}
+
+.os-auth-otp:focus {
+  border-color: #348ecd;
+  box-shadow: 0 0 0 3px rgba(52, 142, 205, .11);
+  transform: translateY(-1px);
+}
+
+.os-auth-otp[aria-invalid="true"] { border-color: #c14851; }
+.os-auth-otp:disabled { background: #f5f7f9; color: #718091; }
+
+.os-auth-code-meta {
+  display: flex;
+  min-height: 32px;
+  margin-top: 8px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  color: #718091;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.os-auth-code-meta > span { min-width: 0; }
+
+.os-auth-text-button,
+.os-auth-secondary {
+  border: 0;
+  background: transparent;
+  color: #718091;
+  font-weight: 750;
+}
+
+.os-auth-text-button {
+  flex: 0 0 auto;
+  padding: 0;
+  font-size: 10px;
+}
+
+.os-auth-text-button:not(:disabled):hover,
+.os-auth-secondary:hover { color: #2674ac; }
+.os-auth-text-button:disabled { cursor: default; color: #9aa7b4; }
+
+.os-auth-primary {
+  display: flex;
+  width: 100%;
+  min-height: 47px;
+  margin-top: 13px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 11px;
+  background: #348ecd;
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(52, 142, 205, .22);
+  font-size: 13px;
+  font-weight: 850;
+  transition: background .15s, transform .15s;
+}
+
+.os-auth-primary:not(:disabled):hover { background: #2674ac; transform: translateY(-1px); }
+.os-auth-primary:disabled { cursor: wait; box-shadow: none; opacity: .56; }
+
+.os-auth-secondary {
+  display: block;
+  width: 100%;
+  margin: 13px 0 0;
+  padding: 2px;
+  font-size: 11px;
+  text-align: center;
+}
+
+.os-auth-message {
+  min-height: 17px;
+  margin-top: 10px;
+  color: #718091;
+  font-size: 10px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.os-auth-message.error { color: #c14851; }
+
+.os-auth-footer {
+  margin: 18px -32px -25px;
+  padding: 14px 32px;
+  border-top: 1px solid #e9eff4;
+  background: #fbfcfd;
+  color: #9aa7b4;
+  font-size: 9px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.os-auth-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, .42);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: os-auth-spin .75s linear infinite;
+}
+
+@keyframes os-auth-spin { to { transform: rotate(360deg); } }
+
+.os-auth-success-card {
+  display: grid;
+  min-height: 390px;
+  place-items: center;
+  align-content: center;
+  text-align: center;
+}
+
+.os-auth-success-icon {
+  display: grid;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 18px;
+  place-items: center;
+  border-radius: 19px;
+  background: #eaf8f1;
+  color: #2f9f70;
+  box-shadow: 0 9px 24px rgba(47, 159, 112, .14);
+  font-size: 28px;
+  font-weight: 800;
+}
+
+@media (max-width: 900px) {
+  .auth-gate.os-auth-mode { align-items: start; }
+  .os-auth-shell {
+    width: min(520px, 100%);
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+  .os-auth-progress { padding: 8px 22px 13px; }
+}
+
+@media (max-width: 560px) {
+  .auth-gate.os-auth-mode { padding: 20px 12px 24px; background: #f5f8fa; }
+  .os-auth-shell { gap: 14px; }
+  .os-auth-progress { padding: 0 12px 4px; }
+  .os-auth-step { min-height: 62px; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 11px; }
+  .os-auth-step-icon { width: 36px; height: 36px; }
+  .os-auth-step:not(:last-child)::after { top: 43px; left: 17px; }
+  .os-auth-step-copy strong { font-size: 12px; }
+  .os-auth-step-copy small { font-size: 10px; }
+  .os-auth-card { padding: 25px 20px 21px; border-radius: 18px; }
+  .os-auth-card h1 { font-size: 22px; }
+  .os-auth-shield { width: 40px; height: 40px; }
+  .os-auth-verified { margin-top: 19px; font-size: 10px; }
+  .os-auth-identity { min-height: 70px; padding: 11px; }
+  .os-auth-avatar { width: 39px; height: 39px; }
+  .os-auth-field-label { margin-top: 19px; }
+  .os-auth-otp-row { gap: 6px; }
+  .os-auth-otp { height: 48px; border-radius: 9px; font-size: 18px; }
+  .os-auth-code-meta { display: grid; gap: 4px; }
+  .os-auth-footer { margin: 18px -20px -21px; padding: 12px 20px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .os-auth-spinner { animation: none; }
+  .os-auth-primary,
+  .os-auth-otp { transition: none; }
 }
 
 .member {
@@ -156,6 +614,59 @@
 .nav-cluster.closed .nav-cluster-items { display: none; }
 .nav-cluster.closed.search-open .nav-cluster-items { display: block; }
 
+.nav-subcluster {
+  margin: 3px 0 5px;
+  padding: 2px 0 3px 7px;
+  border-left: 1px solid rgba(190, 205, 216, .8);
+}
+
+.nav-subcluster-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 8px 0 7px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #667887;
+  font-size: 10.5px;
+  font-weight: 800;
+  text-align: left;
+}
+
+.nav-subcluster-toggle > span:first-child {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.nav-subcluster-toggle i {
+  width: 14px;
+  color: #8fa1af;
+  font-style: normal;
+  text-align: center;
+}
+
+.nav-subcluster-toggle:hover { background: rgba(255, 255, 255, .58); color: #294f69; }
+.nav-subcluster-caret { color: #a2aeba; font-size: 9px; }
+.nav-subcluster-items { display: block; }
+.nav-subcluster.closed .nav-subcluster-items { display: none; }
+.nav-subcluster.search-open .nav-subcluster-items { display: block; }
+.app-sidebar .nav-item.nav-item-middle { font-weight: 800; }
+.app-sidebar .nav-item.nav-item-child {
+  min-height: 32px;
+  padding-left: 10px;
+  font-size: 11px;
+  font-weight: 650;
+}
+.app-sidebar .nav-item.nav-item-child .nav-icon {
+  width: 11px;
+  font-size: 12px;
+}
+
 .app-sidebar .tab-search-empty {
   margin: 12px 8px;
   padding: 12px 8px;
@@ -171,7 +682,7 @@
 .main-shell::before {
   content: "";
   position: fixed;
-  top: 34px;
+  top: 0;
   right: 0;
   bottom: 0;
   left: 278px; /* .app 사이드바 폭과 같은 값 */
@@ -2044,48 +2555,157 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 }
 
 /* ── 계정 미리보기 전환 ──────────────────────────── */
-.prototype-bar { flex-wrap: wrap; }
+.account-preview-slot {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.account-preview-slot[hidden] { display: none; }
 
 .persona-switch {
   display: inline-flex;
+  min-width: 0;
   align-items: center;
-  gap: 7px;
-  margin-left: 6px;
-  padding-left: 14px;
-  border-left: 1px solid #b9dcf2;
+  gap: 6px;
 }
 
-.persona-switch > span {
-  color: #4d7f9f;
-  font-size: 11px;
+.persona-switch-label {
+  flex: 0 0 auto;
+  color: #718091;
+  font-size: 10px;
   font-weight: 700;
 }
 
 .persona-switch select {
-  max-width: 260px;
-  min-height: 26px;
-  padding: 0 8px;
-  border: 1px solid #b9dcf2;
-  border-radius: 7px;
+  width: min(230px, 22vw);
+  min-width: 140px;
+  min-height: 32px;
+  padding: 0 28px 0 9px;
+  border: 1px solid #d7e0e8;
+  border-radius: 8px;
   background: #fff;
-  color: #2674ac;
+  color: #344252;
   font-family: inherit;
-  font-size: 11.5px;
+  font-size: 10.5px;
   font-weight: 700;
+  text-overflow: ellipsis;
 }
 
 .persona-switch select:focus-visible { outline: 2px solid #348ecd; outline-offset: 1px; }
 
+.persona-preview-warning {
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-height: 24px;
+  align-items: center;
+  padding: 0 8px;
+  border: 1px solid #efc77d;
+  border-radius: 999px;
+  background: #fff8e8;
+  color: #9a6517;
+  font-size: 9px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
 @media (max-width: 760px) {
-  .persona-switch {
-    margin-left: 0;
-    padding-left: 0;
-    border-left: 0;
+  .top-actions { min-width: 0; }
+  .account-preview-slot { max-width: min(54vw, 200px); }
+  .persona-switch { width: 100%; }
+  .persona-switch-label { display: none; }
+  .persona-switch select { width: 100%; min-width: 0; max-width: 150px; }
+  .persona-preview-warning { padding-inline: 6px; font-size: 8px; }
+}
+
+@media (max-width: 440px) {
+  .account-preview-slot { max-width: 58vw; }
+  .persona-preview-warning {
+    max-width: 68px;
+    overflow: hidden;
+    padding-inline: 5px;
+    text-overflow: ellipsis;
   }
-  .persona-switch select { max-width: 190px; }
+  .persona-switch select { max-width: 100%; }
 }
 
 /* ── 정산서 조회 조건 ────────────────────────────── */
+.finance-period-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin: 0 0 16px;
+  padding: 13px 14px;
+  border: 1px solid #dce7ef;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f7fbfe, #fff);
+}
+
+.finance-period-modes {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid #d8e3eb;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.finance-period-mode {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #718091;
+  font-size: 11.5px;
+  font-weight: 800;
+}
+
+.finance-period-mode.active {
+  background: #348ecd;
+  color: #fff;
+  box-shadow: 0 4px 10px rgba(52, 142, 205, .18);
+}
+
+.finance-period-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #6d7b89;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.finance-period-control > span:first-child { white-space: nowrap; }
+
+.finance-period-control input {
+  min-height: 38px;
+  padding: 0 9px;
+  border: 1px solid #d5dfe8;
+  border-radius: 8px;
+  background: #fff;
+  color: #24313e;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.finance-period-control input:focus-visible { outline: 2px solid #348ecd; outline-offset: 1px; }
+.finance-period-range > span:last-child { display: inline-flex; align-items: center; gap: 7px; }
+.finance-period-range em { color: #8b98a5; font-style: normal; }
+
+.finance-period-result {
+  display: grid;
+  min-width: 145px;
+  margin-left: auto;
+  text-align: right;
+}
+
+.finance-period-result strong { color: #2674ac; font-size: 12px; }
+.finance-period-result small { margin-top: 3px; color: #8b98a5; font-size: 10px; font-weight: 650; }
+
 .ledger-filter {
   display: flex;
   flex-wrap: wrap;
@@ -2130,6 +2750,28 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .ledger-filter-range em { color: #7b8794; font-style: normal; }
 
 .ledger-filter .module-action { min-height: 40px; }
+
+.bank-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 14px;
+  color: #718091;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+@media (max-width: 760px) {
+  .finance-period-filter { align-items: stretch; padding: 11px; }
+  .finance-period-modes { width: 100%; }
+  .finance-period-mode { flex: 1; padding-inline: 7px; }
+  .finance-period-control { width: 100%; align-items: flex-start; flex-direction: column; gap: 5px; }
+  .finance-period-control > input { width: 100%; }
+  .finance-period-range > span:last-child { width: 100%; }
+  .finance-period-range input { width: calc(50% - 11px); min-width: 0; }
+  .finance-period-result { width: 100%; margin-left: 0; text-align: left; }
+}
 
 .ledger-memo {
   max-width: 220px;
@@ -2860,7 +3502,7 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 @media (max-width: 760px) {
   /* 모바일은 사이드바가 화면 밖으로 빠지므로 메인이 전체 폭을 쓴다 */
   .main-shell::before {
-    top: 38px;
+    top: 0;
     left: 0;
     background-size: auto min(34vh, 280px);
     opacity: .05;
@@ -3155,3 +3797,337 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .fund-table th[scope="row"] { position: static; font-weight: 700; }
 .fund-table tr.fund-sum { background: #f4f8fb; }
 .fund-table tr.fund-sum td, .fund-table tr.fund-sum th { font-weight: 800; color: #1d2b38; }
+
+/* 아이디어 · 개발수정요청 */
+.idea-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.idea-card { padding: 16px 18px; border: 1px solid #e3e9ef; border-radius: 12px; background: #fff; }
+.idea-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.idea-card-head strong { font-size: 16px; font-weight: 800; color: #1d2b38; }
+.idea-summary { margin: 10px 0 0; font-size: 14px; line-height: 1.65; color: #35434f; }
+.idea-detail { margin: 8px 0 0; font-size: 13.5px; line-height: 1.65; color: #5a6b7a; white-space: pre-wrap; }
+.idea-card-foot { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; padding-top: 10px;
+  border-top: 1px solid #eef2f5; font-size: 12.5px; color: #8b98a5; font-weight: 600; }
+.idea-card-foot a { color: #2674ac; }
+.request-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.request-note { display: block; margin-top: 3px; font-size: 12.5px; color: #7b8794; font-weight: 500; white-space: normal; }
+
+/* 세금계산서·환불·광고비·비품 요청 장부 */
+.finance-workflow { display: grid; min-width: 0; gap: 18px; }
+.finance-request-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.finance-field-wide { grid-column: span 2; }
+.finance-field-full { grid-column: 1 / -1; }
+.finance-request-form .intake-field textarea {
+  min-height: 88px;
+  resize: vertical;
+  padding: 11px 12px;
+  border: 1px solid #d5dfe8;
+  border-radius: 9px;
+  background: #fff;
+  color: #24313e;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.finance-request-form input:focus,
+.finance-request-form select:focus,
+.finance-request-form textarea:focus { outline: 2px solid rgba(52, 142, 205, .35); outline-offset: 1px; }
+.finance-request-check {
+  display: flex;
+  min-height: 68px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #d5e3ec;
+  border-radius: 10px;
+  background: #f7fbfe;
+}
+.finance-request-check input { width: 18px; height: 18px; accent-color: #348ecd; }
+.finance-request-check span { min-width: 0; }
+.finance-request-check strong,
+.finance-request-check small { display: block; }
+.finance-request-check strong { color: #29465b; font-size: 13px; }
+.finance-request-check small { margin-top: 3px; color: #7b8794; font-size: 11px; }
+.finance-request-list { display: grid; gap: 12px; }
+.finance-request-card {
+  min-width: 0;
+  padding: 15px 16px;
+  border: 1px solid #dde6ed;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 3px 12px rgba(31, 58, 78, .035);
+}
+.finance-request-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.finance-request-head strong,
+.finance-request-head small { display: block; }
+.finance-request-head strong { color: #1d2b38; font-size: 15px; }
+.finance-request-head small { margin-top: 4px; color: #7b8794; font-size: 11.5px; }
+.finance-request-amount { margin-top: 12px; color: #2674ac; font-size: 21px; font-weight: 850; }
+.finance-request-amount small { color: #8b98a5; font-size: 11px; font-weight: 650; }
+.finance-request-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 18px;
+  margin: 13px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid #edf2f5;
+}
+.finance-request-meta div { min-width: 0; }
+.finance-request-meta dt { color: #8b98a5; font-size: 10px; font-weight: 750; }
+.finance-request-meta dd { margin: 4px 0 0; color: #35434f; font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.finance-evidence-link { color: #2674ac; font-weight: 750; text-decoration: none; }
+.finance-evidence-link:hover { text-decoration: underline; }
+.finance-request-actions { display: flex; justify-content: flex-end; gap: 7px; flex-wrap: wrap; margin-top: 13px; }
+.module-action.danger { border-color: #f0c8cd; background: #fff7f8; color: #c14851; }
+.module-action.danger:hover { border-color: #dd5b63; background: #fdecf0; }
+.purchase-ledger { display: grid; min-width: 0; gap: 18px; }
+.purchase-tax-table th[scope="row"] { color: #263746; }
+
+@media (max-width: 920px) {
+  .finance-request-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .finance-field-full { grid-column: 1 / -1; }
+}
+
+@media (max-width: 600px) {
+  .finance-request-fields { grid-template-columns: minmax(0, 1fr); }
+  .finance-field-wide,
+  .finance-field-full { grid-column: auto; }
+  .finance-request-meta { grid-template-columns: minmax(0, 1fr); }
+  .finance-request-head { align-items: flex-start; }
+  .finance-request-actions { justify-content: stretch; }
+  .finance-request-actions .module-action { flex: 1 1 calc(50% - 7px); min-height: 38px; }
+}
+
+/* 통장 조회 원장 */
+.bank-ledger {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.bank-ledger > *,
+.bank-ledger .module-section,
+.bank-ledger .module-section-body { min-width: 0; }
+
+.bank-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.bank-kpi {
+  min-width: 0;
+  padding: 17px 18px;
+  border: 1px solid #dfe8ef;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(32, 60, 80, .04);
+}
+
+.bank-kpi span,
+.bank-kpi strong,
+.bank-kpi small { display: block; }
+.bank-kpi span { color: #6d7b89; font-size: 13px; font-weight: 700; }
+.bank-kpi strong { margin-top: 8px; color: #1d2b38; font-size: clamp(20px, 2vw, 27px); font-weight: 850; letter-spacing: -.35px; }
+.bank-kpi small { margin-top: 5px; color: #8b98a6; font-size: 12px; font-weight: 600; }
+.bank-kpi.deposit strong { color: #2674ac; }
+.bank-kpi.withdrawal strong { color: #b4534b; }
+.bank-kpi.warn { border-color: #f0d9b5; background: #fffaf2; }
+.bank-kpi.warn strong { color: #b06a1f; }
+
+.bank-section-head { min-width: 0; }
+.bank-section-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
+.bank-account-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(245px, 1fr));
+  gap: 12px;
+}
+
+.bank-account-card {
+  position: relative;
+  min-width: 0;
+  padding: 17px;
+  border: 1px solid #dfe8ef;
+  border-radius: 13px;
+  background: linear-gradient(145deg, #fff, #f8fbfd);
+}
+
+.bank-account-head,
+.bank-account-foot,
+.bank-mobile-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bank-account-head > span:first-child { min-width: 0; }
+.bank-account-head strong,
+.bank-account-head small { display: block; }
+.bank-account-head strong { overflow: hidden; color: #1d2b38; font-size: 15px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.bank-account-head small { margin-top: 4px; color: #7b8794; font-size: 12px; font-weight: 600; }
+.bank-account-state { flex: none; padding: 3px 8px; border-radius: 999px; background: #e7f4ec; color: #2f7d4f; font-size: 11px; font-weight: 800; }
+.bank-account-state.inactive { background: #eef1f4; color: #7b8794; }
+
+.bank-account-number {
+  display: block;
+  margin-top: 12px;
+  color: #627382;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .3px;
+}
+
+.bank-account-balance { margin-top: 16px; padding: 14px; border-radius: 10px; background: #eef6fb; }
+.bank-account-balance span,
+.bank-account-balance strong,
+.bank-account-balance small { display: block; }
+.bank-account-balance span { color: #6b7a88; font-size: 12px; font-weight: 700; }
+.bank-account-balance strong { margin-top: 5px; color: #2674ac; font-size: 23px; font-weight: 850; }
+.bank-account-balance small { margin-top: 4px; color: #8794a0; font-size: 11px; font-weight: 600; }
+.bank-account-foot { margin-top: 12px; color: #7b8794; font-size: 11.5px; font-weight: 600; }
+.bank-account-foot > span:last-child { min-width: 0; text-align: right; }
+.bank-unmatched.warn { color: #b06a1f; font-weight: 800; }
+.bank-sync-button { min-height: 36px; }
+.bank-sync-button[hidden] { display: none; }
+.bank-sync-select { display: inline-flex; align-items: center; gap: 7px; }
+.bank-sync-select > span { color: #6d7b89; font-size: 11.5px; font-weight: 700; }
+.bank-sync-select select { min-height: 36px; max-width: 170px; padding: 0 28px 0 9px; border: 1px solid #d5dfe8; border-radius: 8px; background: #fff; color: #35434f; font-family: inherit; font-size: 12.5px; font-weight: 700; }
+
+.bank-table-wrap { width: 100%; }
+.bank-transaction-table { min-width: 950px; }
+.bank-sync-table { min-width: 960px; }
+.bank-transaction-table th,
+.bank-transaction-table td,
+.bank-sync-table th,
+.bank-sync-table td { vertical-align: middle; }
+.bank-transaction-table thead th:first-child,
+.bank-transaction-table tbody td:first-child,
+.bank-transaction-table tbody th,
+.bank-transaction-table td:nth-child(6),
+.bank-sync-table thead th:first-child,
+.bank-sync-table tbody th,
+.bank-sync-table td { text-align: left; }
+.bank-transaction-table .bank-amount { text-align: right; }
+
+.bank-direction,
+.bank-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.bank-direction.deposit { background: #e9f4fb; color: #2674ac; }
+.bank-direction.withdrawal { background: #fbeceb; color: #b4534b; }
+.bank-amount { font-weight: 800; white-space: nowrap; }
+.bank-amount.deposit,
+.bank-mobile-amount.deposit { color: #2674ac; }
+.bank-amount.withdrawal,
+.bank-mobile-amount.withdrawal { color: #b4534b; }
+.bank-status.done { background: #e7f4ec; color: #2f7d4f; }
+.bank-status.warn { background: #fff1d9; color: #a7611b; }
+.bank-status.review { background: #eaf1fb; color: #426da8; }
+.bank-status.danger { background: #fbeceb; color: #b4534b; }
+.bank-status.muted { background: #eef1f4; color: #687684; }
+
+.bank-transaction-copy { max-width: 310px; white-space: normal !important; }
+.bank-transaction-copy strong,
+.bank-transaction-copy small { display: block; overflow-wrap: anywhere; }
+.bank-transaction-copy strong { color: #35434f; font-size: 13.5px; font-weight: 750; }
+.bank-transaction-copy small { margin-top: 3px; color: #8794a0; font-size: 11.5px; font-weight: 600; }
+.bank-run-note { max-width: 220px; overflow-wrap: anywhere; white-space: normal !important; }
+.bank-run-note strong,
+.bank-run-note small { display: block; }
+.bank-run-note strong { color: #41505d; font-size: 12.5px; }
+.bank-run-note small { margin-top: 3px; color: #b4534b; font-size: 11.5px; }
+
+.bank-transaction-cards,
+.bank-sync-cards { display: none; }
+
+.bank-transaction-card,
+.bank-sync-card {
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid #dfe8ef;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.bank-mobile-amount { display: block; margin-top: 12px; font-size: 23px; font-weight: 850; }
+.bank-mobile-party { margin-top: 12px; padding-top: 12px; border-top: 1px solid #edf1f4; }
+.bank-mobile-party strong,
+.bank-mobile-party small { display: block; overflow-wrap: anywhere; }
+.bank-mobile-party strong { color: #273746; font-size: 14px; font-weight: 800; }
+.bank-mobile-party small { margin-top: 4px; color: #7b8794; font-size: 12px; line-height: 1.45; }
+.bank-mobile-meta { display: grid; gap: 7px; margin: 13px 0 0; }
+.bank-mobile-meta div { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.bank-mobile-meta dt { color: #8794a0; font-size: 12px; font-weight: 650; }
+.bank-mobile-meta dd { margin: 0; color: #41505d; font-size: 12px; font-weight: 750; text-align: right; }
+.bank-sync-time { display: block; margin-top: 9px; color: #7b8794; font-size: 12px; font-weight: 650; }
+.bank-sync-card p { margin: 10px 0 0; color: #41505d; font-size: 13px; font-weight: 750; }
+.bank-sync-requester { display: block; margin-top: 7px; color: #6d7b89; font-size: 12px; font-weight: 700; }
+.bank-sync-card small { display: block; margin-top: 7px; color: #b4534b; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+
+.bank-load-state {
+  display: grid;
+  justify-items: center;
+  min-height: 240px;
+  align-content: center;
+  padding: 28px 18px;
+  color: #5d6b7a;
+  text-align: center;
+}
+.bank-load-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 50%; background: #e9f4fb; color: #2674ac; font-size: 21px; font-weight: 900; }
+.bank-load-state:not(.error) .bank-load-icon { animation: bank-spin 1.1s linear infinite; }
+.bank-load-state strong { margin-top: 14px; color: #273746; font-size: 16px; }
+.bank-load-state small { max-width: 480px; margin-top: 7px; color: #7b8794; font-size: 13px; line-height: 1.5; }
+.bank-load-state .module-action { margin-top: 15px; }
+.bank-load-state.error .bank-load-icon { background: #fbeceb; color: #b4534b; }
+@keyframes bank-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 760px) {
+  .bank-ledger { gap: 12px; }
+  .bank-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .bank-kpi { padding: 14px; }
+  .bank-kpi strong { margin-top: 6px; font-size: clamp(18px, 5.4vw, 22px); }
+  .bank-kpi small { font-size: 11px; }
+  .bank-account-grid { grid-template-columns: minmax(0, 1fr); }
+  .bank-section-head { align-items: flex-start; flex-direction: column; }
+  .bank-section-actions { width: 100%; justify-content: space-between; }
+  .bank-table-wrap { display: none; }
+  .bank-transaction-cards,
+  .bank-sync-cards { display: grid; gap: 10px; }
+  .bank-account-balance strong { font-size: 22px; }
+  .bank-account-foot { align-items: flex-start; }
+  .bank-load-state { min-height: 200px; }
+}
+
+@media (max-width: 430px) {
+  .bank-kpi { min-height: 112px; }
+  .bank-kpi span { font-size: 12px; }
+  .bank-kpi strong { overflow-wrap: anywhere; }
+  .bank-account-card,
+  .bank-transaction-card,
+  .bank-sync-card { padding: 14px; }
+  .bank-mobile-meta div { gap: 9px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bank-load-state:not(.error) .bank-load-icon { animation: none; }
+}

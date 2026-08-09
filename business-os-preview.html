@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>PEAK OS · Business OS Preview</title>
-  <link rel="stylesheet" href="/business-os-live.css">
+  <link rel="stylesheet" href="./business-os-live.css?v=20260808-taxbank1">
   <style>
     :root {
       color-scheme: light;
@@ -48,45 +48,19 @@
 
     button { font: inherit; cursor: pointer; }
 
-    .prototype-bar {
-      position: sticky;
-      top: 0;
-      z-index: 80;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      min-height: 34px;
-      padding: 7px 16px;
-      border-bottom: 1px solid #cfe5f5;
-      background: #edf7fe;
-      color: #327dac;
-      font-size: 11px;
-      font-weight: 750;
-      text-align: center;
-    }
-
-    .prototype-bar i {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--blue);
-      box-shadow: 0 0 0 4px rgba(52, 142, 205, .12);
-    }
-
     .app {
       display: grid;
       grid-template-columns: 278px minmax(0, 1fr);
-      min-height: calc(100vh - 34px);
+      min-height: 100vh;
     }
 
     .app-sidebar {
       position: sticky;
-      top: 34px;
+      top: 0;
       z-index: 50;
       display: flex;
       flex-direction: column;
-      height: calc(100vh - 34px);
+      height: 100vh;
       padding: 15px 12px 12px;
       border-right: 1px solid #dbe4eb;
       background:
@@ -309,7 +283,7 @@
     .main-shell { min-width: 0; }
     .topbar {
       position: sticky;
-      top: 34px;
+      top: 0;
       z-index: 40;
       display: flex;
       align-items: center;
@@ -333,7 +307,7 @@
     .breadcrumbs strong { color: var(--ink); }
     .breadcrumbs span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-    .top-actions { display: flex; gap: 7px; }
+    .top-actions { display: flex; min-width: 0; align-items: center; gap: 7px; }
     .icon-button,
     .primary-button {
       min-height: 34px;
@@ -1899,15 +1873,14 @@
     }
 
     @media (max-width: 760px) {
-      .prototype-bar { min-height: 38px; padding-inline: 12px; font-size: 10px; }
-      .app { display: block; min-height: calc(100vh - 38px); }
+      .app { display: block; min-height: 100vh; }
       .app-sidebar {
         position: fixed;
-        top: 38px;
+        top: 0;
         left: 0;
         z-index: 70;
         width: 280px;
-        height: calc(100vh - 38px);
+        height: 100vh;
         box-shadow: 18px 0 40px rgba(23, 33, 43, .13);
         transform: translateX(-105%);
         transition: transform .24s ease;
@@ -1915,12 +1888,12 @@
       body.menu-open .app-sidebar { transform: translateX(0); }
       .mobile-overlay {
         position: fixed;
-        inset: 38px 0 0;
+        inset: 0;
         z-index: 65;
         background: rgba(23, 33, 43, .22);
       }
       body.menu-open .mobile-overlay { display: block; }
-      .topbar { top: 38px; min-height: 54px; padding: 0 14px; }
+      .topbar { top: 0; min-height: 54px; padding: 0 14px; }
       .mobile-menu { display: inline-block; }
       .breadcrumbs span:first-of-type, .breadcrumbs .slash, .top-actions .icon-button { display: none; }
       .primary-button { min-height: 32px; padding: 0 11px; }
@@ -2040,11 +2013,6 @@
   </style>
 </head>
 <body>
-  <div class="prototype-bar">
-    <i aria-hidden="true"></i>
-    디자인 검토용 프리뷰 · 화면과 데이터는 운영 시스템에 연결되지 않습니다
-  </div>
-
   <div class="app">
     <aside class="app-sidebar" aria-label="메인 메뉴">
       <div class="workspace">
@@ -2069,11 +2037,24 @@
         <section class="nav-section nav-cluster" data-nav-cluster="main">
           <button class="nav-cluster-toggle" type="button" aria-expanded="true"><span>주요 메뉴</span><span class="nav-cluster-caret">⌃</span></button>
           <div class="nav-cluster-items">
-            <button class="nav-item active" type="button" data-view="dashboard" data-tab-search="PEAKMARKETING 피크마케팅 회사 홈 매출 대시보드"><span class="nav-icon">⌂</span>피크마케팅</button>
-            <button class="nav-item" type="button" data-view="calendar" data-tab-search="CALENDAR 캘린더 일정 스케줄"><span class="nav-icon">◫</span>캘린더</button>
-            <button class="nav-item" type="button" data-view="chat" data-tab-search="CHAT 채팅 대화 메시지"><span class="nav-icon">◌</span>채팅<span class="nav-badge">5</span></button>
+            <button class="nav-item active" type="button" data-view="calendar" data-tab-search="CALENDAR 캘린더 일정 스케줄"><span class="nav-icon">◫</span>캘린더</button>
             <button class="nav-item" type="button" data-view="todo" data-tab-search="TO DO LIST 오늘 할 일 업무 체크리스트"><span class="nav-icon">▦</span>할 일<span class="nav-badge">6</span></button>
+            <button class="nav-item" type="button" data-view="dashboard" data-tab-search="PEAKMARKETING 피크마케팅 회사 홈 매출 대시보드"><span class="nav-icon">⌂</span>피크마케팅</button>
+            <button class="nav-item" type="button" data-view="chat" data-tab-search="CHAT 채팅 대화 메시지"><span class="nav-icon">◌</span>채팅<span class="nav-badge">5</span></button>
             <button class="nav-item" type="button" data-view="review" data-tab-search="PROJECTS 프로젝트 검토 요청"><span class="nav-icon">▣</span>프로젝트<span class="nav-badge">3</span></button>
+            <button class="nav-item" type="button" data-view="ideas" data-tab-search="IDEAS 아이디어 메모 자료"><span class="nav-icon">◇</span>아이디어</button>
+            <button class="nav-item" type="button" data-view="requests" data-tab-search="REQUESTS 개발수정요청 수정요청 개발 요청 처리"><span class="nav-icon">✎</span>개발수정요청</button>
+          </div>
+        </section>
+
+        <section class="nav-section nav-cluster" data-nav-cluster="sales-operations">
+          <button class="nav-cluster-toggle" type="button" aria-expanded="true"><span>영업 운영</span><span class="nav-cluster-caret">⌃</span></button>
+          <div class="nav-cluster-items">
+            <button class="nav-item" type="button" data-view="settlement" data-tab-search="SETTLEMENT 개인 정산서 개인정산서 영업자 정산"><span class="nav-icon">◉</span>개인 정산서</button>
+            <button class="nav-item" type="button" data-view="deposit-check" data-tab-search="DEPOSIT CHECK 입금체크 미수금 입금확인"><span class="nav-icon">◎</span>입금체크</button>
+            <button class="nav-item" type="button" data-view="monthly-guarantee" data-nav-locked="true" hidden data-tab-search="MONTHLY GUARANTEE 월보장 정산서 김지홍"><span class="nav-icon">◈</span>월보장 정산서</button>
+            <button class="nav-item" type="button" data-view="monthly-manage" data-nav-locked="true" hidden data-tab-search="MONTHLY MANAGE 월관리 정산서 박우진 플레이스"><span class="nav-icon">◈</span>월관리 정산서</button>
+            <button class="nav-item" type="button" data-view="direct-execution" data-nav-locked="true" hidden data-tab-search="DIRECT EXECUTION 직접실행 정산서 김대호"><span class="nav-icon">◈</span>직접실행 정산서</button>
           </div>
         </section>
 
@@ -2092,17 +2073,54 @@
           <button class="nav-cluster-toggle" type="button" aria-expanded="false"><span>재무 · 운영</span><span class="nav-cluster-caret">⌄</span></button>
           <div class="nav-cluster-items">
             <button class="nav-item" type="button" data-view="reports" data-tab-search="REPORTS 보고서 출근 일일 주간 월말 분기 매출"><span class="nav-icon">▤</span>보고서</button>
-            <button class="nav-item" type="button" data-view="settlement" data-tab-search="SETTLEMENT 개인정산서 영업자 정산"><span class="nav-icon">◉</span>정산서</button>
             <button class="nav-item" type="button" data-view="final-settlement" data-nav-locked="true" hidden data-tab-search="FINAL SETTLEMENT 최종정산서 확정 정산"><span class="nav-icon">♛</span>최종정산서</button>
-            <button class="nav-item" type="button" data-view="monthly-guarantee" data-nav-locked="true" hidden data-tab-search="MONTHLY GUARANTEE 월보장 정산 김지홍"><span class="nav-icon">◈</span>월보장 정산</button>
-            <button class="nav-item" type="button" data-view="monthly-manage" data-nav-locked="true" hidden data-tab-search="MONTHLY MANAGE 월관리 정산 박우진 플레이스"><span class="nav-icon">◈</span>월관리 정산</button>
-            <button class="nav-item" type="button" data-view="deposit-check" data-tab-search="DEPOSIT CHECK 입금체크 미수금 입금확인"><span class="nav-icon">◎</span>입금체크</button>
+            <button class="nav-item" type="button" data-view="final-execution-settlement" data-nav-locked="true" hidden data-tab-search="FINAL EXECUTION SETTLEMENT 최종실행정산서 월보장 월관리 직접실행 취합"><span class="nav-icon">♜</span>최종실행정산서</button>
             <button class="nav-item" type="button" data-view="receivable" data-nav-locked="true" hidden data-tab-search="RECEIVABLE 미수금 현황 못받은돈 경과"><span class="nav-icon">◔</span>미수금 현황</button>
-            <button class="nav-item" type="button" data-view="invoice" data-tab-search="INVOICE 세금계산서 발행요청 입금"><span class="nav-icon">▧</span>세금계산서 발행요청</button>
             <button class="nav-item" type="button" data-view="credit" data-nav-locked="true" hidden data-tab-search="CREDIT 충전금 포인트 잔여"><span class="nav-icon">◍</span>충전금</button>
             <button class="nav-item" type="button" data-view="closing" data-nav-locked="true" hidden data-tab-search="CLOSING 결산 월마감 손익"><span class="nav-icon">▣</span>결산</button>
-            <button class="nav-item" type="button" data-view="tax" data-tab-search="TAX 세금 거래처 사업자등록증 세금계산서"><span class="nav-icon">▥</span>세금</button>
             <button class="nav-item" type="button" data-view="platform" data-tab-search="PLATFORM API 통합 정산 플랫폼"><span class="nav-icon">⌘</span>플랫폼</button>
+          </div>
+        </section>
+
+        <section class="nav-section nav-cluster closed" data-nav-cluster="tax-banking">
+          <button class="nav-cluster-toggle" type="button" aria-expanded="false"><span>세금 및 입금</span><span class="nav-cluster-caret">⌄</span></button>
+          <div class="nav-cluster-items">
+            <button class="nav-item nav-item-middle" type="button" data-view="bank" data-nav-locked="true" hidden data-tab-search="BANK 통장별 거래내역 매출통장 리뷰스페이스 리워드스페이스 공급처 고정비 입출금"><span class="nav-icon">▨</span>통장별 거래내역</button>
+
+            <div class="nav-subcluster" data-nav-subcluster="tax-invoice" data-tax-banking-group="bank-tax">
+              <button class="nav-subcluster-toggle" type="button" aria-expanded="true"><span><i>▧</i>세금계산서</span><span class="nav-subcluster-caret">⌃</span></button>
+              <div class="nav-subcluster-items">
+                <button class="nav-item nav-item-child" type="button" data-view="invoice" data-tab-search="INVOICE 세금계산서 매출 발행 매출계산서"><span class="nav-icon">·</span>세금계산서 매출</button>
+                <button class="nav-item nav-item-child" type="button" data-view="tax-advance" data-tab-search="TAX ADVANCE 세금계산서 선발행 요청 사업자등록증"><span class="nav-icon">·</span>세금계산서 선발행 요청</button>
+                <button class="nav-item nav-item-child" type="button" data-view="tax-correction" data-tab-search="TAX CORRECTION 세금계산서 정정요청 수정 변경"><span class="nav-icon">·</span>세금계산서 정정요청</button>
+              </div>
+            </div>
+
+            <div class="nav-subcluster" data-nav-subcluster="refund" data-tax-banking-group="refund">
+              <button class="nav-subcluster-toggle" type="button" aria-expanded="true"><span><i>↩</i>환불금 정산</span><span class="nav-subcluster-caret">⌃</span></button>
+              <div class="nav-subcluster-items">
+                <button class="nav-item nav-item-child" type="button" data-view="refund-history" data-tab-search="REFUND HISTORY 환불내역 환불금 처리"><span class="nav-icon">·</span>환불내역</button>
+                <button class="nav-item nav-item-child" type="button" data-view="refund-client" data-tab-search="CLIENT REFUND 거래처환불 환불 요청"><span class="nav-icon">·</span>거래처환불</button>
+                <button class="nav-item nav-item-child" type="button" data-view="refund-mistaken" data-tab-search="MISTAKEN DEPOSIT REFUND 오입금환불 오입금"><span class="nav-icon">·</span>오입금환불</button>
+                <button class="nav-item nav-item-child" type="button" data-view="refund-invoice" data-tab-search="REFUND INVOICE 계산서 요청 환불 마이너스발행"><span class="nav-icon">·</span>계산서 요청</button>
+              </div>
+            </div>
+
+            <div class="nav-subcluster" data-nav-subcluster="expense" data-tax-banking-group="expense">
+              <button class="nav-subcluster-toggle" type="button" aria-expanded="true"><span><i>₩</i>광고비 및 복리후생</span><span class="nav-subcluster-caret">⌃</span></button>
+              <div class="nav-subcluster-items">
+                <button class="nav-item nav-item-child" type="button" data-view="expense-ad" data-tab-search="AD EXPENSE 광고비 요청 커뮤니티 결제"><span class="nav-icon">·</span>광고비 요청</button>
+                <button class="nav-item nav-item-child" type="button" data-view="expense-supplies" data-tab-search="SUPPLIES EXPENSE 비품 요청 복리후생"><span class="nav-icon">·</span>비품 요청</button>
+              </div>
+            </div>
+
+            <div class="nav-subcluster" data-nav-subcluster="tax-purchase" data-tax-banking-group="purchase" data-nav-locked="true" hidden>
+              <button class="nav-subcluster-toggle" type="button" aria-expanded="true"><span><i>▤</i>세금계산서 매입</span><span class="nav-subcluster-caret">⌃</span></button>
+              <div class="nav-subcluster-items">
+                <button class="nav-item nav-item-child" type="button" data-view="purchase-fixed" data-nav-locked="true" hidden data-tab-search="PURCHASE TAX FIXED 고정비용통장 세금계산서 매입"><span class="nav-icon">·</span>고정비용통장</button>
+                <button class="nav-item nav-item-child" type="button" data-view="purchase-supplier" data-nav-locked="true" hidden data-tab-search="PURCHASE TAX SUPPLIER 공급처입금통장 세금계산서 매입"><span class="nav-icon">·</span>공급처입금통장</button>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -2129,8 +2147,7 @@
           <span>PEAK OS</span><span class="slash">/</span><strong id="pageCrumb">PEAKMARKETING</strong>
         </div>
         <div class="top-actions">
-          <button class="icon-button preview-action" type="button">공유</button>
-          <button class="icon-button preview-action" type="button">•••</button>
+          <div class="account-preview-slot" id="accountPreviewSlot" hidden></div>
         </div>
       </header>
 
@@ -3663,6 +3680,6 @@
   </script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-  <script src="/business-os-preview.js"></script>
+  <script src="./business-os-preview.js?v=20260809-authswitch1"></script>
 </body>
 </html>

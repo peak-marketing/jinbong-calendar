@@ -599,7 +599,7 @@ body.chat-window-mode .chat-input-bar { padding: 10px 12px calc(var(--safe-botto
       <div class="sidebar-item" onclick="navTo('report')"><span class="icon">📄</span>보고서</div>
       <div class="sidebar-item" onclick="navTo('idea')"><span class="icon">💡</span>아이디어</div>
       <div class="sidebar-item" onclick="navTo('notice')"><span class="icon">📢</span>공지사항<span id="sidebarNoticeBadge" class="sidebar-badge" style="display:none"></span></div>
-      <div class="sidebar-item" onclick="navTo('request')"><span class="icon">🛠</span>수정요청</div>
+      <div class="sidebar-item" onclick="navTo('request')"><span class="icon">🛠</span>개발수정요청</div>
       <div class="sidebar-item" onclick="navTo('more')"><span class="icon">⋯</span>더보기</div>
     </div>
     <div class="sidebar-user" onclick="toggleUserMenu()">
@@ -627,7 +627,7 @@ body.chat-window-mode .chat-input-bar { padding: 10px 12px calc(var(--safe-botto
     <button class="mob-tab" onclick="navTo('report')"><span class="mob-icon">📄</span>보고서</button>
     <button class="mob-tab" onclick="navTo('idea')"><span class="mob-icon">💡</span>아이디어</button>
     <button class="mob-tab" onclick="navTo('notice')"><span class="mob-icon">📢</span>공지<span id="mobNoticeBadge" class="mob-badge" style="display:none"></span></button>
-    <button class="mob-tab" onclick="navTo('request')"><span class="mob-icon">🛠</span>요청</button>
+    <button class="mob-tab" onclick="navTo('request')"><span class="mob-icon">🛠</span>개발요청</button>
     <button class="mob-tab" onclick="navTo('more')"><span class="mob-icon">⋯</span>더보기</button>
   </div>
 </nav>
@@ -709,7 +709,7 @@ const PAGE_BROWSER_TITLES = {
   report: '보고서',
   idea: '아이디어',
   notice: '공지사항',
-  request: '수정요청',
+  request: '개발수정요청',
   more: '더보기'
 };
 let swUpdateAvailable = false;
@@ -2816,7 +2816,7 @@ function renderPage(keepScroll) {
     case 'report': title.textContent = '📄 보고서'; renderReportPage(body, right); break;
     case 'idea': title.textContent = '💡 아이디어'; renderIdeaPage(body, right); break;
     case 'notice': title.textContent = '📢 공지사항'; renderNoticePage(body, right); break;
-    case 'request': title.textContent = '🛠 수정요청'; renderServiceRequestPage(body, right); break;
+    case 'request': title.textContent = '🛠 개발수정요청'; renderServiceRequestPage(body, right); break;
     case 'more': title.textContent = '⋯ 더보기'; renderMorePage(body); break;
   }
   syncDocumentTitle();
@@ -8106,7 +8106,7 @@ function renderServiceRequestCard(req) {
 async function renderServiceRequestPage(body, right) {
   const isActiveRender = createPageRenderGuard('request', body);
   right.innerHTML = `<button onclick="openNewServiceRequestModal()" class="btn btn-red">+ 요청</button>`;
-  body.innerHTML = '<div style="color:var(--text3);font-size:13px">수정 요청을 불러오는 중...</div>';
+  body.innerHTML = '<div style="color:var(--text3);font-size:13px">개발수정요청을 불러오는 중...</div>';
   try {
     const data = await api('GET', '/service-requests');
     if (!isActiveRender()) return;
@@ -8125,8 +8125,8 @@ async function renderServiceRequestPage(body, right) {
       all: serviceRequests.length
     };
     let h = `<div class="card" style="margin-bottom:16px">
-      <div class="card-title">피크마케팅 서비스 상품 개발 수정 요청</div>
-      <div class="card-meta">리뷰스페이스, 키워드마스터, 접수 UI 같은 서비스 수정 요청을 여기에 남기면 담당자가 상태를 업데이트합니다.</div>
+      <div class="card-title">피크마케팅 개발수정요청</div>
+      <div class="card-meta">리뷰스페이스, 키워드마스터, 접수 UI 같은 서비스 개발수정요청을 여기에 남기면 담당자가 상태를 업데이트합니다.</div>
       <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px">
         <div style="background:var(--bg3);border-radius:8px;padding:10px"><div style="font-size:11px;color:var(--text3)">진행중</div><div style="font-size:22px;font-weight:800;color:var(--yellow)">${counts.open}</div></div>
         <div style="background:var(--bg3);border-radius:8px;padding:10px"><div style="font-size:11px;color:var(--text3)">완료</div><div style="font-size:22px;font-weight:800;color:var(--green)">${counts.done}</div></div>
@@ -8153,7 +8153,7 @@ async function openNewServiceRequestModal() {
   serviceRequestDraftAttachments = [];
   let bookmarks = [];
   try { bookmarks = await api('GET', '/bookmarks'); } catch(e) {}
-  const h = `<div class="modal-title">🛠 수정 요청 등록</div>
+  const h = `<div class="modal-title">🛠 개발수정요청 등록</div>
     <div class="form-group"><label class="form-label">서비스</label><select class="form-input" id="srProduct">${serviceRequestProductOptions(bookmarks)}</select></div>
     <div class="form-group"><label class="form-label">제목</label><input class="form-input" id="srTitle" placeholder="예: 리뷰스페이스 정산 화면 버튼 추가"></div>
     <div class="form-group"><label class="form-label">요청 내용</label><textarea class="form-input" id="srContent" rows="7" placeholder="어떤 화면에서 무엇을 어떻게 수정하면 좋을지 적어주세요."></textarea></div>
@@ -8206,7 +8206,7 @@ async function openServiceRequestDetail(id) {
 	  const managers = serviceRequestCanManage ? await ensureServiceRequestManagersLoaded() : [];
 	  const meta = serviceRequestStatusMeta(req.status);
 	  serviceRequestDraftAttachments = getImageAttachments(req).map(att => ({ ...att }));
-	  let h = `<div class="modal-title">🛠 수정 요청</div>
+	  let h = `<div class="modal-title">🛠 개발수정요청</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
       <span style="font-size:11px;font-weight:700;color:${meta.color};background:var(--bg3);border-radius:999px;padding:4px 8px">${meta.label}</span>
       <span style="font-size:11px;color:var(--text3);background:var(--bg3);border-radius:999px;padding:4px 8px">${esc(req.product_name || '기타')}</span>
@@ -8276,7 +8276,7 @@ async function saveServiceRequest(id) {
 }
 
 async function deleteServiceRequest(id) {
-  if (!confirm('이 수정 요청을 삭제할까요?')) return;
+  if (!confirm('이 개발수정요청을 삭제할까요?')) return;
   await api('DELETE', '/service-requests/' + id);
   serviceRequests = serviceRequests.filter(r => r.id !== id);
   closeModal();
@@ -8355,7 +8355,7 @@ async function openServiceRequestManagerModal() {
   ]);
   const managed = new Set(managers.map(m => m.uid));
   const selectable = users.filter(u => !managed.has(u.uid));
-  const h = `<div class="modal-title">🛠 수정요청 담당자 관리</div>
+  const h = `<div class="modal-title">🛠 개발수정요청 담당자 관리</div>
     <div class="form-group"><label class="form-label">담당자 추가</label><select class="form-input" id="srManagerUser">
       <option value="">선택</option>
       ${selectable.map(u => `<option value="${esc(u.uid)}">${esc(u.name || u.email || u.uid)}</option>`).join('')}

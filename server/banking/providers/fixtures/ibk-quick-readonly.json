@@ -1,0 +1,13 @@
+{
+  "seed": {
+    "sessionKey": "0123456789abcdef",
+    "geo": "123 45",
+    "randomPadByte": 42,
+    "ciphertextHex": "ea3d4cadd76487a172651b865a3c377f",
+    "browserCsv": "ea,3d,4c,ad,d7,64,87,a1,72,65,1b,86,5a,3c,37,7f"
+  },
+  "certificateScript": "/* parsed as inert data only */\nvar cert_pub = \"-----BEGIN CERTIFICATE-----MIIDIjCCAgqgAwIBAgIUSmI5CUsw3OfrvZ0LJhetLOPf5wQwDQYJKoZIhvcNAQELBQAwIjEgMB4GA1UEAwwXcmV3YXJkLXVpLXByb2QtYXBwLXByb2QwHhcNMjYwNDA3MDMzNzQxWhcNMzYwNDA0MDMzNzQxWjAiMSAwHgYDVQQDDBdyZXdhcmQtdWktcHJvZC1hcHAtcHJvZDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKqtDIQIKsLnlNc/8CSYYhnjLNSut9+R6AuMqkCb9z5/XLWil5O1N2KesDZnV0bM2/uFFTxXppXcQP0jWRF+vzV/pHf/oTfIEM0srM/uKZVO6LZxvewXKwsLNrBVMGs4ppzJact6nRNb2If1fqFkWc6WTFgNi7KExZWgCMRlGHD4MezgVn2hVtgDBJ0lhG/qpbfxh9KsCRwaGm6qX8q3BH/L6PJxEVXui6qR3hVExq4vqVrCZK5DXanU//BzEQZtSeGXDty/pEJ1jSwn4/GZvKxgIjsab2okY7ulDmC4vQpmxGCxPySQtsZcLcHvuu1cS8WmCHv1Cpla6H6HKu3LT4cCAwEAAaNQME4wCQYDVR0TBAIwADAiBgNVHREEGzAZghdyZXdhcmQtdWktcHJvZC1hcHAtcHJvZDAdBgNVHQ4EFgQUUdM3FcqhGFv3BWmYy8gi0Yk3JmEwDQYJKoZIhvcNAQELBQADggEBAAKqZAUJnQknjPf5A4S4vJ/dfxEyAjQCjoyJrtDufJ7vgIAmZcudKAIHlI4aqkAxwYBgbK2/w0krSvVoKLq7TCTaXrEwDsoFdbBRJpZUkrwocHV1AmZ2tIQD51tHvFlqenEA1hqpkDgA17UGLIHRLb5Zbr8ZbP81m0JXIp7n5TBJOAR1bZuqQNpbJLEKLsiNgbcbFpXO6e1XI5zGi6gyIhQ0aysLf0Srhq6MGY/kImgF8zW4QkXo/GxtZ9FSREJqAkfISzrJBBvNT0BbHdBmDxVQMz7fhWVwKPIP/hAhaJdUwiQa2Tr4AzhZ4zusjbejHX4//NAlwJi71cXH2eTfbss=-----END CERTIFICATE-----\";\n(function(){ throw new Error('this code must never execute'); }());",
+  "tokenScript": "TK_requestToken=fixture-token_0123456789abcdef;",
+  "transactionResponse": "<script>window.gridColumns = [{TRN_YMD:'20260806',TRN_AMT1:'출금금액',TRN_AMT2:'입금금액',AFTR_BAL:'거래후잔액',TRN_SMR:'거래내용'}]; window.fixtureRows = [{TRN_YMD:'20260806123456',TRN_AMT1:'0',TRN_AMT2:'1,234,500',AFTR_BAL:'9,876,543',TRN_SMR:'홍길동 입금',GEAR_ACN:'123-456-789012',BNPR_CON:'인터넷뱅킹'}];</script><table><tr><td>조회시작일자</td><td>2026-08-05</td><td>조회종료일자</td><td>2026-08-06</td><td>계좌종류</td><td>자유예금</td><td>조회구분</td><td>전체</td></tr></table><table><tr><td>2026-08-06 11:02:03</td><td>50,000</td><td>0</td><td>9,826,543</td><td>비품 구입</td><td>020123456789</td><td>상대은행</td><td>CMS</td><td>기업은행</td></tr></table>",
+  "noDataResponse": "<div>조회된 내역이 없습니다</div>"
+}

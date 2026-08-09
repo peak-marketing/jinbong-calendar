@@ -1,0 +1,748 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; }
+  dl, dd { margin: 0; }
+</style>
+<title>PEAK OS MVP 기획본</title>
+
+<style>
+  :root {
+    color-scheme: light;
+    --paper: #ffffff;
+    --surface: #f5f8fb;
+    --surface-2: #eaf0f6;
+    --line: #dce5ed;
+    --line-soft: #e8eef4;
+    --ink: #16222d;
+    --ink-2: #3c4c5a;
+    --muted: #6d7b89;
+    --brand: #348ecd;
+    --brand-deep: #2674ac;
+    --brand-wash: #eaf4fb;
+    --ok: #2f7a57;
+    --ok-wash: #e7f4ed;
+    --wait: #9d6a24;
+    --wait-wash: #fbf1e2;
+    --out: #8a95a1;
+    --out-wash: #eef1f4;
+
+    --sans: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+            "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+    --measure: 66ch;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --paper: #0f171e;
+      --surface: #161f28;
+      --surface-2: #1c2832;
+      --line: #29363f;
+      --line-soft: #222d36;
+      --ink: #e8eef3;
+      --ink-2: #bcc9d4;
+      --muted: #8b9aa7;
+      --brand: #5aa8dd;
+      --brand-deep: #8cc6ea;
+      --brand-wash: #16283a;
+      --ok: #6dbd94;
+      --ok-wash: #162a22;
+      --wait: #d5a463;
+      --wait-wash: #2b2317;
+      --out: #78838f;
+      --out-wash: #1a222a;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0f171e;
+    --surface: #161f28;
+    --surface-2: #1c2832;
+    --line: #29363f;
+    --line-soft: #222d36;
+    --ink: #e8eef3;
+    --ink-2: #bcc9d4;
+    --muted: #8b9aa7;
+    --brand: #5aa8dd;
+    --brand-deep: #8cc6ea;
+    --brand-wash: #16283a;
+    --ok: #6dbd94;
+    --ok-wash: #162a22;
+    --wait: #d5a463;
+    --wait-wash: #2b2317;
+    --out: #78838f;
+    --out-wash: #1a222a;
+  }
+
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --paper: #ffffff;
+    --surface: #f5f8fb;
+    --surface-2: #eaf0f6;
+    --line: #dce5ed;
+    --line-soft: #e8eef4;
+    --ink: #16222d;
+    --ink-2: #3c4c5a;
+    --muted: #6d7b89;
+    --brand: #348ecd;
+    --brand-deep: #2674ac;
+    --brand-wash: #eaf4fb;
+    --ok: #2f7a57;
+    --ok-wash: #e7f4ed;
+    --wait: #9d6a24;
+    --wait-wash: #fbf1e2;
+    --out: #8a95a1;
+    --out-wash: #eef1f4;
+  }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16.5px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .shell {
+    display: grid;
+    grid-template-columns: 190px minmax(0, 1fr);
+    gap: 54px;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 32px 120px;
+  }
+
+  .rail {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 92px 0 40px;
+  }
+
+  .rail-mark {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 16px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .rail-mark b { font-size: 15px; font-weight: 800; letter-spacing: -0.01em; }
+  .rail-mark span { font-family: var(--mono); font-size: 10.5px; color: var(--brand-deep); letter-spacing: 0.06em; }
+
+  .rail a {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    padding: 5px 0;
+    color: var(--muted);
+    font-size: 13.5px;
+    text-decoration: none;
+  }
+
+  .rail a i {
+    font-family: var(--mono);
+    font-style: normal;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    opacity: 0.5;
+  }
+
+  .rail a:hover { color: var(--brand-deep); }
+  .rail a:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 3px; }
+
+  .doc {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 64px;
+    padding-top: 92px;
+  }
+
+  .masthead {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding-bottom: 34px;
+    border-bottom: 2px solid var(--ink);
+  }
+
+  .kicker {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    color: var(--brand-deep);
+  }
+
+  .masthead h1 {
+    margin: 0;
+    font-size: clamp(34px, 5vw, 52px);
+    font-weight: 850;
+    letter-spacing: -0.035em;
+    line-height: 1.12;
+    text-wrap: balance;
+  }
+
+  .masthead h1 em { font-style: normal; color: var(--brand-deep); }
+
+  .standfirst {
+    max-width: var(--measure);
+    margin: 0;
+    color: var(--ink-2);
+    font-size: 18px;
+    line-height: 1.7;
+  }
+
+  .meta-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 26px;
+    padding-top: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .meta-strip b { color: var(--ink-2); font-weight: 600; }
+
+  section { scroll-margin-top: 24px; }
+
+  .eyebrow {
+    display: block;
+    margin-bottom: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    color: var(--brand-deep);
+  }
+
+  h2 {
+    margin: 0 0 20px;
+    font-size: 27px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+  }
+
+  h3 { margin: 32px 0 12px; font-size: 17px; font-weight: 750; letter-spacing: -0.01em; }
+
+  p { max-width: var(--measure); margin: 0 0 16px; }
+  p:last-child { margin-bottom: 0; }
+  a { color: var(--brand-deep); }
+
+  code {
+    padding: 1.5px 5px;
+    border-radius: 4px;
+    background: var(--surface-2);
+    font-family: var(--mono);
+    font-size: 0.855em;
+  }
+
+  /* ── 범위 두 칸 ───────────────────────────────── */
+  .scope {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 14px;
+  }
+
+  .scope-col {
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    overflow: hidden;
+  }
+
+  .scope-col.out { background: var(--out-wash); }
+
+  .scope-head {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+    padding: 12px 17px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+
+  .scope-col.out .scope-head { background: transparent; }
+  .scope-head b { font-size: 15px; font-weight: 800; }
+  .scope-head span { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--muted); }
+
+  .scope-col ul { margin: 0; padding: 12px 17px 14px 34px; }
+  .scope-col li { margin-bottom: 7px; font-size: 14.5px; color: var(--ink-2); }
+  .scope-col li:last-child { margin-bottom: 0; }
+  .scope-col.out li { color: var(--out); }
+
+  /* ── 표 ───────────────────────────────────────── */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+  table { width: 100%; border-collapse: collapse; background: var(--paper); font-size: 14.5px; }
+
+  th, td {
+    padding: 11px 15px;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  thead th {
+    background: var(--surface);
+    color: var(--ink-2);
+    font-size: 12.5px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  tbody tr:last-child td { border-bottom: 0; }
+  td.nowrap { white-space: nowrap; }
+  td.mono { font-family: var(--mono); font-size: 13px; }
+  td.num, th.num { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+
+  .chip {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .chip.ok { background: var(--ok-wash); color: var(--ok); }
+  .chip.wait { background: var(--wait-wash); color: var(--wait); }
+  .chip.out { background: var(--out-wash); color: var(--out); }
+
+  .note {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 18px 20px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+
+  .note.brand {
+    border-color: color-mix(in srgb, var(--brand) 35%, var(--line));
+    background: var(--brand-wash);
+  }
+
+  .note b { font-size: 14.5px; font-weight: 750; }
+  .note p { margin: 0; max-width: none; font-size: 14.5px; color: var(--ink-2); }
+
+  ul.plain { max-width: var(--measure); margin: 0; padding-left: 20px; }
+  ul.plain li { margin-bottom: 8px; }
+  ul.plain li:last-child { margin-bottom: 0; }
+
+  /* ── 성공 기준 ────────────────────────────────── */
+  .criteria { display: flex; flex-direction: column; gap: 10px; }
+
+  .criterion {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 4px 14px;
+    align-items: baseline;
+    padding: 14px 18px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+
+  .criterion .mark {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--brand-deep);
+  }
+
+  .criterion b { font-size: 15px; font-weight: 750; }
+  .criterion p { margin: 2px 0 0; max-width: none; font-size: 14px; color: var(--muted); grid-column: 2; }
+
+  footer {
+    padding-top: 30px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+
+  @media (max-width: 880px) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 20px 80px; }
+    .rail { position: static; padding: 40px 0 0; }
+    .rail a { padding: 7px 0; }
+    .doc { padding-top: 44px; gap: 50px; }
+    .criterion { grid-template-columns: minmax(0, 1fr); }
+    .criterion p { grid-column: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="rail" aria-label="목차">
+    <div class="rail-mark">
+      <b>PEAK OS</b>
+      <span>MVP 기획본</span>
+    </div>
+    <a href="#goal"><span>MVP 목표</span><i>GOAL</i></a>
+    <a href="#scope"><span>범위</span><i>SCOPE</i></a>
+    <a href="#features"><span>기능</span><i>FEATURES</i></a>
+    <a href="#rules"><span>지킨 원칙</span><i>RULES</i></a>
+    <a href="#criteria"><span>성공 기준</span><i>DONE</i></a>
+    <a href="#next"><span>MVP 이후</span><i>NEXT</i></a>
+  </nav>
+
+  <main class="doc">
+    <header class="masthead">
+      <span class="kicker">PEAK MARKETING 사내 업무 시스템</span>
+      <h1><em>PEAK OS</em><br>MVP 기획본</h1>
+      <p class="standfirst">
+        1단계에서 만들 것과 만들지 않을 것을 정한 문서입니다.
+        기존 파라곤 데이터를 <b>읽기만 하는 범위</b>까지가 MVP이며,
+        입력·수정과 돈 관련 기능은 다음 단계로 미룹니다.
+      </p>
+      <div class="meta-strip">
+        <span><b>단계</b> 1단계 · 확인용</span>
+        <span><b>작성</b> 2026-07-28</span>
+        <span><b>다음 단계</b> 2026년 8월</span>
+      </div>
+    </header>
+
+    <!-- ══ 목표 ══ -->
+    <section id="goal">
+      <span class="eyebrow">GOAL</span>
+      <h2>MVP로 확인하려는 것</h2>
+
+      <p>
+        새 시스템을 전부 만들어 놓고 "쓸 만한가"를 묻는 방식은 위험합니다.
+        MVP는 <b>가장 위험이 적은 범위로 먼저 만들어 보고 판단</b>하기 위한 단계입니다.
+      </p>
+
+      <p>확인하려는 것은 세 가지입니다.</p>
+
+      <ul class="plain">
+        <li><b>기존 데이터가 새 화면에서 제대로 보이는가</b> — 파라곤에 쌓인 일정·업무·프로젝트·채팅·보고서를 그대로 불러와 확인합니다.</li>
+        <li><b>직급과 소속에 따라 다르게 보이는 구조가 성립하는가</b> — 대표·팀장·구성원이 각각 다른 범위를 보는지 확인합니다.</li>
+        <li><b>흩어진 매출이 자동으로 집계되는가</b> — 일일보고서에서 영업자별·기간별 매출이 손으로 세지 않고 나오는지 확인합니다.</li>
+      </ul>
+
+      <div class="note brand" style="margin-top:22px">
+        <b>MVP 한 줄 정의</b>
+        <p>
+          기존 파라곤 데이터를 건드리지 않고, 새 화면에서 권한에 맞게 보여 주는 것까지.
+        </p>
+      </div>
+    </section>
+
+    <!-- ══ 범위 ══ -->
+    <section id="scope">
+      <span class="eyebrow">SCOPE</span>
+      <h2>범위</h2>
+
+      <p>
+        MVP에서 가장 중요한 결정은 <b>무엇을 넣지 않을지</b>입니다.
+        아래 오른쪽 항목은 못 만드는 것이 아니라, 이번 단계에서 일부러 뺀 것입니다.
+      </p>
+
+      <div class="scope">
+        <div class="scope-col">
+          <div class="scope-head"><b>MVP에 넣는다</b><span>IN</span></div>
+          <ul>
+            <li>파라곤 일정·업무·프로젝트·채팅 조회</li>
+            <li>조직도, 직급 8단계, 지사 구분</li>
+            <li>일일보고서 기반 매출 집계</li>
+            <li>Google 계정 로그인</li>
+            <li>직급에 따른 화면 노출 제어</li>
+            <li>큰 모니터와 휴대폰 대응</li>
+          </ul>
+        </div>
+
+        <div class="scope-col out">
+          <div class="scope-head"><b>MVP에서 뺀다</b><span>OUT</span></div>
+          <ul>
+            <li>등록·수정·삭제 (쓰기 기능 전체)</li>
+            <li>정산서·급여·세금계산서</li>
+            <li>직급·조직 구조의 서버 저장</li>
+            <li>지사별로 완전히 분리된 지면</li>
+            <li>제안서·교육자료 드라이브 연결</li>
+            <li>사내 SaaS 목록과 계약 관리</li>
+            <li>외부 플랫폼 API 정산 연동</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>왜 쓰기를 뺐는가</h3>
+      <p>
+        새 화면에서 잘못 저장하면 <b>실제 운영 데이터가 망가집니다.</b>
+        읽기만 하는 동안에는 무엇을 눌러도 되돌릴 일이 생기지 않습니다.
+        화면 구조가 맞다는 확인이 끝난 뒤에 쓰기를 여는 것이 안전합니다.
+      </p>
+
+      <h3>왜 돈 관련 기능을 뺐는가</h3>
+      <p>
+        정산·급여·세금은 실제 자료를 아직 받지 못했습니다.
+        자료 없이 화면부터 만들면 예시 금액을 채워 넣게 되고,
+        그 숫자를 실적으로 오해할 위험이 생깁니다.
+      </p>
+    </section>
+
+    <!-- ══ 기능 ══ -->
+    <section id="features">
+      <span class="eyebrow">FEATURES</span>
+      <h2>MVP 기능</h2>
+
+      <p>
+        메뉴는 14개를 모두 만들어 두되, MVP에서 <b>실제 데이터가 연결되는 것은 7개</b>입니다.
+        나머지는 자리와 구조만 잡아 두고 다음 단계에서 채웁니다.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>메뉴</th><th>MVP에서 하는 일</th><th>상태</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="nowrap"><b>PEAKMARKETING</b></td>
+              <td>오늘 할 일, 이번 달 일정, 진행 프로젝트, 안 읽은 채팅을 한 화면에</td>
+              <td><span class="chip ok">연결</span></td>
+            </tr>
+            <tr>
+              <td class="nowrap"><b>CALENDAR</b></td>
+              <td>월 달력과 업무 패널. 내 일정·팀·전체, 미완료만 보기, 체크리스트 진행률</td>
+              <td><span class="chip ok">연결</span></td>
+            </tr>
+            <tr>
+              <td class="nowrap"><b>CHAT</b></td>
+              <td>채팅방 목록과 대화 확인 (보내기는 다음 단계)</td>
+              <td><span class="chip ok">연결</span></td>
+            </tr>
+            <tr>
+              <td class="nowrap"><b>TO DO LIST</b></td>
+              <td>오늘 처리할 업무를 카테고리별로 확인</td>
+              <td><span class="chip ok">연결</span></td>
+            </tr>
+            <tr>
+              <td class="nowrap"><b>PROJECTS</b></td>
+              <td>프로젝트 전체 상세 — 진행률·멤버·업무·진행사항·일정·대화</td>
+              <td><span class="chip ok">연결</span></td>
+            </tr>
+            <tr>
+              <td class="nowrap"><b>ORGANIZATION</b></td>
+              <td>조직도, 직급 지정, 지사별 보기. 직급은 임시 저장</td>
+              <td><span class="chip ok">연결</span></td>
+            </tr>
+            <tr>
+              <td class="nowrap"><b>REPORTS</b></td>
+              <td>일일·주간·월말·분기별 매출 집계. 출근 기록은 다음 단계</td>
+              <td><span class="chip ok">연결</span></td>
+            </tr>
+            <tr>
+              <td class="nowrap">COMPANY</td>
+              <td>회사 자료 자리만 마련</td>
+              <td><span class="chip out">자리만</span></td>
+            </tr>
+            <tr>
+              <td class="nowrap">DOCUMENTS</td>
+              <td>제안서·교육자료 분류 구조만</td>
+              <td><span class="chip out">자리만</span></td>
+            </tr>
+            <tr>
+              <td class="nowrap">SERVICES</td>
+              <td>취급 상품·사이트 16종 목록</td>
+              <td><span class="chip wait">목록만</span></td>
+            </tr>
+            <tr>
+              <td class="nowrap">SETTLEMENT</td>
+              <td>개인·최종정산서 자리와 권한 구분만</td>
+              <td><span class="chip out">자리만</span></td>
+            </tr>
+            <tr>
+              <td class="nowrap">TAX</td>
+              <td>거래처별 세금 자료 자리만</td>
+              <td><span class="chip out">자리만</span></td>
+            </tr>
+            <tr>
+              <td class="nowrap">PLATFORM</td>
+              <td>API 통합 정산 흐름 구상만</td>
+              <td><span class="chip out">자리만</span></td>
+            </tr>
+            <tr>
+              <td class="nowrap">SAAS HUB</td>
+              <td>SaaS 목록 자리만. 비밀번호는 저장하지 않음</td>
+              <td><span class="chip out">자리만</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>매출 집계 기준</h3>
+      <p>
+        일일보고서의 <b>매출 항목만</b> 더합니다. 리워드·블로그·플레이스 등 34개 상품 항목이 대상이고,
+        수금액과 미수잔액은 매출이 아니므로 제외합니다.
+        기간과 단위(일·주·월·분기)를 바꿔 가며 영업자별·상품별로 볼 수 있습니다.
+      </p>
+
+      <div class="note">
+        <b>MVP 기간의 숫자는 참고용입니다</b>
+        <p>
+          집계 화면을 검증하려고 4~7월 데이터를 불러왔지만, 이 기간 보고서는 정확하지 않다고 확인되었습니다.
+          실적 판단은 8월 데이터부터 하시면 됩니다.
+        </p>
+      </div>
+    </section>
+
+    <!-- ══ 원칙 ══ -->
+    <section id="rules">
+      <span class="eyebrow">RULES</span>
+      <h2>MVP에서 지킨 원칙</h2>
+
+      <h3>1. 운영 데이터는 읽기만 한다</h3>
+      <p>
+        등록·수정·삭제 요청이 아예 나가지 않도록 만들었습니다.
+        자동 검사가 실제로 오간 요청을 전부 확인해서,
+        조회가 아닌 요청이 하나라도 있으면 실패하도록 잠가 두었습니다.
+      </p>
+      <p>
+        확인용 화면과 실제 운영 시스템은 서버도 데이터베이스도 분리되어 있습니다.
+        확인 단계에서 무엇을 하든 운영에는 영향이 없습니다.
+      </p>
+
+      <h3>2. 없는 숫자는 만들지 않는다</h3>
+      <p>
+        자료를 받지 못한 화면에는 예시 금액을 넣지 않고
+        <b>"아직 전달받은 실제 데이터가 없습니다"</b>로 비워 둡니다.
+        데이터가 비었을 때 금액 자리에 임의의 숫자가 채워지지 않는지도 검사로 잠가 두었습니다.
+      </p>
+
+      <h3>3. 쓰던 방식을 바꾸지 않는다</h3>
+      <p>
+        파라곤의 정보 구조를 그대로 유지합니다.
+        기능 이름은 메뉴 탭에서만 영어를 쓰고 화면 안의 설명은 한글입니다.
+        직원들이 새로 배울 것이 없어야 합니다.
+      </p>
+
+      <h3>4. 글자가 작으면 안 된다</h3>
+      <p>
+        가독성을 성능보다 앞에 두었습니다.
+        넓은 화면에서 내용이 가운데 좁은 폭에 갇히지 않게 하고,
+        조직도는 화면 크기에 맞춰 자동으로 커지거나 작아집니다.
+      </p>
+    </section>
+
+    <!-- ══ 성공 기준 ══ -->
+    <section id="criteria">
+      <span class="eyebrow">DONE</span>
+      <h2>MVP 성공 기준</h2>
+
+      <p>
+        아래를 모두 만족하면 MVP는 끝난 것으로 보고 다음 단계로 넘어갑니다.
+        현재 다섯 개 중 다섯 개를 만족합니다.
+      </p>
+
+      <div class="criteria">
+        <div class="criterion">
+          <span class="mark">01</span>
+          <b>운영 데이터가 새 화면에서 정확히 보인다</b>
+          <span class="chip ok">충족</span>
+          <p>집계 숫자를 운영 DB와 직접 대조해 일치를 확인했습니다.</p>
+        </div>
+
+        <div class="criterion">
+          <span class="mark">02</span>
+          <b>운영 데이터가 한 건도 바뀌지 않는다</b>
+          <span class="chip ok">충족</span>
+          <p>데스크톱·모바일 실측에서 조회 외 요청 0건.</p>
+        </div>
+
+        <div class="criterion">
+          <span class="mark">03</span>
+          <b>직급에 따라 보이는 것이 달라진다</b>
+          <span class="chip ok">충족</span>
+          <p>일반 구성원 계정에서 최종정산서와 권한 관리가 보이지 않는 것을 검사로 확인.</p>
+        </div>
+
+        <div class="criterion">
+          <span class="mark">04</span>
+          <b>큰 모니터와 휴대폰에서 모두 쓸 수 있다</b>
+          <span class="chip ok">충족</span>
+          <p>1680 · 1440 · 390px에서 가로 넘침 0px.</p>
+        </div>
+
+        <div class="criterion">
+          <span class="mark">05</span>
+          <b>없는 데이터를 지어내지 않는다</b>
+          <span class="chip ok">충족</span>
+          <p>데이터가 비었을 때 금액이 채워지지 않는지 검사로 잠금.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ 이후 ══ -->
+    <section id="next">
+      <span class="eyebrow">NEXT</span>
+      <h2>MVP 이후</h2>
+
+      <p>
+        MVP가 확인되면 아래 순서로 넓힙니다. 위험이 적은 것부터입니다.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th class="num">단계</th><th>내용</th><th>조건</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="num">2</td>
+              <td><b>쓰기와 권한 확정</b><br>직급·조직 서버 저장, 8월 매출부터 실적 기준, 전주지사 화면 분리</td>
+              <td>MVP 확인 완료 후 · 8월</td>
+            </tr>
+            <tr>
+              <td class="num">3</td>
+              <td><b>돈 관련 기능</b><br>개인·최종정산서, 거래처 세금 자료, 급여</td>
+              <td>정산·세무 자료 전달 후</td>
+            </tr>
+            <tr>
+              <td class="num">4</td>
+              <td><b>회사 자료와 도구</b><br>제안서·교육자료 드라이브 연결, SaaS 관리, 플랫폼 API 정산</td>
+              <td>목록 확정 후</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>다음 단계로 넘어가기 전 필요한 것</h3>
+      <ul class="plain">
+        <li><b>실장 직급 순서 확정</b> — 현재 부장 아래라 세무 실장이 권한 관리와 최종정산서 조회를 할 수 없습니다.</li>
+        <li><b>매출 기준 확정</b> — 미수잔액을 포함하는 기존 방식과 제외하는 방식 중 회사 기준이 필요합니다.</li>
+        <li><b>계정 여섯 개</b> — 은시후·김진표·임규태·김승현·이종용·손지호 님의 Google 로그인.</li>
+        <li><b>대구지사 계정 이름 대조</b> — 닉네임으로 등록된 계정이 각각 어느 분인지 확인.</li>
+      </ul>
+    </section>
+
+    <footer>
+      PEAK MARKETING · PEAK OS MVP 기획본 · 2026-07-28
+    </footer>
+  </main>
+</div>
+</body>
+</html>

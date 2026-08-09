@@ -1,4 +1,5 @@
 import { Page } from '@playwright/test';
+import { BASE_PRICES } from './base-prices';
 
 // A minimal Firebase surface the page expects. Installed as an init-script
 // so `window.firebase` already exists when the inline <script> in
@@ -16,6 +17,13 @@ export async function installFirebaseStub(page: Page) {
 
   await page.addInitScript(() => {
     const listeners: Array<(u: any) => void> = [];
+    const authTrace = {
+      popupCalls: 0,
+      redirectCalls: 0,
+      signOutCalls: 0,
+      providerParameters: [] as Array<Record<string, string>>,
+    };
+    (window as any).__e2eAuthTrace = authTrace;
     const fakeUser = {
       uid: 'e2e-test-user',
       email: 'e2e@test.local',
@@ -29,10 +37,23 @@ export async function installFirebaseStub(page: Page) {
         Promise.resolve().then(() => cb(fakeUser));
         return () => {};
       },
-      signInWithPopup: async () => ({ user: fakeUser }),
-      signInWithRedirect: async () => undefined,
+      signInWithPopup: async (provider: any) => {
+        authTrace.popupCalls += 1;
+        authTrace.providerParameters.push({ ...(provider?.customParameters || {}) });
+        authStub.currentUser = fakeUser;
+        listeners.forEach(listener => listener(fakeUser));
+        return { user: fakeUser };
+      },
+      signInWithRedirect: async (provider: any) => {
+        authTrace.redirectCalls += 1;
+        authTrace.providerParameters.push({ ...(provider?.customParameters || {}) });
+      },
       getRedirectResult: async () => ({ user: null }),
-      signOut: async () => { listeners.forEach(l => l(null)); },
+      signOut: async () => {
+        authTrace.signOutCalls += 1;
+        authStub.currentUser = null;
+        listeners.forEach(listener => listener(null));
+      },
     };
     const messagingStub: any = {
       onMessage: () => () => {},
@@ -40,7 +61,13 @@ export async function installFirebaseStub(page: Page) {
       deleteToken: async () => true,
       onTokenRefresh: () => () => {},
     };
-    function GoogleAuthProvider() {}
+    function GoogleAuthProvider(this: any) {
+      this.customParameters = {};
+      this.setCustomParameters = (parameters: Record<string, string>) => {
+        this.customParameters = { ...this.customParameters, ...parameters };
+        return this;
+      };
+    }
     (authStub as any).setPersistence = async () => {};
     const AuthNS = {
       Persistence: { LOCAL: 'LOCAL', SESSION: 'SESSION', NONE: 'NONE' },
@@ -894,8 +921,33 @@ export async function setupStubs(page: Page, initial?: ApiStubState) {
 // 서버 저장으로 옮긴 뒤 화면이 GET/POST/PUT/DELETE 를 쓴다.
 // 메모리에 들고 있다가 그대로 돌려주므로 새로고침 없이도 왕복이 확인된다.
 
-export function createPeakosStore(): any {
-  return { intake: [], prices: [], credit: [], fund: null, monthly: {} };
+const COST_VIEWERS = ['김진봉', '패션TV봉이', '손명아', '김대호', '박종원', '전현우'];
+const FINANCE_REVIEWERS = ['패션TV봉이', '박종원', '김대호', '손명아'];
+const FINAL_EXECUTION_VIEWERS = ['패션TV봉이', '박종원', '김대호', '손명아'];
+
+/** 서버처럼 기본 단가표를 담되, 권한이 없으면 회사원가를 지워서 준다. */
+export function createPeakosStore(viewerName = '', viewerRole = 'manager'): any {
+  const showCost = COST_VIEWERS.includes(viewerName);
+  return {
+    viewer: viewerName,
+    viewerRole,
+    intake: [],
+    prices: BASE_PRICES.map(([a, b, c, cost, unit]) => ({
+      key: `${a}|${b}|${c}`, a, b, c,
+      cost: showCost ? cost : null,
+      unit, custom: false,
+    })),
+    credit: [], creditRequests: [], financeRequests: [], serviceRequests: [], fund: null, monthly: {},
+    bank: {
+      accounts: [],
+      collectorConfigured: false,
+      autoReconciliationEnabled: false,
+      canSync: false,
+      canViewBalances: false,
+      transactions: [],
+      syncRuns: [],
+    },
+  };
 }
 
 function upsert(list: any[], row: any) {
@@ -916,11 +968,107 @@ export function handlePeakos(store: any, route: any): boolean {
   let body: any = {};
   try { body = JSON.parse(req.postData() || '{}'); } catch { body = {}; }
 
-  const send = (payload: unknown) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+  const send = (payload: unknown, status = 200) =>
+    route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) });
+
+  // 통장 원장은 조회 화면만 E2E에서 재현한다. 쓰기/동기화 요청은 405로
+  // 막아 focused UI 테스트가 실제 DB나 은행으로 빠져나가지 못하게 한다.
+  if (area === 'bank') {
+    if (method !== 'GET') {
+      send({ error: 'E2E 통장 스텁은 조회만 허용합니다.' }, 405);
+      return true;
+    }
+
+    const bank = store.bank || {};
+    const resource = tail[0];
+    if (resource === 'accounts') {
+      send({
+        accounts: Array.isArray(bank.accounts) ? bank.accounts : [],
+        collectorConfigured: bank.collectorConfigured === true,
+        autoReconciliationEnabled: bank.autoReconciliationEnabled === true,
+        canSync: bank.canSync === true,
+        canViewBalances: bank.canViewBalances === true,
+      });
+      return true;
+    }
+
+    if (resource === 'transactions') {
+      const url = new URL(req.url());
+      const accountId = url.searchParams.get('accountId') || '';
+      const direction = (url.searchParams.get('direction') || '').toUpperCase();
+      const status = (url.searchParams.get('status') || '').toUpperCase();
+      const query = (url.searchParams.get('q') || '').trim().toLowerCase();
+      const from = Date.parse(url.searchParams.get('from') || '');
+      const to = Date.parse(url.searchParams.get('to') || '');
+      const page = Math.max(Number(url.searchParams.get('page')) || 1, 1);
+      const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 50, 1), 100);
+      const filtered = (Array.isArray(bank.transactions) ? bank.transactions : []).filter((row: any) => {
+        if (accountId && String(row.accountId || '') !== accountId) return false;
+        if (direction && String(row.direction || '').toUpperCase() !== direction) return false;
+        if (status && String(row.status || '').toUpperCase() !== status) return false;
+        const transactionAt = Date.parse(String(row.transactionAt || ''));
+        if (Number.isFinite(from) && (!Number.isFinite(transactionAt) || transactionAt < from)) return false;
+        if (Number.isFinite(to) && (!Number.isFinite(transactionAt) || transactionAt >= to)) return false;
+        if (query) {
+          const haystack = `${row.summary || ''} ${row.counterpartyName || ''}`.toLowerCase();
+          if (!haystack.includes(query)) return false;
+        }
+        return true;
+      });
+      const start = (page - 1) * limit;
+      const transactions = filtered.slice(start, start + limit);
+      send({
+        transactions,
+        summary: {
+          total: filtered.length,
+          depositTotal: bank.canViewBalances === true ? filtered
+            .filter((row: any) => row.direction === 'DEPOSIT')
+            .reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0) : null,
+          withdrawalTotal: bank.canViewBalances === true ? filtered
+            .filter((row: any) => row.direction === 'WITHDRAWAL')
+            .reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0) : null,
+          unmatchedCount: filtered.filter((row: any) => row.status === 'UNMATCHED').length,
+        },
+        pagination: {
+          page,
+          limit,
+          total: filtered.length,
+          totalPages: Math.ceil(filtered.length / limit),
+        },
+      });
+      return true;
+    }
+
+    if (resource === 'sync-runs') {
+      send({ runs: Array.isArray(bank.syncRuns) ? bank.syncRuns : [] });
+      return true;
+    }
+
+    send({ error: 'E2E 통장 API를 찾을 수 없습니다.' }, 404);
+    return true;
+  }
 
   if (area === 'intake') {
-    if (method === 'GET') send(store.intake);
+    if (method === 'GET') {
+      const owner = new URL(req.url()).searchParams.get('owner');
+      if (owner) {
+        // 서버와 같은 규칙: 지정 3계정만 미리보기 조회를 하고,
+        // 패션TV봉이가 아니면 보호 대상 계정은 못 본다.
+        const previewViewers = ['패션TV봉이', '박종원', '김대호'];
+        const masters = ['패션TV봉이'];
+        const protectedOwners = ['김진봉', '패션TV봉이', '손명아'];
+        const me = store.viewer || '';
+        const isMaster = masters.includes(me);
+        if (!previewViewers.includes(me) || (!isMaster && protectedOwners.includes(owner))) {
+          route.fulfill({ status: 403, contentType: 'application/json',
+            body: JSON.stringify({ error: `${owner} 계정의 접수는 볼 수 없습니다.` }) });
+          return true;
+        }
+        send(store.intake.filter((x: any) => String(x.ownerName || '').trim() === owner));
+        return true;
+      }
+      send(store.intake);
+    }
     else if (method === 'DELETE') {
       store.intake = store.intake.filter((x: any) => x.id !== tail[0]);
       send({ deleted: tail[0] });
@@ -956,6 +1104,214 @@ export function handlePeakos(store: any, route: any): boolean {
     return true;
   }
 
+  if (area === 'credit-requests') {
+    if (method === 'GET') {
+      const scope = new URL(req.url()).searchParams.get('scope') === 'all' ? 'all' : 'mine';
+      const requests = scope === 'all'
+        ? store.creditRequests
+        : store.creditRequests.filter((row: any) => row.requesterUid === 'e2e-test-user');
+      send({ requests, scope });
+    } else if (method === 'POST') {
+      const record = {
+        id: `credit-request-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        requesterUid: 'e2e-test-user',
+        requesterName: store.viewer,
+        targetAccountId: body.targetAccountId,
+        requestDate: body.requestDate,
+        client: body.client,
+        depositorName: body.depositorName,
+        product: body.product,
+        vendor: body.vendor,
+        expectedAmount: body.expectedAmount,
+        pointAmount: body.pointAmount,
+        memo: body.memo || '',
+        status: 'PENDING',
+        bankTransactionId: null,
+      };
+      store.creditRequests.unshift(record);
+      send({ request: record, created: true }, 201);
+    } else if (method === 'DELETE') {
+      const record = store.creditRequests.find((row: any) => row.id === tail[0]);
+      if (!record || record.status !== 'PENDING') {
+        send({ error: '대기 요청을 찾지 못했습니다.' }, 409);
+      } else {
+        record.status = 'CANCELLED';
+        send({ request: record, cancelled: record.id });
+      }
+    } else {
+      send({ error: '허용되지 않은 요청입니다.' }, 405);
+    }
+    return true;
+  }
+
+  if (area === 'final-execution') {
+    if (method !== 'GET') {
+      send({ error: '최종실행정산서는 조회 전용입니다.' }, 405);
+      return true;
+    }
+    if (!FINAL_EXECUTION_VIEWERS.includes(store.viewer)) {
+      send({ error: '최종실행정산서 열람 권한이 없습니다.' }, 403);
+      return true;
+    }
+    const rows = Object.entries(store.monthly || {}).flatMap(([view, entries]) =>
+      (Array.isArray(entries) ? entries : []).map((row: any) => ({ ...row, view }))
+    );
+    send({ rows });
+    return true;
+  }
+
+  if (area === 'finance-requests') {
+    const id = tail[0] || '';
+    const reviewer = FINANCE_REVIEWERS.includes(String(store.viewer || '').trim());
+    const kindToView: Record<string, string> = {
+      TAX_ADVANCE: 'tax-advance',
+      TAX_CORRECTION: 'tax-correction',
+      REFUND_CLIENT: 'refund-client',
+      REFUND_MISTAKEN: 'refund-mistaken',
+      EXPENSE_AD: 'expense-ad',
+      EXPENSE_SUPPLIES: 'expense-supplies',
+    };
+    const requestTypeOf = (row: any) => String(
+      row?.requestType || row?.type || row?.view || row?.category
+      || kindToView[String(row?.kind || '').toUpperCase()] || '',
+    ).trim();
+
+    if (method === 'GET') {
+      const url = new URL(req.url());
+      const requestedType = String(
+        url.searchParams.get('requestType')
+        || url.searchParams.get('type')
+        || url.searchParams.get('view')
+        || '',
+      ).trim();
+      const wantsAll = url.searchParams.get('scope') === 'all';
+      const kinds = url.searchParams.getAll('kind')
+        .flatMap(value => value.split(','))
+        .map(value => value.trim().toUpperCase())
+        .filter(Boolean);
+      const excludedStatuses = String(url.searchParams.get('excludeStatus') || url.searchParams.get('exclude_status') || '')
+        .split(',').map(value => value.trim().toUpperCase()).filter(Boolean);
+      const invoiceOnly = ['true', '1'].includes(String(url.searchParams.get('invoiceRequested') || url.searchParams.get('invoice_requested') || '').toLowerCase());
+      const from = String(url.searchParams.get('from') || '');
+      const to = String(url.searchParams.get('to') || '');
+      const page = Math.max(1, Number(url.searchParams.get('page') || 1));
+      const limit = Math.max(1, Math.min(500, Number(url.searchParams.get('limit') || 50)));
+      const filtered = (Array.isArray(store.financeRequests) ? store.financeRequests : [])
+        .filter((row: any) => {
+          const rowType = requestTypeOf(row);
+          if (!requestedType) return true;
+          if (requestedType === 'refund-history') {
+            return rowType === 'refund-client' || rowType === 'refund-mistaken';
+          }
+          if (requestedType === 'refund-invoice') {
+            return rowType === 'refund-client' && row.invoiceRequested === true;
+          }
+          return rowType === requestedType;
+        })
+        .filter((row: any) => !kinds.length || kinds.includes(String(row.kind || '').toUpperCase()))
+        .filter((row: any) => !invoiceOnly || row.invoiceRequested === true)
+        .filter((row: any) => !excludedStatuses.includes(String(row.status || '').toUpperCase()))
+        .filter((row: any) => !from || String(row.requestDate || '').slice(0, 10) >= from)
+        .filter((row: any) => !to || String(row.requestDate || '').slice(0, 10) <= to)
+        .filter((row: any) => reviewer && wantsAll
+          ? true
+          : String(row.requesterUid || '') === 'e2e-test-user');
+      const total = filtered.length;
+      const totalPages = total ? Math.ceil(total / limit) : 0;
+      const start = (page - 1) * limit;
+      const requests = filtered.slice(start, start + limit);
+      send({
+        requests,
+        scope: reviewer && wantsAll ? 'all' : 'mine',
+        pagination: { page, limit, total, totalPages, total_pages: totalPages },
+      });
+      return true;
+    }
+
+    if (method === 'POST') {
+      const now = '2026-08-08T09:00:00+09:00';
+      const kind = String(body.kind || '').toUpperCase();
+      const taxInvoiceRequest = kind === 'TAX_ADVANCE' || kind === 'TAX_CORRECTION';
+      const invoiceRequested = taxInvoiceRequest || body.invoiceRequested === true;
+      const record = {
+        ...body,
+        id: `finance-request-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        requesterUid: 'e2e-test-user',
+        requesterName: store.viewer,
+        requestType: requestTypeOf(body),
+        requestDate: String(body.requestDate || body.date || '2026-08-08').slice(0, 10),
+        client: String(body.client || body.clientName || body.vendor || body.counterparty || ''),
+        clientName: String(body.clientName || body.client || body.vendor || body.counterparty || ''),
+        amount: Number(body.amount || body.amountVat || body.requestAmount || 0),
+        amountVat: Number(body.amountVat || body.amount || body.requestAmount || 0),
+        memo: String(body.memo || body.reason || ''),
+        reason: String(body.reason || body.memo || ''),
+        status: String(body.status || 'PENDING'),
+        invoiceRequested,
+        invoiceStatus: kind === 'TAX_CORRECTION'
+          ? 'CORRECTION_REQUESTED'
+          : (invoiceRequested ? 'REQUESTED' : 'NOT_REQUESTED'),
+        createdAt: now,
+        updatedAt: now,
+      };
+      store.financeRequests.unshift(record);
+      send({ request: record, created: true }, 201);
+      return true;
+    }
+
+    const index = (Array.isArray(store.financeRequests) ? store.financeRequests : [])
+      .findIndex((row: any) => String(row.id || '') === id);
+    if (index < 0) {
+      send({ error: '재무 요청을 찾지 못했습니다.' }, 404);
+      return true;
+    }
+    const mine = String(store.financeRequests[index].requesterUid || '') === 'e2e-test-user';
+
+    if (method === 'PATCH') {
+      if (!reviewer && !mine) {
+        send({ error: '수정 권한이 없습니다.' }, 403);
+        return true;
+      }
+      const updated = {
+        ...store.financeRequests[index],
+        ...body,
+        id: store.financeRequests[index].id,
+        requesterUid: store.financeRequests[index].requesterUid,
+        requesterName: store.financeRequests[index].requesterName,
+        updatedAt: '2026-08-08T10:00:00+09:00',
+      };
+      if (['REJECTED', 'CANCELLED'].includes(String(updated.status || '').toUpperCase())
+          && !['ISSUED', 'CORRECTED'].includes(String(updated.invoiceStatus || '').toUpperCase())) {
+        updated.invoiceStatus = updated.invoiceRequested ? 'CANCELLED' : 'NOT_REQUESTED';
+      }
+      store.financeRequests[index] = updated;
+      send({ request: updated, updated: true });
+      return true;
+    }
+
+    if (method === 'DELETE') {
+      if (!reviewer && !mine) {
+        send({ error: '삭제 권한이 없습니다.' }, 403);
+        return true;
+      }
+      const cancelled = {
+        ...store.financeRequests[index],
+        status: 'CANCELLED',
+        invoiceStatus: store.financeRequests[index].invoiceRequested === true
+          && !['ISSUED', 'CORRECTED'].includes(String(store.financeRequests[index].invoiceStatus || '').toUpperCase())
+          ? 'CANCELLED'
+          : store.financeRequests[index].invoiceStatus,
+        updatedAt: '2026-08-08T10:00:00+09:00',
+      };
+      store.financeRequests[index] = cancelled;
+      send({ request: cancelled, cancelled: true });
+      return true;
+    }
+
+    send({ error: '허용되지 않은 요청입니다.' }, 405);
+    return true;
+  }
+
   if (area === 'monthly') {
     const view = tail[0];
     store.monthly[view] = store.monthly[view] || [];
@@ -985,9 +1341,9 @@ export function handlePeakos(store: any, route: any): boolean {
 /** 계정 정보와 PEAK OS 스텁을 한 번에 깐다. */
 export async function installPeakosStub(
   page: Page,
-  user: { name: string; uid?: string; role?: string; group_name?: string }
+  user: { name: string; uid?: string; role?: string; group_name?: string; group_type?: string }
 ) {
-  const store = createPeakosStore();
+  const store = createPeakosStore(user.name, user.role || 'manager');
   await page.route('**/api/**', route => {
     if (handlePeakos(store, route)) return;
     const path = new URL(route.request().url()).pathname.replace(/^\/api/, '');
@@ -1000,7 +1356,19 @@ export async function installPeakosStub(
         approved: true,
         is_active: true,
         group_name: user.group_name || '본사 영업팀',
+        group_type: user.group_type || (String(user.group_name || '본사 영업팀').includes('영업') ? 'sales' : 'support'),
+        peakos_can_read_bank: true,
+        peakos_can_view_bank_balances: FINANCE_REVIEWERS.includes(user.name),
+        peakos_can_review_finance: FINANCE_REVIEWERS.includes(user.name),
+        peakos_can_view_tax_purchase: FINANCE_REVIEWERS.includes(user.name),
+        peakos_special_settlement_views:
+          user.name === '김지홍' ? ['monthly-guarantee']
+            : user.name === '박우진' ? ['monthly-manage']
+              : user.name === '김대호' ? ['direct-execution'] : [],
+        peakos_can_view_final_execution: FINAL_EXECUTION_VIEWERS.includes(user.name),
       };
+    } else if (path === '/service-requests') {
+      payload = { canManage: false, requests: store.serviceRequests };
     } else if (path === '/chat-rooms/unread') {
       payload = {};
     } else if (path === '/projects') {

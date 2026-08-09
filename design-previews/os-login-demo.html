@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>PEAK OS · 추가 인증 화면 예시</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --blue: #348ecd;
+      --blue-dark: #2674ac;
+      --blue-soft: #eaf5fc;
+      --blue-pale: #f6fbff;
+      --ink: #17212b;
+      --text: #344252;
+      --muted: #718091;
+      --muted-2: #9aa7b4;
+      --line: #dbe5ed;
+      --line-soft: #e9eff4;
+      --paper: #fff;
+      --canvas: #f1f6f9;
+      --green: #2f9f70;
+      --green-soft: #eaf8f1;
+      --red: #c14851;
+      --shadow: 0 28px 80px rgba(26, 64, 92, .14);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { min-height: 100%; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 12% 10%, rgba(52, 142, 205, .12), transparent 26rem),
+        radial-gradient(circle at 90% 88%, rgba(53, 168, 115, .10), transparent 28rem),
+        var(--canvas);
+      color: var(--text);
+      font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: -.025em;
+    }
+
+    button, input { font: inherit; }
+
+    button { cursor: pointer; }
+
+    .preview-note {
+      display: flex;
+      min-height: 34px;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 7px 16px;
+      border-bottom: 1px solid #cfe5f5;
+      background: rgba(237, 247, 254, .92);
+      color: #327dac;
+      font-size: 11px;
+      font-weight: 750;
+      text-align: center;
+    }
+
+    .preview-note i {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--blue);
+      box-shadow: 0 0 0 4px rgba(52, 142, 205, .12);
+    }
+
+    .topbar {
+      display: flex;
+      width: min(1180px, calc(100% - 48px));
+      min-height: 76px;
+      margin: 0 auto;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      place-items: center;
+      border-radius: 11px;
+      background: linear-gradient(145deg, #42a1e2, #2678b2);
+      color: #fff;
+      box-shadow: 0 7px 18px rgba(52, 142, 205, .24);
+      font-size: 15px;
+      font-weight: 900;
+    }
+
+    .brand-copy strong,
+    .brand-copy small { display: block; }
+
+    .brand-copy strong { color: var(--ink); font-size: 15px; }
+
+    .brand-copy small {
+      margin-top: 3px;
+      color: var(--muted-2);
+      font-size: 9px;
+      font-weight: 750;
+      letter-spacing: .12em;
+    }
+
+    .support-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .support-link svg { width: 16px; height: 16px; }
+
+    .login-shell {
+      display: grid;
+      width: min(980px, calc(100% - 48px));
+      min-height: 100vh;
+      margin: 0 auto;
+      grid-template-columns: 400px 474px;
+      align-items: center;
+      justify-content: center;
+      gap: 76px;
+    }
+
+    .intro { padding: 22px 0 36px; }
+
+    .eyebrow {
+      display: inline-flex;
+      min-height: 26px;
+      align-items: center;
+      gap: 7px;
+      padding: 0 10px;
+      border: 1px solid #cfe4f3;
+      border-radius: 999px;
+      background: rgba(255,255,255,.68);
+      color: var(--blue-dark);
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: .04em;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--blue);
+    }
+
+    .intro h1 {
+      max-width: 530px;
+      margin: 20px 0 14px;
+      color: var(--ink);
+      font-size: clamp(34px, 4vw, 48px);
+      line-height: 1.2;
+      letter-spacing: -.055em;
+    }
+
+    .intro > p {
+      max-width: 490px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.75;
+    }
+
+    .security-flow {
+      width: 100%;
+      margin: 0;
+      padding: 24px 10px;
+    }
+
+    .flow-step {
+      position: relative;
+      display: grid;
+      min-height: 68px;
+      grid-template-columns: 38px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 13px;
+    }
+
+    .flow-step:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      top: 46px;
+      bottom: -10px;
+      left: 18px;
+      width: 1px;
+      background: #cddbe5;
+    }
+
+    .flow-icon {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      width: 38px;
+      height: 38px;
+      place-items: center;
+      border: 1px solid #d5e1e9;
+      border-radius: 12px;
+      background: #fff;
+      color: var(--muted);
+      box-shadow: 0 4px 12px rgba(36, 67, 90, .06);
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .flow-step.done .flow-icon {
+      border-color: #bfe2d1;
+      background: var(--green-soft);
+      color: var(--green);
+    }
+
+    .flow-step.active .flow-icon {
+      border-color: var(--blue);
+      background: var(--blue);
+      color: #fff;
+      box-shadow: 0 7px 18px rgba(52, 142, 205, .24);
+    }
+
+    .flow-copy strong,
+    .flow-copy small { display: block; }
+
+    .flow-copy strong { color: var(--ink); font-size: 13px; }
+
+    .flow-copy small { margin-top: 4px; color: var(--muted); font-size: 11px; }
+
+    .flow-status {
+      padding: 5px 8px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.72);
+      color: var(--muted-2);
+      font-size: 9px;
+      font-weight: 800;
+    }
+
+    .flow-step.done .flow-status { background: var(--green-soft); color: var(--green); }
+    .flow-step.active .flow-status { background: var(--blue-soft); color: var(--blue-dark); }
+
+    .auth-card {
+      position: relative;
+      overflow: hidden;
+      padding: 31px 32px 25px;
+      border: 1px solid rgba(207, 221, 232, .92);
+      border-radius: 22px;
+      background: rgba(255, 255, 255, .96);
+      box-shadow: var(--shadow);
+    }
+
+    .auth-card::before {
+      content: "";
+      position: absolute;
+      top: -110px;
+      right: -105px;
+      width: 220px;
+      height: 220px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(52, 142, 205, .12), transparent 68%);
+      pointer-events: none;
+    }
+
+    .card-top {
+      position: relative;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .card-kicker { color: var(--blue-dark); font-size: 10px; font-weight: 850; letter-spacing: .08em; }
+
+    .auth-card h2 {
+      margin: 7px 0 7px;
+      color: var(--ink);
+      font-size: 25px;
+      line-height: 1.25;
+      letter-spacing: -.045em;
+    }
+
+    .card-copy { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+
+    .shield {
+      display: grid;
+      flex: 0 0 auto;
+      width: 44px;
+      height: 44px;
+      place-items: center;
+      border-radius: 13px;
+      background: var(--blue-soft);
+      color: var(--blue);
+    }
+
+    .shield svg { width: 22px; height: 22px; }
+
+    .verified {
+      display: flex;
+      min-height: 34px;
+      margin: 23px 0 12px;
+      align-items: center;
+      gap: 8px;
+      padding: 0 11px;
+      border: 1px solid #cbe7d8;
+      border-radius: 9px;
+      background: var(--green-soft);
+      color: #287d59;
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .verified svg { width: 15px; height: 15px; }
+
+    .identity {
+      display: flex;
+      min-height: 76px;
+      align-items: center;
+      gap: 13px;
+      padding: 13px 14px;
+      border: 1px solid var(--line-soft);
+      border-radius: 13px;
+      background: #f8fafc;
+    }
+
+    .avatar {
+      display: grid;
+      flex: 0 0 auto;
+      width: 43px;
+      height: 43px;
+      place-items: center;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #eaf5fc, #d6eaf7);
+      color: var(--blue-dark);
+      font-size: 14px;
+      font-weight: 900;
+    }
+
+    .identity-copy { flex: 1; min-width: 0; }
+
+    .identity-line { display: flex; align-items: center; gap: 7px; }
+
+    .identity-line strong { color: var(--ink); font-size: 14px; }
+
+    .branch-badge {
+      padding: 3px 7px;
+      border: 1px solid #cfe4f3;
+      border-radius: 999px;
+      background: var(--blue-soft);
+      color: var(--blue-dark);
+      font-size: 9px;
+      font-weight: 850;
+    }
+
+    .identity-copy small {
+      display: block;
+      overflow: hidden;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 10px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .identity-lock {
+      flex: 0 0 auto;
+      color: var(--muted-2);
+    }
+
+    .identity-lock svg { width: 15px; height: 15px; }
+
+    .field-label {
+      display: flex;
+      margin: 22px 0 9px;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .field-label span { color: var(--muted-2); font-size: 9px; font-weight: 700; }
+
+    .otp-row {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .otp {
+      width: 100%;
+      height: 52px;
+      border: 1px solid #cfdce6;
+      border-radius: 11px;
+      outline: 0;
+      background: #fff;
+      color: var(--ink);
+      text-align: center;
+      caret-color: var(--blue);
+      font-size: 20px;
+      font-weight: 850;
+      transition: border-color .15s, box-shadow .15s, transform .15s;
+    }
+
+    .otp:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(52, 142, 205, .11);
+      transform: translateY(-1px);
+    }
+
+    .otp-hint {
+      display: flex;
+      min-height: 30px;
+      margin-top: 8px;
+      align-items: flex-start;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.5;
+    }
+
+    .otp-hint svg { flex: 0 0 auto; width: 13px; height: 13px; margin-top: 1px; }
+
+    .primary {
+      display: flex;
+      width: 100%;
+      min-height: 47px;
+      margin-top: 13px;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: 0;
+      border-radius: 11px;
+      background: var(--blue);
+      color: #fff;
+      box-shadow: 0 8px 20px rgba(52, 142, 205, .22);
+      font-size: 13px;
+      font-weight: 850;
+      transition: background .15s, transform .15s;
+    }
+
+    .primary:hover { background: var(--blue-dark); transform: translateY(-1px); }
+
+    .primary svg { width: 16px; height: 16px; }
+
+    .secondary {
+      display: block;
+      width: 100%;
+      margin: 15px 0 0;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 750;
+      text-align: center;
+    }
+
+    .secondary:hover { color: var(--blue-dark); }
+
+    .card-footer {
+      margin: 20px -32px -25px;
+      padding: 14px 32px;
+      border-top: 1px solid var(--line-soft);
+      background: #fbfcfd;
+      color: var(--muted-2);
+      font-size: 9px;
+      line-height: 1.5;
+      text-align: center;
+    }
+
+    .success-panel {
+      display: none;
+      min-height: 480px;
+      place-items: center;
+      text-align: center;
+    }
+
+    .success-panel.show { display: grid; }
+    .success-panel.show + .form-panel { display: none; }
+
+    .success-icon {
+      display: grid;
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 18px;
+      place-items: center;
+      border-radius: 19px;
+      background: var(--green-soft);
+      color: var(--green);
+      box-shadow: 0 9px 24px rgba(47, 159, 112, .14);
+    }
+
+    .success-icon svg { width: 30px; height: 30px; }
+
+    .success-panel h2 { margin-bottom: 10px; }
+    .success-panel p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+
+    @media (max-width: 880px) {
+      .login-shell {
+        width: min(520px, calc(100% - 32px));
+        min-height: 0;
+        margin: 0 auto;
+        padding: 32px 0;
+        grid-template-columns: 1fr;
+        gap: 18px;
+      }
+      .security-flow { padding: 8px 22px 13px; }
+    }
+
+    @media (max-width: 560px) {
+      body { background: #f5f8fa; }
+      .login-shell { width: calc(100% - 24px); padding: 20px 0 24px; }
+      .security-flow { padding: 0 12px 4px; }
+      .flow-step { min-height: 62px; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 11px; }
+      .flow-icon { width: 36px; height: 36px; }
+      .flow-step:not(:last-child)::after { top: 43px; left: 17px; }
+      .flow-copy strong { font-size: 12px; }
+      .flow-copy small { font-size: 10px; }
+      .auth-card { padding: 25px 20px 21px; border-radius: 18px; }
+      .auth-card h2 { font-size: 22px; }
+      .card-copy { font-size: 11px; }
+      .shield { width: 40px; height: 40px; }
+      .verified { margin-top: 19px; font-size: 10px; }
+      .identity { min-height: 70px; padding: 11px; }
+      .avatar { width: 39px; height: 39px; }
+      .field-label { margin-top: 19px; }
+      .otp-row { gap: 6px; }
+      .otp { height: 48px; border-radius: 9px; font-size: 18px; }
+      .card-footer { margin: 18px -20px -21px; padding: 12px 20px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="login-shell">
+      <section class="security-flow" aria-label="로그인 진행 단계">
+        <div class="flow-step done">
+          <div class="flow-icon">✓</div>
+          <div class="flow-copy"><strong>Google 계정 확인</strong><small>브라우저 로그인 상태 자동 확인</small></div>
+          <span class="flow-status">완료</span>
+        </div>
+        <div class="flow-step active">
+          <div class="flow-icon">2</div>
+          <div class="flow-copy"><strong>PEAK OS 추가 인증</strong><small>인증 앱의 6자리 번호 입력</small></div>
+          <span class="flow-status">진행 중</span>
+        </div>
+        <div class="flow-step">
+          <div class="flow-icon">3</div>
+          <div class="flow-copy"><strong>소속·권한 확인</strong><small>본사·직급별 패널 자동 연결</small></div>
+          <span class="flow-status">다음</span>
+        </div>
+      </section>
+
+    <section class="auth-card" aria-label="PEAK OS 추가 인증">
+      <div class="success-panel" id="successPanel">
+        <div>
+          <div class="success-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m5 12 4 4L19 6"/></svg>
+          </div>
+          <div class="card-kicker">인증 완료</div>
+          <h2>김대호 부장님,<br>환영합니다</h2>
+          <p>본사 권한을 확인했습니다.<br>잠시 후 PEAK OS로 이동합니다.</p>
+        </div>
+      </div>
+
+      <div class="form-panel">
+        <div class="card-top">
+          <div>
+            <div class="card-kicker">2단계 · 추가 인증</div>
+            <h2>PEAK OS 인증</h2>
+            <p class="card-copy">회사 정보를 보호하기 위해<br>인증번호를 한 번 더 확인합니다.</p>
+          </div>
+          <div class="shield" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 5.5 5.7v5.5c0 4.2 2.7 7.7 6.5 9.8 3.8-2.1 6.5-5.6 6.5-9.8V5.7L12 3Z"/><path d="m9.2 12 1.8 1.8 3.9-4"/></svg>
+          </div>
+        </div>
+
+        <div class="verified">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></svg>
+          Google 회사 계정 확인이 완료되었습니다
+        </div>
+
+        <div class="identity">
+          <div class="avatar">김</div>
+          <div class="identity-copy">
+            <div class="identity-line"><strong>김대호 부장</strong><span class="branch-badge">본사</span></div>
+            <small>kim***@paragon-info.kr</small>
+          </div>
+          <div class="identity-lock" title="사내 등록 정보로 고정됩니다">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          </div>
+        </div>
+
+        <label class="field-label" for="otp1">인증번호 <span>6자리 숫자</span></label>
+        <div class="otp-row" id="otpRow">
+          <input class="otp" id="otp1" inputmode="numeric" maxlength="1" autocomplete="one-time-code" aria-label="인증번호 첫 번째 자리">
+          <input class="otp" inputmode="numeric" maxlength="1" aria-label="인증번호 두 번째 자리">
+          <input class="otp" inputmode="numeric" maxlength="1" aria-label="인증번호 세 번째 자리">
+          <input class="otp" inputmode="numeric" maxlength="1" aria-label="인증번호 네 번째 자리">
+          <input class="otp" inputmode="numeric" maxlength="1" aria-label="인증번호 다섯 번째 자리">
+          <input class="otp" inputmode="numeric" maxlength="1" aria-label="인증번호 여섯 번째 자리">
+        </div>
+        <div class="otp-hint">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+          최초 1회 QR 등록 후, 휴대폰 Google Authenticator의 PEAK OS 항목에 표시된 현재 번호를 입력해 주세요.
+        </div>
+
+        <button class="primary" id="verifyButton" type="button">
+          인증하고 PEAK OS 들어가기
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+        <button class="secondary" type="button">다른 Google 계정으로 로그인</button>
+
+        <div class="card-footer">이름·직급·소속은 사내 등록 정보이며 이 화면에서 변경할 수 없습니다.</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const inputs = Array.from(document.querySelectorAll('.otp'));
+    const verifyButton = document.getElementById('verifyButton');
+
+    inputs.forEach((input, index) => {
+      input.addEventListener('input', () => {
+        input.value = input.value.replace(/\D/g, '').slice(-1);
+        if (input.value && inputs[index + 1]) inputs[index + 1].focus();
+      });
+      input.addEventListener('keydown', event => {
+        if (event.key === 'Backspace' && !input.value && inputs[index - 1]) inputs[index - 1].focus();
+      });
+      input.addEventListener('paste', event => {
+        const digits = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+        if (!digits) return;
+        event.preventDefault();
+        digits.split('').forEach((digit, digitIndex) => { if (inputs[digitIndex]) inputs[digitIndex].value = digit; });
+        inputs[Math.min(digits.length, 6) - 1].focus();
+      });
+    });
+
+    verifyButton.addEventListener('click', () => {
+      if (inputs.some(input => !input.value)) {
+        inputs.find(input => !input.value)?.focus();
+        return;
+      }
+      document.getElementById('successPanel').classList.add('show');
+    });
+  </script>
+</body>
+</html>

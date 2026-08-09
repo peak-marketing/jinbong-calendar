@@ -8,10 +8,29 @@ e2e/test-results/
 
 # Runtime data and credentials
 uploads/
+.env
+.env.*
+!.env.example
+.peakos-secrets/
+*.pem
+*.key
+*.p12
+*.pfx
 server/*
 !server/index.js
 !server/package.json
 !server/package-lock.json
+!server/auth/
+!server/auth/**
+server/auth/*.env
+server/auth/*.secret.*
+!server/banking/
+!server/banking/**
+server/banking/*.env
+server/banking/*.secret.*
+!server/banking/*.env.example
+!server/migrations/
+!server/migrations/**
 
 # Local backups
 index.old.html

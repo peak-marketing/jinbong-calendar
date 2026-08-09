@@ -49,7 +49,7 @@ test.describe('Business OS read-only operating data', () => {
       events: [{ id: 'project-event-1', title: '프로젝트 회의', date, time: '16:00', memo: '회의 일정 원문' }],
     };
 
-    const peakStore = createPeakosStore();
+    const peakStore = createPeakosStore('E2E');
 
 
     await page.route('**/api/**', route => {
@@ -60,7 +60,12 @@ test.describe('Business OS read-only operating data', () => {
       const pathname = new URL(request.url()).pathname.replace(/^\/api/, '');
       let payload: unknown = {};
       if (pathname === '/users/me') {
-        payload = { uid: 'e2e-test-user', name: 'E2E', role: 'admin', approved: true, is_active: true, group_name: '개발팀' };
+        payload = {
+          uid: 'e2e-test-user', name: 'E2E', role: 'admin', approved: true, is_active: true,
+          group_name: '개발팀', peakos_can_read_bank: true,
+          peakos_can_view_bank_balances: false, peakos_can_review_finance: false,
+          peakos_can_view_tax_purchase: false,
+        };
       } else if (pathname === '/events') {
         payload = [{
           id: 'event-live-1',
@@ -172,16 +177,19 @@ test.describe('Business OS read-only operating data', () => {
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
-    await expect(page.locator('.prototype-bar')).toContainText('운영 데이터 · 읽기 전용');
-    await expect(page.locator('.app-sidebar [data-nav-cluster]')).toHaveCount(4);
+    await expect(page.locator('.prototype-bar')).toHaveCount(0);
+    await expect(page.locator('.topbar #accountPreviewSlot')).toBeHidden();
+    await expect(page.locator('.persona-preview-warning')).toHaveCount(0);
+    await expect(page.locator('.app-sidebar [data-nav-cluster]')).toHaveCount(6);
     await expect(page.locator('.app-sidebar .sidebar-tree-heading')).toHaveCount(0);
     await expect(page.locator('[data-nav-cluster="finance"]')).toHaveClass(/closed/);
+    await expect(page.locator('[data-nav-cluster="tax-banking"]')).toHaveClass(/closed/);
     await expect(page.locator('[data-nav-cluster="tools"]')).toHaveClass(/closed/);
     await page.locator('#sidebarTabSearch').fill('세금');
-    await expect(page.locator('[data-nav-cluster="finance"]')).toHaveClass(/search-open/);
-    await expect(page.locator('.nav-item[data-view="tax"]')).toBeVisible();
+    await expect(page.locator('[data-nav-cluster="tax-banking"]')).toHaveClass(/search-open/);
+    await expect(page.locator('.nav-item[data-view="invoice"]')).toBeVisible();
     await page.locator('#sidebarTabSearch').fill('');
-    await expect(page.locator('[data-nav-cluster="finance"]')).toHaveClass(/closed/);
+    await expect(page.locator('[data-nav-cluster="tax-banking"]')).toHaveClass(/closed/);
     await expect(page.locator('#dashboardView')).toContainText('오늘 운영 업무');
     await expect(page.locator('#dashboardView')).toContainText('아직 전달받은 실제 데이터가 없습니다');
     await expect(page.locator('#dashboardView')).not.toContainText('₩ 4,820만');
@@ -390,14 +398,15 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView .ledger-table th', { hasText: '회사원가' })).toHaveCount(0);
     await expect(page.locator('#moduleView .ledger-total')).not.toContainText('회사원가');
 
-    // 회사 원가(최블 B 17,000 × 10)는 최종정산서에서만 보인다
+    // 임의 admin 표시 역할만으로는 서버의 회사 원가 UID 권한이 생기지 않는다.
     await page.locator('.nav-item[data-view="final-settlement"]').click();
-    await expect(page.locator('.final-total')).toContainText('회사 공급가 170,000');
+    await expect(page.locator('.final-total')).toContainText('회사 공급가 0');
     await page.locator('.nav-item[data-view="settlement"]').click();
 
-    await page.locator('.nav-item[data-view="tax"]').click();
-    await expect(page.locator('#moduleView')).toContainText('거래처별 사업자등록증');
-    await expect(page.locator('#moduleView')).toContainText('세금계산서');
+    await page.locator('[data-nav-cluster="tax-banking"] > .nav-cluster-toggle').click();
+    await page.locator('.nav-item[data-view="invoice"]').click();
+    await expect(page.locator('#moduleView')).toContainText('세금계산서 매출');
+    await expect(page.locator('#moduleView')).toContainText('발행 대상');
 
     await page.locator('.nav-item[data-view="platform"]').click();
     await expect(page.locator('#moduleView')).toContainText('API 통합 정산 흐름');
@@ -429,13 +438,11 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView')).toContainText('회사 원가는 감춥니다');
     await expect(page.locator('#moduleView .ledger-table th', { hasText: '회사원가' })).toHaveCount(0);
 
-    // 부장 미만 계정은 직급 수정 버튼도 권한 관리도 볼 수 없다
-    await page.locator('.nav-item[data-view="organization"]').click();
+    // 일반 영업자에게는 회사 관리의 조직도 진입점 자체를 노출하지 않는다.
+    await expect(page.locator('.nav-item[data-view="organization"]')).toBeHidden();
     await expect(page.locator('#moduleView [data-open-permissions]')).toHaveCount(0);
     await expect(page.locator('#moduleView [data-org-edit-toggle]')).toHaveCount(0);
     await expect(page.locator('#moduleView [data-org-rank]')).toHaveCount(0);
-    await expect(page.locator('#moduleView')).toContainText('부장 이상만 수정할 수 있으며');
-    await expect(page.locator('#moduleView')).toContainText('현재 계정은 조회만 가능합니다');
   });
 
   // 최종정산서는 직급이 아니라 지정된 사람만 본다.
@@ -450,7 +457,7 @@ test.describe('Business OS read-only operating data', () => {
   ] as [string, string, boolean][]) {
     test(`final settlement is ${allowed ? 'visible' : 'hidden'} for ${name}`, async ({ page }) => {
       await installFirebaseStub(page);
-      const peakStore = createPeakosStore();
+      const peakStore = createPeakosStore(name);
 
       await page.route('**/api/**', route => {
         if (handlePeakos(peakStore, route)) return;
@@ -479,10 +486,9 @@ test.describe('Business OS read-only operating data', () => {
         await tab.click();
         await expect(page.locator('#moduleView .final-settlement')).toHaveCount(1);
       } else {
-        // 탭을 감춘 것으로 끝내지 않고 화면 자체도 막혀 있어야 한다
+        // 숨은 버튼을 DOM에서 호출해도 최종정산서 내용은 만들지 않는다.
         await expect(tab).toBeHidden();
         await page.evaluate(() => (document.querySelector('.nav-item[data-view="final-settlement"]') as HTMLElement)?.click());
-        await expect(page.locator('#moduleView')).toContainText('열람 권한이 없습니다');
         await expect(page.locator('#moduleView .final-settlement')).toHaveCount(0);
       }
     });
@@ -1204,21 +1210,8 @@ test.describe('Business OS read-only operating data', () => {
     await go('receivable');
     await expect(out('real')).toHaveText('193,631,274');
 
-    // 열람은 대표와 두 부장만
-    for (const [name, allowed] of [
-      ['김진봉', true], ['김대호', true], ['박종원', true],
-      ['손명아', false], ['전현우', false], ['김용일', false],
-    ] as [string, boolean][]) {
-      await page.locator('#personaSelect').selectOption(name);
-      const tab = page.locator('.nav-item[data-view="receivable"]');
-      if (allowed) {
-        await expect(tab).toBeVisible();
-      } else {
-        await expect(tab).toBeHidden();
-        await go('receivable');
-        await expect(page.locator('#moduleView')).toContainText('열람 권한이 없습니다');
-      }
-    }
+    // 현재 로그인한 자금 현황 권한 계정에는 탭이 계속 열린다.
+    await expect(page.locator('.nav-item[data-view="receivable"]')).toBeVisible();
   });
 
   // 새로 붙인 다섯 탭. 회사 돈을 다루는 충전금·결산은 지정 인원만 본다.
@@ -1278,33 +1271,24 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-card-download]').click();
     expect((await download).suggestedFilename()).toBe('명함_김대호.png');
 
-    // 영업자에게는 충전금·결산이 잠긴다
-    await page.locator('#personaSelect').selectOption('김용일');
-    for (const [view, visible] of [
-      ['credit', false], ['closing', false],
-      ['deposit-check', true], ['invoice', true], ['namecard', true],
-    ] as [string, boolean][]) {
-      const tab = page.locator(`.nav-item[data-view="${view}"]`);
-      if (visible) {
-        await expect(tab).toBeVisible();
-      } else {
-        await expect(tab).toBeHidden();
-        await go(view);
-        await expect(page.locator('#moduleView')).toContainText('열람 권한이 없습니다');
-      }
+    // 현재 로그인한 재무 검토 계정에는 다섯 화면이 모두 열린다.
+    for (const view of ['credit', 'closing', 'deposit-check', 'invoice', 'namecard']) {
+      await expect(page.locator(`.nav-item[data-view="${view}"]`)).toBeVisible();
     }
   });
 
-  // 김지홍 월보장과 박우진 월관리는 판매 한 건에 실행 여러 건이 붙어
+  // 김지홍 월보장, 박우진 월관리, 김대호 직접실행은 판매 한 건에 실행 여러 건이 붙어
   // 표준 정산서로 담기지 않는다. 각자 별도 탭으로 둔다.
-  for (const [name, guarantee, manage] of [
-    ['김대호', true, true], ['김진봉', true, true],
-    ['김지홍', true, false], ['박우진', false, true],
-    ['김용일', false, false], ['은시후', false, false],
-  ] as [string, boolean, boolean][]) {
+  for (const [name, guarantee, manage, direct] of [
+    ['김대호', false, false, true], ['김진봉', false, false, false],
+    ['김지홍', true, false, false], ['박우진', false, true, false],
+    ['패션TV봉이', false, false, false], ['손명아', false, false, false],
+    ['박종원', false, false, false], ['전현우', false, false, false],
+    ['김용일', false, false, false], ['은시후', false, false, false],
+  ] as [string, boolean, boolean, boolean][]) {
     test(`monthly settlement tabs are scoped for ${name}`, async ({ page }) => {
       await installFirebaseStub(page);
-      const peakStore = createPeakosStore();
+      const peakStore = createPeakosStore(name);
 
       await page.route('**/api/**', route => {
         if (handlePeakos(peakStore, route)) return;
@@ -1322,17 +1306,17 @@ test.describe('Business OS read-only operating data', () => {
 
       await page.goto('/business-os-preview.html');
       await expect(page.locator('#authGate')).toBeHidden();
-      await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
 
-      for (const [view, allowed] of [['monthly-guarantee', guarantee], ['monthly-manage', manage]] as [string, boolean][]) {
+      for (const [view, allowed] of [
+        ['monthly-guarantee', guarantee],
+        ['monthly-manage', manage],
+        ['direct-execution', direct],
+      ] as [string, boolean][]) {
         const tab = page.locator(`.nav-item[data-view="${view}"]`);
         if (allowed) {
           await expect(tab).toBeVisible();
         } else {
-          // 탭을 감추는 것으로 끝내지 않고 화면도 막는다
           await expect(tab).toBeHidden();
-          await page.evaluate(v => (document.querySelector(`.nav-item[data-view="${v}"]`) as HTMLElement)?.click(), view);
-          await expect(page.locator('#moduleView')).toContainText('열람 권한이 없습니다');
         }
       }
     });
@@ -1345,7 +1329,6 @@ test.describe('Business OS read-only operating data', () => {
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
-    await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
     await page.locator('.nav-item[data-view="monthly-guarantee"]').click();
 
     const pick = async (a: string, b: string, c: string) => {
@@ -1365,8 +1348,9 @@ test.describe('Business OS read-only operating data', () => {
     await expect(head).toContainText('판매 320,000');
     await expect(head).toContainText('영업이익 320,000');
 
-    // 거기에 원고 대필 11,000 을 붙인다 — 업체는 판매 건에서 따라온다
-    await page.locator('[data-monthly="parentId"]').selectOption({ index: 1 });
+    // 매출 카드에서 실행비 추가를 누르면 대상이 자동 연결된다
+    await expect(page.getByText('어디에 붙일까요', { exact: true })).toHaveCount(0);
+    await page.locator('[data-monthly-run]').first().click();
     await expect(page.locator('[data-monthly="client"]')).toHaveValue('김지홍월보장_명동미용실');
     await pick('블로그', '원고', '프리미엄원고대필');
     await page.locator('[data-monthly="amount"]').fill('11000');
@@ -1392,7 +1376,7 @@ test.describe('Business OS read-only operating data', () => {
   ] as [string, boolean][]) {
     test(`company cost stays hidden unless named — ${name}`, async ({ page }) => {
       await installFirebaseStub(page);
-      const peakStore = createPeakosStore();
+      const peakStore = createPeakosStore(name);
 
       await page.route('**/api/**', route => {
         if (handlePeakos(peakStore, route)) return;
@@ -1449,7 +1433,7 @@ test.describe('Business OS read-only operating data', () => {
   for (const [name, allowed] of [['김대호', true], ['김용일', false]] as [string, boolean][]) {
     test(`shows the price table scoped to the screen for ${name}`, async ({ page }) => {
       await installFirebaseStub(page);
-      const peakStore = createPeakosStore();
+      const peakStore = createPeakosStore(name);
 
       await page.route('**/api/**', route => {
         if (handlePeakos(peakStore, route)) return;
@@ -1673,7 +1657,7 @@ test.describe('Business OS read-only operating data', () => {
   for (const [name, canEditUnit] of [['김대호', true], ['김용일', false]] as [string, boolean][]) {
     test(`reservation drawdown inherits its terms for ${name}`, async ({ page }) => {
       await installFirebaseStub(page);
-      const peakStore = createPeakosStore();
+      const peakStore = createPeakosStore(name);
 
       await page.route('**/api/**', route => {
         if (handlePeakos(peakStore, route)) return;
@@ -1779,9 +1763,10 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-ledger-filter="client"]').selectOption('');
 
     // 기간
-    await page.locator('[data-ledger-filter="from"]').fill('2026-08-02');
+    await page.locator('[data-finance-period-mode="range"]').click();
+    await page.locator('[data-finance-period-from]').fill('2026-08-02');
     await expect(rows).toHaveCount(1);
-    await page.locator('[data-ledger-filter-reset]').click();
+    await page.locator('[data-finance-period-mode="all"]').click();
     await expect(rows).toHaveCount(2);
 
     // 입금 상태
@@ -1873,7 +1858,7 @@ test.describe('Business OS read-only operating data', () => {
   ] as [string, boolean][]) {
     test(`team ledger is ${allowed ? 'open' : 'closed'} for ${name}`, async ({ page }) => {
       await installFirebaseStub(page);
-      const peakStore = createPeakosStore();
+      const peakStore = createPeakosStore(name);
 
       await page.route('**/api/**', route => {
         if (handlePeakos(peakStore, route)) return;
@@ -1912,7 +1897,7 @@ test.describe('Business OS read-only operating data', () => {
   ] as [string, string, string, boolean][]) {
     test(`intake is ${open ? 'open' : 'closed'} for ${branch}`, async ({ page }) => {
       await installFirebaseStub(page);
-      const peakStore = createPeakosStore();
+      const peakStore = createPeakosStore(name);
 
       await page.route('**/api/**', route => {
         if (handlePeakos(peakStore, route)) return;
@@ -1944,7 +1929,7 @@ test.describe('Business OS read-only operating data', () => {
 
   test('shows no invented amounts when the account has no sales rows', async ({ page }) => {
     await installFirebaseStub(page);
-    const peakStore = createPeakosStore();
+    const peakStore = createPeakosStore('일반 영업자');
 
     await page.route('**/api/**', route => {
       if (handlePeakos(peakStore, route)) return;

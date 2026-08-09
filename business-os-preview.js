@@ -19,13 +19,37 @@
   const moduleView = document.getElementById('moduleView');
   const permissionsView = document.getElementById('permissionsView');
   const pageCrumb = document.getElementById('pageCrumb');
-  const prototypeBar = document.querySelector('.prototype-bar');
+  const accountPreviewSlot = document.getElementById('accountPreviewSlot');
   const toast = document.querySelector('.toast');
+  const OS_AUTH_SYNC_CHANNEL_NAME = 'peakos-os-auth-sync-v1';
+  const OS_AUTH_SYNC_STORAGE_KEY = 'peakos-os-auth-sync-event-v1';
+  const OS_AUTH_SYNC_MIN_INTERVAL_MS = 1500;
   let toastTimer = 0;
 
   let auth;
   let currentUser = null;
   let userDoc = null;
+  let osAuthRequestInFlight = false;
+  let osAuthVerifyInFlight = false;
+  let osAuthResendTimer = 0;
+  let osAuthResendUntil = 0;
+  let osAuthMaskedEmail = '';
+  let osAuthChallengeId = '';
+  let osAuthExpiresInSeconds = 300;
+  let osAuthSessionExpiryTimer = 0;
+  let osAuthExpired = false;
+  let osAuthHardNavigating = false;
+  let osAuthForceAccountChooser = false;
+  let osAuthSyncChannel = null;
+  let osAuthSyncPromise = null;
+  let osAuthSyncQueuedForce = false;
+  let osAuthLastSyncAt = 0;
+  let osAuthSessionCheckGeneration = 0;
+  let osAuthAccessGeneration = 0;
+  const osAuthSeenSignalIds = new Set();
+  const osAuthTabId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  let signedInLoadPromise = null;
+  let signedInLoadUid = '';
   let liveEvents = [];
   let liveChecklistSummary = {};
   let liveProjects = [];
@@ -48,11 +72,27 @@
   // 실제 로그인 계정. 미리보기로 다른 사람 화면을 볼 때 되돌릴 기준이 된다.
   let realUserDoc = null;
   let previewPersona = '';
-  let activeView = 'dashboard';
+  // 들어오자마자 캘린더가 뜨게 한다. 미완료 일을 잊지 않는 게 먼저다.
+  let activeView = 'calendar';
   // 시트접수 건. 아직 운영 DB에 쓰지 않고 브라우저에만 남는 초안이다.
   let intakeDraft = [];
-  let intakeForm = { a: '', b: '', c: '', unit: '', qty: '', sell: '', client: '', date: '', memo: '', kind: 'normal', refOf: '' };
-  let intakeFilter = { from: '', to: '', client: '', product: '', paid: '' };
+  let bankMatchReviewRows = [];
+  let intakeForm = { a: '', b: '', c: '', unit: '', qty: '', sell: '', client: '', expectedPayer: '', date: '', memo: '', kind: 'normal', refOf: '' };
+  let intakeFilter = { client: '', product: '', paid: '' };
+  // 재무·정산 탭은 같은 조회 기간을 공유한다. 개인정산서에서 8월을 고른 뒤
+  // 입금체크·통장·세금계산서로 이동해도 같은 기준으로 맞춰 볼 수 있다.
+  const FINANCE_PERIOD_VIEWS = [
+    'settlement', 'deposit-check', 'bank', 'invoice', 'credit', 'closing',
+    'tax-advance', 'tax-correction', 'refund-history', 'refund-client',
+    'refund-mistaken', 'refund-invoice', 'expense-ad', 'expense-supplies',
+    'purchase-fixed', 'purchase-supplier'
+  ];
+  let financePeriodFilter = {
+    mode: 'all',
+    month: koreaDateKey(new Date()).slice(0, 7),
+    from: '',
+    to: ''
+  };
   // 최종정산서는 담당자 정리용으로 따로 기간을 잡는다.
   let finalFilter = { from: '', to: '', manager: '' };
   // 접수 폼이 정산서/최종정산서 양쪽에 뜬다. 최종정산서에서 넣은 건은
@@ -68,6 +108,25 @@
   // 직급 수정은 아직 운영 DB에 쓰지 않는다. 브라우저에만 남는 초안이다.
   let orgRankDraft = {};
   let serviceFilter = 'all';
+  // 통장 원장은 권한이 있는 사용자가 탭을 처음 열 때만 읽는다.
+  // 계정 미리보기로 전환하면 메모리에서도 비워 민감한 재무자료가 남지 않게 한다.
+  let bankData = emptyBankData();
+  let bankLoadPromise = null;
+  let bankLoadGeneration = 0;
+  let bankSyncingAccountId = '';
+  let bankSelectedAccountId = '';
+  let bankPage = 1;
+  let financeRequestState = {
+    status: 'idle', requests: [], scope: 'mine', error: '', view: '', queryKey: '',
+    pagination: { page: 1, limit: 50, total: 0, totalPages: 0 }
+  };
+  let financeRequestLoadGeneration = 0;
+  let financeRequestForm = {};
+  let purchaseLedgerPage = 1;
+  let purchaseLedgerState = {
+    accountId: '', status: 'idle', account: null, transactions: [], error: '',
+    pagination: { page: 1, limit: 100, total: 0, totalPages: 0 }
+  };
   let serviceCatalog = [
     { id: 'brand-auto-space', icon: '💻', name: '브랜드오토스페이스', description: '프로그램 판매 사이트', category: 'sales', url: '' },
     { id: 'review-flow', icon: '🛒', name: '리뷰플로우', description: '영수증 리뷰 플랫폼', category: 'review', url: '' },
@@ -93,13 +152,28 @@
     services: '서비스',
     company: '회사 자료',
     organization: '조직도',
-    settlement: '정산서',
+    settlement: '개인 정산서',
     'final-settlement': '최종정산서',
-    'monthly-guarantee': '월보장 정산',
-    'monthly-manage': '월관리 정산',
+    'final-execution-settlement': '최종실행정산서',
+    'monthly-guarantee': '월보장 정산서',
+    'monthly-manage': '월관리 정산서',
+    'direct-execution': '직접실행 정산서',
+    ideas: '아이디어',
+    requests: '개발수정요청',
     'deposit-check': '입금체크',
+    bank: '통장별 거래내역',
     receivable: '미수금 현황',
-    invoice: '입금 및 세금계산서 발행요청',
+    invoice: '세금계산서 매출',
+    'tax-advance': '세금계산서 선발행 요청',
+    'tax-correction': '세금계산서 정정요청',
+    'refund-history': '환불내역',
+    'refund-client': '거래처환불',
+    'refund-mistaken': '오입금환불',
+    'refund-invoice': '환불 계산서 요청',
+    'expense-ad': '광고비 요청',
+    'expense-supplies': '비품 요청',
+    'purchase-fixed': '고정비용통장 매입',
+    'purchase-supplier': '공급처입금통장 매입',
     credit: '충전금',
     closing: '결산',
     namecard: '명함',
@@ -127,173 +201,9 @@
 
   // 최종정산서 '드롭다운 및 영업자 단가' 탭에서 옮긴 단가표.
   // [대분류, 중분류, 소분류, 회사원가, 영업자단가] — null은 상시변동(직접 입력)
-  const PRICE_TABLE = [
-    ['플레이스', '상위노출', '월보장', null, null],
-    ['플레이스', '상위노출', '건바이', null, null],
-    ['지식인', '상위노출', '월보장', null, null],
-    ['지식인', '상위노출', '건바이', null, null],
-    ['지식인', '배포', '단순배포', 3000, 3500],
-    ['자동완성', '자동완성', '월보장', 45000, 47000],
-    ['자동완성', '자동완성', '슬롯', 13000, 15000],
-    ['웹사이트', '웹사이트', '슬롯', 40000, 45000],
-    ['SNS', '영상제작', '영상제작', 70000, 75000],
-    ['상세페이지', '상세페이지 제작', '1000PX', 10000, 10000],
-    ['유튜브', '자동완성', '월보장', null, null],
-    ['유튜브', '자동완성', '슬롯', 35000, 35000],
-    ['유튜브', '상위노출', '월보장', null, null],
-    ['유튜브', '상위노출', '건바이', null, null],
-    ['리워드', '신규리워드', '트래픽', 20, 22],
-    ['리워드', 'Alpha', '트래픽', 21, 24],
-    ['리워드', '올데이', '트래픽', 21, 23],
-    ['리워드', '올데이 (쇼핑)', '트래픽', 18, 20],
-    ['리워드', '프리저', '트래픽', 18, 20],
-    ['리워드', '프리저', '저장하기', 27, 29],
-    ['리워드', '프리저', '스마트콜', 26, 28],
-    ['리워드', '파라곤 (쇼핑)', '트래픽', 22, 24],
-    ['리워드', '피크리워드', '트래픽', 18, 20],
-    ['리워드', '피크리워드', '저장하기', 27, 29],
-    ['리워드', '프리저 (쇼핑)', '트래픽', 19, 21],
-    ['리워드', 'BOOSTER', '트래픽', 32, 34],
-    ['리워드', 'BOOSTER Pro', '트래픽', 35, 35],
-    ['리워드', '포미션', '트래픽', 20, 22],
-    ['리워드', '포미션', '저장하기', 30, 32],
-    ['리워드', '포미션', '대행사 페이백', null, null],
-    ['리워드', '포미션', '찜', 50, 52],
-    ['리워드', '파라곤', '트래픽', 35, 36],
-    ['블로그', 'P01', '사진 1장', 300, 400],
-    ['블로그', 'P01', '사진 1장 247', 400, 500],
-    ['블로그', 'P01', '사진 3장', 400, 500],
-    ['블로그', 'P01', '사진 3장 247', 500, 600],
-    ['블로그', 'P01', 'AI 사진 3장 ', 400, 500],
-    ['블로그', 'P01', '유입형 사진 3장 247', 1150, 1200],
-    ['블로그', 'P01', '개별세팅옵션', 200, 200],
-    ['블로그', 'P01-A', '사진 3장 글자수 100~300', 700, 800],
-    ['블로그', 'P01-A', '사진 5장 글자수 300~500', 1100, 1200],
-    ['블로그', 'P01-A', '사진 10장 글자수 600~900', 1700, 1800],
-    ['블로그', 'P01-A', '사진 15장 글자수 1000~1200', 2500, 2500],
-    ['블로그', 'P01-A', '개별세팅옵션', 200, 200],
-    ['블로그', 'P01-A', '24옵션', 100, 100],
-    ['블로그', 'P01-A', '준최 3', 6000, 6500],
-    ['블로그', 'P02', '일반~준최5 이미지 7장 700', 1000, 1000],
-    ['블로그', 'P02', '준최2~준최5 이미지 5장 500', 1100, 1100],
-    ['블로그', 'P02', '준최2~준최5 이미지 7장 700', 1500, 1500],
-    ['블로그', 'P02', '준최2~준최5 이미지 10장 1000', 1900, 1900],
-    ['블로그', 'P02', '준최4~준최7 이미지 20장 2000', 3000, 3000],
-    ['블로그', 'P02', '준최 4 원고세팅', 4000, 6000],
-    ['블로그', 'P02', '수정/삭제비', 500, 500],
-    ['블로그', 'P0B', '실계정 준최 4', 2000, 2000],
-    ['블로그', 'P0B', '프리미엄 배포(원고 및 사진 지정)', 1000, 1000],
-    ['블로그', 'P0B', '실계정 준최2~4 배포(사진10장)', 800, 800],
-    ['블로그', 'P0B', '실계정 준최2~4 배포(사진5장)', 650, 650],
-    ['블로그', 'P0B', '실계정 준최2~4 배포(사진3장)', 550, 550],
-    ['블로그', 'P0B', '실계정 준최2~4 배포(사진1장)', 500, 500],
-    ['블로그', 'AI 파라곤', '일반배포', 120, 120],
-    ['블로그', 'AI 파라곤', '프리미엄 이미지 생성', 170, 170],
-    ['블로그', 'P03', '준최 4~6 원고세팅', 10000, 11000],
-    ['블로그', 'P03-A', '준최 4~6 원고세팅', 8000, 8000],
-    ['블로그', '최적화블로그', '최블A+', 17000, 19000],
-    ['블로그', '최적화블로그', '최블 B', 17000, 19000],
-    ['블로그', '최적화블로그', '최블 C', 23000, 25000],
-    ['블로그', '최적화블로그', '최블 D', 38000, 40000],
-    ['블로그', '원고', '대필프로그램', 500, 700],
-    ['블로그', '원고', '외주대필', 2000, 3000],
-    ['블로그', '원고', '프리미엄원고대필', 10000, 11000],
-    ['블로그', '파라곤', '247.0', 150, 180],
-    ['블로그', '파라곤', '25.0', 100, 130],
-    ['블로그', '스페이스', '[일반] 1장 일반', 300, 300],
-    ['블로그', '스페이스', '[일반] 3장 일반', 300, 300],
-    ['블로그', '스페이스', '[일반] 7장 일반', 400, 400],
-    ['블로그', '스페이스', '[일반] 1장 프리미엄', 400, 400],
-    ['블로그', '스페이스', '[일반] 3장 프리미엄', 400, 400],
-    ['블로그', '스페이스', '[일반] 7장 프리미엄', 500, 500],
-    ['블로그', '스페이스', '[올인원] 1장 일반', 350, 350],
-    ['블로그', '스페이스', '[올인원] 3장 일반', 350, 350],
-    ['블로그', '스페이스', '[올인원] 7장 일반', 450, 450],
-    ['블로그', '스페이스', '[올인원] 1장 프리미엄', 450, 450],
-    ['블로그', '스페이스', '[올인원] 3장 프리미엄', 450, 450],
-    ['블로그', '스페이스', '[올인원] 7장 프리미엄', 550, 550],
-    ['블로그', '스페이스', '[247] 1장 일반', 400, 400],
-    ['블로그', '스페이스', '[247] 3장 일반', 400, 400],
-    ['블로그', '스페이스', '[247] 7장 일반', 500, 500],
-    ['블로그', '스페이스', '[247] 1장 프리미엄', 500, 500],
-    ['블로그', '스페이스', '[247] 3장 프리미엄', 500, 500],
-    ['블로그', '스페이스', '[247] 7장 프리미엄', 600, 600],
-    ['블로그', 'HP', '247.0', 300, 350],
-    ['블로그', 'HP', '25.0', 180, 200],
-    ['블로그', '저인망', '준최 2', 900, 1000],
-    ['블로그', '저인망', '준최 4 ', 1200, 1300],
-    ['리뷰', 'ReviewFlow', '충전금', null, null],
-    ['리뷰', '플레이스', 'A/S ReceiptNote', 400, 600],
-    ['리뷰', '플레이스', 'A/S 영수증리뷰', 800, 900],
-    ['리뷰', '플레이스', 'ReceiptNote', 400, 600],
-    ['리뷰', '플레이스', 'N 영수증리뷰', 500, 600],
-    ['리뷰', '플레이스', '영수증리뷰', 800, 900],
-    ['리뷰', '플레이스', '예약자리뷰', 1300, 1400],
-    ['리뷰', '카카오', '카카오맵리뷰', 500, 600],
-    ['리뷰', '카카오', '카카오맵리뷰 원고요청', 600, 700],
-    ['리뷰', 'T맵', 'T맵리뷰', 1500, 1600],
-    ['리뷰', '구글', '구글리뷰', 1800, 2000],
-    ['리뷰', '구글', '개별옵션', 200, 200],
-    ['리뷰', '리뷰삭제', '빠른삭제', 35000, 37000],
-    ['리뷰', '리뷰삭제', '일반삭제', 25000, 27000],
-    ['리뷰', '클립리뷰', '25초내 영상형', 1800, 1900],
-    ['리뷰', '클립리뷰', '10장 내 슬라이드형', 1800, 1900],
-    ['리뷰', '캐치테이블', '캐치테이블리뷰', 3000, 3500],
-    ['리뷰', '원고', '대필프로그램', 70, 70],
-    ['카페', '맘카페', '단순배포', 6500, 7000],
-    ['카페', '맘카페', '댓글작업', 1500, 1500],
-    ['카페', '핫딜', '커뮤니티', null, null],
-    ['인스타그램', '기자단', '단순배포', 10000, 12000],
-    ['네이버 쇼핑', '가구매', '기자단', 1500, 1500],
-    ['네이버 쇼핑', '가구매', '택배대행비', 1900, 1900],
-    ['네이버 쇼핑', '스토어', '알림받기', 29, 31],
-    ['네이버 쇼핑', '스토어', '찜', 29, 31],
-    ['쿠팡', '쓰나미', '트래픽', 24000, 24000],
-    ['쿠팡', 'MAX', '트래픽', 400, 417],
-    ['쿠팡', '업팡', '트래픽', 670, 700],
-    ['쿠팡', '가구매', '기자단', 1500, 1500],
-    ['쿠팡', '가구매', '택배대행비', 1900, 1900],
-    ['쿠팡', '가구매', '물품비', null, null],
-    ['쿠팡2', '가구매2', '기자단2', 800, 900],
-    ['쿠팡2', '가구매2', '택배대행비2', 1800, 1900],
-    ['쿠팡2', '가구매2', '물품비', null, null],
-    ['중화권마케팅', '샤오홍슈', '프리미엄', 58000, 63000],
-    ['중화권마케팅', '샤오홍슈', '스탠다드', 20000, 25000],
-    ['중화권마케팅', '샤오홍슈', '부띠끄', 20000, 25000],
-    ['크몽작업', '수수료', '크몽 수수료', null, null],
-    ['피크마케팅 상품', '상품', 'DB 프로그램', 20000, 20000],
-    ['피크마케팅 상품', '상품', 'UI 최초사용료', 18000, 18000],
-    ['피크마케팅 상품', '상품', '도메인 구입비', 18000, 18000],
-    ['피크마케팅 상품', '상품', '스냅촬영', null, null],
-    ['브랜드블로그', '베이직', '타입 A', 100000, 100000],
-    ['브랜드블로그', '베이직', '타입 B', 150000, 150000],
-    ['브랜드블로그', '스탠다드', '타입 A', 200000, 200000],
-    ['브랜드블로그', '스탠다드', '타입 B', 300000, 300000],
-    ['브랜드블로그', '스탠다드', '타입 C', 400000, 400000],
-    ['브랜드블로그', '프리미엄', '타입 A', 280000, 280000],
-    ['브랜드블로그', '프리미엄', '타입 B', 450000, 450000],
-    ['브랜드블로그', '프리미엄', '타입 C', 550000, 550000],
-    ['브랜드블로그', '옵션', '일반 대문이미지', 100000, 100000],
-    ['브랜드블로그', '옵션', '홈페이지형 대문이미지', 200000, 200000],
-    ['브랜드블로그', '옵션', '프리미엄포스팅 5건 변경', 100000, 100000],
-    ['브랜드블로그', '옵션', '대문에서 홈페이지형 변경', 80000, 80000],
-    ['당근', '리뷰', '비즈후기', 2000, 2200],
-    ['당근', '찜', '찜', 200, 220],
-    ['당근', '단골맺기', '단골맺기', 200, 220],
-    ['당근', '동네생활', '단순배포', 6500, 7000],
-    ['블로그', '브랜드블로그', '신규 스타터 입문형', 150000, 150000],
-    ['블로그', '브랜드블로그', '신규 베이직 육성형', 290000, 290000],
-    ['블로그', '브랜드블로그', '신규 프리미엄 육성형', 420000, 420000],
-    ['블로그', '브랜드블로그', '신규 올인원 집중관리형', 570000, 570000],
-    ['블로그', '브랜드블로그', '연장 스타터 입문형', 90000, 90000],
-    ['블로그', '브랜드블로그', '연장 베이직 육성형', 250000, 250000],
-    ['블로그', '브랜드블로그', '연장 프리미엄 육성형', 350000, 350000],
-    ['블로그', '브랜드블로그', '연장 올인원 집중관리형', 420000, 420000],
-    ['블로그', '브랜드블로그', '빠른 서로이웃', 25000, 25000],
-    ['블로그', '브랜드블로그', '빠른 이웃', 15000, 15000],
-    ['블로그', '브랜드블로그', '포스팅 반응활성화', 2000, 2000],
-    ['블로그', '브랜드블로그', '카카오톡 채널 친구추가', 12000, 12000]
-  ];
+  // 단가표는 서버가 들고 있다. 회사 원가는 지정된 인원에게만 내려온다.
+  // 화면 파일에 박아 두면 로그인 없이도 읽히므로 여기에 값을 두지 않는다.
+  let PRICE_TABLE = [];
 
   // 돈이 오가는 통장. 공급사 정산에서 어느 통장으로 보냈는지 남긴다.
   const BANK_ACCOUNTS = ['매출통장', '공급처통장', '고정비용통장', '리워드스페이스통장', '리뷰스페이스통장'];
@@ -392,18 +302,76 @@
   // 같은 팀장이라도 전현우는 보고 김지홍은 보지 못한다.
   // 대표 계정은 구글 표시이름이 '패션TV봉이'라 실명과 함께 넣어 둔다.
   const FINAL_SETTLEMENT_VIEWERS = ['김진봉', '패션TV봉이', '손명아', '김대호', '박종원', '전현우'];
+  const FINAL_EXECUTION_SETTLEMENT_VIEWERS = ['패션TV봉이', '박종원', '김대호', '손명아'];
 
   // 운영 파라곤에 이미 있는 화면. 영업자들에게는 여기까지만 보인다.
   // PEAK OS로 새로 만든 화면은 아직 검토 중이라 지정 인원에게만 연다.
-  const LIVE_PARAGON_VIEWS = ['dashboard', 'calendar', 'chat', 'todo', 'review'];
+  const LIVE_PARAGON_VIEWS = ['dashboard', 'calendar', 'chat', 'todo', 'review', 'ideas', 'requests'];
+  const SALES_OPERATION_VIEWS = ['settlement', 'deposit-check'];
+  const SPECIAL_SETTLEMENT_OWNERS = ['김지홍', '박우진', '김대호'];
 
   function canSeePeakosTabs() {
+    // 대표 계정은 미리보기 중에도 화면을 열 수 있어야 각자 정산서를 확인할 수 있다.
+    if (previewPersona && canPreviewRealData()) return true;
     if (userDoc?.role === 'admin') return true;
     return FINAL_SETTLEMENT_VIEWERS.includes(String(userDoc?.name || '').trim());
   }
 
+  function canSeeSalesOperations() {
+    if (userDoc?.role === 'admin') return true;
+    if (FINAL_SETTLEMENT_VIEWERS.includes(String(userDoc?.name || '').trim())) return true;
+    if (SPECIAL_SETTLEMENT_OWNERS.includes(String(userDoc?.name || '').trim())) return true;
+    if (String(userDoc?.group_type || '').trim() === 'sales') return true;
+    return /영업|지사/.test(String(userDoc?.group_name || ''));
+  }
+
   // 하위 영업자의 개인정산서를 열어볼 수 있는 사람.
   const TEAM_SETTLEMENT_VIEWERS = ['김진봉', '패션TV봉이', '김대호', '박종원'];
+  // 계정 미리보기 UI와 다른 사람 접수 조회를 쓸 수 있는 실제 로그인 계정.
+  // 직급이나 admin 역할로 넓히지 않고 이 세 계정으로만 고정한다.
+  const ACCOUNT_PREVIEW_VIEWERS = ['패션TV봉이', '박종원', '김대호'];
+
+  // 충전 요청 전체 검토자는 통장 잔액/민감 통장 권한과 같은 네 명으로
+  // 고정한다. role=admin만으로 넓어지지 않으며 서버에서도 UID로 재검증한다.
+  const CREDIT_REQUEST_REVIEWERS = ['패션TV봉이', '박종원', '김대호', '손명아'];
+  const FINANCE_REQUEST_VIEWS = [
+    'tax-advance', 'tax-correction', 'refund-history', 'refund-client',
+    'refund-mistaken', 'refund-invoice', 'expense-ad', 'expense-supplies'
+  ];
+  const TAX_BANKING_PUBLIC_VIEWS = ['bank', 'invoice', ...FINANCE_REQUEST_VIEWS];
+  const PURCHASE_TAX_VIEWS = ['purchase-fixed', 'purchase-supplier'];
+  const FINANCE_REQUEST_CONFIG = {
+    'tax-advance': {
+      kind: 'TAX_ADVANCE', title: '세금계산서 선발행 요청', action: '선발행 요청 등록',
+      description: '입금 전에 계산서를 먼저 발행해야 하는 신규·기존 거래처 요청을 등록합니다.',
+      requiresBusiness: true, requiresEmail: true, requiresPayee: false
+    },
+    'tax-correction': {
+      kind: 'TAX_CORRECTION', title: '세금계산서 정정요청', action: '정정요청 등록',
+      description: '사업자·이메일·품목·금액 등 이미 발행된 계산서의 변경 요청을 등록합니다.',
+      requiresBusiness: true, requiresEmail: true, requiresPayee: false
+    },
+    'refund-client': {
+      kind: 'REFUND_CLIENT', title: '거래처환불', action: '거래처환불 요청',
+      description: '거래처에 돌려줄 금액과 환불계좌, 사유와 증빙을 등록합니다.',
+      requiresBusiness: false, requiresEmail: false, requiresPayee: true, refund: true
+    },
+    'refund-mistaken': {
+      kind: 'REFUND_MISTAKEN', title: '오입금환불', action: '오입금환불 요청',
+      description: '잘못 입금된 통장과 입금 시각을 확인할 수 있도록 정확한 사유와 증빙을 등록합니다.',
+      requiresBusiness: false, requiresEmail: false, requiresPayee: true, refund: true
+    },
+    'expense-ad': {
+      kind: 'EXPENSE_AD', title: '광고비 요청', action: '광고비 요청 등록',
+      description: '커뮤니티·플랫폼 광고 충전금과 결제 증빙을 회사 비용으로 요청합니다.',
+      requiresBusiness: false, requiresEmail: false, requiresPayee: true
+    },
+    'expense-supplies': {
+      kind: 'EXPENSE_SUPPLIES', title: '비품 요청', action: '비품 요청 등록',
+      description: '업무 비품과 복리후생 구매 목적·금액·구매처를 등록합니다.',
+      requiresBusiness: false, requiresEmail: false, requiresPayee: false
+    }
+  };
 
   // 직급은 위에서 아래로 높은 순. 권한 관리는 부장 이상만 가능하다.
   const ORG_RANKS = ['대표', '이사', '부장', '실장', '팀장', '과장', '대리', '주임'];
@@ -511,6 +479,17 @@
     ].join('-');
   }
 
+  function koreaDateKey(date) {
+    const value = date instanceof Date ? date : new Date(date);
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(value).reduce((result, part) => {
+      if (part.type !== 'literal') result[part.type] = part.value;
+      return result;
+    }, {});
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  }
+
   function formatDate(value, options = {}) {
     if (!value) return '';
     const date = new Date(String(value).length === 10 ? value + 'T00:00:00' : value);
@@ -546,6 +525,309 @@
     const gate = document.createElement('section');
     gate.className = 'auth-gate';
     gate.id = 'authGate';
+    body.append(gate);
+    if (isOsRoute()) renderOsGoogleGate({ checking: true });
+    else renderLegacyGoogleGate();
+  }
+
+  function isOsRoute(pathname = window.location.pathname) {
+    return /^\/os(?:\/|$)/.test(String(pathname || ''));
+  }
+
+  function isOsLoginRoute(pathname = window.location.pathname) {
+    return /^\/os\/login\/?$/.test(String(pathname || ''));
+  }
+
+  function safeOsNext(rawValue = '') {
+    const fallback = '/os/';
+    if (!rawValue) return fallback;
+    try {
+      const target = new URL(String(rawValue), window.location.origin);
+      if (target.origin !== window.location.origin) return fallback;
+      if (!/^\/os(?:\/|$)/.test(target.pathname) || isOsLoginRoute(target.pathname)) return fallback;
+      return target.pathname + target.search + target.hash;
+    } catch (error) {
+      return fallback;
+    }
+  }
+
+  function osNextFromLocation() {
+    return safeOsNext(new URLSearchParams(window.location.search).get('next') || '');
+  }
+
+  function osLoginUrlForCurrentPage(reason = '') {
+    const currentPath = window.location.pathname + window.location.search + window.location.hash;
+    const next = isOsLoginRoute() ? osNextFromLocation() : safeOsNext(currentPath);
+    return `/os/login?next=${encodeURIComponent(next)}${reason ? `&reason=${encodeURIComponent(reason)}` : ''}`;
+  }
+
+  function osLoginReasonMessage() {
+    return new URLSearchParams(window.location.search).get('reason') === 'session-expired'
+      ? '추가 인증 시간이 만료되었습니다. 이메일 인증을 다시 진행해 주세요.'
+      : '';
+  }
+
+  function moveToOsLogin() {
+    if (isOsLoginRoute()) return;
+    window.history.replaceState({ peakOsAuth: true }, '', osLoginUrlForCurrentPage());
+  }
+
+  function moveToOsDestination() {
+    const next = osNextFromLocation();
+    window.history.replaceState({ peakOsAuth: true }, '', next);
+  }
+
+  function clearOsAuthTimer() {
+    if (osAuthResendTimer) window.clearInterval(osAuthResendTimer);
+    osAuthResendTimer = 0;
+    osAuthResendUntil = 0;
+  }
+
+  function clearOsSessionExpiryTimer() {
+    if (osAuthSessionExpiryTimer) window.clearTimeout(osAuthSessionExpiryTimer);
+    osAuthSessionExpiryTimer = 0;
+  }
+
+  function lockOsAfterSessionExpiry() {
+    if (!isOsRoute() || !currentUser || osAuthHardNavigating) return;
+    osAuthHardNavigating = true;
+    clearOsSessionExpiryTimer();
+    clearOsAuthTimer();
+    osAuthSessionCheckGeneration += 1;
+    osAuthAccessGeneration += 1;
+    osAuthExpired = true;
+    osAuthChallengeId = '';
+    resetBankData({ clearOperation: true });
+    bankMatchReviewRows = [];
+    if (activeView === 'bank') moduleView.innerHTML = '';
+    signedInLoadPromise = null;
+    signedInLoadUid = '';
+    // 사용 중 세션이 끊긴 경우는 overlay만 올리지 않는다.
+    // 전체 document를 버려야 DOM과 JS heap에 남은 통장·정산 자료도 같이 사라진다.
+    window.location.replace(osLoginUrlForCurrentPage('session-expired'));
+  }
+
+  function scheduleOsSessionExpiry(seconds) {
+    clearOsSessionExpiryTimer();
+    const ttl = Number(seconds);
+    if (!Number.isFinite(ttl) || ttl <= 0) return;
+    osAuthSessionExpiryTimer = window.setTimeout(
+      () => lockOsAfterSessionExpiry(),
+      Math.min(ttl * 1000, 2147483647)
+    );
+  }
+
+  function broadcastOsAuthState(type) {
+    if (!isOsRoute() || !['verified', 'logout'].includes(type)) return;
+    // 탭 사이에는 세션·인증번호를 절대 전달하지 않는다. 이 값은 각 탭이
+    // 서버 상태를 다시 조회하게 만드는 알림일 뿐이다.
+    const signal = {
+      type,
+      source: osAuthTabId,
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
+      at: Date.now()
+    };
+    try { osAuthSyncChannel?.postMessage(signal); } catch (_) {}
+    try { window.localStorage.setItem(OS_AUTH_SYNC_STORAGE_KEY, JSON.stringify(signal)); } catch (_) {}
+  }
+
+  function validOsAuthSignal(value) {
+    return value
+      && value.source !== osAuthTabId
+      && ['verified', 'logout'].includes(value.type)
+      && typeof value.id === 'string'
+      && value.id.length > 0
+      && value.id.length <= 100
+      && Number.isFinite(Number(value.at))
+      && Math.abs(Date.now() - Number(value.at)) < 60_000;
+  }
+
+  async function revalidateOsAuthSession({ force = false, lockOnFailure = true } = {}) {
+    if (!isOsRoute() || !currentUser || !userDoc || osAuthHardNavigating) return null;
+    if (osAuthSyncPromise) {
+      if (force) {
+        // 쿠키 발급 직전 시작된 조회라면 그 결과를 폐기하고, 끝나는 즉시
+        // 새 쿠키로 한 번 더 조회한다.
+        osAuthSyncQueuedForce = true;
+        osAuthSessionCheckGeneration += 1;
+      }
+      return osAuthSyncPromise;
+    }
+    const checkedAt = Date.now();
+    if (!force && checkedAt - osAuthLastSyncAt < OS_AUTH_SYNC_MIN_INTERVAL_MS) {
+      return null;
+    }
+    osAuthLastSyncAt = checkedAt;
+    const expectedUid = currentUser.uid;
+    const checkGeneration = ++osAuthSessionCheckGeneration;
+    const syncPromise = (async () => {
+      let session;
+      try {
+        session = await readOnlyApi('/os-auth/session');
+      } catch (error) {
+        if (error.status === 401
+          && ['OS_AUTH_SESSION_REQUIRED', 'OS_AUTH_SESSION_INVALID'].includes(error.code)) {
+          session = error.payload || { required: true, verified: false };
+        } else {
+          // 통신 장애를 로그아웃으로 오인하면 사용 중인 화면이 불필요하게 잠긴다.
+          console.warn('PEAK OS 탭 인증 상태 재확인 실패:', error.message);
+          return null;
+        }
+      }
+      if (!currentUser
+        || currentUser.uid !== expectedUid
+        || osAuthHardNavigating
+        || checkGeneration !== osAuthSessionCheckGeneration) return null;
+
+      osAuthMaskedEmail = String(session?.user?.maskedEmail || session?.maskedEmail || osAuthMaskedEmail || '');
+      const verified = session?.required === false || hasOsAuthSession(session);
+      if (!verified) {
+        clearOsSessionExpiryTimer();
+        if (!osAuthExpired) osAuthAccessGeneration += 1;
+        osAuthExpired = true;
+        const gate = document.getElementById('authGate');
+        if (lockOnFailure && gate?.hidden) {
+          lockOsAfterSessionExpiry();
+        } else {
+          moveToOsLogin();
+          // 이미 번호 입력 화면에 있다면 탭 복귀 때 입력값을 지우지 않는다.
+          if (!gate?.querySelector('.os-auth-card')) {
+            renderOsEmailGate({ message: osLoginReasonMessage() });
+          }
+        }
+        return false;
+      }
+
+      if (osAuthExpired) osAuthAccessGeneration += 1;
+      osAuthExpired = false;
+      osAuthHardNavigating = false;
+      if (session.required === true) scheduleOsSessionExpiry(session?.expiresInSeconds);
+      else clearOsSessionExpiryTimer();
+      const gate = document.getElementById('authGate');
+      if (isOsLoginRoute()) moveToOsDestination();
+      if (gate && !gate.hidden) {
+        renderOsAuthSuccess();
+        try {
+          await finishSignedInApp();
+        } catch (error) {
+          if (!osAuthHardNavigating) {
+            moveToOsLogin();
+            renderOsEmailGate({ message: error.message || '인증 상태를 확인하지 못했습니다.', isError: true });
+          }
+          return false;
+        }
+        if (!osAuthExpired && currentUser?.uid === expectedUid) gate.hidden = true;
+      }
+      return true;
+    })();
+    osAuthSyncPromise = syncPromise;
+    try {
+      return await syncPromise;
+    } finally {
+      if (osAuthSyncPromise === syncPromise) {
+        const rerun = osAuthSyncQueuedForce && !osAuthHardNavigating;
+        osAuthSyncQueuedForce = false;
+        osAuthSyncPromise = null;
+        if (rerun) {
+          Promise.resolve()
+            .then(() => revalidateOsAuthSession({ force: true, lockOnFailure }))
+            .catch(error => console.warn('PEAK OS 탭 인증 재조회 실패:', error.message));
+        }
+      }
+    }
+  }
+
+  function handleOsAuthSignal(signal) {
+    if (!validOsAuthSignal(signal)) return;
+    if (osAuthSeenSignalIds.has(signal.id)) return;
+    if (osAuthSeenSignalIds.size >= 100) osAuthSeenSignalIds.clear();
+    osAuthSeenSignalIds.add(signal.id);
+    revalidateOsAuthSession({ force: true, lockOnFailure: true })
+      .catch(error => console.warn('PEAK OS 탭 인증 동기화 실패:', error.message));
+  }
+
+  function initializeOsAuthTabSync() {
+    if (!isOsRoute()) return;
+    if (typeof window.BroadcastChannel === 'function') {
+      try {
+        osAuthSyncChannel = new window.BroadcastChannel(OS_AUTH_SYNC_CHANNEL_NAME);
+        osAuthSyncChannel.addEventListener('message', event => handleOsAuthSignal(event.data));
+      } catch (_) {
+        osAuthSyncChannel = null;
+      }
+    }
+    window.addEventListener('storage', event => {
+      if (event.key !== OS_AUTH_SYNC_STORAGE_KEY || !event.newValue) return;
+      try { handleOsAuthSignal(JSON.parse(event.newValue)); } catch (_) {}
+    });
+    window.addEventListener('focus', () => {
+      revalidateOsAuthSession({ force: true, lockOnFailure: true })
+        .catch(error => console.warn('PEAK OS 포커스 인증 확인 실패:', error.message));
+    });
+    window.addEventListener('pageshow', () => {
+      revalidateOsAuthSession({ lockOnFailure: true })
+        .catch(error => console.warn('PEAK OS 페이지 복귀 인증 확인 실패:', error.message));
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        revalidateOsAuthSession({ lockOnFailure: true })
+          .catch(error => console.warn('PEAK OS 탭 복귀 인증 확인 실패:', error.message));
+      }
+    });
+  }
+
+  function maskEmail(value) {
+    const email = String(value || '').trim();
+    const at = email.indexOf('@');
+    if (at < 1) return email || '등록 이메일';
+    const local = email.slice(0, at);
+    const shown = local.slice(0, Math.min(3, Math.max(1, local.length - 1)));
+    return `${shown}***${email.slice(at)}`;
+  }
+
+  function osIdentity() {
+    const fallbackName = currentUser?.displayName || currentUser?.email || '';
+    const identity = accountIdentity(userDoc, fallbackName);
+    const email = osAuthMaskedEmail || maskEmail(userDoc?.email || currentUser?.email || '');
+    return { ...identity, email, initial: identity.name.slice(0, 1) || 'P' };
+  }
+
+  function osAuthProgressMarkup(stage) {
+    const googleDone = stage !== 'google' && stage !== 'checking';
+    const otpDone = stage === 'success' || stage === 'access';
+    const accessDone = stage === 'access';
+    const row = (number, title, copy, state, status) => `
+      <div class="os-auth-step ${state}">
+        <div class="os-auth-step-icon">${state === 'done' ? '✓' : number}</div>
+        <div class="os-auth-step-copy"><strong>${title}</strong><small>${copy}</small></div>
+        <span class="os-auth-step-status">${status}</span>
+      </div>`;
+    return `
+      <section class="os-auth-progress" aria-label="로그인 진행 단계">
+        ${row(1, 'Google 계정 확인', '브라우저 로그인 상태 자동 확인', googleDone ? 'done' : 'active', googleDone ? '완료' : '확인 중')}
+        ${row(2, 'PEAK OS 추가 인증', '등록 이메일의 6자리 번호 입력', otpDone ? 'done' : (googleDone ? 'active' : ''), otpDone ? '완료' : (googleDone ? '진행 중' : '다음'))}
+        ${row(3, '소속·권한 확인', '본사·직급별 패널 자동 연결', accessDone ? 'done' : (stage === 'success' ? 'active' : ''), accessDone ? '완료' : (stage === 'success' ? '확인 중' : '다음'))}
+      </section>`;
+  }
+
+  function osAuthShieldMarkup() {
+    return `<div class="os-auth-shield" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 5.5 5.7v5.5c0 4.2 2.7 7.7 6.5 9.8 3.8-2.1 6.5-5.6 6.5-9.8V5.7L12 3Z"/><path d="m9.2 12 1.8 1.8 3.9-4"/></svg>
+    </div>`;
+  }
+
+  function osAuthShell(cardMarkup, stage) {
+    const gate = document.getElementById('authGate');
+    if (!gate) return;
+    gate.hidden = false;
+    gate.classList.add('os-auth-mode');
+    gate.innerHTML = `<main class="os-auth-shell">${osAuthProgressMarkup(stage)}${cardMarkup}</main>`;
+  }
+
+  function renderLegacyGoogleGate() {
+    const gate = document.getElementById('authGate');
+    if (!gate) return;
+    gate.classList.remove('os-auth-mode');
     gate.innerHTML = `
       <div class="auth-card">
         <div class="auth-logo">P</div>
@@ -554,8 +836,109 @@
         <button class="auth-google" id="googleSignIn" type="button">Google 계정으로 로그인</button>
         <div class="auth-status" id="authStatus">등록·수정·삭제는 이 화면에서 실행되지 않습니다.</div>
       </div>`;
-    body.append(gate);
-    gate.querySelector('#googleSignIn').addEventListener('click', signInWithGoogle);
+    gate.querySelector('#googleSignIn')?.addEventListener('click', signInWithGoogle);
+  }
+
+  function renderOsGoogleGate({ checking = false } = {}) {
+    clearOsAuthTimer();
+    const choosingAnotherAccount = osAuthForceAccountChooser && !checking;
+    const card = `
+      <section class="os-auth-card" aria-label="Google 회사 계정 확인">
+        <div class="os-auth-card-top">
+          <div>
+            <div class="os-auth-kicker">1단계 · Google 계정 확인</div>
+            <h1>${checking ? '로그인 상태 확인 중' : (choosingAnotherAccount ? '다른 Google 계정 선택' : 'Google 계정 로그인')}</h1>
+            <p>${choosingAnotherAccount
+              ? '기존 계정 연결을 종료했습니다.<br>사용할 회사 계정을 선택해 주세요.'
+              : 'PEAK OS에 등록된 회사 계정인지<br>먼저 확인합니다.'}</p>
+          </div>
+          ${osAuthShieldMarkup()}
+        </div>
+        <button class="os-auth-primary" id="googleSignIn" type="button" ${checking ? 'disabled' : ''}>
+          ${checking
+            ? '<span class="os-auth-spinner" aria-hidden="true"></span>자동 로그인 확인 중…'
+            : (choosingAnotherAccount ? '다른 Google 계정 선택하기' : 'Google 회사 계정으로 로그인')}
+        </button>
+        <div class="os-auth-message" id="authStatus" role="status" aria-live="polite">${checking
+          ? '기존 로그인 정보가 있으면 자동으로 다음 단계로 넘어갑니다.'
+          : (choosingAnotherAccount
+            ? '아래 버튼을 누르면 Google 계정 선택창이 열립니다.'
+            : 'Google 로그인이 남아 있지 않아 계정 확인이 필요합니다.')}</div>
+        <div class="os-auth-footer">등록된 회사 계정만 PEAK OS에 접속할 수 있습니다.</div>
+      </section>`;
+    osAuthShell(card, checking ? 'checking' : 'google');
+    document.getElementById('googleSignIn')?.addEventListener('click', signInWithGoogle);
+  }
+
+  function renderOsEmailGate({ sent = false, message = '', isError = false } = {}) {
+    const identity = osIdentity();
+    const requestArea = sent ? `
+      <div class="os-auth-field-label"><span>인증번호</span><small>6자리 숫자</small></div>
+      <div class="os-auth-otp-row" id="osAuthOtpRow" role="group" aria-label="이메일 인증번호 6자리">
+        ${[1, 2, 3, 4, 5, 6].map((number, index) => `<input class="os-auth-otp" inputmode="numeric" pattern="[0-9]*" maxlength="1" ${index === 0 ? 'autocomplete="one-time-code"' : 'autocomplete="off"'} aria-label="인증번호 ${number}번째 자리">`).join('')}
+      </div>
+      <div class="os-auth-code-meta">
+        <span>${esc(identity.email)}로 보낸 번호를 ${Math.max(1, Math.ceil(osAuthExpiresInSeconds / 60))}분 안에 입력해 주세요.</span>
+        <button id="emailOtpResend" class="os-auth-text-button" type="button" disabled>재전송 01:00</button>
+      </div>
+      <button class="os-auth-primary" id="emailOtpVerify" type="button" disabled>인증하고 PEAK OS 들어가기 <span aria-hidden="true">→</span></button>` : `
+      <div class="os-auth-email-guide">
+        <strong>등록 이메일로 인증번호를 보내드립니다</strong>
+        <span>${esc(identity.email)}에서 6자리 번호를 확인해 주세요.</span>
+      </div>
+      <button class="os-auth-primary" id="emailOtpRequest" type="button">등록 이메일로 인증번호 받기</button>`;
+    const card = `
+      <section class="os-auth-card" aria-label="PEAK OS 이메일 추가 인증">
+        <div class="os-auth-card-top">
+          <div>
+            <div class="os-auth-kicker">2단계 · 추가 인증</div>
+            <h1>PEAK OS 인증</h1>
+            <p>회사 정보를 보호하기 위해<br>등록 이메일을 한 번 더 확인합니다.</p>
+          </div>
+          ${osAuthShieldMarkup()}
+        </div>
+        <div class="os-auth-verified">
+          <span aria-hidden="true">✓</span> Google 회사 계정 확인이 완료되었습니다
+        </div>
+        <div class="os-auth-identity">
+          <div class="os-auth-avatar">${esc(identity.initial)}</div>
+          <div class="os-auth-identity-copy">
+            <div><strong>${esc(identity.name)} ${esc(identity.rank)}</strong><span>${esc(identity.affiliation)}</span></div>
+            <small>${esc(identity.email)}</small>
+          </div>
+          <span class="os-auth-lock" aria-label="사내 등록 정보로 고정됨">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          </span>
+        </div>
+        ${requestArea}
+        <div class="os-auth-message ${isError ? 'error' : ''}" id="authStatus" role="status" aria-live="polite">${esc(message)}</div>
+        <button class="os-auth-secondary" id="changeGoogleAccount" type="button">다른 Google 계정으로 로그인</button>
+        <div class="os-auth-footer">이름·직급·소속과 인증 이메일은 사내 등록 정보입니다.</div>
+      </section>`;
+    osAuthShell(card, 'email');
+    document.getElementById('emailOtpRequest')?.addEventListener('click', requestEmailOtp);
+    document.getElementById('emailOtpResend')?.addEventListener('click', requestEmailOtp);
+    document.getElementById('emailOtpVerify')?.addEventListener('click', verifyEmailOtp);
+    document.getElementById('changeGoogleAccount')?.addEventListener('click', changeGoogleAccount);
+    if (sent) {
+      wireOtpInputs();
+      const remaining = Math.max(0, Math.ceil((osAuthResendUntil - Date.now()) / 1000));
+      startOsAuthResendTimer(remaining || 60);
+      document.querySelector('.os-auth-otp')?.focus();
+    }
+  }
+
+  function renderOsAuthSuccess() {
+    clearOsAuthTimer();
+    const identity = osIdentity();
+    const card = `
+      <section class="os-auth-card os-auth-success-card" aria-label="PEAK OS 인증 완료">
+        <div class="os-auth-success-icon" aria-hidden="true">✓</div>
+        <div class="os-auth-kicker">인증 완료</div>
+        <h1>${esc(identity.name)} ${esc(identity.rank)}님,<br>환영합니다</h1>
+        <p>${esc(identity.affiliation)} 권한을 확인하고 있습니다.<br>잠시 후 PEAK OS로 이동합니다.</p>
+      </section>`;
+    osAuthShell(card, 'success');
   }
 
   function createDetailModal() {
@@ -600,21 +983,217 @@
 
   function setAuthStatus(message, isError = false) {
     const status = document.getElementById('authStatus');
+    if (!status) return;
     status.textContent = message;
     status.classList.toggle('error', isError);
   }
 
+  function updateOtpVerifyState() {
+    const inputs = [...document.querySelectorAll('.os-auth-otp')];
+    const button = document.getElementById('emailOtpVerify');
+    if (!button) return;
+    button.disabled = osAuthVerifyInFlight || inputs.length !== 6 || inputs.some(input => !/^\d$/.test(input.value));
+  }
+
+  function fillOtpInputs(inputs, digits) {
+    String(digits || '').replace(/\D/g, '').slice(0, 6).split('').forEach((digit, index) => {
+      if (inputs[index]) inputs[index].value = digit;
+    });
+    const nextIndex = Math.min(String(digits || '').replace(/\D/g, '').length, 5);
+    inputs[nextIndex]?.focus();
+    updateOtpVerifyState();
+  }
+
+  function wireOtpInputs() {
+    const inputs = [...document.querySelectorAll('.os-auth-otp')];
+    inputs.forEach((input, index) => {
+      input.addEventListener('input', () => {
+        const digits = input.value.replace(/\D/g, '');
+        if (digits.length > 1) {
+          inputs.forEach(field => { field.value = ''; });
+          fillOtpInputs(inputs, digits);
+          return;
+        }
+        input.value = digits.slice(-1);
+        input.removeAttribute('aria-invalid');
+        if (input.value) inputs[index + 1]?.focus();
+        updateOtpVerifyState();
+      });
+      input.addEventListener('keydown', event => {
+        if (event.key === 'Backspace' && !input.value) inputs[index - 1]?.focus();
+        if (event.key === 'ArrowLeft') inputs[index - 1]?.focus();
+        if (event.key === 'ArrowRight') inputs[index + 1]?.focus();
+        if (event.key === 'Enter' && !document.getElementById('emailOtpVerify')?.disabled) verifyEmailOtp();
+      });
+      input.addEventListener('paste', event => {
+        const digits = event.clipboardData?.getData('text').replace(/\D/g, '').slice(0, 6) || '';
+        if (!digits) return;
+        event.preventDefault();
+        inputs.forEach(field => { field.value = ''; });
+        fillOtpInputs(inputs, digits);
+      });
+    });
+    updateOtpVerifyState();
+  }
+
+  function startOsAuthResendTimer(seconds = 60) {
+    if (osAuthResendTimer) window.clearInterval(osAuthResendTimer);
+    const safeSeconds = Math.max(0, Math.min(600, Number(seconds) || 0));
+    osAuthResendUntil = Date.now() + safeSeconds * 1000;
+    const tick = () => {
+      const button = document.getElementById('emailOtpResend');
+      if (!button) {
+        clearOsAuthTimer();
+        return;
+      }
+      const remaining = Math.max(0, Math.ceil((osAuthResendUntil - Date.now()) / 1000));
+      const minutes = Math.floor(remaining / 60);
+      const secs = String(remaining % 60).padStart(2, '0');
+      button.textContent = remaining ? `재전송 ${String(minutes).padStart(2, '0')}:${secs}` : '인증번호 다시 받기';
+      button.disabled = osAuthRequestInFlight || remaining > 0;
+      if (!remaining && osAuthResendTimer) {
+        window.clearInterval(osAuthResendTimer);
+        osAuthResendTimer = 0;
+      }
+    };
+    tick();
+    if (safeSeconds > 0) osAuthResendTimer = window.setInterval(tick, 1000);
+  }
+
+  async function requestEmailOtp() {
+    if (osAuthRequestInFlight) return;
+    const button = document.getElementById('emailOtpRequest') || document.getElementById('emailOtpResend');
+    osAuthRequestInFlight = true;
+    if (button) button.disabled = true;
+    setAuthStatus('등록 이메일로 인증번호를 보내고 있습니다…');
+    try {
+      const result = await callApi('POST', '/os-auth/email/request', {});
+      if (result?.ok === false) throw new Error(result.error || '인증번호를 보내지 못했습니다.');
+      osAuthMaskedEmail = String(result?.maskedEmail || result?.emailMasked || result?.destination || osAuthMaskedEmail || '');
+      osAuthChallengeId = String(result?.challengeId || '');
+      osAuthExpiresInSeconds = Math.max(60, Number(result?.expiresInSeconds) || 300);
+      const retryAfter = Number(result?.retryAfter ?? result?.retryAfterSeconds ?? result?.resendAfter ?? 60);
+      osAuthResendUntil = Date.now() + Math.max(0, retryAfter) * 1000;
+      renderOsEmailGate({ sent: true, message: '인증번호를 보냈습니다. 이메일을 확인해 주세요.' });
+    } catch (error) {
+      setAuthStatus(error.message || '인증번호를 보내지 못했습니다. 잠시 후 다시 시도해 주세요.', true);
+      if (button) button.disabled = false;
+    } finally {
+      osAuthRequestInFlight = false;
+      const remaining = Math.max(0, Math.ceil((osAuthResendUntil - Date.now()) / 1000));
+      if (document.getElementById('emailOtpResend')) startOsAuthResendTimer(remaining);
+    }
+  }
+
+  async function verifyEmailOtp() {
+    if (osAuthVerifyInFlight) return;
+    const inputs = [...document.querySelectorAll('.os-auth-otp')];
+    const code = inputs.map(input => input.value).join('');
+    if (!/^\d{6}$/.test(code)) {
+      setAuthStatus('이메일에서 확인한 6자리 숫자를 모두 입력해 주세요.', true);
+      inputs.find(input => !input.value)?.focus();
+      return;
+    }
+    osAuthVerifyInFlight = true;
+    inputs.forEach(input => { input.disabled = true; });
+    updateOtpVerifyState();
+    setAuthStatus('인증번호와 소속 권한을 확인하고 있습니다…');
+    try {
+      const result = await callApi('POST', '/os-auth/email/verify', { code, challengeId: osAuthChallengeId });
+      if (result?.ok === false || result?.verified === false || result?.authenticated === false) {
+        throw new Error(result?.error || '인증번호가 올바르지 않거나 만료되었습니다.');
+      }
+      osAuthSessionCheckGeneration += 1;
+      if (osAuthExpired) osAuthAccessGeneration += 1;
+      osAuthExpired = false;
+      scheduleOsSessionExpiry(result?.expiresInSeconds);
+      broadcastOsAuthState('verified');
+      renderOsAuthSuccess();
+      moveToOsDestination();
+      try {
+        // 백그라운드 탭에서는 setTimeout이 지연될 수 있으므로 인증 직후 바로
+        // 운영 데이터를 연다. 다른 탭도 위 신호를 받은 뒤 서버에서 재검증한다.
+        await finishSignedInApp();
+      } catch (error) {
+        if (osAuthHardNavigating) return;
+        moveToOsLogin();
+        renderOsEmailGate({ sent: true, message: error.message || '운영 데이터를 불러오지 못했습니다.', isError: true });
+      }
+    } catch (error) {
+      inputs.forEach(input => {
+        input.disabled = false;
+        input.setAttribute('aria-invalid', 'true');
+      });
+      setAuthStatus(error.message || '인증번호를 확인하지 못했습니다.', true);
+      inputs[0]?.focus();
+    } finally {
+      osAuthVerifyInFlight = false;
+      updateOtpVerifyState();
+    }
+  }
+
+  async function endOsSession() {
+    clearOsSessionExpiryTimer();
+    if (!currentUser || !isOsRoute()) return;
+    try {
+      await callApi('POST', '/os-auth/logout', {});
+      broadcastOsAuthState('logout');
+    } catch (error) {
+      console.warn('PEAK OS 추가 인증 세션 종료 실패:', error.message);
+    }
+  }
+
+  async function changeGoogleAccount() {
+    const button = document.getElementById('changeGoogleAccount');
+    if (button) button.disabled = true;
+    clearOsAuthTimer();
+    setAuthStatus('현재 PEAK OS 인증을 종료하고 Google 계정 선택 화면을 준비하고 있습니다…');
+    try {
+      await endOsSession();
+      osAuthForceAccountChooser = true;
+      await auth.signOut();
+      renderOsGoogleGate();
+    } catch (error) {
+      osAuthForceAccountChooser = false;
+      if (currentUser) {
+        renderOsEmailGate({ message: `계정 전환을 준비하지 못했습니다: ${error.message}`, isError: true });
+      } else {
+        renderOsGoogleGate();
+        setAuthStatus(`계정 전환을 준비하지 못했습니다: ${error.message}`, true);
+      }
+    }
+  }
+
+  function hasOsAuthSession(payload) {
+    return payload?.authenticated === true
+      || payload?.verified === true
+      || payload?.active === true
+      || payload?.session?.authenticated === true
+      || payload?.session?.verified === true
+      || payload?.session?.active === true;
+  }
+
   async function signInWithGoogle() {
     const button = document.getElementById('googleSignIn');
-    button.disabled = true;
+    if (button) button.disabled = true;
     setAuthStatus('Google 로그인을 여는 중입니다…');
     const provider = new firebase.auth.GoogleAuthProvider();
+    const choosingAnotherAccount = osAuthForceAccountChooser;
+    if (choosingAnotherAccount) provider.setCustomParameters?.({ prompt: 'select_account' });
     try {
       await auth.signInWithPopup(provider);
     } catch (error) {
-      button.disabled = false;
+      if (button) button.disabled = false;
+      if (error.code === 'auth/popup-blocked' && !choosingAnotherAccount) {
+        try {
+          await auth.signInWithRedirect(provider);
+        } catch (redirectError) {
+          setAuthStatus(`로그인 화면을 열지 못했습니다: ${redirectError.message}`, true);
+        }
+        return;
+      }
       if (error.code === 'auth/popup-blocked') {
-        await auth.signInWithRedirect(provider);
+        setAuthStatus('브라우저에서 팝업을 허용한 뒤 다시 눌러 주세요.', true);
         return;
       }
       if (error.code === 'auth/popup-closed-by-user') {
@@ -631,14 +1210,27 @@
 
   // 정산 데이터만 서버에 쓴다. 그 밖의 운영 데이터는 여전히 읽기만 한다.
   const WRITABLE_PREFIX = '/peakos/';
+  const WRITABLE_OS_AUTH_PATHS = new Set([
+    '/os-auth/email/request',
+    '/os-auth/email/verify',
+    '/os-auth/logout'
+  ]);
 
   async function callApi(method, path, body) {
     if (!currentUser) throw new Error('로그인이 필요합니다.');
+    const requestUser = currentUser;
+    const requestUid = requestUser.uid;
+    const staleAuthContextError = () => {
+      const error = new Error('로그인 계정이 변경되어 이전 요청 결과를 폐기했습니다.');
+      error.code = 'AUTH_CONTEXT_CHANGED';
+      return error;
+    };
     if (typeof path !== 'string' || !path.startsWith('/')) throw new Error('잘못된 조회 경로입니다.');
-    if (method !== 'GET' && !path.startsWith(WRITABLE_PREFIX)) {
+    if (method !== 'GET' && !path.startsWith(WRITABLE_PREFIX) && !WRITABLE_OS_AUTH_PATHS.has(path)) {
       throw new Error('이 경로에는 쓸 수 없습니다.');
     }
-    const token = await currentUser.getIdToken();
+    const token = await requestUser.getIdToken();
+    if (!currentUser || currentUser.uid !== requestUid) throw staleAuthContextError();
     const response = await fetch('/api' + path, {
       method,
       headers: {
@@ -650,9 +1242,21 @@
       credentials: 'same-origin'
     });
     const payload = await response.json().catch(() => ({}));
+    // 다른 Google 계정으로 바뀐 뒤 도착한 응답은 전역 화면 데이터에 절대
+    // 반영하지 않는다. 특히 이전 계정의 늦은 401이 새 계정을 잠그면 안 된다.
+    if (!currentUser || currentUser.uid !== requestUid) throw staleAuthContextError();
     if (!response.ok) {
       const error = new Error(payload.error || `조회 실패 (${response.status})`);
       error.status = response.status;
+      error.code = payload.code || '';
+      error.required = payload.required;
+      error.verified = payload.verified;
+      error.payload = payload;
+      if (response.status === 401
+        && path.startsWith('/peakos/')
+        && ['OS_AUTH_SESSION_REQUIRED', 'OS_AUTH_SESSION_INVALID'].includes(error.code)) {
+        lockOsAfterSessionExpiry();
+      }
       throw error;
     }
     return payload;
@@ -705,44 +1309,75 @@
     return { admin: '관리자', manager: '팀장', member: '멤버' }[role] || '멤버';
   }
 
+  function accountIdentity(doc, fallbackName = '') {
+    const name = String(doc?.name || fallbackName || '').trim() || '사용자';
+    const row = orgRoster().find(item => String(item.name || '').trim() === name);
+    const rank = row ? orgRankOf(row) : roleLabel(doc?.role);
+    const affiliation = String(row?.branch?.name || doc?.group_name || '').trim() || '소속 미지정';
+    return { name, rank, affiliation, label: [name, rank, affiliation].join(' · ') };
+  }
+
   function applyUserIdentity() {
     const member = document.querySelector('.app-sidebar > .member');
     const name = userDoc.name || currentUser.displayName || currentUser.email || '사용자';
+    const identity = accountIdentity(userDoc, name);
+    const realIdentity = accountIdentity(realUserDoc, name);
     const initials = name.slice(-2);
     member.innerHTML = `
       <div class="avatar">${esc(initials)}</div>
-      <div class="member-copy"><strong>${esc(name)}</strong><small>${esc(userDoc.group_name || '소속 미지정')} · ${esc(currentOrgRank() === ORG_RANK_UNSET ? roleLabel(userDoc.role) : currentOrgRank())}</small></div>
+      <div class="member-copy"><strong>${esc(identity.name)}</strong><small>${esc(identity.rank)} · ${esc(identity.affiliation)}</small></div>
       <button class="member-signout" id="memberSignout" type="button" title="로그아웃" aria-label="로그아웃">↪</button>`;
     member.querySelector('#memberSignout').addEventListener('click', async () => {
+      await endOsSession();
       await auth.signOut();
       location.reload();
     });
-    prototypeBar.classList.add('live');
-    prototypeBar.innerHTML = `
-      <i aria-hidden="true"></i>
-      <span>운영 데이터 · 읽기 전용 · ${esc(name)} 계정 권한으로 조회 중</span>
+    const showPersonaControl = canPreviewPersona();
+    accountPreviewSlot.hidden = !showPersonaControl;
+    accountPreviewSlot.innerHTML = showPersonaControl ? `
+      ${previewPersona ? `<span class="persona-preview-warning" role="status" title="${esc(identity.label)} 계정 미리보기 중">
+        ${canPreviewRealData() ? '미리보기 중 · 저장 안 됨' : '미리보기 중 · 데이터 비공개'}
+      </span>` : ''}
       <label class="persona-switch">
-        <span>계정 미리보기</span>
+        <span class="persona-switch-label">계정 미리보기</span>
         <select id="personaSelect">
-          <option value="">내 계정 (${esc(realUserDoc?.name || name)})</option>
-          ${orgRoster().map(row => `<option value="${esc(row.name)}" ${previewPersona === row.name ? 'selected' : ''}>${esc(row.name)} · ${esc(orgRankOf(row))} · ${esc(row.branch.name)}</option>`).join('')}
+          <option value="">내 계정 (${esc(realIdentity.label)})</option>
+          ${orgRoster().filter(row => String(row.name || '').trim() !== String(realUserDoc?.name || '').trim()).map(row => `<option value="${esc(row.name)}" ${previewPersona === row.name ? 'selected' : ''}>${esc(row.name)} · ${esc(orgRankOf(row))} · ${esc(row.branch.name)}</option>`).join('')}
         </select>
-      </label>`;
-    prototypeBar.querySelector('#personaSelect').addEventListener('change', event => applyPersona(event.target.value));
+      </label>` : '';
+    accountPreviewSlot.querySelector('#personaSelect')?.addEventListener('change', event => applyPersona(event.target.value));
     applyNavPermissions();
   }
 
   // 최종정산서 탭은 지정된 인원에게만 보인다.
   function applyNavPermissions() {
     const peakosOpen = canSeePeakosTabs();
+    const salesOperationsOpen = canSeeSalesOperations();
     const locks = {
+      settlement: salesOperationsOpen,
+      'deposit-check': salesOperationsOpen,
       'final-settlement': peakosOpen && canSeeFinalSettlement(),
-      'monthly-guarantee': peakosOpen && canSeeMonthly('monthly-guarantee'),
-      'monthly-manage': peakosOpen && canSeeMonthly('monthly-manage'),
-      credit: peakosOpen && canSeeFinalSettlement(),
+      'final-execution-settlement': canSeeFinalExecutionSettlement(),
+      'monthly-guarantee': canSeeMonthly('monthly-guarantee'),
+      'monthly-manage': canSeeMonthly('monthly-manage'),
+      'direct-execution': canSeeMonthly('direct-execution'),
+      // 영업자는 여기서 리뷰/리워드 충전 요청을 올리고, 지정 재무 담당자만
+      // 전체 요청과 기존 충전금 장부를 본다.
+      credit: !previewPersona,
       closing: peakosOpen && canSeeFinalSettlement(),
+      bank: canSeeBankLedger(),
       receivable: peakosOpen && canSeeTeamSettlement()
     };
+    TAX_BANKING_PUBLIC_VIEWS.forEach(view => {
+      locks[view] = canSeeTaxBankingView(view);
+    });
+    PURCHASE_TAX_VIEWS.forEach(view => {
+      locks[view] = canSeeTaxPurchase();
+    });
+    // 미리보기 중에는 채팅을 닫는다. 실제로는 로그인한 본인의 대화가 뜨는데
+    // 남의 계정 화면처럼 보이면 오해를 부르고, 대화 내용은 미리 볼 것이 아니다.
+    // 항상 값을 넣어야 미리보기에서 돌아왔을 때 다시 켜진다.
+    locks.chat = !previewPersona;
     // 나머지 신규 화면은 지정 인원에게만 통째로 연다.
     document.querySelectorAll('.app-sidebar .nav-item[data-view]').forEach(button => {
       const view = button.dataset.view;
@@ -755,6 +1390,12 @@
       button.dataset.navLocked = allowed ? 'false' : 'true';
       button.hidden = !allowed;
     });
+    document.querySelectorAll('[data-nav-subcluster]').forEach(subcluster => {
+      const items = [...subcluster.querySelectorAll('.nav-item[data-view]')];
+      const hidden = items.length > 0 && items.every(item => item.hidden);
+      subcluster.hidden = hidden;
+      subcluster.dataset.navLocked = hidden ? 'true' : 'false';
+    });
     // 안에 보일 항목이 하나도 없는 묶음은 통째로 감춘다.
     document.querySelectorAll('[data-nav-cluster]').forEach(cluster => {
       const items = [...cluster.querySelectorAll('.nav-item[data-view]')];
@@ -765,7 +1406,11 @@
   // 다른 사람 화면이 어떻게 보이는지 확인하는 용도. 화면 표시만 바뀌고
   // 서버에서 내려오는 데이터는 실제 로그인 계정 것 그대로다.
   function applyPersona(name) {
-    previewPersona = name || '';
+    // 숨겨진 DOM 조작으로 호출돼도 허용된 실제 계정이 아니면 미리보기를 만들지 않는다.
+    const requestedName = canPreviewPersona() ? String(name || '').trim() : '';
+    const realName = String(realUserDoc?.name || '').trim();
+    // 내 조직도 행을 강제로 선택해도 별도 미리보기 계정으로 만들지 않는다.
+    previewPersona = requestedName && requestedName !== realName ? requestedName : '';
     if (!previewPersona) {
       userDoc = realUserDoc;
     } else {
@@ -775,14 +1420,38 @@
         ...realUserDoc,
         name: previewPersona,
         role: rank === '대표' ? 'admin' : (rank === '주임' ? 'member' : 'manager'),
-        group_name: row ? (row.teamName || row.divisionName) : ''
+        group_name: row ? (row.teamName || row.divisionName) : '',
+        group_type: row && /영업|지사/.test(String(row.teamName || row.divisionName || '')) ? 'sales' : 'support'
       };
+    }
+    // 통장 원장은 계정 미리보기에서 절대 이어 보이지 않는다.
+    // 진행 중인 조회 결과도 세대 번호로 폐기하고 다른 화면으로 즉시 이동한다.
+    if (previewPersona) {
+      resetBankData({ clearOperation: true });
+      financeRequestState = {
+        status: 'idle', requests: [], scope: 'mine', error: '', view: '', queryKey: '',
+        pagination: { page: 1, limit: 50, total: 0, totalPages: 0 }
+      };
+      financeRequestLoadGeneration += 1;
+      purchaseLedgerPage = 1;
+      purchaseLedgerState = {
+        accountId: '', status: 'idle', account: null, transactions: [], error: '',
+        pagination: { page: 1, limit: 100, total: 0, totalPages: 0 }
+      };
+      if (TAX_BANKING_PUBLIC_VIEWS.includes(activeView) || PURCHASE_TAX_VIEWS.includes(activeView)) {
+        activateView('calendar');
+      }
     }
     loadPeakosData().then(() => {
       applyUserIdentity();
       const lost = (activeView === 'final-settlement' && !canSeeFinalSettlement())
+        || (activeView === 'final-execution-settlement' && !canSeeFinalExecutionSettlement())
         || (Boolean(MONTHLY_TABS[activeView]) && !canSeeMonthly(activeView))
-        || (['credit', 'closing'].includes(activeView) && !canSeeFinalSettlement())
+        || (activeView === 'credit' && Boolean(previewPersona))
+        || (activeView === 'closing' && !canSeeFinalSettlement())
+        || (activeView === 'bank' && !canSeeBankLedger())
+        || ((TAX_BANKING_PUBLIC_VIEWS.includes(activeView) || PURCHASE_TAX_VIEWS.includes(activeView))
+          && !canSeeTaxBankingView(activeView))
         || (activeView === 'receivable' && !canSeeTeamSettlement());
       activateView(lost ? 'settlement' : activeView);
     });
@@ -790,7 +1459,16 @@
 
   // 계정이 바뀌면 그 계정 기준으로 다시 읽는다.
   async function loadPeakosData() {
-    await Promise.all([loadIntakeDraft(), loadCustomPrices(), loadMonthlyDraft(), loadCreditDraft(), loadFundBoard()]);
+    await Promise.all([
+      loadIntakeDraft(),
+      loadBankMatchReviewRows(),
+      loadCustomPrices(),
+      loadMonthlyDraft(),
+      loadFinalExecutionSettlement(),
+      loadCreditDraft(),
+      loadFundBoard(),
+      loadIdeaData(),
+    ]);
   }
 
 
@@ -1062,13 +1740,17 @@
     if (todoScope === 'team') items = items.filter(event => event.scope === 'team');
     if (todoScope === 'personal') items = items.filter(event => event.scope !== 'team');
     const done = items.filter(event => event.done).length;
+    // 미완료를 먼저 보여 준다. 다 끝낸 일이 위에 있으면 놓치기 쉽다.
+    items = [...items].sort((a, b) => Number(Boolean(a.done)) - Number(Boolean(b.done)));
     const grouped = new Map();
     items.forEach(event => {
       const key = event.todoCat || (event.scope === 'team' ? '팀 업무' : `${event.ownerName || '내'} 업무`);
       if (!grouped.has(key)) grouped.set(key, []);
       grouped.get(key).push(event);
     });
-    const groupMarkup = [...grouped.entries()].map(([name, events]) => {
+    const groupMarkup = [...grouped.entries()]
+      .sort((x, y) => y[1].filter(e => !e.done).length - x[1].filter(e => !e.done).length)
+      .map(([name, events]) => {
       const groupDone = events.filter(event => event.done).length;
       return `<article class="todo-group" data-scope="${events[0]?.scope || 'personal'}">
         <button class="todo-group-head" type="button">
@@ -1101,9 +1783,9 @@
         <button class="todo-scope-button ${todoScope === 'all' ? 'active' : ''}" type="button" data-todo-scope="all">전체</button>
       </nav>
       <section class="todo-summary" aria-label="오늘 업무 요약">
-        <article class="todo-summary-card primary"><span>오늘 할 일</span><strong>${items.length}건</strong></article>
+        <article class="todo-summary-card primary"><span>남은 업무</span><strong>${items.length - done}건</strong></article>
+        <article class="todo-summary-card"><span>오늘 할 일</span><strong>${items.length}건</strong></article>
         <article class="todo-summary-card"><span>완료</span><strong>${done}건</strong></article>
-        <article class="todo-summary-card"><span>남은 업무</span><strong>${items.length - done}건</strong></article>
         <article class="todo-summary-card"><span>팀 업무</span><strong>${items.filter(event => event.scope === 'team').length}건</strong></article>
       </section>
       <section class="todo-board" aria-label="오늘의 업무 목록">
@@ -2200,9 +2882,19 @@
   }
 
   async function loadIntakeDraft() {
-    // 계정 미리보기 중에는 남의 계정으로 쓸 수 없으니 서버를 건드리지 않는다.
     if (previewPersona) {
-      intakeDraft = localIntakeDraft();
+      // 대표 계정이면 그 사람의 실제 접수를 서버에서 가져와 보여 준다.
+      if (canPreviewRealData()) {
+        try {
+          const rows = await readOnlyApi(`/peakos/intake?owner=${encodeURIComponent(previewPersona)}`);
+          intakeDraft = Array.isArray(rows) ? rows : [];
+          return;
+        } catch (error) {
+          console.error('미리보기 접수 불러오기 실패:', error.message);
+        }
+      }
+      // 볼 수 없는 사람이면 화면만 흉내내고 데이터는 비운다.
+      intakeDraft = [];
       return;
     }
     try {
@@ -2215,12 +2907,26 @@
     }
   }
 
+  async function loadBankMatchReviewRows() {
+    if (previewPersona || !canReviewCreditRequests()) {
+      bankMatchReviewRows = [];
+      return;
+    }
+    const [rowsResult, bankStatusResult] = await Promise.allSettled([
+      readOnlyApi('/peakos/intake?scope=all'),
+      readOnlyApi('/peakos/bank/accounts'),
+    ]);
+    bankMatchReviewRows = rowsResult.status === 'fulfilled' && Array.isArray(rowsResult.value)
+      ? rowsResult.value
+      : [];
+    bankData.autoReconciliationEnabled = bankStatusResult.status === 'fulfilled'
+      && bankStatusResult.value?.autoReconciliationEnabled === true;
+  }
+
   // 화면에서 바꾼 건을 서버에 반영한다. 미리보기 중에는 브라우저에만 남긴다.
   async function saveIntakeRows(rows) {
     if (previewPersona) {
-      try {
-        localStorage.setItem(intakeStorageKey(), JSON.stringify(intakeDraft));
-      } catch (error) { /* 저장 공간이 막혀도 화면은 유지 */ }
+      showToast(`${previewPersona} 계정 미리보기 중에는 저장되지 않습니다.`);
       return;
     }
     const list = (rows && rows.length ? rows : intakeDraft).filter(Boolean);
@@ -2235,9 +2941,7 @@
 
   async function removeIntakeRow(id) {
     if (previewPersona) {
-      try {
-        localStorage.setItem(intakeStorageKey(), JSON.stringify(intakeDraft));
-      } catch (error) { /* 저장 공간이 막혀도 화면은 유지 */ }
+      showToast(`${previewPersona} 계정 미리보기 중에는 지울 수 없습니다.`);
       return;
     }
     try {
@@ -2274,19 +2978,24 @@
   }
 
   // 단가표는 회사 공용이라 계정과 무관하게 서버에서 읽는다.
+  // 단가표 전체를 서버에서 받는다. 회사 원가는 권한이 없으면 null 로 온다.
   async function loadCustomPrices() {
     try {
       const rows = await readOnlyApi('/peakos/prices');
+      PRICE_TABLE = [];
       customPrices = [];
       priceOverrides = {};
       (Array.isArray(rows) ? rows : []).forEach(row => {
-        if (row.custom) customPrices.push([row.a, row.b, row.c, row.cost, row.unit]);
-        else priceOverrides[row.key] = [row.cost, row.unit];
+        const entry = [row.a, row.b, row.c, row.cost, row.unit];
+        if (row.custom) customPrices.push(entry);
+        else PRICE_TABLE.push(entry);
       });
     } catch (error) {
       console.error('단가표 불러오기 실패:', error.message);
+      PRICE_TABLE = [];
       customPrices = [];
       priceOverrides = {};
+      showToast('단가표를 불러오지 못했습니다. 새로고침해 주세요.');
     }
   }
 
@@ -2317,11 +3026,9 @@
   function priceRows() {
     const customKeys = new Set(customPrices.map(priceKey));
     return PRICE_TABLE.concat(customPrices).map(row => {
-      const edit = priceOverrides[priceKey(row)];
-      const base = edit ? [row[0], row[1], row[2], edit[0], edit[1]] : row;
-      base.custom = customKeys.has(priceKey(row));
-      base.edited = Boolean(edit);
-      return base;
+      row.custom = customKeys.has(priceKey(row));
+      row.edited = Boolean(priceOverrides[priceKey(row)]);
+      return row;
     });
   }
 
@@ -2384,13 +3091,75 @@
 
   // 대표 마스터 계정(패션TV봉이)은 이름이 달라 role로도 확인한다.
   function canSeeFinalSettlement() {
+    if (previewPersona && canPreviewRealData()) return true;
     if (userDoc?.role === 'admin') return true;
     return FINAL_SETTLEMENT_VIEWERS.includes(String(userDoc?.name || '').trim());
+  }
+
+  function canSeeFinalExecutionSettlement() {
+    if (previewPersona) return false;
+    return userDoc?.peakos_can_view_final_execution === true;
+  }
+
+  // 다른 사람 화면을 미리 볼 수 있는 사람. 미리보기 중에는 userDoc 이 바뀌므로
+  // 실제 로그인 계정(realUserDoc)을 기준으로 판단한다.
+  // 대표 계정. 미리보기로 누구의 접수든 볼 수 있다.
+  const PREVIEW_MASTERS = ['패션TV봉이'];
+  // 김대호·박종원도 미리보기로 실제 접수를 보지만 이 사람들 것은 못 본다.
+  const PREVIEW_PROTECTED = ['김진봉', '패션TV봉이', '손명아'];
+
+  function isPreviewMaster() {
+    const real = realUserDoc || userDoc;
+    return PREVIEW_MASTERS.includes(String(real?.name || '').trim());
+  }
+
+  // 미리보기에서 그 사람의 실제 접수까지 볼 수 있는지. 쓰기는 어느 경우든 막는다.
+  function canPreviewRealData(persona = previewPersona) {
+    if (!canPreviewPersona()) return false;
+    if (isPreviewMaster()) return true;
+    return !PREVIEW_PROTECTED.includes(String(persona || '').trim());
+  }
+
+  function canPreviewPersona() {
+    const real = realUserDoc || userDoc;
+    return ACCOUNT_PREVIEW_VIEWERS.includes(String(real?.name || '').trim());
   }
 
   function canSeeTeamSettlement() {
     if (userDoc?.role === 'admin') return true;
     return TEAM_SETTLEMENT_VIEWERS.includes(String(userDoc?.name || '').trim());
+  }
+
+  // 통장 원장은 승인·활성 직원이면 공개 3계좌를 읽을 수 있다. 이 값은
+  // 서버의 UID/계정 상태 판정 결과만 신뢰하고 표시이름이나 admin으로 넓히지 않는다.
+  function canSeeBankLedger() {
+    if (previewPersona) return false;
+    return userDoc?.peakos_can_read_bank === true;
+  }
+
+  function canReviewFinanceRequests() {
+    if (previewPersona) return false;
+    return userDoc?.peakos_can_review_finance === true;
+  }
+
+  function canSeeTaxPurchase() {
+    if (previewPersona) return false;
+    return userDoc?.peakos_can_view_tax_purchase === true;
+  }
+
+  function canUseFinanceRequests() {
+    return !previewPersona && userDoc?.approved === true && userDoc?.is_active !== false;
+  }
+
+  function canSeeTaxBankingView(view) {
+    if (view === 'bank') return canSeeBankLedger();
+    if (PURCHASE_TAX_VIEWS.includes(view)) return canSeeTaxPurchase();
+    return TAX_BANKING_PUBLIC_VIEWS.includes(view) && canUseFinanceRequests();
+  }
+
+  function canReviewCreditRequests() {
+    if (previewPersona) return false;
+    return CREDIT_REQUEST_REVIEWERS.includes(String(userDoc?.name || '').trim());
   }
 
   // 하위 계정 목록. 본사에서 자기를 뺀 나머지를 직급 순으로 보여 준다.
@@ -2399,6 +3168,94 @@
     return orgRoster()
       .filter(row => row.branch.id === 'hq' && row.name !== myName && row.rank !== '대표')
       .sort((a, b) => orgRankOrder(orgRankOf(a)) - orgRankOrder(orgRankOf(b)));
+  }
+
+  function validDateKey(value) {
+    const text = String(value || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return '';
+    const date = new Date(`${text}T00:00:00Z`);
+    return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === text ? text : '';
+  }
+
+  function validMonthKey(value) {
+    const text = String(value || '');
+    if (!/^\d{4}-\d{2}$/.test(text)) return '';
+    const month = Number(text.slice(5));
+    return month >= 1 && month <= 12 ? text : '';
+  }
+
+  function monthPeriodBounds(monthValue) {
+    const month = validMonthKey(monthValue);
+    if (!month) return { from: '', to: '' };
+    const year = Number(month.slice(0, 4));
+    const monthNumber = Number(month.slice(5));
+    const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+    return { from: `${month}-01`, to: `${month}-${String(lastDay).padStart(2, '0')}` };
+  }
+
+  function financePeriodBounds() {
+    if (financePeriodFilter.mode === 'month') return monthPeriodBounds(financePeriodFilter.month);
+    if (financePeriodFilter.mode === 'range') {
+      return {
+        from: validDateKey(financePeriodFilter.from),
+        to: validDateKey(financePeriodFilter.to)
+      };
+    }
+    return { from: '', to: '' };
+  }
+
+  function nextDateKey(value) {
+    const dateKey = validDateKey(value);
+    if (!dateKey) return '';
+    const date = new Date(`${dateKey}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + 1);
+    return date.toISOString().slice(0, 10);
+  }
+
+  function inFinancePeriod(value) {
+    const date = validDateKey(String(value || '').slice(0, 10));
+    if (!date) return false;
+    const { from, to } = financePeriodBounds();
+    if (from && date < from) return false;
+    if (to && date > to) return false;
+    return true;
+  }
+
+  function financePeriodLabel() {
+    const { from, to } = financePeriodBounds();
+    if (financePeriodFilter.mode === 'month' && from) {
+      return `${from.slice(0, 4)}년 ${Number(from.slice(5, 7))}월`;
+    }
+    if (financePeriodFilter.mode === 'range') {
+      if (from && to) return `${from} ~ ${to}`;
+      if (from) return `${from} 이후`;
+      if (to) return `${to} 이전`;
+      return '기간을 선택해 주세요';
+    }
+    return '전체 기간';
+  }
+
+  function renderFinancePeriodFilter(view, note = '') {
+    if (!FINANCE_PERIOD_VIEWS.includes(view)) return '';
+    const state = financePeriodFilter;
+    const modeButton = (mode, label) => `<button class="finance-period-mode ${state.mode === mode ? 'active' : ''}" type="button" data-finance-period-mode="${mode}" aria-pressed="${state.mode === mode ? 'true' : 'false'}">${label}</button>`;
+    return `<div class="finance-period-filter" data-finance-period-filter="${esc(view)}">
+      <div class="finance-period-modes" role="group" aria-label="조회 기간 방식">
+        ${modeButton('all', '전체')}${modeButton('month', '월별')}${modeButton('range', '기간별')}
+      </div>
+      ${state.mode === 'month' ? `<label class="finance-period-control"><span>조회 월</span><input type="month" data-finance-period-month value="${esc(state.month)}" aria-label="조회 월"></label>` : ''}
+      ${state.mode === 'range' ? `<label class="finance-period-control finance-period-range"><span>조회 기간</span><span><input type="date" data-finance-period-from value="${esc(state.from)}" aria-label="조회 시작일"><em>~</em><input type="date" data-finance-period-to value="${esc(state.to)}" aria-label="조회 종료일"></span></label>` : ''}
+      <span class="finance-period-result"><strong>${esc(financePeriodLabel())}</strong>${note ? `<small>${esc(note)}</small>` : ''}</span>
+    </div>`;
+  }
+
+  function bankPeriodQuery(accountId = '', page = bankPage) {
+    const params = new URLSearchParams({ page: String(Math.max(1, Number(page) || 1)), limit: '100' });
+    if (accountId) params.set('accountId', accountId);
+    const { from, to } = financePeriodBounds();
+    if (from) params.set('from', `${from}T00:00:00+09:00`);
+    if (to) params.set('to', `${nextDateKey(to)}T00:00:00+09:00`);
+    return params.toString();
   }
 
   // 개인정산서에 올라가는 건. 최종정산서에서만 적는 건은 빠진다.
@@ -2410,8 +3267,7 @@
   function filteredIntake() {
     const f = intakeFilter;
     return personalRows().filter(row => {
-      if (f.from && String(row.date) < f.from) return false;
-      if (f.to && String(row.date) > f.to) return false;
+      if (!inFinancePeriod(row.date)) return false;
       if (f.client && row.client !== f.client) return false;
       if (f.product && row.a !== f.product) return false;
       if (f.paid === 'unpaid' && paidStateOf(row) !== 'none') return false;
@@ -2425,20 +3281,16 @@
     return Object.values(intakeFilter).some(Boolean);
   }
 
+  function intakeQueryActive() {
+    return financePeriodFilter.mode !== 'all' || intakeFilterActive();
+  }
+
   function renderIntakeFilter() {
     const clients = [...new Set(personalRows().map(row => row.client).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
     const products = [...new Set(personalRows().map(row => row.a).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
     const option = (value, label, selected) => `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(label)}</option>`;
 
     return `<div class="ledger-filter">
-      <label class="ledger-filter-field">
-        <span>기간</span>
-        <span class="ledger-filter-range">
-          <input type="date" data-ledger-filter="from" value="${esc(intakeFilter.from)}" aria-label="시작일">
-          <em>~</em>
-          <input type="date" data-ledger-filter="to" value="${esc(intakeFilter.to)}" aria-label="종료일">
-        </span>
-      </label>
       <label class="ledger-filter-field">
         <span>거래처</span>
         <select data-ledger-filter="client">
@@ -2693,6 +3545,7 @@
         : null);
     if (source) {
       form.client = source.client || '';
+      form.expectedPayer = source.expectedPayer || source.client || '';
       form.memo = source.memo || '';
       form.a = source.a;
       form.b = source.b;
@@ -2795,6 +3648,11 @@
             <span>업체명</span>
             <input type="text" data-intake="client" value="${esc(form.client)}" placeholder="업체명 입력" ${lockBase ? 'readonly' : ''}>
           </label>
+          ${['normal', 'reserve'].includes(form.kind) ? `<label class="intake-field ${lockBase ? 'auto' : ''}">
+            <span>예상 입금자명</span>
+            <input type="text" data-intake="expectedPayer" value="${esc(form.expectedPayer || '')}" placeholder="비우면 업체명과 동일" ${lockBase ? 'readonly' : ''}>
+            <small>통장 표기와 정확히 같을 때만 자동 확인</small>
+          </label>` : ''}
           <label class="intake-field ${lockBase ? 'auto' : ''}">
             <span>대분류</span>
             <select data-intake="a" ${lockBase ? 'disabled' : ''}>${majors.map(v => option(v, form.a)).join('')}</select>
@@ -2912,7 +3770,12 @@
 
   // 입금 확인 창. 여러 건을 골랐으면 총 입금액을 판매액 비율로 나눠 담는다.
   function openPaidDialog(ids) {
-    const rows = intakeDraft.filter(row => ids.includes(row.id));
+    const visibleIds = activeView === 'settlement'
+      ? new Set(filteredIntake().map(row => row.id))
+      : activeView === 'deposit-check'
+        ? new Set(depositRows().map(row => row.id))
+        : null;
+    const rows = intakeDraft.filter(row => ids.includes(row.id) && (!visibleIds || visibleIds.has(row.id)));
     if (!rows.length) return;
     const totalSales = rows.reduce((sum, row) => sum + rowSales(row), 0);
     const already = rows.reduce((sum, row) => sum + (Number(row.paidAmount) || 0), 0);
@@ -3243,6 +4106,7 @@
           </span>
         </div>
         <div class="module-section-body">
+          ${renderFinancePeriodFilter('settlement', '접수일 기준')}
           ${personalRows().length ? renderIntakeFilter() : ''}
           <p class="sales-state">${personalRows().length
             ? '조회 조건에 맞는 접수가 없습니다.'
@@ -3255,7 +4119,7 @@
 
     return `<section class="module-section">
       <div class="module-section-head">
-        <span><strong>내 개인정산서</strong><small>${esc(userDoc?.name || '')} · ${intakeFilterActive()
+        <span><strong>내 개인정산서</strong><small>${esc(userDoc?.name || '')} · ${intakeQueryActive()
           ? `조회 ${shown.length}건 / 전체 ${personalRows().length}건`
           : `접수 ${personalRows().length}건`}</small></span>
         <span class="intake-head-right">
@@ -3265,6 +4129,7 @@
         </span>
       </div>
       <div class="module-section-body">
+        ${renderFinancePeriodFilter('settlement', '접수일 기준')}
         ${renderIntakeFilter()}
         <div class="pick-bar-slot">${pickBarMarkup()}</div>
         ${groups.map(([date, rows]) => {
@@ -3356,7 +4221,7 @@
 
   function estimateRowsFor(client) {
     return personalRows()
-      .filter(row => (row.client || '') === client)
+      .filter(row => (row.client || '') === client && inFinancePeriod(row.date))
       .sort((a, b) => String(a.date).localeCompare(String(b.date)));
   }
 
@@ -3528,7 +4393,10 @@
   // 거래처 하나에 대해 접수 건을 모아 견적서 한 장으로 만든다.
   function openEstimateDialog(client, rows) {
     estimateDraft = buildEstimateDraft(client, rows);
-    const clients = [...new Set(personalRows().map(row => row.client).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
+    const clients = [...new Set(personalRows()
+      .filter(row => inFinancePeriod(row.date))
+      .map(row => row.client)
+      .filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
 
     openDetailModal('정산서 발행 · WORK ESTIMATE', `
       <div class="est-head">
@@ -3547,7 +4415,7 @@
           </select></label>
       </div>
 
-      <p class="paid-hint">카테고리와 상품명은 거래처에 보낼 이름으로 고쳐 쓰세요. 접수 원본은 바뀌지 않습니다.</p>
+      <p class="paid-hint">${esc(financePeriodLabel())} 접수만 불러옵니다. 카테고리와 상품명은 거래처에 보낼 이름으로 고쳐 쓰세요. 접수 원본은 바뀌지 않습니다.</p>
 
       <div class="sales-table-scroll est-lines">
         <table class="sales-table">
@@ -3558,7 +4426,7 @@
       <div class="est-tools">
         <span class="est-tool-buttons">
           <button class="module-action" type="button" data-est-add>＋ 줄 추가</button>
-          <button class="module-action" type="button" data-est-load>이 업체 접수 불러오기</button>
+          <button class="module-action" type="button" data-est-load>조회 기간 접수 불러오기</button>
           <button class="module-action" type="button" data-est-clear>비우기</button>
         </span>
         <span class="est-sum" id="estSum"></span>
@@ -3629,7 +4497,7 @@
       }
       estimateDraft.lines = found.map(estimateLineOf);
       redrawLines();
-      showToast(`${name} 접수 ${found.length}건을 불러왔습니다.`);
+      showToast(`${name} ${financePeriodLabel()} 접수 ${found.length}건을 불러왔습니다.`);
     });
     dialog.querySelector('[data-est-clear]').addEventListener('click', () => {
       estimateDraft.lines = [];
@@ -3809,7 +4677,9 @@
         }
         priceOverrides[key] = [cost, unit];
         const parts = key.split('|');
-        savePriceEntry(key, parts[0], parts[1], parts[2], cost, unit, false);
+        const target = priceRows().find(row => priceKey(row) === key);
+        if (target) { target[3] = cost; target[4] = unit; }
+        savePriceEntry(key, parts[0], parts[1], parts[2], cost, unit, Boolean(target && target.custom));
         editingPriceKey = '';
         refreshPriceTable();
         renderPlannedModule(intakeContext);
@@ -4261,7 +5131,7 @@
       </section>` : '';
     if (!settlementAvailable()) {
       moduleView.innerHTML = `
-        ${moduleStatusbar('정산서', `${currentBranchName()} 정산 체계는 따로 준비합니다.`, '본사 먼저 적용')}
+        ${moduleStatusbar('개인 정산서', `${currentBranchName()} 정산 체계는 따로 준비합니다.`, '본사 먼저 적용')}
         <section class="module-section">
           <div class="module-section-head">
             <span><strong>${esc(currentBranchName())} 정산서</strong><small>지사는 접수 경로와 취급 상품이 본사와 달라 별도로 만듭니다</small></span>
@@ -4277,7 +5147,7 @@
 
     intakeContext = 'settlement';
     moduleView.innerHTML = `
-      ${moduleStatusbar('정산서', canSeeTeamSettlement() ? '시트접수와 하위 계정 정산서를 관리합니다.' : '로그인한 영업자의 개인정산 범위만 표시합니다.', '접수 초안 · 저장 전')}
+      ${moduleStatusbar('개인 정산서', canSeeTeamSettlement() ? '시트접수와 하위 계정 정산서를 관리합니다.' : '로그인한 영업자의 개인정산 범위만 표시합니다.', '서버 저장 · 기간 조회')}
       ${renderIntakeForm()}
       ${renderIntakeLedger()}
       ${teamSection}
@@ -4290,11 +5160,11 @@
         : ''}</span></div>`;
   }
 
-  // 김지홍 월보장과 박우진 월관리는 표준 정산서로 안 담긴다.
+  // 김지홍 월보장, 박우진 월관리, 김대호 직접실행은 표준 정산서로 안 담긴다.
   // 판매 한 줄에 실행 여러 줄이 마이너스로 붙는 구조라 따로 둔다.
   const MONTHLY_TABS = {
     'monthly-guarantee': {
-      label: '월보장 정산',
+      label: '월보장 정산서',
       owner: '김지홍',
       saleLabel: '월보장 판매',
       saleHint: '월보장으로 받은 금액을 한 줄로 넣습니다',
@@ -4302,17 +5172,27 @@
       period: false
     },
     'monthly-manage': {
-      label: '월관리 정산',
+      label: '월관리 정산서',
       owner: '박우진',
       saleLabel: '월관리 판매',
       saleHint: '월 관리비를 한 줄로 넣습니다',
       runHint: '주차별로 실행한 리워드·블로그 비용을 붙입니다',
       period: true
+    },
+    'direct-execution': {
+      label: '직접실행 정산서',
+      owner: '김대호',
+      saleLabel: '직접실행 매출',
+      saleHint: '직접 실행할 판매 금액을 한 줄로 넣습니다',
+      runHint: '해당 판매 건에 직접 실행한 상품과 비용을 붙입니다',
+      period: false
     }
   };
 
   let monthlyDraft = {};
   let monthlyForm = { view: '', parentId: '', date: '', client: '', a: '', b: '', c: '', qty: '', amount: '', period: '', memo: '' };
+  let finalExecutionState = { status: 'idle', rows: [], error: '' };
+  let finalExecutionFilter = { from: '', to: '', view: '' };
 
   function monthlyStorageKey(view) {
     return `peakos.monthly.${view}.${previewPersona || userDoc?.uid || 'anon'}`;
@@ -4340,32 +5220,65 @@
     }));
   }
 
+  async function loadFinalExecutionSettlement() {
+    if (!canSeeFinalExecutionSettlement()) {
+      finalExecutionState = { status: 'idle', rows: [], error: '' };
+      return;
+    }
+    finalExecutionState = { status: 'loading', rows: [], error: '' };
+    try {
+      const payload = await readOnlyApi('/peakos/final-execution');
+      finalExecutionState = {
+        status: 'ready',
+        rows: Array.isArray(payload?.rows) ? payload.rows : [],
+        error: ''
+      };
+    } catch (error) {
+      finalExecutionState = { status: 'error', rows: [], error: error.message || '자료를 불러오지 못했습니다.' };
+    }
+  }
+
   async function saveMonthlyDraft(view, rows) {
     const list = (rows && rows.length ? rows : monthlyRows(view)).filter(Boolean);
-    if (!list.length) return;
+    if (!list.length || !canManageMonthly(view)) return false;
     try {
       await callApi('POST', `/peakos/monthly/${view}`, { rows: list });
+      if (canSeeFinalExecutionSettlement()) await loadFinalExecutionSettlement();
+      return true;
     } catch (error) {
       console.error('정산 저장 실패:', error.message);
       showToast(`저장하지 못했습니다. ${error.message}`);
+      return false;
     }
   }
 
   async function removeMonthlyRow(view, id) {
+    if (!canManageMonthly(view)) return false;
     try {
       await callApi('DELETE', `/peakos/monthly/${view}/${encodeURIComponent(id)}`);
+      if (canSeeFinalExecutionSettlement()) await loadFinalExecutionSettlement();
+      return true;
     } catch (error) {
       console.error('정산 삭제 실패:', error.message);
       showToast(`지우지 못했습니다. ${error.message}`);
+      return false;
     }
   }
 
-  // 본인과 최종정산서 열람자만 본다.
+  // 이 세 정산서는 직급 상속 예외다. 서버가 /users/me에 내려준 UID 권한으로
+  // 소유자 본인에게만 열고, 계정 미리보기에서는 항상 닫는다.
   function canSeeMonthly(view) {
     const config = MONTHLY_TABS[view];
-    if (!config) return false;
-    if (canSeeFinalSettlement()) return true;
+    if (!config || previewPersona) return false;
+    const allowedViews = userDoc?.peakos_special_settlement_views;
+    if (Array.isArray(allowedViews)) return allowedViews.includes(view);
+    // 서버와 화면의 순차 배포 중에도 타인에게 넓어지지 않는 보수적 fallback.
     return String(userDoc?.name || '').trim() === config.owner;
+  }
+
+  // 조회와 편집 모두 같은 본인 전용 capability를 사용한다.
+  function canManageMonthly(view) {
+    return canSeeMonthly(view);
   }
 
   function monthlyRows(view) {
@@ -4405,26 +5318,21 @@
     monthlyForm = form;
     const sales = monthlySales(view);
     const isRun = Boolean(form.parentId);
+    const parent = isRun ? sales.find(sale => sale.id === form.parentId) : null;
     const majors = priceLevels('a');
     const middles = form.a ? priceLevels('b', form.a) : [];
     const minors = form.a && form.b ? priceLevels('c', form.a, form.b) : [];
     const option = (value, selected) => `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(value)}</option>`;
 
-    return `<section class="module-section">
+    return `<section class="module-section" data-monthly-form>
       <div class="module-section-head">
-        <span><strong>${esc(config.label)} 등록</strong><small>${esc(isRun ? config.runHint : config.saleHint)}</small></span>
-        <span class="module-chip live">${esc(isRun ? '실행 건' : config.saleLabel)}</span>
+        <span><strong>${esc(config.label)} ${isRun ? '실행비 등록' : '등록'}</strong><small>${esc(isRun && parent ? `${parent.client || '업체 미입력'} · ${parent.date} 매출에 실행비를 추가합니다` : config.saleHint)}</small></span>
+        <span class="intake-head-right">
+          <span class="module-chip live">${esc(isRun ? '실행비' : config.saleLabel)}</span>
+          ${isRun ? '<button class="module-action" type="button" data-monthly-sale-mode>새 매출 등록으로 돌아가기</button>' : ''}
+        </span>
       </div>
       <div class="module-section-body">
-        <div class="intake-target">
-          <label class="intake-field wide">
-            <span>어디에 붙일까요</span>
-            <select data-monthly="parentId">
-              <option value="">${esc(config.saleLabel)}으로 새로 등록</option>
-              ${sales.map(sale => `<option value="${esc(sale.id)}" ${sale.id === form.parentId ? 'selected' : ''}>${esc(sale.client || '업체 미입력')} · ${esc(sale.date.slice(5).replace('-', '/'))} · ${esc(Number(sale.amount).toLocaleString('ko-KR'))}원에 실행 건 붙이기</option>`).join('')}
-            </select>
-          </label>
-        </div>
         <div class="intake-form">
           <label class="intake-field">
             <span>일자</span>
@@ -4464,8 +5372,8 @@
           <input type="text" data-monthly="memo" value="${esc(form.memo)}" placeholder="메모">
         </label>
         <div class="intake-foot">
-          <p class="sales-basis">${esc(isRun ? '실행 건은 영업이익에서 빠집니다.' : `${config.saleLabel}은 영업이익에 더해집니다.`)} 이 브라우저에만 저장되는 초안입니다.</p>
-          <button class="module-action primary" type="button" data-monthly-add>${esc(isRun ? '실행 건 추가' : `${config.saleLabel} 등록`)}</button>
+          <p class="sales-basis">${esc(isRun ? '실행비는 영업이익에서 빠집니다.' : `${config.saleLabel}은 영업이익에 더해집니다.`)} 서버 저장 후 최종실행정산서에 자동 반영됩니다.</p>
+          <button class="module-action primary" type="button" data-monthly-add>${esc(isRun ? '실행비 추가' : `${config.saleLabel} 등록`)}</button>
         </div>
       </div>
     </section>`;
@@ -4475,10 +5383,11 @@
     const config = MONTHLY_TABS[view];
     const sales = monthlySales(view);
     const total = monthlyTotals(view);
+    const editable = canManageMonthly(view);
     if (!sales.length) {
       return `<section class="module-section">
         <div class="module-section-head"><span><strong>${esc(config.label)}</strong><small>${esc(config.owner)} 기준</small></span></div>
-        <div class="module-section-body"><p class="sales-state">아직 등록한 ${esc(config.saleLabel)}이 없습니다. 위에서 등록해 보세요.</p></div>
+        <div class="module-section-body"><p class="sales-state">아직 등록한 ${esc(config.saleLabel)}이 없습니다.${editable ? ' 위에서 등록해 보세요.' : ''}</p></div>
       </section>`;
     }
 
@@ -4497,7 +5406,8 @@
                 <span>판매 <strong>${esc(group.sales.toLocaleString('ko-KR'))}</strong></span>
                 <span>실행 <strong>${esc(group.cost.toLocaleString('ko-KR'))}</strong></span>
                 <span>영업이익 <strong class="profit">${esc(group.profit.toLocaleString('ko-KR'))}</strong></span>
-                <button class="ledger-remove" type="button" data-monthly-remove="${esc(sale.id)}" aria-label="${esc(sale.client || '')} 묶음 삭제">✕</button>
+                ${editable ? `<button class="module-action" type="button" data-monthly-run="${esc(sale.id)}">실행비 추가</button>` : ''}
+                ${editable ? `<button class="ledger-remove" type="button" data-monthly-remove="${esc(sale.id)}" aria-label="${esc(sale.client || '')} 묶음 삭제">✕</button>` : ''}
               </span>
             </div>
             ${group.runs.length ? `<div class="sales-table-scroll">
@@ -4506,7 +5416,7 @@
                   <th scope="col">일자</th><th scope="col">상품</th><th scope="col">실행가</th>
                   <th scope="col">수량</th><th scope="col">실행 공급가액</th>
                   ${config.period ? '<th scope="col">구동 기간</th>' : ''}
-                  <th scope="col">특이사항</th><th scope="col" aria-label="삭제"></th>
+                  <th scope="col">특이사항</th>${editable ? '<th scope="col" aria-label="삭제"></th>' : ''}
                 </tr></thead>
                 <tbody>
                   ${group.runs.map(run => `<tr>
@@ -4517,11 +5427,11 @@
                     <td class="monthly-minus">-${esc(((Number(run.amount) || 0) * (Number(run.qty) || 0)).toLocaleString('ko-KR'))}</td>
                     ${config.period ? `<td>${run.period ? esc(run.period) : '<span class="ledger-memo-empty">—</span>'}</td>` : ''}
                     <td class="ledger-memo">${run.memo ? esc(run.memo) : '<span class="ledger-memo-empty">—</span>'}</td>
-                    <td><button class="ledger-remove" type="button" data-monthly-remove="${esc(run.id)}" aria-label="실행 건 삭제">✕</button></td>
+                    ${editable ? `<td><button class="ledger-remove" type="button" data-monthly-remove="${esc(run.id)}" aria-label="실행 건 삭제">✕</button></td>` : ''}
                   </tr>`).join('')}
                 </tbody>
               </table>
-            </div>` : '<p class="sales-basis monthly-empty">붙은 실행 건이 없습니다. 위에서 이 건을 골라 실행 비용을 넣으세요.</p>'}
+            </div>` : '<p class="sales-basis monthly-empty">등록된 실행비가 없습니다. 이 매출의 ‘실행비 추가’ 버튼으로 입력할 수 있습니다.</p>'}
           </div>`;
         }).join('')}
         <div class="ledger-total">
@@ -4541,26 +5451,146 @@
         ${moduleStatusbar(config.label, '지정된 인원만 볼 수 있습니다.', '접근 제한')}
         <section class="module-section">
           <div class="module-section-head">
-            <span><strong>열람 권한이 없습니다</strong><small>${esc(config.owner)} 본인과 최종정산서 열람자만 볼 수 있습니다</small></span>
+            <span><strong>열람 권한이 없습니다</strong><small>${esc(config.owner)} 본인만 볼 수 있습니다</small></span>
             <span class="module-chip restricted">지정 인원 전용</span>
           </div>
-          <div class="module-section-body"><p class="sales-state">${esc(config.owner)} · 대표 · 손명아 실장 · 김대호 부장 · 박종원 부장 · 전현우 팀장만 볼 수 있습니다.</p></div>
+          <div class="module-section-body"><p class="sales-state">권한이 있는 로그인 계정으로 다시 확인해 주세요.</p></div>
         </section>`;
       return;
     }
     moduleView.innerHTML = `
-      ${moduleStatusbar(config.label, `${config.saleLabel} 한 건에 실행 비용을 붙여 묶음별로 손익을 봅니다.`, `${config.owner} 전용`)}
+      ${view === 'direct-execution' ? '' : moduleStatusbar(config.label, `${config.saleLabel} 한 건에 실행 비용을 붙여 묶음별로 손익을 봅니다.`, `${config.owner} 본인 전용`)}
       ${renderMonthlyForm(view)}
       ${renderMonthlyLedger(view)}
-      <div class="module-security"><span>▣</span><span><strong>표준 정산서와 따로 봅니다</strong><br>${esc(config.label)}은 판매 한 건에 실행 여러 건이 붙는 구조라 개인정산서·최종정산서와 섞지 않습니다.</span></div>`;
+      <div class="module-security"><span>▣</span><span><strong>${esc(config.owner)} 본인만 볼 수 있고 수정할 수 있습니다</strong><br>${esc(config.label)}은 판매 한 건에 실행 여러 건이 붙는 구조라 개인정산서·최종정산서와 섞지 않습니다.</span></div>`;
+  }
+
+  function finalExecutionGroups() {
+    const rows = finalExecutionState.rows.filter(row => MONTHLY_TABS[row.view]);
+    const saleIds = new Set(rows.filter(row => row.kind === 'sale').map(row => `${row.view}|${row.id}`));
+    const orphans = rows.filter(row => row.kind === 'run' && !saleIds.has(`${row.view}|${row.parentId}`));
+    const groups = rows
+      .filter(row => row.kind === 'sale')
+      .map(sale => {
+        const runs = rows.filter(row => row.kind === 'run' && row.view === sale.view && row.parentId === sale.id);
+        const sales = Number(sale.amount) || 0;
+        const cost = runs.reduce((sum, row) => sum + (Number(row.amount) || 0) * (Number(row.qty) || 0), 0);
+        return { sale, runs, sales, cost, profit: sales - cost };
+      })
+      .sort((left, right) => String(right.sale.date).localeCompare(String(left.sale.date)));
+    return { groups, orphans };
+  }
+
+  function finalExecutionTotals(groups) {
+    return groups.reduce((sum, group) => {
+      sum.sales += group.sales;
+      sum.cost += group.cost;
+      sum.profit += group.profit;
+      sum.runs += group.runs.length;
+      return sum;
+    }, { sales: 0, cost: 0, profit: 0, runs: 0 });
+  }
+
+  function renderFinalExecutionSettlementModule() {
+    if (!canSeeFinalExecutionSettlement()) {
+      moduleView.innerHTML = `
+        ${moduleStatusbar('최종실행정산서', '지정된 네 계정만 볼 수 있습니다.', '접근 제한')}
+        <section class="module-section"><div class="module-section-body"><p class="sales-state">최종실행정산서 열람 권한이 없습니다.</p></div></section>`;
+      return;
+    }
+    if (finalExecutionState.status === 'loading' || finalExecutionState.status === 'idle') {
+      moduleView.innerHTML = `
+        ${moduleStatusbar('최종실행정산서', '월보장·월관리·직접실행 정산서를 취합합니다.', '불러오는 중')}
+        <section class="module-section"><div class="module-section-body"><p class="sales-state">최종실행정산서를 불러오고 있습니다.</p></div></section>`;
+      return;
+    }
+    if (finalExecutionState.status === 'error') {
+      moduleView.innerHTML = `
+        ${moduleStatusbar('최종실행정산서', '월보장·월관리·직접실행 정산서를 취합합니다.', '조회 실패')}
+        <section class="module-section"><div class="module-section-body"><p class="sales-state">${esc(finalExecutionState.error)}</p><button class="module-action" type="button" data-final-execution-refresh>다시 조회</button></div></section>`;
+      return;
+    }
+
+    const { groups: allGroups, orphans } = finalExecutionGroups();
+    const groups = allGroups.filter(group => {
+      if (finalExecutionFilter.from && String(group.sale.date) < finalExecutionFilter.from) return false;
+      if (finalExecutionFilter.to && String(group.sale.date) > finalExecutionFilter.to) return false;
+      if (finalExecutionFilter.view && group.sale.view !== finalExecutionFilter.view) return false;
+      return true;
+    });
+    const total = finalExecutionTotals(groups);
+    const filterActive = Boolean(finalExecutionFilter.from || finalExecutionFilter.to || finalExecutionFilter.view);
+    const sourceMarkup = Object.entries(MONTHLY_TABS).map(([view, config]) => {
+      const sourceGroups = groups.filter(group => group.sale.view === view);
+      if (finalExecutionFilter.view && finalExecutionFilter.view !== view) return '';
+      const sourceTotal = finalExecutionTotals(sourceGroups);
+      return `<section class="module-section final-execution-source" data-final-execution-source="${esc(view)}">
+        <div class="module-section-head">
+          <span><strong>${esc(config.label)}</strong><small>${esc(config.owner)} · 매출 ${esc(String(sourceGroups.length))}건 · 실행 ${esc(String(sourceTotal.runs))}건</small></span>
+          <span class="module-chip live">판매 ${esc(sourceTotal.sales.toLocaleString('ko-KR'))}원 · 실행 ${esc(sourceTotal.cost.toLocaleString('ko-KR'))}원 · 이익 ${esc(sourceTotal.profit.toLocaleString('ko-KR'))}원</span>
+        </div>
+        <div class="module-section-body">
+          ${sourceGroups.length ? sourceGroups.map(group => `<div class="monthly-group">
+            <div class="monthly-head">
+              <span class="monthly-title"><strong>${esc(group.sale.client || '업체 미입력')}</strong><small>${esc(group.sale.date)} · ${esc(group.sale.a)} › ${esc(group.sale.b)} › ${esc(group.sale.c)}${group.sale.period ? ` · ${esc(group.sale.period)}` : ''}</small></span>
+              <span class="monthly-sums"><span>판매 <strong>${esc(group.sales.toLocaleString('ko-KR'))}</strong></span><span>실행 <strong>${esc(group.cost.toLocaleString('ko-KR'))}</strong></span><span>영업이익 <strong class="profit">${esc(group.profit.toLocaleString('ko-KR'))}</strong></span></span>
+            </div>
+            ${group.runs.length ? `<div class="sales-table-scroll"><table class="sales-table monthly-table">
+              <thead><tr><th scope="col">실행일</th><th scope="col">실행 상품</th><th scope="col">실행가</th><th scope="col">수량</th><th scope="col">실행 공급가액</th><th scope="col">구동 기간</th><th scope="col">특이사항</th></tr></thead>
+              <tbody>${group.runs.map(run => `<tr><td>${esc(run.date)}</td><th scope="row">${esc(run.b)} › ${esc(run.c)}</th><td>${esc(Number(run.amount || 0).toLocaleString('ko-KR'))}</td><td>${esc(Number(run.qty || 0).toLocaleString('ko-KR'))}</td><td class="monthly-minus">-${esc(((Number(run.amount) || 0) * (Number(run.qty) || 0)).toLocaleString('ko-KR'))}</td><td>${run.period ? esc(run.period) : '<span class="ledger-memo-empty">—</span>'}</td><td class="ledger-memo">${run.memo ? esc(run.memo) : '<span class="ledger-memo-empty">—</span>'}</td></tr>`).join('')}</tbody>
+            </table></div>` : '<p class="sales-basis monthly-empty">등록된 실행비가 없습니다.</p>'}
+          </div>`).join('') : `<p class="sales-state">${filterActive ? '조회 조건에 맞는 매출이 없습니다.' : `등록된 ${esc(config.saleLabel)}이 없습니다.`}</p>`}
+        </div>
+      </section>`;
+    }).join('');
+
+    moduleView.innerHTML = `
+      ${moduleStatusbar('최종실행정산서', '월보장·월관리·직접실행 정산서를 원본 그대로 실시간 취합합니다.', '읽기 전용')}
+      <section class="module-section">
+        <div class="module-section-head"><span><strong>취합 조건</strong><small>매출 일자와 정산서 종류로 조회합니다</small></span><span class="module-chip restricted">지정 4계정 전용</span></div>
+        <div class="module-section-body">
+          <div class="ledger-filter">
+            <label class="ledger-filter-field"><span>기간</span><span class="ledger-filter-range"><input type="date" data-final-execution-filter="from" value="${esc(finalExecutionFilter.from)}" aria-label="최종실행 시작일"><em>~</em><input type="date" data-final-execution-filter="to" value="${esc(finalExecutionFilter.to)}" aria-label="최종실행 종료일"></span></label>
+            <label class="ledger-filter-field"><span>정산서</span><select data-final-execution-filter="view"><option value="">전체</option>${Object.entries(MONTHLY_TABS).map(([view, config]) => `<option value="${esc(view)}" ${finalExecutionFilter.view === view ? 'selected' : ''}>${esc(config.label)} · ${esc(config.owner)}</option>`).join('')}</select></label>
+            ${filterActive ? '<button class="module-action" type="button" data-final-execution-reset>조건 해제</button>' : ''}
+            <button class="module-action" type="button" data-final-execution-refresh>새로고침</button>
+          </div>
+        </div>
+      </section>
+      <section class="fund-cards final-execution-kpis" aria-label="최종실행정산 합계">
+        <article class="fund-card"><span>판매 합계</span><strong>${esc(total.sales.toLocaleString('ko-KR'))}원</strong><small>${esc(String(groups.length))}개 매출</small></article>
+        <article class="fund-card warn"><span>실행비 합계</span><strong>${esc(total.cost.toLocaleString('ko-KR'))}원</strong><small>${esc(String(total.runs))}개 실행</small></article>
+        <article class="fund-card strong"><span>최종 영업이익</span><strong>${esc(total.profit.toLocaleString('ko-KR'))}원</strong><small>판매 − 실행비</small></article>
+      </section>
+      ${orphans.length ? `<div class="module-security"><span>!</span><span><strong>연결이 누락된 실행비 ${esc(String(orphans.length))}건</strong><br>원본 매출을 찾을 수 없어 합계에서 제외했습니다. 개발자에게 확인을 요청해 주세요.</span></div>` : ''}
+      ${sourceMarkup}
+      <div class="module-security"><span>▣</span><span><strong>${esc(FINAL_EXECUTION_SETTLEMENT_VIEWERS.join(' · '))}만 볼 수 있습니다</strong><br>이 화면은 읽기 전용이며 원본 수정은 각 담당자의 월보장·월관리·직접실행 정산서에서만 가능합니다.</span></div>`;
   }
 
   // 입금체크 — 개인정산서에 흩어진 입금 상태를 한 화면에 모은다.
   let depositFilter = { state: 'unpaid', client: '' };
 
-  function depositRows() {
-    return personalRows()
+  function reviewedIntakeRows() {
+    // 전체 검토 목록은 로그인 직후 서버 스냅샷이다. 검토자가 자기 접수를
+    // 방금 추가·수정한 경우에는 현재 개인정산서의 값으로 즉시 덮어써서
+    // 입금·세금 탭에서 새로고침 없이 같은 내용을 보게 한다.
+    const rowsById = new Map(bankMatchReviewRows.map(row => [String(row.id || ''), row]));
+    personalRows().forEach(row => rowsById.set(String(row.id || ''), row));
+    return [...rowsById.values()];
+  }
+
+  function depositSourceRows() {
+    return canReviewCreditRequests() ? reviewedIntakeRows() : personalRows();
+  }
+
+  function depositPeriodRows() {
+    return depositSourceRows()
       .filter(row => kindOf(row) !== 'reserve')
+      .filter(row => inFinancePeriod(row.date));
+  }
+
+  function depositRows() {
+    return depositPeriodRows()
       .filter(row => {
         if (depositFilter.client && row.client !== depositFilter.client) return false;
         if (!depositFilter.state) return true;
@@ -4573,7 +5603,7 @@
   // 업체별 미수금. 얼마 받아야 하는지가 제일 급한 숫자다.
   function depositByClient() {
     const map = new Map();
-    personalRows().filter(row => kindOf(row) !== 'reserve').forEach(row => {
+    depositPeriodRows().forEach(row => {
       const key = row.client || '업체 미입력';
       if (!map.has(key)) map.set(key, { client: key, sales: 0, paid: 0, count: 0, open: 0 });
       const item = map.get(key);
@@ -4589,14 +5619,29 @@
       .sort((a, b) => b.due - a.due);
   }
 
+  function bankMatchEligibilityMarkup(row) {
+    if (row.paidAuto) return '<span class="kind-badge added">자동 확인 완료</span>';
+    if (!['normal', 'reserve'].includes(kindOf(row))) return '<span class="ledger-memo-empty">대상 아님</span>';
+    if (!bankData.autoReconciliationEnabled) {
+      return '<span class="kind-badge">자동 확인 보류</span>';
+    }
+    if (row.bankMatchEligible) {
+      return `<button class="module-action" type="button" data-bank-match-eligibility="${esc(row.id)}" data-bank-match-next="false">확정 해제</button>`;
+    }
+    return `<button class="module-action primary" type="button" data-bank-match-eligibility="${esc(row.id)}" data-bank-match-next="true">대상 확정</button>`;
+  }
+
   function renderDepositModule() {
     const rows = depositRows();
     const clients = depositByClient();
     const totalDue = clients.reduce((sum, item) => sum + Math.max(0, item.due), 0);
     const option = (value, label, selected) => `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(label)}</option>`;
+    const canReviewMatches = canReviewCreditRequests();
 
     moduleView.innerHTML = `
       ${moduleStatusbar('입금체크', '아직 안 들어온 돈을 업체별로 모아 봅니다.', `미수 ${totalDue.toLocaleString('ko-KR')}원`)}
+      ${renderFinancePeriodFilter('deposit-check', '접수일 기준 · 업체별 합계와 건별 목록 동시 적용')}
+      ${canReviewMatches && !bankData.autoReconciliationEnabled ? '<div class="module-security"><span>!</span><span><strong>자동 입금확인은 안전상 보류 중입니다</strong><br>통장 조회와 거래 원장 동기화는 정상 운영하며, IBK 공식 거래번호가 연결된 뒤 자동 확인·충전금 승인을 엽니다.</span></div>' : ''}
 
       <section class="module-section">
         <div class="module-section-head">
@@ -4654,8 +5699,9 @@
             <table class="sales-table ledger-table">
               <thead><tr>
                 <th scope="col" aria-label="선택"></th><th scope="col">일자</th><th scope="col">업체명</th>
+                ${canReviewMatches ? '<th scope="col">예상 입금자</th>' : ''}
                 <th scope="col">상품</th><th scope="col">판매액</th><th scope="col">입금액</th>
-                <th scope="col">미수</th><th scope="col">입금</th>
+                <th scope="col">미수</th><th scope="col">입금</th>${canReviewMatches ? '<th scope="col">자동 확인</th>' : ''}
               </tr></thead>
               <tbody>
                 ${rows.map(row => {
@@ -4666,11 +5712,13 @@
                     <td class="ledger-pick"><input type="checkbox" data-intake-pick="${esc(row.id)}" ${intakeSelection.includes(row.id) ? 'checked' : ''} aria-label="${esc(row.client || '')} 선택"></td>
                     <td>${esc(row.date.slice(5).replace('-', '/'))}</td>
                     <th scope="row">${esc(row.client || '업체 미입력')}${kindOf(row) === 'normal' ? '' : `<span class="kind-badge ${esc(kindOf(row))}">${esc(kindLabel(row))}</span>`}</th>
+                    ${canReviewMatches ? `<td>${esc(row.expectedPayer || row.client || '—')}</td>` : ''}
                     <td class="ledger-product">${esc(row.b)} › ${esc(row.c)}</td>
                     <td>${esc(sales.toLocaleString('ko-KR'))}</td>
                     <td>${esc(paid.toLocaleString('ko-KR'))}</td>
                     <td class="${sales - paid > 0 ? 'monthly-minus' : ''}">${esc((sales - paid).toLocaleString('ko-KR'))}</td>
                     <td>${renderPaidCell(row)}</td>
+                    ${canReviewMatches ? `<td>${bankMatchEligibilityMarkup(row)}</td>` : ''}
                   </tr>`;
                 }).join('')}
               </tbody>
@@ -4679,14 +5727,36 @@
         </div>
       </section>
 
-      <div class="module-security"><span>▣</span><span><strong>통장 자동 매칭은 아직입니다</strong><br>지금은 수기로 입금을 확인합니다. 통장 거래내역을 넣을 방법이 정해지면 자동 대조를 붙입니다.</span></div>`;
+      <div class="module-security"><span>▣</span><span><strong>정확히 확인되는 입금만 자동 처리합니다</strong><br>매출통장의 금액과 예상 입금자명이 모두 같고 후보가 한 건일 때만 자동 확인합니다. 부분입금·묶음입금·이름이 다른 건은 수기로 확인합니다.</span></div>`;
   }
 
   // 충전금 — 포인트로 받는 업체는 얼마 입금했고 얼마 충전했는지를 따로 적는다.
   // 시트의 '충전금 입금내역'·'스페이스 충전금' 탭 구조를 그대로 옮겼다.
   const CREDIT_KINDS = { charge: '충전', use: '차감', refund: '환불' };
+  const CREDIT_REQUEST_ACCOUNTS = {
+    'ibk-review-space': '리뷰스페이스통장',
+    'ibk-reward-space': '리워드스페이스통장'
+  };
+  const CREDIT_REQUEST_STATUS = {
+    PENDING: '입금 대기',
+    APPROVED: '자동 승인',
+    CANCELLED: '취소'
+  };
   let creditDraft = [];
   let creditForm = { date: '', client: '', product: '', vendor: '', kind: 'charge', paid: '', point: '', memo: '' };
+  let creditRequests = [];
+  let creditRequestScope = 'mine';
+  let creditRequestForm = {
+    targetAccountId: 'ibk-review-space',
+    requestDate: '',
+    client: '',
+    depositorName: '',
+    product: '',
+    vendor: '',
+    expectedAmount: '',
+    pointAmount: '',
+    memo: ''
+  };
 
   function creditStorageKey() {
     return `peakos.credit.${previewPersona || userDoc?.uid || 'anon'}`;
@@ -4702,13 +5772,36 @@
   }
 
   async function loadCreditDraft() {
-    if (!canSeeFinalSettlement()) { creditDraft = []; return; }
-    try {
-      const rows = await readOnlyApi('/peakos/credit');
-      creditDraft = Array.isArray(rows) ? rows : [];
-    } catch (error) {
+    if (previewPersona) {
       creditDraft = [];
+      creditRequests = [];
+      creditRequestScope = 'mine';
+      return;
     }
+    const ledgerPromise = canSeeFinalSettlement()
+      ? readOnlyApi('/peakos/credit').then(rows => {
+        creditDraft = Array.isArray(rows) ? rows : [];
+      }).catch(() => { creditDraft = []; })
+      : Promise.resolve().then(() => { creditDraft = []; });
+    const requestedScope = canReviewCreditRequests() ? 'all' : 'mine';
+    const requestPromise = readOnlyApi(`/peakos/credit-requests?scope=${requestedScope}`)
+      .catch(error => {
+        // 서버의 UID 권한이 최종 기준이다. 이름 기반 화면 판단과 다르면
+        // 전체 목록은 버리고 본인 요청만 다시 읽는다.
+        if (requestedScope === 'all' && error.status === 403) {
+          return readOnlyApi('/peakos/credit-requests?scope=mine');
+        }
+        throw error;
+      })
+      .then(payload => {
+        creditRequests = Array.isArray(payload?.requests) ? payload.requests : [];
+        creditRequestScope = payload?.scope === 'all' ? 'all' : 'mine';
+      })
+      .catch(() => {
+        creditRequests = [];
+        creditRequestScope = 'mine';
+      });
+    await Promise.all([ledgerPromise, requestPromise]);
   }
 
   async function saveCreditRows(rows) {
@@ -4731,9 +5824,9 @@
   }
 
   // 업체별 잔여 포인트와 입금액. 충전은 더하고 차감·환불은 뺀다.
-  function creditByClient() {
+  function creditByClient(rows = creditDraft) {
     const map = new Map();
-    creditDraft.forEach(row => {
+    rows.forEach(row => {
       const key = row.client || '업체 미입력';
       if (!map.has(key)) map.set(key, { client: key, paid: 0, point: 0, rows: [] });
       const item = map.get(key);
@@ -4746,29 +5839,87 @@
   }
 
   function renderCreditModule() {
-    if (!canSeeFinalSettlement()) {
-      moduleView.innerHTML = `
-        ${moduleStatusbar('충전금', '지정된 인원만 볼 수 있습니다.', '접근 제한')}
-        <section class="module-section">
-          <div class="module-section-head"><span><strong>열람 권한이 없습니다</strong><small>회사 충전금은 최종정산서 열람자만 봅니다</small></span><span class="module-chip restricted">지정 인원 전용</span></div>
-          <div class="module-section-body"><p class="sales-state">대표 · 손명아 실장 · 김대호 부장 · 박종원 부장 · 전현우 팀장만 볼 수 있습니다.</p></div>
-        </section>`;
-      return;
-    }
-
-    const clients = creditByClient();
+    const allClients = creditByClient();
+    const currentPoint = allClients.reduce((sum, item) => sum + item.point, 0);
+    const ledgerRows = creditDraft.filter(row => inFinancePeriod(row.date));
+    const clients = creditByClient(ledgerRows);
     const totalPoint = clients.reduce((sum, item) => sum + item.point, 0);
     const totalPaid = clients.reduce((sum, item) => sum + item.paid, 0);
+    const requestRows = creditRequests.filter(row => inFinancePeriod(row.requestDate));
     const form = creditForm;
+    const requestForm = creditRequestForm;
     const majors = priceLevels('a');
     const option = (value, label, selected) => `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(label)}</option>`;
+    const pendingCount = requestRows.filter(row => row.status === 'PENDING').length;
+    const allPendingCount = creditRequests.filter(row => row.status === 'PENDING').length;
+    const canSeeLedger = canSeeFinalSettlement();
+    const canCancelRequest = row => row.status === 'PENDING'
+      && (creditRequestScope === 'all' || String(row.requesterUid || '') === String(currentUser?.uid || ''));
 
-    moduleView.innerHTML = `
-      ${moduleStatusbar('충전금', '포인트로 받는 업체의 충전·차감과 잔여 포인트를 관리합니다.', `잔여 ${totalPoint.toLocaleString('ko-KR')}P`)}
+    const requestMarkup = `
+      <section class="module-section">
+        <div class="module-section-head">
+          <span><strong>충전금 요청</strong><small>입금할 통장과 입금자명·금액을 먼저 등록합니다</small></span>
+          <span class="module-chip live">${creditRequestScope === 'all' ? '전체 요청 검토' : '내 요청'}</span>
+        </div>
+        <div class="module-section-body">
+          <div class="intake-form">
+            <label class="intake-field"><span>입금 통장</span>
+              <select data-credit-request="targetAccountId">${Object.entries(CREDIT_REQUEST_ACCOUNTS).map(([id, label]) => option(id, label, requestForm.targetAccountId)).join('')}</select></label>
+            <label class="intake-field"><span>요청일</span>
+              <input type="date" data-credit-request="requestDate" value="${esc(requestForm.requestDate || localDateKey(new Date()))}"></label>
+            <label class="intake-field"><span>업체명</span>
+              <input type="text" data-credit-request="client" value="${esc(requestForm.client)}" maxlength="200" placeholder="업체명"></label>
+            <label class="intake-field"><span>실제 입금자명</span>
+              <input type="text" data-credit-request="depositorName" value="${esc(requestForm.depositorName)}" maxlength="160" placeholder="통장에 표시될 이름"></label>
+            <label class="intake-field"><span>상품</span>
+              <select data-credit-request="product">${[''].concat(majors).map(value => option(value, value || '선택', requestForm.product)).join('')}</select></label>
+            <label class="intake-field"><span>공급처</span>
+              <select data-credit-request="vendor">${[''].concat(SUPPLIERS).map(value => option(value, value || '선택', requestForm.vendor)).join('')}</select></label>
+            <label class="intake-field"><span>예상 입금액</span>
+              <input type="number" min="1" step="1" data-credit-request="expectedAmount" value="${esc(requestForm.expectedAmount)}" placeholder="통장에 입금될 금액"></label>
+            <label class="intake-field"><span>승인할 충전금</span>
+              <input type="number" min="1" step="1" data-credit-request="pointAmount" value="${esc(requestForm.pointAmount)}" placeholder="입금 확인 후 확정할 포인트"></label>
+          </div>
+          <label class="intake-field wide"><span>특이사항</span>
+            <input type="text" data-credit-request="memo" value="${esc(requestForm.memo)}" maxlength="500" placeholder="필요한 확인 사항"></label>
+          <div class="intake-foot">
+            <p class="sales-basis">요청 후 실제 입금 전까지는 취소할 수 있습니다. 승인할 충전금은 요청 시 확정한 값 그대로 장부에 반영됩니다.</p>
+            <button class="module-action primary" type="button" data-credit-request-submit>충전 요청</button>
+          </div>
+        </div>
+      </section>
 
       <section class="module-section">
         <div class="module-section-head">
-          <span><strong>충전금 기입</strong><small>입금한 금액과 실제 충전한 포인트를 따로 적습니다</small></span>
+          <span><strong>${creditRequestScope === 'all' ? '전체 충전 요청' : '내 충전 요청'}</strong><small>${esc(financePeriodLabel())} · ${esc(String(requestRows.length))}건 · 입금 대기 ${esc(String(pendingCount))}건</small></span>
+          <span class="module-chip ${pendingCount ? 'restricted' : 'live'}">${pendingCount ? `조회 기간 대기 ${esc(String(pendingCount))}` : '조회 기간 대기 없음'}</span>
+        </div>
+        <div class="module-section-body">
+          ${requestRows.length ? `<div class="sales-table-scroll">
+            <table class="sales-table ledger-table">
+              <thead><tr><th scope="col">요청일</th>${creditRequestScope === 'all' ? '<th scope="col">요청자</th>' : ''}<th scope="col">통장</th><th scope="col">업체명</th><th scope="col">입금자명</th><th scope="col">상품 · 공급처</th><th scope="col">예상 입금액</th><th scope="col">충전금</th><th scope="col">상태</th><th scope="col" aria-label="취소"></th></tr></thead>
+              <tbody>${requestRows.map(row => `<tr>
+                <td>${esc(String(row.requestDate || '').slice(5).replace('-', '/'))}</td>
+                ${creditRequestScope === 'all' ? `<td>${esc(row.requesterName || '—')}</td>` : ''}
+                <td>${esc(CREDIT_REQUEST_ACCOUNTS[row.targetAccountId] || '지정 통장')}</td>
+                <th scope="row">${esc(row.client || '—')}</th>
+                <td>${esc(row.depositorName || '—')}</td>
+                <td>${esc(row.product || '—')} · ${esc(row.vendor || '—')}</td>
+                <td>${esc(Number(row.expectedAmount || 0).toLocaleString('ko-KR'))}</td>
+                <td>${esc(Number(row.pointAmount || 0).toLocaleString('ko-KR'))}</td>
+                <td><span class="kind-badge ${row.status === 'APPROVED' ? 'added' : row.status === 'CANCELLED' ? 'refund' : 'normal'}">${esc(CREDIT_REQUEST_STATUS[row.status] || row.status || '확인 중')}</span></td>
+                <td>${canCancelRequest(row) ? `<button class="ledger-remove" type="button" data-credit-request-cancel="${esc(row.id)}" aria-label="요청 취소">취소</button>` : ''}</td>
+              </tr>`).join('')}</tbody>
+            </table>
+          </div>` : '<p class="sales-state">등록된 충전 요청이 없습니다.</p>'}
+        </div>
+      </section>`;
+
+    const ledgerMarkup = canSeeLedger ? `
+      <section class="module-section">
+        <div class="module-section-head">
+          <span><strong>재무 장부 직접 기입</strong><small>자동 승인으로 처리할 수 없는 차감·환불·예외 건에 사용합니다</small></span>
           <span class="module-chip live">${esc(CREDIT_KINDS[form.kind])}</span>
         </div>
         <div class="module-section-body">
@@ -4781,9 +5932,9 @@
             <label class="intake-field"><span>업체명</span>
               <input type="text" data-credit="client" value="${esc(form.client)}" placeholder="업체명"></label>
             <label class="intake-field"><span>상품</span>
-              <select data-credit="product">${[''].concat(majors).map(v => option(v, v || '선택', form.product)).join('')}</select></label>
+              <select data-credit="product">${[''].concat(majors).map(value => option(value, value || '선택', form.product)).join('')}</select></label>
             <label class="intake-field"><span>공급처</span>
-              <select data-credit="vendor">${[''].concat(SUPPLIERS).map(v => option(v, v || '선택', form.vendor)).join('')}</select></label>
+              <select data-credit="vendor">${[''].concat(SUPPLIERS).map(value => option(value, value || '선택', form.vendor)).join('')}</select></label>
             <label class="intake-field"><span>입금액</span>
               <input type="number" min="0" data-credit="paid" value="${esc(form.paid)}" placeholder="통장에 들어온 돈"></label>
             <label class="intake-field"><span>충전 포인트</span>
@@ -4792,7 +5943,7 @@
           <label class="intake-field wide"><span>특이사항</span>
             <input type="text" data-credit="memo" value="${esc(form.memo)}" placeholder="예: 잔여 8,200P → 500,000 충전"></label>
           <div class="intake-foot">
-            <p class="sales-basis">입금액과 충전 포인트가 다를 수 있어 따로 받습니다. 차이는 아래 표에서 바로 보입니다.</p>
+            <p class="sales-basis">입금액과 충전 포인트가 다를 수 있어 따로 받습니다. 자동 승인 건은 위 요청에서 장부로 들어옵니다.</p>
             <button class="module-action primary" type="button" data-credit-add>${esc(CREDIT_KINDS[form.kind])} 기입</button>
           </div>
         </div>
@@ -4800,64 +5951,402 @@
 
       <section class="module-section">
         <div class="module-section-head">
-          <span><strong>업체별 잔여 포인트</strong><small>충전에서 차감·환불을 뺀 값입니다</small></span>
-          <span class="module-chip live">입금 ${esc(totalPaid.toLocaleString('ko-KR'))}원 · 잔여 ${esc(totalPoint.toLocaleString('ko-KR'))}P</span>
+          <span><strong>조회 기간 충전금 증감</strong><small>${esc(financePeriodLabel())} · 현재 전체 잔여 ${esc(currentPoint.toLocaleString('ko-KR'))}P</small></span>
+          <span class="module-chip live">입금 ${esc(totalPaid.toLocaleString('ko-KR'))}원 · 포인트 ${esc(totalPoint.toLocaleString('ko-KR'))}P</span>
         </div>
         <div class="module-section-body">
           ${clients.length ? `<div class="sales-table-scroll">
             <table class="sales-table">
               <thead><tr><th scope="col">업체명</th><th scope="col">건수</th><th scope="col">입금액</th><th scope="col">충전 포인트</th><th scope="col">차이</th></tr></thead>
-              <tbody>
-                ${clients.map(item => `<tr>
-                  <th scope="row">${esc(item.client)}</th>
-                  <td>${esc(item.rows.length.toLocaleString('ko-KR'))}건</td>
-                  <td>${esc(item.paid.toLocaleString('ko-KR'))}</td>
-                  <td class="sales-cell-total">${esc(item.point.toLocaleString('ko-KR'))}</td>
-                  <td class="${item.point - item.paid ? '' : 'ledger-memo-empty'}">${esc((item.point - item.paid).toLocaleString('ko-KR'))}</td>
-                </tr>`).join('')}
-              </tbody>
+              <tbody>${clients.map(item => `<tr>
+                <th scope="row">${esc(item.client)}</th>
+                <td>${esc(item.rows.length.toLocaleString('ko-KR'))}건</td>
+                <td>${esc(item.paid.toLocaleString('ko-KR'))}</td>
+                <td class="sales-cell-total">${esc(item.point.toLocaleString('ko-KR'))}</td>
+                <td class="${item.point - item.paid ? '' : 'ledger-memo-empty'}">${esc((item.point - item.paid).toLocaleString('ko-KR'))}</td>
+              </tr>`).join('')}</tbody>
             </table>
-          </div>` : '<p class="sales-state">아직 기입한 충전금이 없습니다.</p>'}
+          </div>` : '<p class="sales-state">선택한 기간에 기입된 충전금이 없습니다.</p>'}
         </div>
       </section>
 
-      ${creditDraft.length ? `<section class="module-section">
-        <div class="module-section-head"><span><strong>충전금 내역</strong><small>${esc(String(creditDraft.length))}건</small></span></div>
+      ${ledgerRows.length ? `<section class="module-section">
+        <div class="module-section-head"><span><strong>충전금 장부</strong><small>${esc(financePeriodLabel())} · ${esc(String(ledgerRows.length))}건</small></span></div>
         <div class="module-section-body">
           <div class="sales-table-scroll">
             <table class="sales-table ledger-table">
               <thead><tr><th scope="col">일자</th><th scope="col">업체명</th><th scope="col">상품</th><th scope="col">공급처</th><th scope="col">내용</th><th scope="col">입금액</th><th scope="col">포인트</th><th scope="col">특이사항</th><th scope="col" aria-label="삭제"></th></tr></thead>
-              <tbody>
-                ${[...creditDraft].sort((a, b) => String(b.date).localeCompare(String(a.date))).map(row => `<tr>
-                  <td>${esc(row.date.slice(5).replace('-', '/'))}</td>
-                  <th scope="row">${esc(row.client || '업체 미입력')}</th>
-                  <td>${esc(row.product || '—')}</td>
-                  <td>${esc(row.vendor || '—')}</td>
-                  <td><span class="kind-badge ${row.kind === 'charge' ? 'added' : 'refund'}">${esc(CREDIT_KINDS[row.kind])}</span></td>
-                  <td>${esc(((Number(row.paid) || 0) * creditSign(row)).toLocaleString('ko-KR'))}</td>
-                  <td>${esc(((Number(row.point) || 0) * creditSign(row)).toLocaleString('ko-KR'))}</td>
-                  <td class="ledger-memo">${row.memo ? esc(row.memo) : '<span class="ledger-memo-empty">—</span>'}</td>
-                  <td><button class="ledger-remove" type="button" data-credit-remove="${esc(row.id)}" aria-label="삭제">✕</button></td>
-                </tr>`).join('')}
-              </tbody>
+              <tbody>${[...ledgerRows].sort((a, b) => String(b.date).localeCompare(String(a.date))).map(row => `<tr>
+                <td>${esc(row.date.slice(5).replace('-', '/'))}</td>
+                <th scope="row">${esc(row.client || '업체 미입력')}</th>
+                <td>${esc(row.product || '—')}</td>
+                <td>${esc(row.vendor || '—')}</td>
+                <td><span class="kind-badge ${row.kind === 'charge' ? 'added' : 'refund'}">${esc(CREDIT_KINDS[row.kind])}</span></td>
+                <td>${esc(((Number(row.paid) || 0) * creditSign(row)).toLocaleString('ko-KR'))}</td>
+                <td>${esc(((Number(row.point) || 0) * creditSign(row)).toLocaleString('ko-KR'))}</td>
+                <td class="ledger-memo">${row.memo ? esc(row.memo) : '<span class="ledger-memo-empty">—</span>'}</td>
+                <td><button class="ledger-remove" type="button" data-credit-remove="${esc(row.id)}" aria-label="삭제">✕</button></td>
+              </tr>`).join('')}</tbody>
             </table>
           </div>
         </div>
-      </section>` : ''}
+      </section>` : ''}` : '';
 
-      <div class="module-security"><span>▣</span><span><strong>접수 대조는 다음 단계입니다</strong><br>충전한 포인트로 실제 접수가 얼마나 빠졌는지 맞추려면 접수와 공급처 사용량이 한곳에 있어야 합니다. 서버 저장을 붙일 때 함께 잇습니다.</span></div>`;
+    moduleView.innerHTML = `
+      ${moduleStatusbar('충전금', '영업 요청부터 통장 입금확인과 충전 승인까지 한 흐름으로 관리합니다.', pendingCount ? `조회 기간 입금 대기 ${pendingCount}건` : (allPendingCount ? `전체 입금 대기 ${allPendingCount}건` : (canSeeLedger ? `현재 잔여 ${currentPoint.toLocaleString('ko-KR')}P` : '요청 가능')))}
+      ${renderFinancePeriodFilter('credit', '요청일·장부일 기준 · 현재 잔여는 전체 누적')}
+      ${requestMarkup}
+      ${ledgerMarkup}
+      <div class="module-security"><span>▣</span><span><strong>금액과 입금자명이 정확히 같은 한 건만 자동 승인합니다</strong><br>리뷰·리워드 통장의 입금액, 실제 입금자명, 대기 요청이 모두 정확히 일치하고 후보가 하나일 때만 승인합니다. 부분입금·묶음입금·이름이 다른 건·중복 후보는 자동 처리하지 않습니다.</span></div>`;
   }
 
-  // 세금계산서 발행요청 — 업체별로 기간을 잡아 공급가액과 세액을 뽑는다.
-  let invoiceMonth = '';
+  // 세금·환불·비용 요청. 기존 공개 Google 시트의 필드 구조를 서버 장부로
+  // 옮기되 환불계좌 원문은 서버에서 암호화하고 화면에는 권한에 따라 마스킹한다.
+  const FINANCE_REQUEST_KIND_LABEL = {
+    TAX_ADVANCE: '세금계산서 선발행',
+    TAX_CORRECTION: '세금계산서 정정',
+    REFUND_CLIENT: '거래처환불',
+    REFUND_MISTAKEN: '오입금환불',
+    EXPENSE_AD: '광고비',
+    EXPENSE_SUPPLIES: '비품·복리후생'
+  };
+  const FINANCE_REQUEST_STATUS = {
+    PENDING: ['접수 대기', 'review'],
+    REVIEWING: ['검토 중', 'review'],
+    APPROVED: ['승인', 'done'],
+    PROCESSING: ['처리 중', 'review'],
+    COMPLETED: ['처리 완료', 'done'],
+    REJECTED: ['반려', 'danger'],
+    CANCELLED: ['취소', 'muted']
+  };
+  const FINANCE_INVOICE_STATUS = {
+    NOT_REQUESTED: '요청 없음',
+    REQUESTED: '계산서 요청',
+    PROCESSING: '계산서 처리 중',
+    ISSUED: '계산서 발행 완료',
+    CORRECTION_REQUESTED: '계산서 정정 요청',
+    CORRECTED: '계산서 정정 완료',
+    FAILED: '계산서 처리 실패',
+    CANCELLED: '계산서 요청 취소'
+  };
+  const PUBLIC_REFUND_ACCOUNTS = [
+    ['ibk-hq-sales', '매출통장'],
+    ['ibk-review-space', '리뷰스페이스통장'],
+    ['ibk-reward-space', '리워드스페이스통장']
+  ];
 
-  function invoiceGroups() {
-    const month = invoiceMonth;
-    const map = new Map();
-    personalRows()
+  function financeValue(row, camel, snake = '') {
+    return row?.[camel] ?? (snake ? row?.[snake] : undefined) ?? '';
+  }
+
+  function financeSafeUrl(value) {
+    try {
+      const url = new URL(String(value || '').trim());
+      return url.protocol === 'https:' ? url.toString().slice(0, 2000) : '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function financeRequestDefault(view) {
+    const config = FINANCE_REQUEST_CONFIG[view] || {};
+    return {
+      view,
+      idempotencyKey: crypto.randomUUID?.() || `finance-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      requestDate: localDateKey(new Date()),
+      client: '', detail: '', amount: '', businessRegistrationUrl: '', email: '',
+      payeeBank: '', payeeAccount: '', payeeName: '', memo: '', evidenceUrl: '',
+      sourceAccountId: config.refund ? 'ibk-hq-sales' : '', invoiceRequested: false
+    };
+  }
+
+  function currentFinanceRequestForm(view) {
+    if (financeRequestForm.view !== view) financeRequestForm = financeRequestDefault(view);
+    return financeRequestForm;
+  }
+
+  function financeRequestQuery(view, page = 1) {
+    const params = new URLSearchParams({
+      scope: canReviewFinanceRequests() ? 'all' : 'mine',
+      page: String(Math.max(1, Number(page) || 1)),
+      limit: '50'
+    });
+    const config = FINANCE_REQUEST_CONFIG[view];
+    if (config?.kind) params.set('kind', config.kind);
+    if (view === 'refund-history' || view === 'refund-invoice') {
+      params.set('kind', 'REFUND_CLIENT,REFUND_MISTAKEN');
+    }
+    if (view === 'refund-invoice') {
+      params.set('invoiceRequested', 'true');
+      params.set('excludeStatus', 'REJECTED,CANCELLED');
+    }
+    const { from, to } = financePeriodBounds();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    return params;
+  }
+
+  async function loadFinanceRequests({ quiet = false, view = activeView, page = 1 } = {}) {
+    if (!canUseFinanceRequests()) {
+      financeRequestState = {
+        status: 'idle', requests: [], scope: 'mine', error: '', view: '', queryKey: '',
+        pagination: { page: 1, limit: 50, total: 0, totalPages: 0 }
+      };
+      return;
+    }
+    if (!FINANCE_REQUEST_VIEWS.includes(view)) return;
+    const generation = ++financeRequestLoadGeneration;
+    const scope = canReviewFinanceRequests() ? 'all' : 'mine';
+    const params = financeRequestQuery(view, page);
+    const queryKey = params.toString();
+    if (!quiet) financeRequestState = {
+      ...financeRequestState,
+      status: 'loading', scope, error: '', view, queryKey,
+      pagination: { ...financeRequestState.pagination, page: Math.max(1, Number(page) || 1) }
+    };
+    try {
+      const payload = await readOnlyApi(`/peakos/finance-requests?${queryKey}`);
+      if (generation !== financeRequestLoadGeneration) return;
+      const rawPagination = payload?.pagination || {};
+      const normalizedPage = Number(rawPagination.page || page || 1);
+      const normalizedLimit = Number(rawPagination.limit || 50);
+      const total = Number(rawPagination.total ?? (Array.isArray(payload?.requests) ? payload.requests.length : 0));
+      const totalPages = Number(rawPagination.totalPages ?? rawPagination.total_pages
+        ?? (total ? Math.ceil(total / Math.max(1, normalizedLimit)) : 0));
+      financeRequestState = {
+        status: 'ready',
+        requests: Array.isArray(payload?.requests) ? payload.requests : (Array.isArray(payload) ? payload : []),
+        scope: payload?.scope || scope,
+        error: '', view, queryKey,
+        pagination: {
+          page: Math.max(1, normalizedPage || 1),
+          limit: Math.max(1, normalizedLimit || 50),
+          total: Math.max(0, total || 0),
+          totalPages: Math.max(0, totalPages || 0)
+        }
+      };
+    } catch (error) {
+      if (generation !== financeRequestLoadGeneration) return;
+      financeRequestState = {
+        status: 'error', requests: [], scope,
+        error: error.message || '요청 장부를 불러오지 못했습니다.', view, queryKey,
+        pagination: { page: Math.max(1, Number(page) || 1), limit: 50, total: 0, totalPages: 0 }
+      };
+    }
+  }
+
+  function financeRequestRows(view) {
+    const rows = financeRequestState.requests.filter(row => inFinancePeriod(
+      String(financeValue(row, 'requestDate', 'request_date')).slice(0, 10)
+    ));
+    if (view === 'refund-history') {
+      return rows.filter(row => ['REFUND_CLIENT', 'REFUND_MISTAKEN'].includes(financeValue(row, 'kind')));
+    }
+    if (view === 'refund-invoice') {
+      return rows.filter(row => ['REFUND_CLIENT', 'REFUND_MISTAKEN'].includes(financeValue(row, 'kind'))
+        && Boolean(financeValue(row, 'invoiceRequested', 'invoice_requested'))
+        && !['REJECTED', 'CANCELLED'].includes(String(financeValue(row, 'status')).toUpperCase()));
+    }
+    const config = FINANCE_REQUEST_CONFIG[view];
+    return config ? rows.filter(row => financeValue(row, 'kind') === config.kind) : [];
+  }
+
+  function financeAccountLabel(row) {
+    const full = String(financeValue(row, 'payeeAccount', 'payee_account') || '').trim();
+    const masked = String(financeValue(row, 'payeeAccountMasked', 'payee_account_masked') || '').trim();
+    if (canReviewFinanceRequests() && full) return full;
+    if (masked) return masked;
+    if (!full) return '미입력';
+    const digits = full.replace(/\D/g, '');
+    return digits.length > 4 ? `****-${digits.slice(-4)}` : '****';
+  }
+
+  function financeEvidenceLink(value, label) {
+    const safe = financeSafeUrl(value);
+    return safe ? `<a class="finance-evidence-link" href="${esc(safe)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>` : '';
+  }
+
+  function financeStatusActions(statusKey, id) {
+    if (!canReviewFinanceRequests()) return '';
+    const actionMap = {
+      PENDING: [
+        ['REVIEWING', '검토 시작', ''],
+        ['PROCESSING', '처리 시작', 'primary'],
+        ['REJECTED', '반려', 'danger']
+      ],
+      REVIEWING: [
+        ['APPROVED', '승인', ''],
+        ['PROCESSING', '처리 시작', 'primary'],
+        ['REJECTED', '반려', 'danger']
+      ],
+      APPROVED: [
+        ['PROCESSING', '처리 시작', ''],
+        ['COMPLETED', '처리 완료', 'primary'],
+        ['REJECTED', '반려', 'danger']
+      ],
+      PROCESSING: [
+        ['APPROVED', '승인으로 전환', ''],
+        ['COMPLETED', '처리 완료', 'primary'],
+        ['REJECTED', '반려', 'danger']
+      ]
+    };
+    return (actionMap[statusKey] || []).map(([next, label, tone]) =>
+      `<button class="module-action ${tone}" type="button" data-finance-status="${esc(next)}" data-finance-id="${esc(id)}">${esc(label)}</button>`
+    ).join('');
+  }
+
+  function financeInvoiceAction(invoiceStatus, requestStatus, id) {
+    if (!canReviewFinanceRequests() || ['REJECTED', 'CANCELLED'].includes(requestStatus)) return '';
+    if (['REQUESTED', 'PROCESSING'].includes(invoiceStatus)) {
+      return `<button class="module-action" type="button" data-finance-invoice-status="ISSUED" data-finance-id="${esc(id)}">계산서 발행완료</button>`;
+    }
+    if (invoiceStatus === 'CORRECTION_REQUESTED') {
+      return `<button class="module-action" type="button" data-finance-invoice-status="CORRECTED" data-finance-id="${esc(id)}">계산서 정정완료</button>`;
+    }
+    if (['FAILED', 'CANCELLED'].includes(invoiceStatus)) {
+      return `<button class="module-action" type="button" data-finance-invoice-status="REQUESTED" data-finance-id="${esc(id)}">계산서 재요청</button>`;
+    }
+    return '';
+  }
+
+  function renderFinanceRequestCards(view, rows) {
+    if (!rows.length) return '<p class="sales-state">조회 조건에 맞는 요청이 없습니다.</p>';
+    return `<div class="finance-request-list" data-finance-request-list>
+      ${rows.map(row => {
+        const id = String(financeValue(row, 'id'));
+        const kind = String(financeValue(row, 'kind'));
+        const statusKey = String(financeValue(row, 'status') || 'PENDING').toUpperCase();
+        const status = FINANCE_REQUEST_STATUS[statusKey] || [statusKey, 'muted'];
+        const invoiceRequested = Boolean(financeValue(row, 'invoiceRequested', 'invoice_requested'));
+        const invoiceStatus = String(financeValue(row, 'invoiceStatus', 'invoice_status') || (invoiceRequested ? 'REQUESTED' : 'NOT_REQUESTED')).toUpperCase();
+        const amount = Number(financeValue(row, 'amountVat', 'amount_vat') || 0);
+        const requester = String(financeValue(row, 'requesterName', 'requester_name') || '요청자');
+        const isOwner = String(financeValue(row, 'requesterUid', 'requester_uid')) === String(userDoc?.uid || '');
+        const canCancel = isOwner && statusKey === 'PENDING';
+        const payeeMarkup = ['REFUND_CLIENT', 'REFUND_MISTAKEN', 'EXPENSE_AD'].includes(kind) ? `
+          <div><dt>지급 정보</dt><dd>${esc([financeValue(row, 'payeeBank', 'payee_bank'), financeAccountLabel(row), financeValue(row, 'payeeName', 'payee_name')].filter(Boolean).join(' · '))}</dd></div>` : '';
+        const evidence = [
+          financeEvidenceLink(financeValue(row, 'evidenceUrl', 'evidence_url'), '요청 증빙'),
+          financeEvidenceLink(financeValue(row, 'businessRegistrationUrl', 'business_registration_url'), '사업자등록증'),
+          financeEvidenceLink(financeValue(row, 'invoiceEvidenceUrl', 'invoice_evidence_url'), '계산서 증빙')
+        ].filter(Boolean).join(' · ');
+        return `<article class="finance-request-card" data-finance-request-row="${esc(id)}">
+          <div class="finance-request-head">
+            <span><strong>${esc(financeValue(row, 'clientName', 'client_name') || '업체 미입력')}</strong><small>${esc(financeValue(row, 'requestDate', 'request_date'))} · ${esc(requester)} · ${esc(FINANCE_REQUEST_KIND_LABEL[kind] || kind)}</small></span>
+            <span class="bank-status ${esc(status[1])}">${esc(status[0])}</span>
+          </div>
+          <div class="finance-request-amount">${amount.toLocaleString('ko-KR')}원 <small>VAT 포함</small></div>
+          <dl class="finance-request-meta">
+            <div><dt>상세내용</dt><dd>${esc(financeValue(row, 'detail') || '-')}</dd></div>
+            <div><dt>사유</dt><dd>${esc(financeValue(row, 'reason') || '-')}</dd></div>
+            ${financeValue(row, 'email') ? `<div><dt>이메일</dt><dd>${esc(financeValue(row, 'email'))}</dd></div>` : ''}
+            ${payeeMarkup}
+            ${invoiceRequested ? `<div><dt>계산서 요청</dt><dd><span class="vendor-chip ${['ISSUED', 'CORRECTED'].includes(invoiceStatus) ? 'done' : ''}">${esc(FINANCE_INVOICE_STATUS[invoiceStatus] || invoiceStatus)}</span></dd></div>` : ''}
+            ${evidence ? `<div><dt>첨부·증빙</dt><dd>${evidence}</dd></div>` : ''}
+            ${financeValue(row, 'processedAt', 'processed_at') ? `<div><dt>처리완료</dt><dd>${esc(formatDate(financeValue(row, 'processedAt', 'processed_at'), { dateStyle: 'medium', timeStyle: 'short' }))}</dd></div>` : ''}
+          </dl>
+          <div class="finance-request-actions">
+            ${financeStatusActions(statusKey, id)}
+            ${invoiceRequested ? financeInvoiceAction(invoiceStatus, statusKey, id) : ''}
+            ${canCancel ? `<button class="module-action" type="button" data-finance-cancel="${esc(id)}">요청 취소</button>` : ''}
+          </div>
+        </article>`;
+      }).join('')}
+    </div>`;
+  }
+
+  function renderFinanceRequestForm(view) {
+    const config = FINANCE_REQUEST_CONFIG[view];
+    if (!config) return '';
+    const form = currentFinanceRequestForm(view);
+    return `<section class="module-section finance-request-form" data-finance-request-form>
+      <div class="module-section-head"><span><strong>${esc(config.title)} 등록</strong><small>${esc(config.description)}</small></span><span class="module-chip live">서버 저장</span></div>
+      <div class="module-section-body">
+        <div class="finance-request-fields">
+          <label class="intake-field"><span>요청일</span><input type="date" data-finance-request="requestDate" value="${esc(form.requestDate)}"></label>
+          <label class="intake-field"><span>업체명·구매처</span><input type="text" data-finance-request="client" value="${esc(form.client)}" placeholder="업체명 또는 구매처"></label>
+          <label class="intake-field finance-field-wide"><span>상세내용</span><input type="text" data-finance-request="detail" value="${esc(form.detail)}" placeholder="품목·변경내용·입금 시각 등을 정확히 입력"></label>
+          <label class="intake-field"><span>금액 (VAT 포함)</span><input type="number" min="1" step="1" data-finance-request="amount" value="${esc(form.amount)}" placeholder="0"></label>
+          ${config.requiresBusiness ? `<label class="intake-field finance-field-wide"><span>사업자등록증 비공개 링크</span><input type="url" data-finance-request="businessRegistrationUrl" value="${esc(form.businessRegistrationUrl)}" placeholder="권한이 제한된 Drive 링크"></label>` : ''}
+          ${config.requiresEmail ? `<label class="intake-field"><span>계산서 이메일</span><input type="email" data-finance-request="email" value="${esc(form.email)}" placeholder="tax@example.com"></label>` : ''}
+          ${config.requiresPayee ? `<label class="intake-field"><span>은행</span><input type="text" data-finance-request="payeeBank" value="${esc(form.payeeBank)}" placeholder="은행명"></label>
+          <label class="intake-field finance-field-wide"><span>환불·지급 계좌번호</span><input type="text" inputmode="numeric" autocomplete="off" data-finance-request="payeeAccount" value="${esc(form.payeeAccount)}" placeholder="계좌번호"></label>
+          <label class="intake-field"><span>예금주명</span><input type="text" data-finance-request="payeeName" value="${esc(form.payeeName)}" placeholder="예금주"></label>` : ''}
+          ${config.refund ? `<label class="intake-field"><span>입금받았던 통장</span><select data-finance-request="sourceAccountId">${PUBLIC_REFUND_ACCOUNTS.map(([id, label]) => `<option value="${esc(id)}" ${form.sourceAccountId === id ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></label>
+          <label class="finance-request-check"><input type="checkbox" data-finance-request="invoiceRequested" ${form.invoiceRequested ? 'checked' : ''}><span><strong>환불 계산서 요청</strong><small>마이너스 발행·정정이 필요하면 체크</small></span></label>` : ''}
+          <label class="intake-field finance-field-wide"><span>증빙 이미지·문서 비공개 링크</span><input type="url" data-finance-request="evidenceUrl" value="${esc(form.evidenceUrl)}" placeholder="권한이 제한된 Drive 링크"></label>
+          <label class="intake-field finance-field-full"><span>사유</span><textarea data-finance-request="memo" rows="3" placeholder="처리자가 확인할 정확한 사유">${esc(form.memo)}</textarea></label>
+        </div>
+        <div class="intake-foot">
+          <p class="sales-basis">${config.refund ? '거래처 환불은 오후 5시 30분 일괄 처리되며 이후 요청은 다음 영업일로 넘어갑니다.' : '처리 담당자가 상태와 완료일을 기록하며 요청자는 임의로 완료 처리할 수 없습니다.'}</p>
+          <button class="module-action primary" type="button" data-finance-request-submit>${esc(config.action)}</button>
+        </div>
+      </div>
+    </section>`;
+  }
+
+  function renderFinanceRequestModule(view) {
+    if (!canUseFinanceRequests()) {
+      moduleView.innerHTML = `${moduleStatusbar(PLANNED_MODULES[view], '실제 로그인 계정에서만 사용할 수 있습니다.', '접근 제한')}`;
+      return;
+    }
+    const currentPage = financeRequestState.view === view ? Number(financeRequestState.pagination?.page || 1) : 1;
+    const expectedQueryKey = financeRequestQuery(view, currentPage).toString();
+    const staleQuery = financeRequestState.view !== view || financeRequestState.queryKey !== expectedQueryKey;
+    if (staleQuery) {
+      financeRequestLoadGeneration += 1;
+      financeRequestState = {
+        ...financeRequestState, status: 'idle', requests: [], error: '', view, queryKey: expectedQueryKey,
+        pagination: { page: 1, limit: 50, total: 0, totalPages: 0 }
+      };
+    }
+    if (financeRequestState.status === 'idle' || financeRequestState.status === 'loading') {
+      moduleView.innerHTML = `<div data-finance-request-module="${esc(view)}">${moduleStatusbar(PLANNED_MODULES[view], '금융 요청 장부를 안전하게 불러옵니다.', '불러오는 중')}<section class="module-section"><div class="module-section-body"><p class="sales-state">요청 내역을 불러오고 있습니다.</p></div></section></div>`;
+      if (financeRequestState.status === 'idle') Promise.resolve().then(() => loadFinanceRequests({ view, page: 1 }).then(() => activeView === view && renderPlannedModule(view)));
+      return;
+    }
+    if (financeRequestState.status === 'error') {
+      moduleView.innerHTML = `<div data-finance-request-module="${esc(view)}">${moduleStatusbar(PLANNED_MODULES[view], '요청 장부를 불러오지 못했습니다.', '조회 실패')}<section class="module-section"><div class="module-section-body"><p class="sales-state">${esc(financeRequestState.error)}</p><button class="module-action" type="button" data-finance-request-refresh>다시 조회</button></div></section></div>`;
+      return;
+    }
+    const rows = financeRequestRows(view);
+    const pagination = financeRequestState.pagination || { page: 1, total: rows.length, totalPages: 1 };
+    const isQueue = view === 'refund-history' || view === 'refund-invoice';
+    const title = view === 'refund-invoice' ? '환불 계산서 요청 큐' : PLANNED_MODULES[view];
+    const description = view === 'refund-history'
+      ? '거래처환불과 오입금환불 요청·처리 상태를 한곳에서 확인합니다.'
+      : view === 'refund-invoice'
+        ? '환불 요청 중 계산서 정정·마이너스 발행이 필요한 건만 자동으로 모읍니다.'
+        : FINANCE_REQUEST_CONFIG[view]?.description || '';
+    moduleView.innerHTML = `<div class="finance-workflow" data-finance-request-module="${esc(view)}">
+      ${moduleStatusbar(title, description, canReviewFinanceRequests() ? '전체 요청 · 처리 가능' : '내 요청')}
+      ${renderFinancePeriodFilter(view, '요청일 기준')}
+      ${isQueue ? '' : renderFinanceRequestForm(view)}
+      <section class="module-section">
+        <div class="module-section-head"><span><strong>${esc(isQueue ? title : '요청 내역')}</strong><small>${esc(financePeriodLabel())} · 전체 ${Number(pagination.total || 0).toLocaleString('ko-KR')}건</small></span><button class="module-action" type="button" data-finance-request-refresh>새로고침</button></div>
+        <div class="module-section-body">${renderFinanceRequestCards(view, rows)}
+          ${Number(pagination.totalPages || 0) > 1 ? `<div class="bank-pagination" aria-label="금융 요청 페이지">
+            <button class="module-action" type="button" data-finance-request-page="${Math.max(1, Number(pagination.page) - 1)}" ${Number(pagination.page) <= 1 ? 'disabled' : ''}>이전</button>
+            <span>${Number(pagination.page).toLocaleString('ko-KR')} / ${Number(pagination.totalPages).toLocaleString('ko-KR')} 페이지</span>
+            <button class="module-action" type="button" data-finance-request-page="${Math.min(Number(pagination.totalPages), Number(pagination.page) + 1)}" ${Number(pagination.page) >= Number(pagination.totalPages) ? 'disabled' : ''}>다음</button>
+          </div>` : ''}
+        </div>
+      </section>
+      <div class="module-security"><span>▣</span><span><strong>계좌번호는 암호화 저장하고 권한에 따라 마스킹합니다</strong><br>일반 직원은 자기 요청만, 지정 재무 담당자는 전체 요청과 처리 상태만 볼 수 있습니다. 증빙 링크도 반드시 접근 권한이 제한된 문서를 사용해 주세요.</span></div>
+    </div>`;
+  }
+
+  // 세금계산서 매출 — 개인 접수에서 선택 기간의 공급가액과 세액을 뽑는다.
+  function invoiceSourceRows() {
+    const source = canReviewFinanceRequests() ? reviewedIntakeRows() : personalRows();
+    return source
       .filter(row => kindOf(row) !== 'reserve')
-      .filter(row => !month || String(row.date).slice(0, 7) === month)
-      .forEach(row => {
+      .filter(row => inFinancePeriod(row.date));
+  }
+
+  function invoiceGroups(sourceRows = invoiceSourceRows()) {
+    const map = new Map();
+    sourceRows.forEach(row => {
         const key = row.client || '업체 미입력';
         if (!map.has(key)) map.set(key, { client: key, supply: 0, count: 0, paid: 0 });
         const item = map.get(key);
@@ -4874,27 +6363,18 @@
 
   function renderInvoiceModule() {
     const groups = invoiceGroups();
-    const months = [...new Set(personalRows().map(row => String(row.date).slice(0, 7)))].sort().reverse();
     const total = groups.reduce((sum, item) => ({ supply: sum.supply + item.supply, tax: sum.tax + item.tax }), { supply: 0, tax: 0 });
 
     moduleView.innerHTML = `
-      ${moduleStatusbar('입금 및 세금계산서 발행요청', '업체별 공급가액과 세액을 뽑아 발행을 요청합니다.', `${groups.length}개 업체`)}
+      ${moduleStatusbar('세금계산서 매출', '접수 매출을 업체별 공급가액·예상 세액으로 정리합니다.', `${groups.length}개 업체`)}
 
       <section class="module-section">
         <div class="module-section-head">
-          <span><strong>발행 대상</strong><small>${invoiceMonth ? esc(invoiceMonth.replace('-', '년 ') + '월') : '전체 기간'} · ${esc(String(groups.length))}개 업체</small></span>
+          <span><strong>발행 대상</strong><small>${esc(financePeriodLabel())} · ${esc(String(groups.length))}개 업체</small></span>
           <span class="module-chip live">공급가액 ${esc(total.supply.toLocaleString('ko-KR'))} · 세액 ${esc(total.tax.toLocaleString('ko-KR'))}</span>
         </div>
         <div class="module-section-body">
-          <div class="ledger-filter">
-            <label class="ledger-filter-field">
-              <span>귀속 월</span>
-              <select data-invoice-month>
-                <option value="">전체 기간</option>
-                ${months.map(m => `<option value="${esc(m)}" ${m === invoiceMonth ? 'selected' : ''}>${esc(m.replace('-', '년 '))}월</option>`).join('')}
-              </select>
-            </label>
-          </div>
+          ${renderFinancePeriodFilter('invoice', '접수일 기준 · 세액은 공급가액의 10% 예상치')}
           ${groups.length ? `<div class="sales-table-scroll">
             <table class="sales-table">
               <thead><tr><th scope="col">업체명</th><th scope="col">건수</th><th scope="col">공급가액</th><th scope="col">세액</th><th scope="col">합계</th><th scope="col">입금</th><th scope="col" aria-label="발행"></th></tr></thead>
@@ -4914,13 +6394,19 @@
         </div>
       </section>
 
-      <div class="module-security"><span>▣</span><span><strong>발행 요청 흐름을 정해야 합니다</strong><br>지금은 금액만 뽑아 둡니다. 요청을 누가 받고 어디로 보내는지(세무 담당 지정, 스페이스 세금발행 API) 정해지면 요청 상태와 이력을 붙입니다.</span></div>`;
+      <div class="module-security"><span>⌘</span><span><strong>운영 플랫폼 2개의 세금계산서 API를 연결할 수 있습니다</strong><br>현재는 내부 매출 기준으로 계산하며, 플랫폼 이름·API 문서·인증방식이 확인되면 서버 어댑터에서 발행·정정·상태조회를 연결하고 외부 문서번호로 중복 발행을 막습니다.</span></div>`;
   }
 
   // 결산 — 지금 들고 있는 숫자로 만들 수 있는 월별 요약.
-  function closingMonths() {
+  function closingSourceRows() {
+    return personalRows()
+      .filter(row => kindOf(row) !== 'reserve')
+      .filter(row => inFinancePeriod(row.date));
+  }
+
+  function closingMonths(sourceRows = closingSourceRows()) {
     const map = new Map();
-    personalRows().filter(row => kindOf(row) !== 'reserve').forEach(row => {
+    sourceRows.forEach(row => {
       const key = String(row.date).slice(0, 7);
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(row);
@@ -4939,15 +6425,17 @@
       return;
     }
 
-    const months = closingMonths();
-    const all = finalTotals(personalRows().filter(row => kindOf(row) !== 'reserve'));
+    const sourceRows = closingSourceRows();
+    const months = closingMonths(sourceRows);
+    const all = finalTotals(sourceRows);
 
     moduleView.innerHTML = `
-      ${moduleStatusbar('결산', '월별로 매출과 이익, 아직 못 받은 돈과 못 준 돈을 봅니다.', '월 마감 기준')}
+      ${moduleStatusbar('결산 (접수 기준)', '현재 로그인 계정의 접수를 선택 기간으로 합산합니다.', '현재 상태 요약')}
+      ${renderFinancePeriodFilter('closing', '내 접수일 기준 · 과거 월말 잔액 아님')}
 
       <section class="module-section">
         <div class="module-section-head">
-          <span><strong>월별 결산</strong><small>${esc(String(months.length))}개월</small></span>
+          <span><strong>접수 기준 월별 요약</strong><small>${esc(financePeriodLabel())} · ${esc(String(months.length))}개월</small></span>
           <span class="module-chip live">회사이익 ${esc(all.companyProfit.toLocaleString('ko-KR'))}원</span>
         </div>
         <div class="module-section-body">
@@ -4982,7 +6470,7 @@
         </div>
       </section>
 
-      <div class="module-security"><span>▣</span><span><strong>지금은 접수 기준 요약입니다</strong><br>고정비·인건비·세금처럼 접수 밖에서 나가는 돈은 아직 들어 있지 않습니다. 결산에 무엇까지 넣을지 정해 주시면 그 항목을 붙입니다.</span></div>`;
+      <div class="module-security"><span>▣</span><span><strong>회사 전체 결산이나 과거 월말 잔액이 아닙니다</strong><br>현재 로그인 계정의 접수와 현재 입금·공급사 정산 상태를 묶은 요약입니다. 고정비·인건비·세금·통장 지출은 아직 포함하지 않습니다.</span></div>`;
   }
 
   // 명함 — 조직도 정보로 명함을 만들어 이미지로 내려받는다.
@@ -5351,15 +6839,579 @@
       <div class="module-security"><span>▣</span><span><strong>계산식</strong><br>현잔고 <em data-fund-out="bank">${esc(won(sum.bank))}</em> + 영업자 미수금 <em data-fund-out="ar">${esc(won(sum.ar))}</em> − (공급처 입금 <em data-fund-out="vendor">${esc(won(sum.vendor))}</em> + 선결제 <em data-fund-out="prepaid">${esc(won(sum.prepaid))}</em>) = <strong>실질적으로 남은 금액 <em data-fund-out="real">${esc(won(sum.real))}</em></strong> − 월급 <em data-fund-out="payroll">${esc(won(sum.payroll))}</em> = 실제 통장 잔여 <em data-fund-out="after">${esc(won(sum.afterPayroll))}</em></span></div>`;
   }
 
+  // 아이디어 · 개발수정요청 — 기존 파라곤에 쌓인 내용을 그대로 읽어 온다.
+  // 새로 옮기는 게 아니라 같은 DB 를 보는 것이라 내용이 그대로 나온다.
+  let liveIdeas = [];
+  let liveRequests = [];
+  let ideaCategory = '';
+  let requestStatus = '';
+
+  const REQUEST_STATUS = {
+    requested: '요청',
+    reviewing: '검토 중',
+    working: '진행 중',
+    done: '완료',
+    rejected: '반려'
+  };
+  const REQUEST_PRIORITY = { urgent: '긴급', high: '높음', normal: '보통', low: '낮음' };
+
+  async function loadIdeaData() {
+    const [ideas, requestPayload] = await Promise.all([
+      readOnlyApi('/ideas').catch(() => []),
+      readOnlyApi('/service-requests').catch(() => [])
+    ]);
+    liveIdeas = Array.isArray(ideas) ? ideas : [];
+    const requests = Array.isArray(requestPayload)
+      ? requestPayload
+      : (Array.isArray(requestPayload?.requests) ? requestPayload.requests : []);
+    liveRequests = requests.filter(row => !row.deleted);
+  }
+
+  function renderIdeaModule() {
+    const cats = [...new Set(liveIdeas.map(row => row.category).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, 'ko'));
+    const shown = ideaCategory ? liveIdeas.filter(row => row.category === ideaCategory) : liveIdeas;
+    const option = (value, label, selected) => `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(label)}</option>`;
+
+    moduleView.innerHTML = `
+      ${moduleStatusbar('아이디어', '파라곤에 쌓아 온 아이디어를 그대로 봅니다.', `${liveIdeas.length}건`)}
+      <section class="module-section">
+        <div class="module-section-head">
+          <span><strong>아이디어</strong><small>${ideaCategory ? `${esc(ideaCategory)} · ` : ''}${esc(String(shown.length))}건${ideaCategory ? ` / 전체 ${liveIdeas.length}건` : ''}</small></span>
+          <span class="module-chip live">읽기 전용</span>
+        </div>
+        <div class="module-section-body">
+          <div class="ledger-filter">
+            <label class="ledger-filter-field">
+              <span>분류</span>
+              <select data-idea-category>
+                ${option('', '전체', ideaCategory)}
+                ${cats.map(name => option(name, name, ideaCategory)).join('')}
+              </select>
+            </label>
+          </div>
+          ${shown.length ? `<div class="idea-list">
+            ${shown.map(row => `<article class="idea-card">
+              <div class="idea-card-head">
+                <strong>${esc(row.title || '제목 없음')}</strong>
+                ${row.category ? `<span class="kind-badge added">${esc(row.category)}</span>` : ''}
+              </div>
+              ${row.summary ? `<p class="idea-summary">${esc(row.summary)}</p>` : ''}
+              ${row.detail ? `<p class="idea-detail">${esc(row.detail)}</p>` : ''}
+              <div class="idea-card-foot">
+                <span>${esc(row.owner_name || '작성자 미상')}</span>
+                <span>${esc(String(row.date || row.created_at || '').slice(0, 10))}</span>
+                ${row.source ? `<span>출처 ${esc(row.source)}</span>` : ''}
+                ${row.url ? `<a href="${esc(row.url)}" target="_blank" rel="noopener">링크</a>` : ''}
+              </div>
+            </article>`).join('')}
+          </div>` : '<p class="sales-state">조회 조건에 맞는 아이디어가 없습니다.</p>'}
+        </div>
+      </section>
+      <div class="module-security"><span>▣</span><span><strong>기존 파라곤과 같은 자료입니다</strong><br>옮겨 담은 것이 아니라 같은 곳을 읽습니다. 파라곤에서 고치면 여기에도 바로 반영됩니다.</span></div>`;
+  }
+
+  function renderRequestModule() {
+    const shown = requestStatus ? liveRequests.filter(row => row.status === requestStatus) : liveRequests;
+    const counts = Object.keys(REQUEST_STATUS).reduce((acc, key) => {
+      acc[key] = liveRequests.filter(row => row.status === key).length;
+      return acc;
+    }, {});
+    const open = liveRequests.filter(row => !['done', 'rejected'].includes(row.status)).length;
+
+    moduleView.innerHTML = `
+      ${moduleStatusbar('개발수정요청', '접수된 개발수정요청을 상태별로 봅니다.', `처리 대기 ${open}건`)}
+      <section class="module-section">
+        <div class="module-section-head">
+          <span><strong>개발수정요청</strong><small>${esc(String(shown.length))}건${requestStatus ? ` / 전체 ${liveRequests.length}건` : ''}</small></span>
+          <span class="module-chip ${open ? 'restricted' : 'live'}">처리 대기 ${esc(String(open))}건</span>
+        </div>
+        <div class="module-section-body">
+          <div class="request-tabs">
+            <button class="intake-kind-btn ${requestStatus === '' ? 'active' : ''}" type="button" data-request-status="">전체 ${esc(String(liveRequests.length))}</button>
+            ${Object.entries(REQUEST_STATUS).map(([key, label]) =>
+              `<button class="intake-kind-btn ${requestStatus === key ? 'active' : ''}" type="button" data-request-status="${esc(key)}">${esc(label)} ${esc(String(counts[key] || 0))}</button>`).join('')}
+          </div>
+          ${shown.length ? `<div class="sales-table-scroll">
+            <table class="sales-table ledger-table">
+              <thead><tr>
+                <th scope="col">상태</th><th scope="col">우선순위</th><th scope="col">상품</th>
+                <th scope="col">제목</th><th scope="col">요청자</th><th scope="col">담당</th><th scope="col">요청일</th>
+              </tr></thead>
+              <tbody>
+                ${shown.map(row => `<tr>
+                  <td><span class="vendor-chip ${['done'].includes(row.status) ? 'done' : ''}">${esc(REQUEST_STATUS[row.status] || row.status || '-')}</span></td>
+                  <td class="${['urgent', 'high'].includes(row.priority) ? 'monthly-minus' : ''}">${esc(REQUEST_PRIORITY[row.priority] || row.priority || '-')}</td>
+                  <td>${esc(row.product_name || '-')}</td>
+                  <th scope="row">${esc(row.title || '제목 없음')}${row.content ? `<span class="request-note">${esc(String(row.content).slice(0, 60))}${String(row.content).length > 60 ? '…' : ''}</span>` : ''}</th>
+                  <td>${esc(row.requester_name || '-')}</td>
+                  <td class="${row.assignee_name ? '' : 'ledger-memo-empty'}">${esc(row.assignee_name || '미지정')}</td>
+                  <td>${esc(String(row.created_at || '').slice(0, 10))}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>` : '<p class="sales-state">해당 상태의 개발수정요청이 없습니다.</p>'}
+        </div>
+      </section>
+      <div class="module-security"><span>▣</span><span><strong>기존 파라곤과 같은 자료입니다</strong><br>옮겨 담은 것이 아니라 같은 곳을 읽습니다. 파라곤에서 상태를 바꾸면 여기에도 바로 반영됩니다.</span></div>`;
+  }
+
+  // 통장 조회 — 은행 수집기가 보관한 공개 필드만 지연 조회한다.
+  // 화면에는 원본 응답을 절대 펼치지 않고 계좌번호도 한 번 더 마스킹한다.
+  function emptyBankData() {
+    return {
+      status: 'idle',
+      error: '',
+      collectorConfigured: false,
+      autoReconciliationEnabled: false,
+      canSync: false,
+      canViewBalances: false,
+      accounts: [],
+      transactions: [],
+      summary: { total: 0, depositTotal: null, withdrawalTotal: null, unmatchedCount: 0 },
+      pagination: { page: 1, limit: 100, total: 0, totalPages: 0 },
+      runs: []
+    };
+  }
+
+  function resetBankData({ clearOperation = false } = {}) {
+    bankLoadGeneration += 1;
+    bankLoadPromise = null;
+    if (clearOperation) {
+      bankSyncingAccountId = '';
+      bankSelectedAccountId = '';
+    }
+    bankData = emptyBankData();
+  }
+
+  function maskedBankAccount(value) {
+    const raw = String(value || '')
+      .replace(/[^0-9*\-\s]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 40);
+    const digits = raw.replace(/\D/g, '');
+    if (!digits) return '계좌번호 미등록';
+    // 서버가 이미 마스킹한 값은 별표와 일부 식별 숫자만 유지한다.
+    if (raw.includes('*') && digits.length <= 8) return raw;
+    const prefix = digits.slice(0, Math.min(2, digits.length));
+    const suffix = digits.slice(-Math.min(4, digits.length));
+    return `${prefix}-****-${suffix}`;
+  }
+
+  function bankMoney(value, fallback = '미수집') {
+    if (value === null || value === undefined || value === '') return fallback;
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return fallback;
+    return `${Math.round(amount).toLocaleString('ko-KR')}원`;
+  }
+
+  function bankDate(value) {
+    if (!value) return '-';
+    return formatDate(value, {
+      year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Seoul'
+    });
+  }
+
+  function bankBranchLabel(value) {
+    return { hq: '본사', daegu: '대구지사', jeonju: '전주지사' }[String(value || '')] || String(value || '소속 미지정');
+  }
+
+  function bankTransactionStatus(value) {
+    return {
+      UNMATCHED: { label: '미분류', tone: 'warn' },
+      PROPOSED: { label: '검토 필요', tone: 'review' },
+      MATCHED: { label: '확인 완료', tone: 'done' },
+      IGNORED: { label: '제외', tone: 'muted' },
+      REVERSED: { label: '취소', tone: 'danger' }
+    }[String(value || '').toUpperCase()] || { label: String(value || '미분류'), tone: 'muted' };
+  }
+
+  function bankRunStatus(value) {
+    return {
+      RUNNING: { label: '동기화 중', tone: 'review' },
+      SUCCEEDED: { label: '성공', tone: 'done' },
+      FAILED: { label: '실패', tone: 'danger' }
+    }[String(value || '').toUpperCase()] || { label: String(value || '확인 필요'), tone: 'muted' };
+  }
+
+  function bankRunField(row, camel, snake) {
+    return row?.[camel] ?? row?.[snake] ?? null;
+  }
+
+  async function loadBankData() {
+    if (!canSeeBankLedger()) return;
+    if (bankLoadPromise) return bankLoadPromise;
+    const generation = bankLoadGeneration;
+    bankData.status = 'loading';
+    bankData.error = '';
+    if (activeView === 'bank') renderPlannedModule('bank');
+
+    const request = Promise.all([
+      readOnlyApi('/peakos/bank/accounts'),
+      readOnlyApi(`/peakos/bank/transactions?${bankPeriodQuery()}`),
+      readOnlyApi('/peakos/bank/sync-runs')
+    ]);
+    bankLoadPromise = request;
+    try {
+      const [accountPayload, transactionPayload, runPayload] = await request;
+      if (generation !== bankLoadGeneration || !canSeeBankLedger()) return;
+      bankData = {
+        status: 'ready',
+        error: '',
+        collectorConfigured: accountPayload?.collectorConfigured === true,
+        autoReconciliationEnabled: accountPayload?.autoReconciliationEnabled === true,
+        canSync: accountPayload?.canSync === true,
+        canViewBalances: accountPayload?.canViewBalances === true,
+        accounts: Array.isArray(accountPayload?.accounts) ? accountPayload.accounts : [],
+        transactions: Array.isArray(transactionPayload?.transactions) ? transactionPayload.transactions : [],
+        summary: {
+          total: Number(transactionPayload?.summary?.total || 0),
+          depositTotal: transactionPayload?.summary?.depositTotal ?? null,
+          withdrawalTotal: transactionPayload?.summary?.withdrawalTotal ?? null,
+          unmatchedCount: Number(transactionPayload?.summary?.unmatchedCount || 0)
+        },
+        pagination: transactionPayload?.pagination || { page: 1, limit: 100, total: 0, totalPages: 0 },
+        runs: Array.isArray(runPayload?.runs) ? runPayload.runs : []
+      };
+    } catch (error) {
+      if (generation !== bankLoadGeneration || !canSeeBankLedger()) return;
+      bankData.status = 'error';
+      bankData.error = error.message || '통장 자료를 불러오지 못했습니다.';
+    } finally {
+      if (bankLoadPromise === request) bankLoadPromise = null;
+      if (generation === bankLoadGeneration && activeView === 'bank' && canSeeBankLedger()) {
+        renderPlannedModule('bank');
+      }
+    }
+    return bankData;
+  }
+
+  async function syncBankAccount(accountId) {
+    if (!canSeeBankLedger() || previewPersona) return;
+    if (!bankData.collectorConfigured || !bankData.canSync) {
+      showToast('안전한 조회 전용 수집기가 아직 연결되지 않았습니다.');
+      return;
+    }
+    const account = bankData.accounts.find(row => String(row.id) === String(accountId));
+    if (!account || account.active === false || bankSyncingAccountId) return;
+    bankSyncingAccountId = String(accountId);
+    renderPlannedModule('bank');
+    try {
+      const result = await callApi('POST', `/peakos/bank/accounts/${encodeURIComponent(accountId)}/sync`, {});
+      showToast(`통장 조회 완료 · 신규 ${Number(result.inserted || 0).toLocaleString('ko-KR')}건`);
+      await loadBankData();
+    } catch (error) {
+      showToast(`통장 조회 실패: ${error.message}`);
+    } finally {
+      bankSyncingAccountId = '';
+      if (activeView === 'bank' && canSeeBankLedger()) renderPlannedModule('bank');
+    }
+  }
+
+  function renderBankLoading(error = '') {
+    moduleView.innerHTML = `<div class="bank-ledger" data-bank-ledger>
+        ${moduleStatusbar('통장별 거래내역', '계좌별 최근 입출금 내역을 조회합니다.', '승인 직원 · 조회 전용')}
+      ${renderFinancePeriodFilter('bank', '한국시간 거래일 기준 · 잔액 카드는 현재 잔액')}
+      <section class="module-section">
+        <div class="module-section-body">
+          <div class="bank-load-state ${error ? 'error' : ''}" ${error ? 'data-bank-error' : 'data-bank-loading'}>
+            <span class="bank-load-icon" aria-hidden="true">${error ? '!' : '↻'}</span>
+            <strong>${error ? '통장 자료를 불러오지 못했습니다' : '통장 자료를 불러오고 있습니다'}</strong>
+            <small>${esc(error || '권한이 확인된 뒤 필요한 자료만 안전하게 조회합니다.')}</small>
+            ${error ? '<button class="module-action" type="button" data-bank-retry>다시 조회</button>' : ''}
+          </div>
+        </div>
+      </section>
+    </div>`;
+  }
+
+  function renderBankModule() {
+    if (!canSeeBankLedger()) {
+      moduleView.innerHTML = `<div class="bank-ledger" data-bank-ledger>
+        ${moduleStatusbar('통장별 거래내역', '승인된 실제 로그인 계정에서만 볼 수 있습니다.', '접근 제한')}
+        <section class="module-section"><div class="module-section-body"><p class="sales-state">통장 원장 열람 권한이 없습니다.</p></div></section>
+      </div>`;
+      return;
+    }
+    if (bankData.status === 'idle') {
+      renderBankLoading();
+      Promise.resolve().then(() => loadBankData());
+      return;
+    }
+    if (bankData.status === 'loading') {
+      renderBankLoading();
+      return;
+    }
+    if (bankData.status === 'error') {
+      renderBankLoading(bankData.error);
+      return;
+    }
+
+    const accounts = bankData.accounts;
+    const transactions = bankData.transactions;
+    const runs = bankData.runs;
+    const accountById = new Map(accounts.map(row => [String(row.id), row]));
+    const accountName = id => accountById.get(String(id))?.displayName || '등록 통장';
+    const balances = bankData.canViewBalances ? accounts
+      .filter(row => row.latestBalance !== null && row.latestBalance !== undefined && row.latestBalance !== '')
+      .map(row => Number(row.latestBalance))
+      .filter(value => Number.isFinite(value)) : [];
+    const totalBalance = balances.reduce((sum, value) => sum + value, 0);
+    const summary = bankData.summary;
+    const transactionStatus = row => bankTransactionStatus(row.status);
+    const directionLabel = row => String(row.direction).toUpperCase() === 'DEPOSIT' ? '입금' : '출금';
+    const directionTone = row => String(row.direction).toUpperCase() === 'DEPOSIT' ? 'deposit' : 'withdrawal';
+    const signedAmount = row => `${String(row.direction).toUpperCase() === 'DEPOSIT' ? '+' : '−'} ${bankMoney(row.amount, '0원')}`;
+    const syncAccounts = accounts.filter(row => row.active !== false && row.canSync !== false);
+    if (!syncAccounts.some(row => String(row.id) === bankSelectedAccountId)) {
+      bankSelectedAccountId = String(syncAccounts[0]?.id || '');
+    }
+    const syncAvailable = bankData.collectorConfigured && bankData.canSync && Boolean(bankSelectedAccountId);
+
+    const accountCards = accounts.map(row => {
+      return `<article class="bank-account-card" data-bank-account="${esc(row.id)}">
+        <div class="bank-account-head">
+          <span><strong>${esc(row.displayName || '이름 없는 통장')}</strong><small>${esc(row.bankName || row.provider || '은행 미등록')} · ${esc(bankBranchLabel(row.branchId))}</small></span>
+          <span class="bank-account-state ${row.active === false ? 'inactive' : ''}">${row.active === false ? '중지' : '사용 중'}</span>
+        </div>
+        <span class="bank-account-number">${esc(maskedBankAccount(row.accountNumberMasked))}</span>
+        ${bankData.canViewBalances ? `<div class="bank-account-balance"><span>최근 잔액</span><strong>${esc(bankMoney(row.latestBalance))}</strong><small>${esc(row.latestBalanceAt ? `${bankDate(row.latestBalanceAt)} 기준` : '잔액 수집 전')}</small></div>` : ''}
+        <div class="bank-account-foot">
+          <span class="bank-unmatched ${Number(row.unmatchedCount || 0) ? 'warn' : ''}">누적 미분류 ${Number(row.unmatchedCount || 0).toLocaleString('ko-KR')}건</span>
+          <span>${esc(row.lastSyncSucceededAt ? `최근 성공 ${bankDate(row.lastSyncSucceededAt)}` : '동기화 이력 없음')}</span>
+        </div>
+      </article>`;
+    }).join('');
+
+    const transactionRows = transactions.map(row => {
+      const status = transactionStatus(row);
+      const account = accountName(row.accountId);
+      const counterpartyAccount = row.counterpartyAccountMasked ? maskedBankAccount(row.counterpartyAccountMasked) : '';
+      return `<tr>
+        <td>${esc(bankDate(row.transactionAt))}</td>
+        <th scope="row">${esc(account)}</th>
+        <td><span class="bank-direction ${directionTone(row)}">${directionLabel(row)}</span></td>
+        <td class="bank-amount ${directionTone(row)}">${esc(signedAmount(row))}</td>
+        ${bankData.canViewBalances ? `<td>${esc(bankMoney(row.balance))}</td>` : ''}
+        <td class="bank-transaction-copy"><strong>${esc(row.counterpartyName || row.summary || '-')}</strong><small>${esc([row.summary && row.counterpartyName ? row.summary : '', counterpartyAccount].filter(Boolean).join(' · ') || '-')}</small></td>
+        <td><span class="bank-status ${status.tone}">${esc(status.label)}</span></td>
+      </tr>`;
+    }).join('');
+
+    const transactionCards = transactions.map(row => {
+      const status = transactionStatus(row);
+      const counterpartyAccount = row.counterpartyAccountMasked ? maskedBankAccount(row.counterpartyAccountMasked) : '';
+      return `<article class="bank-transaction-card">
+        <div class="bank-mobile-head"><span class="bank-direction ${directionTone(row)}">${directionLabel(row)}</span><span class="bank-status ${status.tone}">${esc(status.label)}</span></div>
+        <strong class="bank-mobile-amount ${directionTone(row)}">${esc(signedAmount(row))}</strong>
+        <div class="bank-mobile-party"><strong>${esc(row.counterpartyName || row.summary || '-')}</strong><small>${esc([row.summary && row.counterpartyName ? row.summary : '', counterpartyAccount].filter(Boolean).join(' · ') || '-')}</small></div>
+        <dl class="bank-mobile-meta">
+          <div><dt>통장</dt><dd>${esc(accountName(row.accountId))}</dd></div>
+          ${bankData.canViewBalances ? `<div><dt>거래 후 잔액</dt><dd>${esc(bankMoney(row.balance))}</dd></div>` : ''}
+          <div><dt>거래일시</dt><dd>${esc(bankDate(row.transactionAt))}</dd></div>
+        </dl>
+      </article>`;
+    }).join('');
+
+    const runRows = runs.map(row => {
+      const status = bankRunStatus(bankRunField(row, 'status', 'status'));
+      const accountId = bankRunField(row, 'accountId', 'account_id');
+      const startedAt = bankRunField(row, 'startedAt', 'started_at');
+      const finishedAt = bankRunField(row, 'finishedAt', 'finished_at');
+      const fetched = Number(bankRunField(row, 'fetchedCount', 'fetched_count') || 0);
+      const inserted = Number(bankRunField(row, 'insertedCount', 'inserted_count') || 0);
+      const updated = Number(bankRunField(row, 'updatedCount', 'updated_count') || 0);
+      const requester = bankRunField(row, 'requestedByName', 'requested_by_name') || (bankRunField(row, 'triggerType', 'trigger_type') === 'MANUAL' ? '사용자' : '자동');
+      const error = String(bankRunField(row, 'errorMessage', 'error_message') || '').slice(0, 120);
+      return `<tr>
+        <th scope="row">${esc(accountName(accountId))}</th>
+        <td><span class="bank-status ${status.tone}">${esc(status.label)}</span></td>
+        <td>${esc(bankRunField(row, 'triggerType', 'trigger_type') === 'MANUAL' ? '수동' : '자동')}</td>
+        <td>${esc(bankDate(startedAt))}</td>
+        <td>${esc(finishedAt ? bankDate(finishedAt) : '-')}</td>
+        <td>조회 ${fetched.toLocaleString('ko-KR')} · 신규 ${inserted.toLocaleString('ko-KR')} · 갱신 ${updated.toLocaleString('ko-KR')}</td>
+        <td class="bank-run-note"><strong>${esc(requester)}</strong>${error ? `<small>${esc(error)}</small>` : ''}</td>
+      </tr>`;
+    }).join('');
+
+    const runCards = runs.map(row => {
+      const status = bankRunStatus(bankRunField(row, 'status', 'status'));
+      const accountId = bankRunField(row, 'accountId', 'account_id');
+      const fetched = Number(bankRunField(row, 'fetchedCount', 'fetched_count') || 0);
+      const inserted = Number(bankRunField(row, 'insertedCount', 'inserted_count') || 0);
+      const updated = Number(bankRunField(row, 'updatedCount', 'updated_count') || 0);
+      const requester = bankRunField(row, 'requestedByName', 'requested_by_name') || (bankRunField(row, 'triggerType', 'trigger_type') === 'MANUAL' ? '사용자' : '자동');
+      const error = String(bankRunField(row, 'errorMessage', 'error_message') || '').slice(0, 120);
+      return `<article class="bank-sync-card">
+        <div class="bank-mobile-head"><strong>${esc(accountName(accountId))}</strong><span class="bank-status ${status.tone}">${esc(status.label)}</span></div>
+        <span class="bank-sync-time">${esc(bankDate(bankRunField(row, 'startedAt', 'started_at')))}</span>
+        <p>조회 ${fetched.toLocaleString('ko-KR')} · 신규 ${inserted.toLocaleString('ko-KR')} · 갱신 ${updated.toLocaleString('ko-KR')}</p>
+        <span class="bank-sync-requester">요청 ${esc(requester)}</span>
+        ${error ? `<small>${esc(error)}</small>` : ''}
+      </article>`;
+    }).join('');
+
+    moduleView.innerHTML = `<div class="bank-ledger" data-bank-ledger>
+      ${moduleStatusbar('통장별 거래내역', '일반 직원은 매출·리뷰·리워드 3계좌, 지정 재무 담당자는 전체 5계좌를 조회합니다.', '조회 전용')}
+      ${renderFinancePeriodFilter('bank', '한국시간 거래일 기준 · 잔액 카드는 현재 잔액')}
+
+      <section class="bank-kpis" aria-label="통장 거래 요약">
+        ${bankData.canViewBalances ? `<article class="bank-kpi"><span>통장 잔액 합계</span><strong>${esc(balances.length ? bankMoney(totalBalance, '0원') : '미수집')}</strong><small>${accounts.length.toLocaleString('ko-KR')}개 계좌</small></article>` : ''}
+        <article class="bank-kpi deposit"><span>조회 기간 입금</span><strong>${esc(bankMoney(summary.depositTotal, bankData.canViewBalances ? '0원' : '열람 제한'))}</strong><small>${esc(financePeriodLabel())}</small></article>
+        <article class="bank-kpi withdrawal"><span>조회 기간 출금</span><strong>${esc(bankMoney(summary.withdrawalTotal, bankData.canViewBalances ? '0원' : '열람 제한'))}</strong><small>${esc(financePeriodLabel())}</small></article>
+        <article class="bank-kpi warn"><span>미분류 거래</span><strong>${Number(summary.unmatchedCount || 0).toLocaleString('ko-KR')}건</strong><small>확인이 필요한 거래</small></article>
+      </section>
+
+      ${bankData.autoReconciliationEnabled
+        ? '<div class="module-security"><span>✓</span><span><strong>자동 입금확인 정책이 활성화되어 있습니다</strong><br>안정 거래번호가 있는 입금만 검증 규칙을 통과한 뒤 자동 처리합니다.</span></div>'
+        : '<div class="module-security"><span>!</span><span><strong>조회·동기화만 운영 중입니다</strong><br>IBK 공식 거래번호가 확인될 때까지 자동 입금확인과 충전금 승인은 안전상 보류합니다.</span></div>'}
+
+      <section class="module-section">
+        <div class="module-section-head bank-section-head">
+          <span><strong>${bankData.canViewBalances ? '계좌와 최근 잔액' : '조회 계좌'}</strong><small>계좌번호는 모든 화면에서 일부만 표시합니다${bankData.canViewBalances ? '' : ' · 잔액은 지정 재무 담당자만 열람합니다'}</small></span>
+          <div class="bank-section-actions">
+            <span class="module-chip ${bankData.collectorConfigured ? 'live' : 'restricted'}">${bankData.collectorConfigured ? '조회 수집기 연결됨' : '조회 수집기 미설정'}</span>
+            <span class="module-chip ${bankData.autoReconciliationEnabled ? 'live' : 'restricted'}">${bankData.autoReconciliationEnabled ? '자동 확인 사용' : '자동 확인 보류'}</span>
+            ${syncAccounts.length > 1 && bankData.collectorConfigured && bankData.canSync ? `<label class="bank-sync-select"><span>동기화 통장</span><select data-bank-sync-account>${syncAccounts.map(row => `<option value="${esc(row.id)}" ${String(row.id) === bankSelectedAccountId ? 'selected' : ''}>${esc(row.displayName || '등록 통장')}</option>`).join('')}</select></label>` : ''}
+            <button class="module-action bank-sync-button" type="button" data-bank-sync="${esc(bankSelectedAccountId)}" ${syncAvailable && !bankSyncingAccountId ? '' : 'disabled'} ${syncAvailable ? '' : 'hidden'}>${bankSyncingAccountId ? '동기화 중…' : '지금 동기화'}</button>
+          </div>
+        </div>
+        <div class="module-section-body">
+          ${accounts.length ? `<div class="bank-account-grid">${accountCards}</div>` : '<p class="sales-state">등록된 통장이 없습니다.</p>'}
+        </div>
+      </section>
+
+      <section class="module-section">
+        <div class="module-section-head bank-section-head">
+          <span><strong>선택 기간 입출금</strong><small>${esc(financePeriodLabel())} · ${Number(bankData.pagination?.total ?? summary.total ?? 0).toLocaleString('ko-KR')}건 중 ${transactions.length.toLocaleString('ko-KR')}건</small></span>
+          <div class="bank-section-actions"><span class="module-chip ${Number(summary.unmatchedCount || 0) ? 'restricted' : 'live'}">미분류 ${Number(summary.unmatchedCount || 0).toLocaleString('ko-KR')}건</span><button class="module-action" type="button" data-bank-refresh>새로고침</button></div>
+        </div>
+        <div class="module-section-body">
+          ${transactions.length ? `<div class="sales-table-scroll bank-table-wrap">
+            <table class="sales-table bank-transaction-table">
+              <thead><tr><th scope="col">거래일시</th><th scope="col">통장</th><th scope="col">구분</th><th scope="col">금액</th>${bankData.canViewBalances ? '<th scope="col">거래 후 잔액</th>' : ''}<th scope="col">적요 · 상대방</th><th scope="col">분류</th></tr></thead>
+              <tbody>${transactionRows}</tbody>
+            </table>
+          </div><div class="bank-transaction-cards">${transactionCards}</div>
+          ${Number(bankData.pagination?.totalPages || 0) > 1 ? `<div class="bank-pagination" aria-label="통장 거래 페이지">
+            <button class="module-action" type="button" data-bank-page="${Math.max(1, bankPage - 1)}" ${bankPage <= 1 ? 'disabled' : ''}>이전</button>
+            <span>${bankPage.toLocaleString('ko-KR')} / ${Number(bankData.pagination.totalPages).toLocaleString('ko-KR')} 페이지</span>
+            <button class="module-action" type="button" data-bank-page="${Math.min(Number(bankData.pagination.totalPages), bankPage + 1)}" ${bankPage >= Number(bankData.pagination.totalPages) ? 'disabled' : ''}>다음</button>
+          </div>` : ''}` : '<p class="sales-state">선택한 기간의 입출금 내역이 없습니다.</p>'}
+        </div>
+      </section>
+
+      <section class="module-section">
+        <div class="module-section-head"><span><strong>동기화 이력</strong><small>최근 실행 30건</small></span></div>
+        <div class="module-section-body">
+          ${runs.length ? `<div class="sales-table-scroll bank-table-wrap"><table class="sales-table bank-sync-table">
+            <thead><tr><th scope="col">통장</th><th scope="col">상태</th><th scope="col">실행</th><th scope="col">시작</th><th scope="col">완료</th><th scope="col">처리 결과</th><th scope="col">요청자 · 오류</th></tr></thead>
+            <tbody>${runRows}</tbody>
+          </table></div><div class="bank-sync-cards">${runCards}</div>` : '<p class="sales-state">동기화 이력이 아직 없습니다.</p>'}
+        </div>
+      </section>
+
+      <div class="module-security"><span>▣</span><span><strong>조회 전용 통장 원장</strong><br>${bankData.canViewBalances ? '지정된 재무 담당자 권한으로 전체 운영 계좌와 잔액을 조회합니다.' : '현재 계정에는 매출통장·리뷰스페이스·리워드스페이스 거래만 제공하며 모든 잔액은 서버에서 제거합니다.'}</span></div>
+    </div>`;
+  }
+
+  const PURCHASE_ACCOUNT_CONFIG = {
+    'purchase-fixed': { accountId: 'ibk-hq-fixed', title: '고정비용통장', purpose: '광고비·비품·복리후생 매입' },
+    'purchase-supplier': { accountId: 'ibk-hq-supplier', title: '공급처입금통장', purpose: '공급처 지급 매입' }
+  };
+
+  async function loadPurchaseLedger(view) {
+    const config = PURCHASE_ACCOUNT_CONFIG[view];
+    if (!config || !canSeeTaxPurchase()) return;
+    purchaseLedgerState = {
+      accountId: config.accountId, status: 'loading', account: null, transactions: [], error: '',
+      pagination: { ...purchaseLedgerState.pagination, page: purchaseLedgerPage }
+    };
+    try {
+      const [accountPayload, transactionPayload] = await Promise.all([
+        readOnlyApi('/peakos/bank/accounts'),
+        readOnlyApi(`/peakos/bank/transactions?${bankPeriodQuery(config.accountId, purchaseLedgerPage)}`)
+      ]);
+      if (activeView !== view || !canSeeTaxPurchase()) return;
+      const accounts = Array.isArray(accountPayload?.accounts) ? accountPayload.accounts : [];
+      purchaseLedgerState = {
+        accountId: config.accountId,
+        status: 'ready',
+        account: accounts.find(row => String(row.id) === config.accountId) || null,
+        transactions: Array.isArray(transactionPayload?.transactions) ? transactionPayload.transactions : [],
+        error: '',
+        pagination: transactionPayload?.pagination || { page: purchaseLedgerPage, limit: 100, total: 0, totalPages: 0 }
+      };
+    } catch (error) {
+      purchaseLedgerState = {
+        accountId: config.accountId, status: 'error', account: null, transactions: [],
+        error: error.message || '매입 자료를 불러오지 못했습니다.',
+        pagination: { page: purchaseLedgerPage, limit: 100, total: 0, totalPages: 0 }
+      };
+    }
+  }
+
+  function renderPurchaseTaxModule(view) {
+    const config = PURCHASE_ACCOUNT_CONFIG[view];
+    if (!config || !canSeeTaxPurchase()) {
+      moduleView.innerHTML = `${moduleStatusbar('세금계산서 매입', '지정된 네 계정만 볼 수 있습니다.', '접근 제한')}<section class="module-section"><div class="module-section-body"><p class="sales-state">매입 자료 열람 권한이 없습니다.</p></div></section>`;
+      return;
+    }
+    if (purchaseLedgerState.accountId !== config.accountId || purchaseLedgerState.status === 'idle') {
+      if (purchaseLedgerState.accountId && purchaseLedgerState.accountId !== config.accountId) purchaseLedgerPage = 1;
+      purchaseLedgerState = {
+        accountId: config.accountId, status: 'loading', account: null, transactions: [], error: '',
+        pagination: { page: purchaseLedgerPage, limit: 100, total: 0, totalPages: 0 }
+      };
+      moduleView.innerHTML = `<div data-purchase-ledger="${esc(config.accountId)}">${moduleStatusbar(`${config.title} 매입`, config.purpose, '불러오는 중')}<section class="module-section"><div class="module-section-body"><p class="sales-state">통장 거래와 매입 연결 화면을 불러오고 있습니다.</p></div></section></div>`;
+      Promise.resolve().then(() => loadPurchaseLedger(view).then(() => activeView === view && renderPlannedModule(view)));
+      return;
+    }
+    if (purchaseLedgerState.status === 'loading') {
+      moduleView.innerHTML = `<div data-purchase-ledger="${esc(config.accountId)}">${moduleStatusbar(`${config.title} 매입`, config.purpose, '불러오는 중')}<section class="module-section"><div class="module-section-body"><p class="sales-state">매입 자료를 불러오고 있습니다.</p></div></section></div>`;
+      return;
+    }
+    if (purchaseLedgerState.status === 'error') {
+      moduleView.innerHTML = `<div data-purchase-ledger="${esc(config.accountId)}">${moduleStatusbar(`${config.title} 매입`, config.purpose, '조회 실패')}<section class="module-section"><div class="module-section-body"><p class="sales-state">${esc(purchaseLedgerState.error)}</p><button class="module-action" type="button" data-purchase-refresh>다시 조회</button></div></section></div>`;
+      return;
+    }
+    const account = purchaseLedgerState.account;
+    const transactions = purchaseLedgerState.transactions;
+    const pagination = purchaseLedgerState.pagination || { page: purchaseLedgerPage, total: transactions.length, totalPages: 1 };
+    moduleView.innerHTML = `<div class="purchase-ledger" data-purchase-ledger="${esc(config.accountId)}">
+      ${moduleStatusbar(`${config.title} 매입`, `${config.purpose} 내역을 세금계산서와 연결합니다.`, '지정 4계정 전용')}
+      ${renderFinancePeriodFilter(view, '통장 거래일 기준')}
+      <section class="fund-cards">
+        <article class="fund-card"><span>대상 통장</span><strong>${esc(account?.displayName || config.title)}</strong><small>${esc(account?.accountNumberMasked || '계좌정보 확인 중')}</small></article>
+        <article class="fund-card strong"><span>최근 잔액</span><strong>${esc(bankMoney(account?.latestBalance))}</strong><small>${esc(account?.latestBalanceAt ? `${bankDate(account.latestBalanceAt)} 기준` : '잔액 수집 전')}</small></article>
+        <article class="fund-card warn"><span>조회 거래</span><strong>${Number(pagination.total || 0).toLocaleString('ko-KR')}건</strong><small>${esc(financePeriodLabel())}</small></article>
+      </section>
+      <section class="module-section">
+        <div class="module-section-head"><span><strong>${esc(config.title)} 거래내역</strong><small>향후 수취 세금계산서 API 문서번호와 자동 연결합니다</small></span><button class="module-action" type="button" data-purchase-refresh>새로고침</button></div>
+        <div class="module-section-body">
+          ${transactions.length ? `<div class="sales-table-scroll"><table class="sales-table purchase-tax-table"><thead><tr><th>거래일시</th><th>구분</th><th>금액</th><th>적요·거래처</th><th>세금계산서</th></tr></thead><tbody>${transactions.map(row => `<tr><td>${esc(bankDate(row.transactionAt))}</td><td><span class="bank-direction ${String(row.direction).toUpperCase() === 'DEPOSIT' ? 'deposit' : 'withdrawal'}">${String(row.direction).toUpperCase() === 'DEPOSIT' ? '입금' : '출금'}</span></td><td>${esc(bankMoney(row.amount, '0원'))}</td><th scope="row">${esc(row.counterpartyName || row.summary || '-')}<span class="request-note">${esc(row.summary || '')}</span></th><td><span class="vendor-chip">API 연결 전</span></td></tr>`).join('')}</tbody></table></div>
+          ${Number(pagination.totalPages || 0) > 1 ? `<div class="bank-pagination" aria-label="매입 거래 페이지">
+            <button class="module-action" type="button" data-purchase-page="${Math.max(1, purchaseLedgerPage - 1)}" ${purchaseLedgerPage <= 1 ? 'disabled' : ''}>이전</button>
+            <span>${purchaseLedgerPage.toLocaleString('ko-KR')} / ${Number(pagination.totalPages).toLocaleString('ko-KR')} 페이지</span>
+            <button class="module-action" type="button" data-purchase-page="${Math.min(Number(pagination.totalPages), purchaseLedgerPage + 1)}" ${purchaseLedgerPage >= Number(pagination.totalPages) ? 'disabled' : ''}>다음</button>
+          </div>` : ''}` : '<p class="sales-state">선택 기간의 거래내역이 없습니다.</p>'}
+        </div>
+      </section>
+      <div class="module-security"><span>▣</span><span><strong>패션TV봉이 · 박종원 · 김대호 · 손명아만 볼 수 있습니다</strong><br>통장 거래는 읽기 전용이며 세금계산서 원문은 플랫폼 API 또는 권한형 비공개 저장소로만 연결합니다.</span></div>
+    </div>`;
+  }
+
   function renderTaxModule() {
     moduleView.innerHTML = `
       ${moduleStatusbar('세금관리 모듈', '거래처별 증빙과 세금계산서를 한 단위로 묶어 관리합니다.')}
+      ${renderFinancePeriodFilter('tax', '귀속일 기준 · 실제 세금 데이터 연결 전')}
       <section class="module-grid two">
         ${moduleCard({ icon: '▥', title: '거래처별 사업자등록증', description: '거래처 기본정보와 사업자등록증 원본, 변경 이력 및 유효 상태를 관리합니다.', chip: '민감자료', chipClass: 'restricted', footer: '세무·재무 권한 적용', action: '거래처 보기' })}
         ${moduleCard({ icon: '▤', tone: 'orange', title: '세금계산서', description: '거래처별 발행·수취 세금계산서와 정산 연결 상태를 월별로 확인합니다.', chip: '세무자료', chipClass: 'restricted', footer: '발행·수취 상태 관리', action: '월별 보기' })}
       </section>
       <section class="module-section">
-        <div class="module-section-head"><span><strong>거래처 증빙 현황</strong><small>사업자등록증과 세금계산서를 거래처 기준으로 연결합니다</small></span><span class="module-chip">세금 데이터 연결 전</span></div>
+        <div class="module-section-head"><span><strong>거래처 증빙 현황</strong><small>${esc(financePeriodLabel())} · 사업자등록증과 세금계산서를 거래처 기준으로 연결합니다</small></span><span class="module-chip">세금 데이터 연결 전</span></div>
         <div class="module-section-body" style="padding:0"><table class="empty-table"><thead><tr><th>거래처</th><th>사업자등록증</th><th>세금계산서</th><th>정산 연결</th><th>담당자</th></tr></thead><tbody><tr><td class="empty-table-message" colspan="5">거래처와 세금 자료가 연결되면 이곳에 표시됩니다.</td></tr></tbody></table></div>
       </section>`;
   }
@@ -5408,10 +7460,16 @@
     if (view === 'organization') renderOrganizationModule();
     if (view === 'settlement') renderSettlementModule();
     if (view === 'final-settlement') renderFinalSettlementModule();
+    if (view === 'final-execution-settlement') renderFinalExecutionSettlementModule();
     if (MONTHLY_TABS[view]) renderMonthlyModule(view);
+    if (view === 'ideas') renderIdeaModule();
+    if (view === 'requests') renderRequestModule();
     if (view === 'deposit-check') renderDepositModule();
+    if (view === 'bank') renderBankModule();
     if (view === 'receivable') renderReceivableModule();
     if (view === 'invoice') renderInvoiceModule();
+    if (FINANCE_REQUEST_VIEWS.includes(view)) renderFinanceRequestModule(view);
+    if (PURCHASE_TAX_VIEWS.includes(view)) renderPurchaseTaxModule(view);
     if (view === 'credit') renderCreditModule();
     if (view === 'closing') renderClosingModule();
     if (view === 'namecard') renderNamecardModule();
@@ -5430,7 +7488,7 @@
     moduleView.querySelector('[data-cost-fill]')?.addEventListener('click', openCostDialog);
     moduleView.querySelector('[data-price-table]')?.addEventListener('click', openPriceTable);
 
-    // 월보장·월관리 등록. 분류 선택은 다시 그리고 글자 입력은 상태만 바꾼다.
+    // 개인 전용 정산서 등록. 분류 선택은 다시 그리고 글자 입력은 상태만 바꾼다.
     moduleView.querySelectorAll('[data-monthly]').forEach(input => {
       const key = input.dataset.monthly;
       if (input.tagName === 'SELECT') {
@@ -5450,7 +7508,55 @@
       }
     });
 
-    moduleView.querySelector('[data-monthly-add]')?.addEventListener('click', () => {
+    moduleView.querySelectorAll('[data-monthly-run]').forEach(button => button.addEventListener('click', () => {
+      const view = activeView;
+      const parent = monthlySales(view).find(row => row.id === button.dataset.monthlyRun);
+      if (!parent) {
+        showToast('연결할 매출을 찾지 못했습니다. 새로고침해 주세요.');
+        return;
+      }
+      monthlyForm = {
+        view,
+        parentId: parent.id,
+        date: localDateKey(new Date()),
+        client: parent.client || '',
+        a: '', b: '', c: '', qty: '', amount: '', period: '', memo: ''
+      };
+      renderPlannedModule(view);
+      moduleView.querySelector('[data-monthly-form]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }));
+    moduleView.querySelector('[data-monthly-sale-mode]')?.addEventListener('click', () => {
+      monthlyForm = {
+        view: activeView,
+        parentId: '',
+        date: localDateKey(new Date()),
+        client: '',
+        a: '', b: '', c: '', qty: '', amount: '', period: '', memo: ''
+      };
+      renderPlannedModule(activeView);
+    });
+
+    moduleView.querySelectorAll('[data-final-execution-filter]').forEach(input => input.addEventListener('change', () => {
+      finalExecutionFilter[input.dataset.finalExecutionFilter] = input.value;
+      if (finalExecutionFilter.from && finalExecutionFilter.to && finalExecutionFilter.from > finalExecutionFilter.to) {
+        if (input.dataset.finalExecutionFilter === 'from') finalExecutionFilter.to = finalExecutionFilter.from;
+        else finalExecutionFilter.from = finalExecutionFilter.to;
+      }
+      renderPlannedModule('final-execution-settlement');
+    }));
+    moduleView.querySelector('[data-final-execution-reset]')?.addEventListener('click', () => {
+      finalExecutionFilter = { from: '', to: '', view: '' };
+      renderPlannedModule('final-execution-settlement');
+    });
+    moduleView.querySelectorAll('[data-final-execution-refresh]').forEach(button => button.addEventListener('click', async () => {
+      if (!canSeeFinalExecutionSettlement()) return;
+      finalExecutionState = { status: 'loading', rows: [], error: '' };
+      renderPlannedModule('final-execution-settlement');
+      await loadFinalExecutionSettlement();
+      if (activeView === 'final-execution-settlement') renderPlannedModule('final-execution-settlement');
+    }));
+
+    moduleView.querySelector('[data-monthly-add]')?.addEventListener('click', async () => {
       const view = monthlyForm.view;
       const form = monthlyForm;
       const amount = Number(form.amount);
@@ -5467,7 +7573,7 @@
         showToast('수량은 1 이상이어야 합니다.');
         return;
       }
-      monthlyDraft[view] = monthlyRows(view).concat([{
+      const row = {
         id: `monthly-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         kind: form.parentId ? 'run' : 'sale',
         parentId: form.parentId || '',
@@ -5477,21 +7583,137 @@
         amount, qty,
         period: form.period || '',
         memo: form.memo || ''
-      }]);
-      saveMonthlyDraft(view);
+      };
+      monthlyDraft[view] = monthlyRows(view).concat([row]);
+      const saved = await saveMonthlyDraft(view, [row]);
+      if (!saved) {
+        monthlyDraft[view] = monthlyRows(view).filter(item => item.id !== row.id);
+        renderPlannedModule(view);
+        return;
+      }
       monthlyForm = { ...form, amount: '', qty: '', memo: '', period: '' };
       renderPlannedModule(view);
-      showToast(form.parentId ? '실행 건을 붙였습니다.' : `${MONTHLY_TABS[view].saleLabel}을 등록했습니다.`);
+      showToast(form.parentId ? '실행비를 추가했습니다.' : `${MONTHLY_TABS[view].saleLabel}을 등록했습니다.`);
     });
+
+    // 아이디어 · 개발수정요청 조회
+    moduleView.querySelector('[data-idea-category]')?.addEventListener('change', event => {
+      ideaCategory = event.target.value;
+      renderPlannedModule('ideas');
+    });
+    moduleView.querySelectorAll('[data-request-status]').forEach(button => button.addEventListener('click', () => {
+      requestStatus = button.dataset.requestStatus;
+      renderPlannedModule('requests');
+    }));
+
+    // 재무·정산 7개 탭이 같은 기간을 공유한다. 통장 응답은 서버 기간 조회라
+    // 조건이 바뀔 때 메모리의 이전 응답도 폐기한다.
+    const refreshFinancePeriod = () => {
+      bankPage = 1;
+      resetBankData();
+      purchaseLedgerPage = 1;
+      purchaseLedgerState = {
+        accountId: '', status: 'idle', account: null, transactions: [], error: '',
+        pagination: { page: 1, limit: 100, total: 0, totalPages: 0 }
+      };
+      intakeSelection = [];
+      renderPlannedModule(activeView);
+    };
+    moduleView.querySelectorAll('[data-finance-period-mode]').forEach(button => button.addEventListener('click', () => {
+      const mode = button.dataset.financePeriodMode;
+      if (!['all', 'month', 'range'].includes(mode)) return;
+      financePeriodFilter.mode = mode;
+      if (mode === 'month' && !validMonthKey(financePeriodFilter.month)) {
+        financePeriodFilter.month = koreaDateKey(new Date()).slice(0, 7);
+      }
+      if (mode === 'range' && !financePeriodFilter.from && !financePeriodFilter.to) {
+        const bounds = monthPeriodBounds(financePeriodFilter.month || koreaDateKey(new Date()).slice(0, 7));
+        financePeriodFilter.from = bounds.from;
+        financePeriodFilter.to = bounds.to;
+      }
+      refreshFinancePeriod();
+    }));
+    moduleView.querySelector('[data-finance-period-month]')?.addEventListener('change', event => {
+      const month = validMonthKey(event.target.value);
+      if (!month) return;
+      financePeriodFilter = { ...financePeriodFilter, mode: 'month', month };
+      refreshFinancePeriod();
+    });
+    const bindFinanceDate = (selector, key) => moduleView.querySelector(selector)?.addEventListener('change', event => {
+      financePeriodFilter[key] = validDateKey(event.target.value);
+      if (financePeriodFilter.from && financePeriodFilter.to && financePeriodFilter.from > financePeriodFilter.to) {
+        if (key === 'from') financePeriodFilter.to = financePeriodFilter.from;
+        else financePeriodFilter.from = financePeriodFilter.to;
+      }
+      financePeriodFilter.mode = 'range';
+      refreshFinancePeriod();
+    });
+    bindFinanceDate('[data-finance-period-from]', 'from');
+    bindFinanceDate('[data-finance-period-to]', 'to');
+
+    // 통장 원장은 조회만 새로고침하고, 수집기가 연결된 계좌만 수동 동기화한다.
+    const reloadBank = () => {
+      resetBankData();
+      renderPlannedModule('bank');
+    };
+    moduleView.querySelector('[data-bank-retry]')?.addEventListener('click', reloadBank);
+    moduleView.querySelector('[data-bank-refresh]')?.addEventListener('click', reloadBank);
+    moduleView.querySelectorAll('[data-bank-page]').forEach(button => button.addEventListener('click', () => {
+      const page = Number(button.dataset.bankPage);
+      const totalPages = Number(bankData.pagination?.totalPages || 1);
+      if (!Number.isInteger(page) || page < 1 || page > totalPages || page === bankPage) return;
+      bankPage = page;
+      resetBankData();
+      renderPlannedModule('bank');
+    }));
+    moduleView.querySelector('[data-bank-sync-account]')?.addEventListener('change', event => {
+      bankSelectedAccountId = event.target.value;
+      const button = moduleView.querySelector('[data-bank-sync]');
+      if (button) button.dataset.bankSync = bankSelectedAccountId;
+    });
+    moduleView.querySelectorAll('[data-bank-sync]').forEach(button => button.addEventListener('click', () => {
+      if (!button.disabled) syncBankAccount(button.dataset.bankSync);
+    }));
 
     // 입금체크
     moduleView.querySelectorAll('[data-deposit-filter]').forEach(input => input.addEventListener('change', () => {
       depositFilter[input.dataset.depositFilter] = input.value;
+      intakeSelection = [];
       renderPlannedModule('deposit-check');
     }));
     moduleView.querySelectorAll('[data-deposit-client]').forEach(button => button.addEventListener('click', () => {
       depositFilter = { state: '', client: button.dataset.depositClient };
+      intakeSelection = [];
       renderPlannedModule('deposit-check');
+    }));
+    moduleView.querySelectorAll('[data-bank-match-eligibility]').forEach(button => button.addEventListener('click', async () => {
+      const eligible = button.dataset.bankMatchNext === 'true';
+      if (!confirm(eligible
+        ? '예상 입금자명과 미입금액을 확인했고 자동 입금확인 대상으로 확정할까요?'
+        : '이 접수를 자동 입금확인 대상에서 해제할까요?')) return;
+      button.disabled = true;
+      try {
+        const result = await callApi(
+          'PUT',
+          `/peakos/intake/${encodeURIComponent(button.dataset.bankMatchEligibility)}/bank-match-eligibility`,
+          {
+            eligible,
+            reason: eligible
+              ? '재무 담당자 자동 입금확인 대상 검토 확정'
+              : '재무 담당자 자동 입금확인 대상 검토 해제'
+          },
+        );
+        const apply = row => row.id === result.id
+          ? { ...row, bankMatchEligible: result.bankMatchEligible, bankMatchApprovedAt: result.bankMatchApprovedAt }
+          : row;
+        bankMatchReviewRows = bankMatchReviewRows.map(apply);
+        intakeDraft = intakeDraft.map(apply);
+        renderPlannedModule('deposit-check');
+        showToast(eligible ? '자동 입금확인 대상으로 확정했습니다.' : '자동 입금확인 대상에서 해제했습니다.');
+      } catch (error) {
+        button.disabled = false;
+        showToast(`자동 입금확인 대상을 저장하지 못했습니다. ${error.message}`);
+      }
     }));
 
     // 자금 현황판 — 숫자를 칠 때마다 전체를 다시 그리면 커서가 튀므로
@@ -5526,15 +7748,237 @@
     }));
 
     // 세금계산서 발행요청
-    moduleView.querySelector('[data-invoice-month]')?.addEventListener('change', event => {
-      invoiceMonth = event.target.value;
-      renderPlannedModule('invoice');
-    });
     moduleView.querySelectorAll('[data-invoice-estimate]').forEach(button => button.addEventListener('click', () => {
-      openEstimateDialog(button.dataset.invoiceEstimate);
+      const client = button.dataset.invoiceEstimate;
+      openEstimateDialog(client, invoiceSourceRows().filter(row => (row.client || '') === client));
+    }));
+
+    // 세금계산서·환불·광고비·비품 요청. 입력은 상태에만 두고 제출할 때
+    // 서버에서 다시 검증하며 환불계좌 원문은 응답 후 즉시 폼 상태에서 지운다.
+    moduleView.querySelectorAll('[data-finance-request]').forEach(input => {
+      const key = input.dataset.financeRequest;
+      const eventName = input.tagName === 'SELECT' || input.type === 'date' || input.type === 'checkbox' ? 'change' : 'input';
+      input.addEventListener(eventName, () => {
+        financeRequestForm[key] = input.type === 'checkbox' ? input.checked : input.value;
+      });
+    });
+    moduleView.querySelector('[data-finance-request-submit]')?.addEventListener('click', async event => {
+      const view = activeView;
+      const config = FINANCE_REQUEST_CONFIG[view];
+      const form = currentFinanceRequestForm(view);
+      if (!config) return;
+      const amountVat = Number(form.amount);
+      if (!String(form.client || '').trim() || !String(form.detail || '').trim() || !String(form.memo || '').trim()) {
+        showToast('업체명·상세내용·사유를 모두 넣어 주세요.');
+        return;
+      }
+      if (!Number.isSafeInteger(amountVat) || amountVat <= 0) {
+        showToast('VAT 포함 금액을 0보다 큰 원 단위 정수로 넣어 주세요.');
+        return;
+      }
+      if (config.requiresEmail && !/^\S+@\S+\.\S+$/.test(String(form.email || '').trim())) {
+        showToast('계산서를 받을 이메일을 확인해 주세요.');
+        return;
+      }
+      if (config.requiresBusiness && !financeSafeUrl(form.businessRegistrationUrl)) {
+        showToast('접근 권한이 제한된 사업자등록증 링크를 넣어 주세요.');
+        return;
+      }
+      if (config.requiresPayee && [form.payeeBank, form.payeeAccount, form.payeeName].some(value => !String(value || '').trim())) {
+        showToast('은행·계좌번호·예금주명을 모두 넣어 주세요.');
+        return;
+      }
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        await callApi('POST', '/peakos/finance-requests', {
+          idempotencyKey: form.idempotencyKey,
+          kind: config.kind,
+          requestDate: form.requestDate || localDateKey(new Date()),
+          clientName: String(form.client || '').trim(),
+          detail: String(form.detail || '').trim(),
+          amountVat,
+          businessRegistrationUrl: financeSafeUrl(form.businessRegistrationUrl),
+          email: String(form.email || '').trim(),
+          payeeBank: String(form.payeeBank || '').trim(),
+          payeeAccount: String(form.payeeAccount || '').trim(),
+          payeeName: String(form.payeeName || '').trim(),
+          reason: String(form.memo || '').trim(),
+          invoiceRequested: form.invoiceRequested === true,
+          evidenceUrl: financeSafeUrl(form.evidenceUrl),
+          sourceAccountId: String(form.sourceAccountId || '').trim()
+        });
+        financeRequestForm = financeRequestDefault(view);
+        await loadFinanceRequests({ quiet: true, view, page: 1 });
+        renderPlannedModule(view);
+        showToast(`${config.title}을 등록했습니다.`);
+      } catch (error) {
+        button.disabled = false;
+        showToast(`요청을 저장하지 못했습니다. ${error.message}`);
+      }
+    });
+    moduleView.querySelectorAll('[data-finance-request-refresh]').forEach(button => button.addEventListener('click', async () => {
+      button.disabled = true;
+      await loadFinanceRequests({ view: activeView, page: Number(financeRequestState.pagination?.page || 1) });
+      if (FINANCE_REQUEST_VIEWS.includes(activeView)) renderPlannedModule(activeView);
+    }));
+    moduleView.querySelectorAll('[data-finance-request-page]').forEach(button => button.addEventListener('click', async () => {
+      const page = Number(button.dataset.financeRequestPage);
+      const totalPages = Number(financeRequestState.pagination?.totalPages || 1);
+      if (!Number.isInteger(page) || page < 1 || page > totalPages || page === Number(financeRequestState.pagination?.page || 1)) return;
+      button.disabled = true;
+      await loadFinanceRequests({ view: activeView, page });
+      if (FINANCE_REQUEST_VIEWS.includes(activeView)) renderPlannedModule(activeView);
+    }));
+    moduleView.querySelectorAll('[data-finance-status]').forEach(button => button.addEventListener('click', async () => {
+      if (!canReviewFinanceRequests()) return;
+      const nextStatus = String(button.dataset.financeStatus || '').toUpperCase();
+      let processingNote = '';
+      if (nextStatus === 'COMPLETED' && !confirm('이 요청을 처리 완료로 확정할까요? 완료 후에는 되돌릴 수 없습니다.')) return;
+      if (nextStatus === 'REJECTED') {
+        const reason = prompt('반려 사유를 입력해 주세요. 요청자에게 처리 이력으로 남습니다.', '');
+        if (reason === null) return;
+        processingNote = String(reason).trim();
+        if (!processingNote) {
+          showToast('반려 사유를 입력해야 합니다.');
+          return;
+        }
+        if (!confirm('입력한 사유로 이 요청을 반려할까요? 반려 후에는 되돌릴 수 없습니다.')) return;
+      }
+      button.disabled = true;
+      try {
+        await callApi('PATCH', `/peakos/finance-requests/${encodeURIComponent(button.dataset.financeId)}`, {
+          status: nextStatus,
+          ...(processingNote ? { processingNote } : {})
+        });
+        await loadFinanceRequests({ quiet: true, view: activeView, page: Number(financeRequestState.pagination?.page || 1) });
+        renderPlannedModule(activeView);
+        showToast('요청 처리 상태를 반영했습니다.');
+      } catch (error) {
+        button.disabled = false;
+        showToast(`처리 상태를 저장하지 못했습니다. ${error.message}`);
+      }
+    }));
+    moduleView.querySelectorAll('[data-finance-cancel]').forEach(button => button.addEventListener('click', async () => {
+      if (!confirm('이 요청을 취소할까요? 취소 이력은 장부에 남으며 되돌릴 수 없습니다.')) return;
+      button.disabled = true;
+      try {
+        await callApi('DELETE', `/peakos/finance-requests/${encodeURIComponent(button.dataset.financeCancel)}`);
+        await loadFinanceRequests({ quiet: true, view: activeView, page: Number(financeRequestState.pagination?.page || 1) });
+        renderPlannedModule(activeView);
+        showToast('대기 중인 요청을 취소했습니다.');
+      } catch (error) {
+        button.disabled = false;
+        showToast(`요청을 취소하지 못했습니다. ${error.message}`);
+      }
+    }));
+    moduleView.querySelectorAll('[data-finance-invoice-status]').forEach(button => button.addEventListener('click', async () => {
+      if (!canReviewFinanceRequests()) return;
+      const nextInvoiceStatus = String(button.dataset.financeInvoiceStatus || '').toUpperCase();
+      let evidenceUrl = '';
+      if (['ISSUED', 'CORRECTED'].includes(nextInvoiceStatus)) {
+        const evidence = prompt('권한이 제한된 계산서 이미지 또는 플랫폼 문서 링크를 입력해 주세요.', '');
+        if (evidence === null) return;
+        evidenceUrl = financeSafeUrl(evidence);
+        if (!evidenceUrl) {
+          showToast('HTTPS 계산서 증빙 링크를 입력해야 완료 처리할 수 있습니다.');
+          return;
+        }
+        if (!confirm(nextInvoiceStatus === 'CORRECTED' ? '계산서 정정완료로 확정할까요?' : '계산서 발행완료로 확정할까요?')) return;
+      }
+      button.disabled = true;
+      try {
+        await callApi('PATCH', `/peakos/finance-requests/${encodeURIComponent(button.dataset.financeId)}`, {
+          invoiceStatus: nextInvoiceStatus,
+          ...(evidenceUrl ? { invoiceEvidenceUrl: evidenceUrl } : {})
+        });
+        await loadFinanceRequests({ quiet: true, view: activeView, page: Number(financeRequestState.pagination?.page || 1) });
+        renderPlannedModule(activeView);
+        showToast('계산서 처리완료로 반영했습니다.');
+      } catch (error) {
+        button.disabled = false;
+        showToast(`계산서 상태를 저장하지 못했습니다. ${error.message}`);
+      }
+    }));
+    moduleView.querySelectorAll('[data-purchase-refresh]').forEach(button => button.addEventListener('click', () => {
+      purchaseLedgerState = {
+        accountId: '', status: 'idle', account: null, transactions: [], error: '',
+        pagination: { page: purchaseLedgerPage, limit: 100, total: 0, totalPages: 0 }
+      };
+      renderPlannedModule(activeView);
+    }));
+    moduleView.querySelectorAll('[data-purchase-page]').forEach(button => button.addEventListener('click', () => {
+      const page = Number(button.dataset.purchasePage);
+      const totalPages = Number(purchaseLedgerState.pagination?.totalPages || 1);
+      if (!Number.isInteger(page) || page < 1 || page > totalPages || page === purchaseLedgerPage) return;
+      purchaseLedgerPage = page;
+      purchaseLedgerState = {
+        accountId: '', status: 'idle', account: null, transactions: [], error: '',
+        pagination: { page, limit: 100, total: 0, totalPages }
+      };
+      renderPlannedModule(activeView);
     }));
 
     // 충전금
+    moduleView.querySelectorAll('[data-credit-request]').forEach(input => {
+      const key = input.dataset.creditRequest;
+      const eventName = input.tagName === 'SELECT' || input.type === 'date' ? 'change' : 'input';
+      input.addEventListener(eventName, () => { creditRequestForm[key] = input.value; });
+    });
+    moduleView.querySelector('[data-credit-request-submit]')?.addEventListener('click', async event => {
+      const form = creditRequestForm;
+      const requiredText = [form.client, form.depositorName, form.product, form.vendor];
+      if (requiredText.some(value => !String(value || '').trim())) {
+        showToast('업체명, 실제 입금자명, 상품, 공급처를 모두 넣어 주세요.');
+        return;
+      }
+      const expectedAmount = Number(form.expectedAmount);
+      const pointAmount = Number(form.pointAmount);
+      if (!Number.isSafeInteger(expectedAmount) || expectedAmount <= 0
+        || !Number.isSafeInteger(pointAmount) || pointAmount <= 0) {
+        showToast('예상 입금액과 승인할 충전금을 0보다 큰 원 단위 정수로 넣어 주세요.');
+        return;
+      }
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        await callApi('POST', '/peakos/credit-requests', {
+          targetAccountId: form.targetAccountId,
+          requestDate: form.requestDate || localDateKey(new Date()),
+          client: form.client.trim(),
+          depositorName: form.depositorName.trim(),
+          product: form.product.trim(),
+          vendor: form.vendor.trim(),
+          expectedAmount,
+          pointAmount,
+          memo: form.memo.trim()
+        });
+        creditRequestForm = {
+          ...form,
+          requestDate: form.requestDate || localDateKey(new Date()),
+          client: '', depositorName: '', expectedAmount: '', pointAmount: '', memo: ''
+        };
+        await loadCreditDraft();
+        renderPlannedModule('credit');
+        showToast('충전 요청을 등록했습니다. 정확한 입금이 확인되면 자동 승인됩니다.');
+      } catch (error) {
+        button.disabled = false;
+        showToast(`충전 요청을 저장하지 못했습니다. ${error.message}`);
+      }
+    });
+    moduleView.querySelectorAll('[data-credit-request-cancel]').forEach(button => button.addEventListener('click', async () => {
+      if (!confirm('입금 대기 중인 충전 요청을 취소할까요?')) return;
+      button.disabled = true;
+      try {
+        await callApi('DELETE', `/peakos/credit-requests/${encodeURIComponent(button.dataset.creditRequestCancel)}`);
+        await loadCreditDraft();
+        renderPlannedModule('credit');
+        showToast('충전 요청을 취소했습니다.');
+      } catch (error) {
+        button.disabled = false;
+        showToast(`충전 요청을 취소하지 못했습니다. ${error.message}`);
+      }
+    }));
     moduleView.querySelectorAll('[data-credit-kind]').forEach(button => button.addEventListener('click', () => {
       creditForm.kind = button.dataset.creditKind;
       renderPlannedModule('credit');
@@ -5575,10 +8019,17 @@
       renderPlannedModule('credit');
       showToast(`${CREDIT_KINDS[form.kind]} 내역을 기입했습니다.`);
     });
-    moduleView.querySelectorAll('[data-credit-remove]').forEach(button => button.addEventListener('click', () => {
-      creditDraft = creditDraft.filter(row => row.id !== button.dataset.creditRemove);
-      saveCreditDraft();
-      renderPlannedModule('credit');
+    moduleView.querySelectorAll('[data-credit-remove]').forEach(button => button.addEventListener('click', async () => {
+      const id = button.dataset.creditRemove;
+      button.disabled = true;
+      try {
+        await callApi('DELETE', `/peakos/credit/${encodeURIComponent(id)}`);
+        creditDraft = creditDraft.filter(row => row.id !== id);
+        renderPlannedModule('credit');
+      } catch (error) {
+        button.disabled = false;
+        showToast(`충전금 장부를 지우지 못했습니다. ${error.message}`);
+      }
     }));
 
     // 명함 — 글자를 칠 때마다 미리보기만 다시 그린다
@@ -5608,20 +8059,25 @@
       const view = monthlyForm.view;
       const id = button.dataset.monthlyRemove;
       // 판매 건을 지우면 거기 붙은 실행 건도 같이 사라진다
+      const removed = await removeMonthlyRow(view, id);
+      if (!removed) return;
       monthlyDraft[view] = monthlyRows(view).filter(row => row.id !== id && row.parentId !== id);
+      if (monthlyForm.parentId === id) {
+        monthlyForm = { ...monthlyForm, parentId: '', client: '', amount: '', qty: '', memo: '', period: '' };
+      }
       renderPlannedModule(view);
-      await removeMonthlyRow(view, id);
     }));
     // 접수 없이 받을 돈이 생기기도 해서 빈 정산서로도 시작한다.
     moduleView.querySelector('[data-estimate-new]')?.addEventListener('click', () => openEstimateDialog('', []));
     moduleView.querySelector('[data-estimate-open]')?.addEventListener('click', () => {
       // 거래처를 골라 뒀으면 그 업체로, 아니면 첫 업체로 연다.
-      const clients = [...new Set(personalRows().map(row => row.client).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
+      const clients = [...new Set(filteredIntake().map(row => row.client).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
       if (!clients.length) {
         showToast('정산서를 낼 접수가 아직 없습니다.');
         return;
       }
-      openEstimateDialog(clients.includes(intakeFilter.client) ? intakeFilter.client : clients[0]);
+      const client = clients.includes(intakeFilter.client) ? intakeFilter.client : clients[0];
+      openEstimateDialog(client, filteredIntake().filter(row => (row.client || '') === client));
     });
     moduleView.querySelector('[data-intake-toggle]')?.addEventListener('click', () => {
       intakeOpen = !intakeOpen;
@@ -5671,13 +8127,16 @@
       });
     });
     moduleView.querySelector('[data-ledger-filter-reset]')?.addEventListener('click', () => {
-      intakeFilter = { from: '', to: '', client: '', product: '', paid: '' };
+      intakeFilter = { client: '', product: '', paid: '' };
       intakeSelection = [];
       renderPlannedModule(intakeContext);
     });
 
     moduleView.querySelectorAll('[data-paid-open]').forEach(button => button.addEventListener('click', () => {
-      const picked = intakeSelection.length ? intakeSelection : [button.dataset.paidOpen];
+      const rowId = button.dataset.paidOpen;
+      // 묶음 처리는 위 선택 바의 전용 버튼으로만 실행한다. 선택하지 않은
+      // 행의 입금 버튼을 눌렀다면 그 한 건만 열어 오처리를 막는다.
+      const picked = intakeSelection.includes(rowId) ? intakeSelection : [rowId];
       openPaidDialog(picked);
     }));
 
@@ -5766,6 +8225,7 @@
         id: `intake-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         date: form.date || localDateKey(new Date()),
         client: form.client || '',
+        expectedPayer: String(form.expectedPayer || form.client || '').trim(),
         a: form.a, b: form.b, c: form.c,
         unit, qty, sell,
         memo: form.memo || '',
@@ -5785,7 +8245,7 @@
         vendorBank: '',
         vendorBy: '',
         vendorMemo: '',
-        // 입금 확인 정보. 통장 연결 전이라 지금은 전부 수기로 채운다.
+        // 입금 확인 정보. 정확한 금액·입금자명 1건만 서버에서 자동 확인한다.
         paid: 'none',
         paidAmount: 0,
         payer: '',
@@ -5793,8 +8253,13 @@
         paidMemo: '',
         paidAuto: false
       });
+      if (previewPersona) {
+        showToast(`${previewPersona} 계정 미리보기 중에는 등록되지 않습니다.`);
+        intakeDraft.pop();
+        return;
+      }
       saveIntakeDraft();
-      intakeForm = { ...form, client: '', qty: '', sell: '', memo: '', unit: '', refOf: '', supplier: '', cost: '' };
+      intakeForm = { ...form, client: '', expectedPayer: '', qty: '', sell: '', memo: '', unit: '', refOf: '', supplier: '', cost: '' };
       renderPlannedModule(intakeContext);
       showToast(intakeContext === 'final-settlement'
         ? '최종정산서에만 올라가는 건으로 등록했습니다.'
@@ -5802,8 +8267,14 @@
     });
 
     moduleView.querySelectorAll('[data-intake-remove]').forEach(button => button.addEventListener('click', async () => {
+      // 미리보기 중에는 화면에서도 지우지 않는다. 저장되지 않는데 사라지면 오해를 준다.
+      if (previewPersona) {
+        showToast(`${previewPersona} 계정 미리보기 중에는 지울 수 없습니다.`);
+        return;
+      }
       const id = button.dataset.intakeRemove;
       intakeDraft = intakeDraft.filter(row => row.id !== id);
+      bankMatchReviewRows = bankMatchReviewRows.filter(row => row.id !== id);
       renderPlannedModule(intakeContext);
       await removeIntakeRow(id);
     }));
@@ -5844,13 +8315,48 @@
     if (caret) caret.textContent = closed ? '⌄' : '⌃';
   }
 
+  function setNavSubclusterClosed(subcluster, closed) {
+    if (!subcluster) return;
+    subcluster.classList.toggle('closed', closed);
+    const toggle = subcluster.querySelector('.nav-subcluster-toggle');
+    const caret = subcluster.querySelector('.nav-subcluster-caret');
+    if (toggle) toggle.setAttribute('aria-expanded', closed ? 'false' : 'true');
+    if (caret) caret.textContent = closed ? '⌄' : '⌃';
+  }
+
   function activateView(view) {
     // 자금 현황판을 떠나기 전에 못 보낸 값을 밀어 넣는다.
     if (activeView === 'receivable' && view !== 'receivable') flushFundBoard();
+    // 상위 메뉴 권한이 있더라도 지정되지 않은 개인 전용 정산서로는 들어가지 못한다.
+    if (MONTHLY_TABS[view] && !canSeeMonthly(view)) {
+      showToast('이 정산서의 열람 권한이 없습니다.');
+      view = canSeeSalesOperations() ? 'settlement' : 'dashboard';
+    }
     // 아직 공개하지 않은 화면은 주소로 들어와도 막는다.
-    if (!canSeePeakosTabs() && !LIVE_PARAGON_VIEWS.includes(view) && view !== 'permissions') {
+    const creditRequestAllowed = view === 'credit' && !previewPersona;
+    const salesOperationAllowed = SALES_OPERATION_VIEWS.includes(view) && canSeeSalesOperations();
+    const specialSettlementAllowed = Boolean(MONTHLY_TABS[view]) && canSeeMonthly(view);
+    const taxBankingAllowed = canSeeTaxBankingView(view);
+    if (!canSeePeakosTabs() && !LIVE_PARAGON_VIEWS.includes(view)
+      && view !== 'permissions' && !creditRequestAllowed && !salesOperationAllowed
+      && !specialSettlementAllowed && !taxBankingAllowed) {
       view = 'dashboard';
     }
+    if ((TAX_BANKING_PUBLIC_VIEWS.includes(view) || PURCHASE_TAX_VIEWS.includes(view))
+      && !canSeeTaxBankingView(view)) {
+      view = previewPersona ? 'calendar' : 'dashboard';
+    }
+    if (view === 'final-execution-settlement' && !canSeeFinalExecutionSettlement()) {
+      view = canSeeSalesOperations() ? 'settlement' : 'dashboard';
+    }
+    // 미리보기 중 채팅은 어느 경로로도 열지 않는다.
+    if (previewPersona && view === 'chat') {
+      showToast('계정 미리보기 중에는 채팅을 볼 수 없습니다.');
+      view = 'calendar';
+    }
+    // 체크 선택은 현재 화면에서만 유효하다. 다른 탭의 숨겨진 접수가
+    // 묶음 입금 처리에 섞이지 않도록 화면을 떠날 때 반드시 비운다.
+    if (view !== activeView) intakeSelection = [];
     activeView = view;
     if (view !== 'chat') closeChatRoom();
     body.classList.toggle('calendar-workspace', view === 'calendar');
@@ -5872,7 +8378,10 @@
     pageCrumb.textContent = labels[view] || '피크마케팅';
     document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === view));
     const activeNav = document.querySelector(`.app-sidebar .nav-item[data-view="${view}"]`);
-    if (activeNav) setNavClusterClosed(activeNav.closest('[data-nav-cluster]'), false);
+    if (activeNav) {
+      setNavClusterClosed(activeNav.closest('[data-nav-cluster]'), false);
+      setNavSubclusterClosed(activeNav.closest('[data-nav-subcluster]'), false);
+    }
     body.classList.remove('menu-open');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -5893,11 +8402,17 @@
         setNavClusterClosed(cluster, !cluster.classList.contains('closed'));
       });
     });
+    document.querySelectorAll('[data-nav-subcluster]').forEach(subcluster => {
+      subcluster.querySelector('.nav-subcluster-toggle')?.addEventListener('click', () => {
+        setNavSubclusterClosed(subcluster, !subcluster.classList.contains('closed'));
+      });
+    });
 
     const search = document.getElementById('sidebarTabSearch');
     const submit = document.getElementById('sidebarTabSearchSubmit');
     const searchable = [...document.querySelectorAll('.nav-section .nav-item[data-tab-search]')];
     const navClusters = [...document.querySelectorAll('[data-nav-cluster]')];
+    const navSubclusters = [...document.querySelectorAll('[data-nav-subcluster]')];
     const filter = () => {
       const query = search.value.trim().toLowerCase().replace(/\s/g, '');
       let visible = 0;
@@ -5911,6 +8426,12 @@
         const hasVisibleItem = [...cluster.querySelectorAll('.nav-item[data-tab-search]')].some(button => !button.hidden);
         cluster.hidden = !!query && !hasVisibleItem;
         cluster.classList.toggle('search-open', !!query && hasVisibleItem);
+      });
+      navSubclusters.forEach(subcluster => {
+        const hasVisibleItem = [...subcluster.querySelectorAll('.nav-item[data-tab-search]')].some(button => !button.hidden);
+        subcluster.hidden = !hasVisibleItem;
+        subcluster.classList.toggle('search-open', !!query && hasVisibleItem);
+        if (query && hasVisibleItem) setNavSubclusterClosed(subcluster, false);
       });
       document.getElementById('tabSearchEmpty').hidden = visible !== 0;
       return searchable.filter(button => !button.hidden);
@@ -5992,29 +8513,137 @@
     renderTodo();
     renderProjects();
     renderChat();
-    activateView('dashboard');
+    activateView('calendar');
+  }
+
+  async function finishSignedInApp() {
+    const loadUid = currentUser?.uid || '';
+    if (!loadUid) throw new Error('로그인이 필요합니다.');
+    if (signedInLoadPromise && signedInLoadUid === loadUid) return signedInLoadPromise;
+    const accessGeneration = osAuthAccessGeneration;
+    signedInLoadUid = loadUid;
+    const loadPromise = (async () => {
+      await loadPeakosData();
+      await loadLiveData();
+      if (!currentUser
+        || currentUser.uid !== loadUid
+        || accessGeneration !== osAuthAccessGeneration
+        || (isOsRoute() && osAuthExpired)) {
+        throw new Error('추가 인증 세션이 만료되었습니다.');
+      }
+
+      // 데이터 로딩 중 다른 탭에서 로그아웃·재인증이 일어날 수 있다.
+      // 민감한 화면을 실제로 열기 직전에 서버 세션을 마지막으로 확인한다.
+      if (isOsRoute()) {
+        let finalSession;
+        try {
+          finalSession = await readOnlyApi('/os-auth/session');
+        } catch (error) {
+          if (error.status === 401
+            && ['OS_AUTH_SESSION_REQUIRED', 'OS_AUTH_SESSION_INVALID'].includes(error.code)) {
+            finalSession = error.payload || { required: true, verified: false };
+          } else {
+            throw error;
+          }
+        }
+        if (finalSession?.required !== false && !hasOsAuthSession(finalSession)) {
+          if (!osAuthExpired) osAuthAccessGeneration += 1;
+          osAuthExpired = true;
+          clearOsSessionExpiryTimer();
+          throw new Error('추가 인증 세션이 만료되었습니다.');
+        }
+        if (finalSession.required === true) scheduleOsSessionExpiry(finalSession?.expiresInSeconds);
+        else clearOsSessionExpiryTimer();
+      }
+      if (!currentUser
+        || currentUser.uid !== loadUid
+        || accessGeneration !== osAuthAccessGeneration
+        || (isOsRoute() && osAuthExpired)) {
+        throw new Error('추가 인증 세션이 만료되었습니다.');
+      }
+      renderAllLiveViews();
+      if (!currentUser
+        || currentUser.uid !== loadUid
+        || accessGeneration !== osAuthAccessGeneration
+        || (isOsRoute() && osAuthExpired)) {
+        throw new Error('추가 인증 세션이 만료되었습니다.');
+      }
+      clearOsAuthTimer();
+      document.getElementById('authGate').hidden = true;
+      showToast('기존 파라곤 운영 데이터를 읽기 전용으로 불러왔습니다.');
+    })();
+    signedInLoadPromise = loadPromise;
+    try {
+      await loadPromise;
+    } catch (error) {
+      if (signedInLoadPromise === loadPromise) {
+        signedInLoadPromise = null;
+        signedInLoadUid = '';
+      }
+      throw error;
+    }
   }
 
   async function handleSignedIn(user) {
+    const handledUid = user.uid;
+    osAuthForceAccountChooser = false;
     currentUser = user;
     const button = document.getElementById('googleSignIn');
-    button.disabled = true;
+    if (button) button.disabled = true;
     setAuthStatus('계정 권한과 운영 데이터를 확인하고 있습니다…');
     try {
-      userDoc = await readOnlyApi('/users/me');
+      const loadedUserDoc = await readOnlyApi('/users/me');
+      if (!currentUser || currentUser.uid !== handledUid) return;
+      userDoc = loadedUserDoc;
       realUserDoc = userDoc;
       if (userDoc.is_active === false) throw new Error('비활성화된 계정입니다. 관리자에게 문의해 주세요.');
       if (!userDoc.approved) throw new Error('아직 승인되지 않은 계정입니다.');
-      await loadPeakosData();
-      await loadLiveData();
-      renderAllLiveViews();
-      document.getElementById('authGate').hidden = true;
-      showToast('기존 파라곤 운영 데이터를 읽기 전용으로 불러왔습니다.');
+
+      if (isOsRoute()) {
+        let session;
+        const sessionCheckGeneration = ++osAuthSessionCheckGeneration;
+        try {
+          session = await readOnlyApi('/os-auth/session');
+        } catch (sessionError) {
+          if (sessionError.status === 401
+            && ['OS_AUTH_SESSION_REQUIRED', 'OS_AUTH_SESSION_INVALID'].includes(sessionError.code)) {
+            session = sessionError.payload || { required: true, verified: false };
+          } else {
+            throw sessionError;
+          }
+        }
+        if (!currentUser
+          || currentUser.uid !== handledUid
+          || sessionCheckGeneration !== osAuthSessionCheckGeneration) return;
+        if (session?.required !== true && session?.required !== false) {
+          throw new Error('PEAK OS 추가 인증 상태를 확인하지 못했습니다. 새로고침해 주세요.');
+        }
+        osAuthMaskedEmail = String(session?.user?.maskedEmail || session?.maskedEmail || '');
+        if (session.required === true && !hasOsAuthSession(session)) {
+          if (!osAuthExpired) osAuthAccessGeneration += 1;
+          osAuthExpired = true;
+          moveToOsLogin();
+          renderOsEmailGate({ message: osLoginReasonMessage() });
+          return;
+        }
+        if (osAuthExpired) osAuthAccessGeneration += 1;
+        osAuthExpired = false;
+        osAuthHardNavigating = false;
+        if (session.required === true) scheduleOsSessionExpiry(session?.expiresInSeconds);
+        else clearOsSessionExpiryTimer();
+        if (isOsLoginRoute()) moveToOsDestination();
+      }
+
+      if (!currentUser || currentUser.uid !== handledUid) return;
+      await finishSignedInApp();
     } catch (error) {
-      button.disabled = false;
+      if (osAuthHardNavigating || !currentUser || currentUser.uid !== handledUid) return;
+      if (button) button.disabled = false;
       if (error.status === 404) {
+        if (isOsRoute()) renderOsGoogleGate();
         setAuthStatus('기존 파라곤에 등록된 계정이 아닙니다. 먼저 운영 사이트에서 계정 승인을 받아 주세요.', true);
       } else {
+        if (isOsRoute() && userDoc) renderOsEmailGate({ message: error.message || '인증 상태를 확인하지 못했습니다.', isError: true });
         setAuthStatus(error.message || '운영 데이터를 불러오지 못했습니다.', true);
       }
     }
@@ -6031,16 +8660,46 @@
     }
     if (!firebase.apps || !firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
     auth = firebase.auth();
+    initializeOsAuthTabSync();
     auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
     auth.getRedirectResult().catch(error => setAuthStatus(`로그인 실패: ${error.message}`, true));
     auth.onAuthStateChanged(user => {
       if (!user) {
+        osAuthSessionCheckGeneration += 1;
+        osAuthAccessGeneration += 1;
+        clearOsAuthTimer();
+        clearOsSessionExpiryTimer();
         currentUser = null;
         userDoc = null;
+        realUserDoc = null;
+        signedInLoadPromise = null;
+        signedInLoadUid = '';
+        osAuthSyncPromise = null;
+        osAuthSyncQueuedForce = false;
+        osAuthChallengeId = '';
+        osAuthMaskedEmail = '';
+        osAuthExpired = false;
+        osAuthHardNavigating = false;
         document.getElementById('authGate').hidden = false;
-        document.getElementById('googleSignIn').disabled = false;
-        setAuthStatus('등록·수정·삭제는 이 화면에서 실행되지 않습니다.');
+        if (isOsRoute()) {
+          renderOsGoogleGate();
+        } else {
+          renderLegacyGoogleGate();
+          setAuthStatus('등록·수정·삭제는 이 화면에서 실행되지 않습니다.');
+        }
         return;
+      }
+      if (currentUser && currentUser.uid !== user.uid) {
+        osAuthSessionCheckGeneration += 1;
+        osAuthAccessGeneration += 1;
+        clearOsSessionExpiryTimer();
+        signedInLoadPromise = null;
+        signedInLoadUid = '';
+        osAuthSyncPromise = null;
+        osAuthSyncQueuedForce = false;
+        userDoc = null;
+        realUserDoc = null;
+        resetBankData({ clearOperation: true });
       }
       handleSignedIn(user);
     });
