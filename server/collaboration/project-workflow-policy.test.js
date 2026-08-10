@@ -4,13 +4,65 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
+  projectTaskCreationDecision,
+  projectTaskCreationReviewer,
   projectTaskPatchDecision,
   projectTaskReviewDecision,
+  taskAssignmentPatchChanges,
   taskIsAssignedTo,
 } = require('./project-workflow-policy');
 
 const single = { status: 'doing', assignment_mode: 'single', assignee_uid: 'worker' };
 const all = { status: 'doing', assignment_mode: 'all', assignee_uid: null };
+
+test('task creation keeps ordinary members self-only while supervisors can direct project members', () => {
+  assert.equal(projectTaskCreationDecision({
+    actorUid: 'member', canCreateTasks: true, canDirectTasks: false,
+    assignmentMode: 'single', assigneeUid: 'member', status: 'todo',
+  }).selfAssigned, true);
+  assert.equal(projectTaskCreationDecision({
+    actorUid: 'member', canCreateTasks: true, canDirectTasks: false,
+    assignmentMode: 'single', assigneeUid: 'other', status: 'todo',
+  }).code, 'PROJECT_TASK_SELF_ASSIGN_ONLY');
+  assert.equal(projectTaskCreationDecision({
+    actorUid: 'member', canCreateTasks: true, canDirectTasks: false,
+    assignmentMode: 'all', assigneeUid: '', status: 'todo',
+  }).code, 'PROJECT_TASK_SELF_ASSIGN_ONLY');
+  assert.equal(projectTaskCreationDecision({
+    actorUid: 'member', canCreateTasks: true, canDirectTasks: false,
+    assignmentMode: 'single', assigneeUid: 'member', status: 'doing',
+  }).code, 'PROJECT_TASK_SELF_STATUS_FORBIDDEN');
+  assert.equal(projectTaskCreationDecision({
+    actorUid: 'manager', canCreateTasks: true, canDirectTasks: true,
+    assignmentMode: 'single', assigneeUid: 'other', status: 'doing',
+  }).allowed, true);
+  assert.equal(projectTaskCreationDecision({
+    actorUid: 'oversight', canCreateTasks: false, canDirectTasks: false,
+    assignmentMode: 'single', assigneeUid: 'oversight', status: 'todo',
+  }).code, 'PROJECT_TASK_CREATE_FORBIDDEN');
+});
+
+test('task creation reviewer is the directing supervisor except for a single self-assignment', () => {
+  const common = {
+    canDirectTasks: true,
+    actorUid: 'manager',
+    actorName: '팀장',
+    ownerUid: 'owner',
+    ownerName: '프로젝트 책임자',
+  };
+  assert.deepEqual(projectTaskCreationReviewer({
+    ...common, assignmentMode: 'single', assigneeUid: 'worker',
+  }), { reviewerUid: 'manager', reviewerName: '팀장', instructionReviewerIsActor: true });
+  assert.deepEqual(projectTaskCreationReviewer({
+    ...common, assignmentMode: 'all', assigneeUid: '',
+  }), { reviewerUid: 'manager', reviewerName: '팀장', instructionReviewerIsActor: true });
+  assert.deepEqual(projectTaskCreationReviewer({
+    ...common, assignmentMode: 'single', assigneeUid: 'manager',
+  }), { reviewerUid: 'owner', reviewerName: '프로젝트 책임자', instructionReviewerIsActor: false });
+  assert.deepEqual(projectTaskCreationReviewer({
+    ...common, canDirectTasks: false, assignmentMode: 'single', assigneeUid: 'member', actorUid: 'member',
+  }), { reviewerUid: 'owner', reviewerName: '프로젝트 책임자', instructionReviewerIsActor: false });
+});
 
 test('single assignee can request review but cannot self-approve or change the task basis', () => {
   assert.equal(taskIsAssignedTo(single, 'worker'), true);
@@ -87,6 +139,82 @@ test('a manager can request review through generic compatibility only when also 
 
 test('review actions enforce assigned requester and manager-only decisions', () => {
   assert.equal(projectTaskReviewDecision({ task: single, action: 'request', actorUid: 'worker', canManage: false }).nextStatus, 'review');
-  assert.equal(projectTaskReviewDecision({ task: single, action: 'approve', actorUid: 'worker', canManage: false }).code, 'PROJECT_TASK_MANAGER_REQUIRED');
+  assert.equal(projectTaskReviewDecision({ task: single, action: 'approve', actorUid: 'worker', canManage: false }).code, 'PROJECT_TASK_REVIEWER_REQUIRED');
   assert.equal(projectTaskReviewDecision({ task: single, action: 'wat', actorUid: 'worker', canManage: false }).code, 'PROJECT_TASK_REVIEW_ACTION_INVALID');
+});
+
+test('a supervisor may edit task instructions but cannot decide another reviewers request', () => {
+  const reviewTask = { ...single, status: 'review' };
+  assert.equal(projectTaskPatchDecision({
+    task: reviewTask,
+    body: { title: '완료 기준 보강' },
+    actorUid: 'other-manager',
+    canDirectTasks: true,
+    canReview: false,
+  }).allowed, true);
+  assert.equal(projectTaskPatchDecision({
+    task: reviewTask,
+    body: { status: 'done' },
+    actorUid: 'other-manager',
+    canDirectTasks: true,
+    canReview: false,
+  }).code, 'PROJECT_TASK_REVIEWER_REQUIRED');
+  assert.equal(projectTaskReviewDecision({
+    task: reviewTask,
+    action: 'approve',
+    actorUid: 'other-manager',
+    canReview: false,
+  }).code, 'PROJECT_TASK_REVIEWER_REQUIRED');
+  assert.equal(projectTaskReviewDecision({
+    task: reviewTask,
+    action: 'approve',
+    actorUid: 'assigned-reviewer',
+    canReview: true,
+  }).allowed, true);
+});
+
+test('a supervisor cannot take over a review by reassigning it or mixing assignment into the review request', () => {
+  const reviewTask = { ...single, status: 'review', reviewer_uid: 'assigned-reviewer' };
+  assert.equal(projectTaskPatchDecision({
+    task: reviewTask,
+    body: { status: 'review', assigneeUid: 'other-worker' },
+    actorUid: 'other-manager',
+    canDirectTasks: true,
+    canReview: false,
+  }).code, 'PROJECT_TASK_REVIEW_LOCKED');
+  assert.equal(projectTaskPatchDecision({
+    task: single,
+    body: { status: 'review', assigneeUid: 'worker', dueDate: '2026-08-20' },
+    actorUid: 'worker',
+    canDirectTasks: true,
+    canReview: false,
+  }).code, 'PROJECT_TASK_REVIEW_REQUEST_MIXED_FORBIDDEN');
+  assert.equal(projectTaskPatchDecision({
+    task: reviewTask,
+    body: { status: 'review', assigneeUid: 'other-worker' },
+    actorUid: 'assigned-reviewer',
+    canDirectTasks: true,
+    canReview: true,
+  }).code, 'PROJECT_TASK_REVIEW_LOCKED');
+  assert.equal(projectTaskPatchDecision({
+    task: { ...reviewTask, status: 'done' },
+    body: { assigneeUid: 'other-worker' },
+    actorUid: 'assigned-reviewer',
+    canDirectTasks: true,
+    canReview: true,
+  }).code, 'PROJECT_TASK_COMPLETION_LOCKED');
+});
+
+test('unchanged assignment payloads are no-ops while actual single/all changes are detected', () => {
+  assert.equal(taskAssignmentPatchChanges(single, { assigneeMode: 'single', assigneeUid: 'worker' }), false);
+  assert.equal(taskAssignmentPatchChanges(single, { assigneeMode: 'single', assigneeUid: 'other' }), true);
+  assert.equal(taskAssignmentPatchChanges(single, { assigneeMode: 'all', assigneeUid: '' }), true);
+  assert.equal(taskAssignmentPatchChanges(all, { assigneeMode: 'all', assigneeUid: '' }), false);
+  assert.equal(projectTaskPatchDecision({
+    task: { ...single, status: 'review' },
+    body: { title: '제목 수정', assigneeMode: 'single', assigneeUid: 'worker' },
+    actorUid: 'other-manager',
+    canDirectTasks: true,
+    canReview: false,
+  }).allowed, true);
 });

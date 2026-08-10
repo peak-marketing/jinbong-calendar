@@ -331,6 +331,7 @@ async function installSharedApi(page: Page, state: CollaborationState) {
         status: body?.status || 'active',
         deadline: body?.deadline || '',
         owner_id: 'e2e-test-user', owner_name: '김대호', canManage: true,
+        canCreateTasks: true, canDirectTasks: true,
         member_count: 1, member_names: '김대호', task_count: 0, done_task_count: 0,
         members: [{ uid: 'e2e-test-user', name: '김대호', email: 'e2e@test.local', role: 'manager' }],
         tasks: [], updates: [], comments: [], taskComments: [], events: [],
@@ -805,6 +806,137 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     await expect(page.locator('.chat-message-bubble')).toContainText('ACK 실패에도 남을 메시지');
   });
 
+  test('an ordinary project member registers only their own task through the protected OS route', async ({ page }) => {
+    const date = todayKey();
+    const state = createState({
+      user: {
+        uid: 'e2e-test-user', name: '일반 멤버', email: 'member@test.local', role: 'member',
+        approved: true, is_active: true, group_id: 'hq-sales', group_name: '본사 영업팀', group_type: 'sales',
+      },
+      projects: [{
+        id: 'member-self-project', name: '일반 멤버 업무 프로젝트', description: '본인 업무만 등록합니다.',
+        status: 'active', deadline: date, owner_id: 'owner-user', owner_name: '프로젝트 책임자',
+        canManage: false, canCreateTasks: true, canDirectTasks: false,
+        member_count: 3, member_names: '프로젝트 책임자, 일반 멤버, 박우진', task_count: 0, done_task_count: 0,
+        members: [
+          { uid: 'owner-user', name: '프로젝트 책임자', role: 'manager' },
+          { uid: 'e2e-test-user', name: '일반 멤버', role: 'member' },
+          { uid: 'other-user', name: '박우진', role: 'member' },
+        ],
+        tasks: [], updates: [], comments: [], taskComments: [], events: [],
+      }],
+    });
+    await setup(page, state);
+    await page.locator('.nav-item[data-view="review"]').click();
+    await page.locator('[data-project-id="member-self-project"]').click();
+
+    const createButton = page.locator('[data-collab-task-create]');
+    await expect(createButton).toHaveText('＋ 내 업무');
+    await createButton.click();
+    const form = page.locator('#collaborationProjectTaskForm');
+    const assignee = form.locator('[name="assigneeUid"]');
+    await expect(assignee.locator('option')).toHaveCount(1);
+    await expect(assignee).toHaveValue('e2e-test-user');
+    await expect(assignee.locator('option[value="__all__"]')).toHaveCount(0);
+    await expect(assignee.locator('option[value="other-user"]')).toHaveCount(0);
+    await expect(form.getByLabel('검토자')).toHaveValue('프로젝트 책임자');
+
+    await form.locator('[name="title"]').fill('내 업무 OS 등록');
+    await form.locator('[name="roleLabel"]').fill('자료 작성');
+    await form.locator('[name="dueDate"]').fill(date);
+    await form.getByRole('button', { name: '내 업무 등록', exact: true }).click();
+    await expect(page.locator('.project-detail-task')).toContainText('내 업무 OS 등록');
+
+    const call = state.calls.find(entry => entry.method === 'POST'
+      && entry.path === '/peakos/collaboration/projects/member-self-project/tasks');
+    expect(call?.body).toMatchObject({
+      assigneeMode: 'single',
+      assigneeUid: 'e2e-test-user',
+      status: 'todo',
+    });
+  });
+
+  test('an oversight project view exposes no OS task creation action', async ({ page }) => {
+    const state = createState({
+      projects: [{
+        id: 'oversight-project', name: '본사 열람 프로젝트', description: '읽기 전용 프로젝트입니다.',
+        status: 'active', deadline: todayKey(), owner_id: 'branch-owner', owner_name: '지사 책임자',
+        canManage: false, canCreateTasks: false, canDirectTasks: false, readOnly: true,
+        member_count: 1, member_names: '지사 책임자', task_count: 0, done_task_count: 0,
+        members: [{ uid: 'branch-owner', name: '지사 책임자', role: 'manager' }],
+        tasks: [], updates: [], comments: [], taskComments: [], events: [],
+      }],
+    });
+    await setup(page, state);
+    await page.locator('.nav-item[data-view="review"]').click();
+    await page.locator('[data-project-id="oversight-project"]').click();
+
+    await expect(page.locator('[data-collab-task-create]')).toHaveCount(0);
+    expect(state.calls.filter(call => call.method !== 'GET'
+      && call.path.includes('/projects/oversight-project/tasks'))).toEqual([]);
+  });
+
+  test('a project manager sees the reviewer handoff before changing an active task assignee', async ({ page }) => {
+    const date = todayKey();
+    const state = createState({
+      user: {
+        uid: 'e2e-test-user', name: '팀 관리자', email: 'manager@test.local', role: 'manager',
+        approved: true, is_active: true, group_id: 'hq-sales', group_name: '본사 영업팀', group_type: 'sales',
+      },
+      projects: [{
+        id: 'reviewer-handoff-project', name: '검토자 인계 프로젝트', description: '담당자 변경 시 검토자를 확인합니다.',
+        status: 'active', deadline: date, owner_id: 'owner-user', owner_name: '프로젝트 책임자',
+        canManage: false, canCreateTasks: true, canDirectTasks: true,
+        member_count: 4, member_names: '프로젝트 책임자, 팀 관리자, 기존 담당자, 새 담당자', task_count: 2, done_task_count: 0,
+        members: [
+          { uid: 'owner-user', name: '프로젝트 책임자', role: 'manager' },
+          { uid: 'e2e-test-user', name: '팀 관리자', role: 'manager' },
+          { uid: 'other-user', name: '기존 담당자', role: 'member' },
+          { uid: 'other-two', name: '새 담당자', role: 'member' },
+        ],
+        tasks: [
+          {
+            id: 'editable-handoff-task', project_id: 'reviewer-handoff-project', title: '담당자 변경 가능 업무',
+            status: 'doing', due_date: date, assignment_mode: 'single', assignee_uid: 'other-user', assignee_name: '기존 담당자',
+            assignees: [{ uid: 'other-user', name: '기존 담당자', completed: false }], role_label: '자료 작성',
+            reviewer_uid: 'persisted-reviewer', reviewer_name: '기존 검토자', workflow_version: 2,
+            permissions: { canEdit: true, canSetDeadline: true, canRequestReview: false, canReview: false, canDelete: true },
+          },
+          {
+            id: 'locked-review-task', project_id: 'reviewer-handoff-project', title: '검토 중 담당자 잠금 업무',
+            status: 'review', due_date: date, assignment_mode: 'single', assignee_uid: 'other-user', assignee_name: '기존 담당자',
+            assignees: [{ uid: 'other-user', name: '기존 담당자', completed: false }], role_label: '검수',
+            reviewer_uid: 'owner-user', reviewer_name: '프로젝트 책임자', workflow_version: 3,
+            permissions: { canEdit: true, canSetDeadline: true, canRequestReview: false, canReview: false, canDelete: true },
+          },
+        ],
+        updates: [], comments: [], taskComments: [], events: [],
+      }],
+    });
+    await setup(page, state);
+    await page.locator('.nav-item[data-view="review"]').click();
+    await page.locator('[data-project-id="reviewer-handoff-project"]').click();
+    await page.locator('[data-project-detail-tab="tasks"]').click();
+
+    await page.locator('[data-collab-task-edit="editable-handoff-task"]').click();
+    let form = page.locator('#collaborationProjectTaskForm');
+    const reviewer = form.getByLabel('검토자');
+    const assignee = form.locator('[name="assigneeUid"]');
+    await expect(reviewer).toHaveValue('기존 검토자');
+    await assignee.selectOption('e2e-test-user');
+    await expect(reviewer).toHaveValue('프로젝트 책임자');
+    await assignee.selectOption('other-two');
+    await expect(reviewer).toHaveValue('팀 관리자');
+    await assignee.selectOption('__all__');
+    await expect(reviewer).toHaveValue('팀 관리자');
+    await form.getByRole('button', { name: '취소', exact: true }).click();
+
+    await page.locator('[data-collab-task-edit="locked-review-task"]').click();
+    form = page.locator('#collaborationProjectTaskForm');
+    await expect(form.locator('[name="assigneeUid"]')).toBeDisabled();
+    await expect(form).toContainText('검토 요청·완료 상태에서는 담당자 이력을 변경할 수 없습니다.');
+  });
+
   test('project create, task edit, project comment, and task comment use protected contracts', async ({ page }) => {
     const state = createState();
     await setup(page, state);
@@ -886,6 +1018,7 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
       projects: [{
         id: 'review-project', name: '검토 흐름 프로젝트', description: 'OS 전용 업무 지시 화면',
         status: 'active', deadline: date, owner_id: 'e2e-test-user', owner_name: '김대호', canManage: true,
+        canCreateTasks: true, canDirectTasks: true,
         member_count: 2, member_names: '김대호, 박우진', task_count: 1, done_task_count: 0,
         review_task_count: 1, overdue_task_count: 0,
         members: [

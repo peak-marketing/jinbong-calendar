@@ -117,6 +117,8 @@ test.describe('project tab', () => {
         taskComments: [],
         events: [],
         canManage: true,
+        canCreateTasks: true,
+        canDirectTasks: true,
         deleted: false,
         created_at: '2026-06-25T00:00:00.000Z',
         updated_at: '2026-06-25T00:00:00.000Z',
@@ -170,6 +172,160 @@ test.describe('project tab', () => {
     await expect(page.getByText(/팀 공유/)).toBeVisible();
   });
 
+  const taskCreationPermissionCases = [
+    {
+      label: 'project owner',
+      viewerRole: 'member',
+      ownerId: 'e2e-test-user',
+      canManage: true,
+      canCreateTasks: true,
+      canDirectTasks: true,
+      expectedMode: 'direct',
+    },
+    {
+      label: 'project manager member',
+      viewerRole: 'manager',
+      ownerId: 'owner-1',
+      canManage: false,
+      canCreateTasks: true,
+      canDirectTasks: true,
+      expectedMode: 'direct',
+    },
+    {
+      label: 'regular project member',
+      viewerRole: 'member',
+      ownerId: 'owner-1',
+      canManage: false,
+      canCreateTasks: true,
+      canDirectTasks: false,
+      expectedMode: 'self',
+    },
+    {
+      label: 'headquarters oversight viewer',
+      viewerRole: 'admin',
+      ownerId: 'owner-1',
+      canManage: false,
+      canCreateTasks: false,
+      canDirectTasks: false,
+      expectedMode: 'readonly',
+    },
+  ] as const;
+
+  for (const scenario of taskCreationPermissionCases) {
+    test(`restores + 업무 with the correct boundary for a ${scenario.label}`, async ({ page }) => {
+      await page.setViewportSize({ width: 1366, height: 850 });
+      const directMember = scenario.expectedMode !== 'readonly';
+      await setupStubs(page, {
+        events: [],
+        ideas: [],
+        users: [
+          { uid: 'e2e-test-user', name: '현재 사용자', email: 'viewer@test.local', role: scenario.viewerRole, approved: true, is_active: true },
+          { uid: 'owner-1', name: '프로젝트 책임자', email: 'owner@test.local', role: 'member', approved: true, is_active: true },
+          { uid: 'coworker-1', name: '동료 담당자', email: 'coworker@test.local', role: 'member', approved: true, is_active: true },
+        ],
+        chatRooms: [],
+        chatMessages: {},
+        chatMembers: {},
+        chatUnreadCounts: {},
+        chatRoomGroups: [],
+        eventChecklist: {},
+        attendance: [],
+        projects: [{
+          id: `project-task-permission-${scenario.expectedMode}`,
+          name: `${scenario.label} 업무 권한 프로젝트`,
+          description: '레거시 파라곤 업무 생성 버튼 권한을 확인합니다.',
+          status: 'active',
+          deadline: '2026-08-31',
+          owner_id: scenario.ownerId,
+          owner_name: scenario.ownerId === 'e2e-test-user' ? '현재 사용자' : '프로젝트 책임자',
+          members: [
+            { uid: scenario.ownerId, name: scenario.ownerId === 'e2e-test-user' ? '현재 사용자' : '프로젝트 책임자', email: scenario.ownerId === 'e2e-test-user' ? 'viewer@test.local' : 'owner@test.local', role: 'manager' },
+            ...(directMember && scenario.ownerId !== 'e2e-test-user'
+              ? [{ uid: 'e2e-test-user', name: '현재 사용자', email: 'viewer@test.local', role: scenario.viewerRole === 'manager' ? 'manager' : 'member' }]
+              : []),
+            { uid: 'coworker-1', name: '동료 담당자', email: 'coworker@test.local', role: 'member' },
+          ],
+          tasks: [],
+          updates: [],
+          comments: [],
+          taskComments: [],
+          events: [],
+          canManage: scenario.canManage,
+          canCreateTasks: scenario.canCreateTasks,
+          canDirectTasks: scenario.canDirectTasks,
+          readOnly: scenario.expectedMode === 'readonly',
+          deleted: false,
+          created_at: '2026-08-10T00:00:00.000Z',
+          updated_at: '2026-08-10T00:00:00.000Z',
+        }],
+      });
+
+      await page.goto('/');
+      await page.waitForSelector('.cal-grid.month-grid', { timeout: 15_000 });
+      await page.locator('.sidebar-item').filter({ hasText: '프로젝트' }).click();
+      await page.getByText(`${scenario.label} 업무 권한 프로젝트`).click();
+      await page.getByRole('button', { name: '업무', exact: true }).click();
+
+      const createTaskButton = page.getByRole('button', { name: '+ 업무', exact: true });
+      if (scenario.expectedMode === 'readonly') {
+        await expect(createTaskButton).toHaveCount(0);
+        return;
+      }
+
+      await expect(createTaskButton).toBeVisible();
+      await createTaskButton.click();
+      const assignee = page.locator('#projectTaskAssignee');
+
+      if (scenario.expectedMode === 'direct') {
+        await expect(assignee.locator('option[value="__all__"]')).toHaveText('모두 (프로젝트 참여자 전원)');
+        await expect(assignee.locator('option[value="coworker-1"]')).toHaveText('동료 담당자');
+        if (!scenario.canManage) {
+          await expect(page.getByRole('button', { name: '수정', exact: true })).toHaveCount(0);
+        }
+        await page.getByRole('button', { name: '취소', exact: true }).click();
+        return;
+      }
+
+      const forgedAssignment = await page.evaluate(async (projectId) => {
+        const response = await fetch(`/api/projects/${projectId}/tasks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: '권한을 우회한 타인 업무',
+            assigneeMode: 'single',
+            assigneeUid: 'coworker-1',
+            status: 'todo',
+            dueDate: '2026-08-20',
+          }),
+        });
+        return { status: response.status, payload: await response.json() };
+      }, `project-task-permission-${scenario.expectedMode}`);
+      expect(forgedAssignment).toEqual({
+        status: 403,
+        payload: expect.objectContaining({ code: 'PROJECT_TASK_SELF_ASSIGN_ONLY' }),
+      });
+      await expect(assignee.locator('option')).toHaveCount(1);
+      await expect(assignee).toHaveValue('e2e-test-user');
+      await expect(assignee.locator('option[value="__all__"]')).toHaveCount(0);
+      await expect(assignee.locator('option[value="coworker-1"]')).toHaveCount(0);
+      await expect(page.locator('#projectTaskStatus')).toHaveValue('todo');
+
+      await page.locator('#projectTaskTitle').fill('내 업무 직접 등록');
+      await page.locator('#projectTaskDue').fill('2026-08-20');
+      await page.getByRole('button', { name: '저장', exact: true }).click();
+      await expect(page.getByText('내 업무 직접 등록').first()).toBeVisible();
+      const createdTask = await page.evaluate(() => {
+        const project = (window as any).__e2e_api_state.projects[0];
+        return project.tasks.find((task: any) => task.title === '내 업무 직접 등록');
+      });
+      expect(createdTask).toMatchObject({
+        assignee_uid: 'e2e-test-user',
+        assignment_mode: 'single',
+        status: 'todo',
+      });
+    });
+  }
+
   test('assigns a task to all project members and tracks individual completion', async ({ page }) => {
     await page.setViewportSize({ width: 1366, height: 850 });
     await setupStubs(page, {
@@ -222,6 +378,8 @@ test.describe('project tab', () => {
         taskComments: [],
         events: [],
         canManage: true,
+        canCreateTasks: true,
+        canDirectTasks: true,
         deleted: false,
         created_at: '2026-07-25T00:00:00.000Z',
         updated_at: '2026-07-25T00:00:00.000Z',

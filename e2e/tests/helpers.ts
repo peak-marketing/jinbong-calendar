@@ -482,7 +482,10 @@ export async function installApiStub(page: Page, initial: ApiStubState = default
         const project = await page.evaluate((projectId) => {
           const state = (window as any).__e2e_api_state || {};
           const project = (state.projects || []).find((p: any) => String(p.id) === String(projectId) && !p.deleted);
-          return project ? { ...project, canManage: true } : null;
+          // Preserve the permission fields supplied by each fixture. Forcing
+          // canManage here made member/read-only scenarios silently exercise
+          // the project-owner UI instead of their real permission boundary.
+          return project ? { ...project } : null;
         }, projectId);
         return respond(project || { error: 'Not found' }, project ? 200 : 404);
       }
@@ -500,6 +503,36 @@ export async function installApiStub(page: Page, initial: ApiStubState = default
       }
       if (/^\/projects\/[^/]+\/tasks$/.test(pathname) && method === 'POST') {
         const projectId = pathname.split('/')[2];
+        const denied = await page.evaluate(({ projectId, body }) => {
+          const state = (window as any).__e2e_api_state || {};
+          const project = (state.projects || []).find((p: any) => String(p.id) === String(projectId));
+          if (!project) return { status: 404, payload: { error: 'Not found' } };
+          const canCreateTasks = project.canCreateTasks ?? project.canManage === true;
+          if (!canCreateTasks) {
+            return {
+              status: 403,
+              payload: { code: 'PROJECT_TASK_CREATE_FORBIDDEN', error: '이 프로젝트에 업무를 등록할 권한이 없습니다.' },
+            };
+          }
+          const canDirectTasks = project.canDirectTasks ?? project.canManage === true;
+          if (!canDirectTasks && (
+            body?.assigneeMode === 'all'
+            || String(body?.assigneeUid || '') !== 'e2e-test-user'
+          )) {
+            return {
+              status: 403,
+              payload: { code: 'PROJECT_TASK_SELF_ASSIGN_ONLY', error: '일반 프로젝트 멤버는 본인 업무만 등록할 수 있습니다.' },
+            };
+          }
+          if (!canDirectTasks && String(body?.status || 'todo') !== 'todo') {
+            return {
+              status: 403,
+              payload: { code: 'PROJECT_TASK_SELF_STATUS_FORBIDDEN', error: '본인 업무는 대기 상태로만 등록할 수 있습니다.' },
+            };
+          }
+          return null;
+        }, { projectId, body });
+        if (denied) return respond(denied.payload, denied.status);
         const task = await page.evaluate(({ projectId, body }) => {
           const state = (window as any).__e2e_api_state || {};
           const project = (state.projects || []).find((p: any) => String(p.id) === String(projectId));

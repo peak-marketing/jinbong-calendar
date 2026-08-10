@@ -60,8 +60,11 @@ const {
   normalizeEventReorderItems,
 } = require('./collaboration/peakos-collaboration-policy');
 const {
+  projectTaskCreationDecision,
+  projectTaskCreationReviewer,
   projectTaskPatchDecision,
   projectTaskReviewDecision,
+  taskAssignmentPatchChanges,
 } = require('./collaboration/project-workflow-policy');
 const {
   PEAK_WORKSPACE_ID,
@@ -925,6 +928,43 @@ async function canManageProject(req, projectId) {
     [projectId, req.uid, requestWorkspaceId(req), PEAK_WORKSPACE_ID, req.userDoc.role === 'admin']
   );
   return !!result.rows[0];
+}
+
+async function canDirectProjectTasks(req, projectId) {
+  if (!projectId || !req.userDoc?.approved || !req.workspace || req.workspace.headquartersOversight) return false;
+  const isAdmin = req.userDoc.role === 'admin';
+  const isWorkspaceManager = req.userDoc.role === 'manager';
+  const result = await pool.query(
+    `SELECT 1 FROM projects p
+     LEFT JOIN project_details pd ON pd.project_id = p.id
+     WHERE p.id = $1
+       AND COALESCE(pd.deleted, false) = false
+       AND p.status IS DISTINCT FROM 'archived'
+       AND (p.workspace_id = $3 OR (p.workspace_id IS NULL AND $3 = $4))
+       AND (
+         $5::boolean
+         OR p.owner_id = $2
+         OR ($6::boolean AND EXISTS (
+           SELECT 1
+           FROM project_members pm
+           JOIN peakos_workspace_memberships pwm
+             ON pwm.user_uid = pm.user_id
+            AND pwm.workspace_id = COALESCE(p.workspace_id, $4)
+            AND pwm.active = TRUE
+            AND pwm.role <> 'oversight'
+           WHERE pm.project_id = p.id AND pm.user_id = $2
+         ))
+       )`,
+    [projectId, req.uid, requestWorkspaceId(req), PEAK_WORKSPACE_ID, isAdmin, isWorkspaceManager]
+  );
+  return !!result.rows[0];
+}
+
+function canReviewProjectTask(req, task) {
+  if (!task || !req.userDoc?.approved || !req.workspace || req.workspace.headquartersOversight) return false;
+  return req.userDoc.role === 'admin'
+    || String(task.owner_id || task.project_owner_uid || '') === String(req.uid || '')
+    || String(task.reviewer_uid || '') === String(req.uid || '');
 }
 
 async function resolveProjectTaskAssignees(db, projectId, assignmentMode, assigneeUid = '') {
@@ -4286,7 +4326,7 @@ app.get('/api/projects/:id', authMiddleware, async (req, res) => {
   if (!result.rows[0]) return res.status(404).json({ error: 'Not found' });
   const members = await pool.query(
     `SELECT u.uid, u.name, u.email, u.photo_url,
-            CASE WHEN u.uid = p.owner_id THEN 'manager' ELSE 'member' END AS role
+            CASE WHEN u.uid = p.owner_id OR u.role = 'manager' THEN 'manager' ELSE 'member' END AS role
      FROM project_members pm
      JOIN users u ON pm.user_id = u.uid
      JOIN projects p ON p.id = pm.project_id
@@ -4371,17 +4411,21 @@ app.get('/api/projects/:id', authMiddleware, async (req, res) => {
     [req.params.id, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
   );
   const canManage = await canManageProject(req, req.params.id);
+  const canDirectTasks = await canDirectProjectTasks(req, req.params.id);
+  const canCreateTasks = req.workspace?.headquartersOversight !== true;
   const taskRows = tasks.rows.map(task => {
     const { project_owner_uid: projectOwnerUid, reviewer_directory_name: reviewerDirectoryName, ...publicTask } = task;
+    const taskWithOwner = { ...task, project_owner_uid: projectOwnerUid };
+    const canReview = canReviewProjectTask(req, taskWithOwner);
     return {
       ...publicTask,
       reviewer_uid: task.reviewer_uid || projectOwnerUid || null,
       reviewer_name: task.reviewer_name || reviewerDirectoryName || '',
       permissions: {
-        canEdit: canManage,
-        canSetDeadline: canManage,
-        canDelete: canManage,
-        canReview: canManage && task.status === 'review',
+        canEdit: canDirectTasks,
+        canSetDeadline: canDirectTasks,
+        canDelete: canDirectTasks,
+        canReview: canReview && task.status === 'review',
         canRequestReview: task.is_assignee === true
           && task.assignment_mode !== 'all'
           && ['todo', 'doing'].includes(task.status),
@@ -4394,6 +4438,8 @@ app.get('/api/projects/:id', authMiddleware, async (req, res) => {
   res.json({
     ...result.rows[0],
     canManage,
+    canCreateTasks,
+    canDirectTasks,
     members: members.rows,
     tasks: taskRows,
     updates: updates.rows,
@@ -4532,24 +4578,33 @@ app.post('/api/projects/upload', authMiddleware, uploadJpgPng.array('images', 10
 });
 
 app.post('/api/projects/:id/tasks', authMiddleware, async (req, res) => {
-  if (!await canManageProject(req, req.params.id)) {
-    return res.status(403).json({ code: 'PROJECT_TASK_MANAGER_REQUIRED', error: '프로젝트 책임자만 업무를 지시할 수 있습니다.' });
-  }
+  const canCreateTasks = await canAccessProject(req, req.params.id)
+    && req.workspace?.headquartersOversight !== true;
+  const canDirectTasks = canCreateTasks && await canDirectProjectTasks(req, req.params.id);
   const title = String(req.body.title || '').trim().slice(0, 200);
   if (!title) return res.status(400).json({ error: '업무명을 입력하세요' });
   const description = String(req.body.description || '').trim().slice(0, 3000);
   const roleLabel = String(req.body.roleLabel ?? req.body.role_label ?? '').trim().slice(0, 80);
   const requestedStatus = String(req.body.status || 'todo').trim();
-  if (!['todo', 'doing', 'hold'].includes(requestedStatus)) {
-    return res.status(400).json({ code: 'PROJECT_TASK_REVIEW_REQUIRED', error: '새 업무는 담당자의 검토 요청 전 상태로만 등록할 수 있습니다.' });
-  }
-  const status = normalizeProjectTaskStatus(requestedStatus);
   const dueDate = String(req.body.dueDate || req.body.due_date || '').trim().slice(0, 10);
   if (!isProjectDateKey(dueDate)) {
     return res.status(400).json({ code: 'PROJECT_TASK_DUE_DATE_REQUIRED', error: '업무 마감일을 지정하세요.' });
   }
   const assignmentMode = req.body.assigneeMode === 'all' ? 'all' : 'single';
   const assigneeUid = String(req.body.assigneeUid || req.body.assignee_uid || '').trim();
+  const creationDecision = projectTaskCreationDecision({
+    actorUid: req.uid,
+    canCreateTasks,
+    canDirectTasks,
+    assignmentMode,
+    assigneeUid,
+    status: requestedStatus,
+  });
+  if (!creationDecision.allowed) {
+    const responseStatus = creationDecision.code === 'PROJECT_TASK_REVIEW_REQUIRED' ? 400 : 403;
+    return res.status(responseStatus).json({ code: creationDecision.code, error: creationDecision.error });
+  }
+  const status = normalizeProjectTaskStatus(requestedStatus);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -4578,6 +4633,15 @@ app.post('/api/projects/:id/tasks', authMiddleware, async (req, res) => {
     const taskId = crypto.randomUUID();
     const actorName = req.userName || req.userEmail || '사용자';
     const project = projectResult.rows[0];
+    const { reviewerUid, reviewerName } = projectTaskCreationReviewer({
+      canDirectTasks,
+      assignmentMode,
+      assigneeUid,
+      actorUid: req.uid,
+      actorName,
+      ownerUid: project.owner_id,
+      ownerName: project.reviewer_name || '',
+    });
     const result = await client.query(
       `INSERT INTO project_tasks
        (id, project_id, title, description, role_label, assignee_uid, assignee_name,
@@ -4600,15 +4664,15 @@ app.post('/api/projects/:id/tasks', authMiddleware, async (req, res) => {
         dueDate,
         req.uid,
         actorName,
-        project.owner_id,
-        project.reviewer_name || '',
+        reviewerUid,
+        reviewerName,
       ]
     );
     await syncProjectTaskAssignees(client, req.params.id, taskId, assignees);
     await recordProjectTaskWorkflowEvent(client, {
       projectId: req.params.id,
       taskId,
-      action: 'assigned',
+      action: creationDecision.selfAssigned ? 'self_created' : 'assigned',
       actorUid: req.uid,
       actorName,
       fromStatus: '',
@@ -4621,11 +4685,15 @@ app.post('/api/projects/:id/tasks', authMiddleware, async (req, res) => {
     await notifyProjectMembers(
       req.params.id,
       req.uid,
-      '새 업무 지시',
-      `${actorName}님이 "${title}" 업무를 배정했습니다. 마감 ${dueDate}`,
+      creationDecision.selfAssigned ? '새 업무 등록' : '새 업무 지시',
+      creationDecision.selfAssigned
+        ? `${actorName}님이 본인 업무 "${title}"을(를) 등록했습니다. 마감 ${dueDate}`
+        : `${actorName}님이 "${title}" 업무를 배정했습니다. 마감 ${dueDate}`,
       {
         taskId,
-        targetUids: assignees.map(assignee => assignee.uid),
+        targetUids: assignmentMode === 'single' && assigneeUid === req.uid && reviewerUid !== req.uid
+          ? [reviewerUid]
+          : assignees.map(assignee => assignee.uid),
         link: `/?page=project&projectId=${req.params.id}&taskId=${taskId}`,
       }
     );
@@ -4651,15 +4719,17 @@ app.post('/api/projects/:id/tasks', authMiddleware, async (req, res) => {
 
 app.put('/api/projects/:id/tasks/:taskId', authMiddleware, async (req, res) => {
   if (!await canAccessProject(req, req.params.id)) return res.status(403).json({ error: 'Not authorized' });
-  const canManage = await canManageProject(req, req.params.id);
+  const canDirectTasks = await canDirectProjectTasks(req, req.params.id);
   const client = await pool.connect();
   let notification = null;
   try {
     await client.query('BEGIN');
     const previous = await client.query(
-      `SELECT pt.*, p.name AS project_name, p.owner_id
+      `SELECT pt.*, p.name AS project_name, p.owner_id,
+              COALESCE(owner_user.name, '') AS project_owner_name
        FROM project_tasks pt
        JOIN projects p ON p.id = pt.project_id
+       LEFT JOIN users owner_user ON owner_user.uid = p.owner_id
        LEFT JOIN project_details pd ON pd.project_id = p.id
        WHERE pt.id = $1 AND pt.project_id = $2
          AND COALESCE(pd.deleted, false) = false
@@ -4677,11 +4747,13 @@ app.put('/api/projects/:id/tasks/:taskId', authMiddleware, async (req, res) => {
       [req.params.id, req.params.taskId]
     );
     const before = previous.rows[0];
+    const canReview = canReviewProjectTask(req, before);
     const patchDecision = projectTaskPatchDecision({
       task: before,
       body: req.body || {},
       actorUid: req.uid,
-      canManage,
+      canDirectTasks,
+      canReview,
       assignmentUids: assignmentRows.rows.map(row => row.user_uid),
     });
     if (!patchDecision.allowed) {
@@ -4748,8 +4820,12 @@ app.put('/api/projects/:id/tasks/:taskId', authMiddleware, async (req, res) => {
     }
 
     let assignmentUpdate = null;
-    if (req.body.assigneeMode !== undefined || req.body.assigneeUid !== undefined || req.body.assignee_uid !== undefined) {
-      const assignmentMode = req.body.assigneeMode === 'all' ? 'all' : 'single';
+    if (
+      (req.body.assigneeMode !== undefined || req.body.assignment_mode !== undefined
+        || req.body.assigneeUid !== undefined || req.body.assignee_uid !== undefined)
+      && taskAssignmentPatchChanges(before, req.body)
+    ) {
+      const assignmentMode = String(req.body.assigneeMode ?? req.body.assignment_mode ?? '') === 'all' ? 'all' : 'single';
       const assigneeUid = String(req.body.assigneeUid ?? req.body.assignee_uid ?? '').trim();
       const assignees = await resolveProjectTaskAssignees(client, req.params.id, assignmentMode, assigneeUid);
       if (!assignees.length) {
@@ -4760,12 +4836,29 @@ app.put('/api/projects/:id/tasks/:taskId', authMiddleware, async (req, res) => {
       addSet('assignment_mode', assignmentMode);
       addSet('assignee_uid', primaryAssignee?.uid || null);
       addSet('assignee_name', assignmentMode === 'all' ? '모두' : primaryAssignee?.name || null);
-      assignmentUpdate = { assignmentMode, assignees };
+      assignmentUpdate = {
+        assignmentMode,
+        assignees,
+        assigneeUid: primaryAssignee?.uid || '',
+      };
     }
 
-    if (canManage && (assignmentUpdate || req.body.dueDate !== undefined || req.body.due_date !== undefined)) {
+    if (canDirectTasks && assignmentUpdate) {
       addSet('assigned_by_uid', req.uid);
       addSet('assigned_by_name', req.userName || req.userEmail || '사용자');
+    }
+    if (canDirectTasks && assignmentUpdate) {
+      const reviewer = projectTaskCreationReviewer({
+        canDirectTasks,
+        assignmentMode: assignmentUpdate.assignmentMode,
+        assigneeUid: assignmentUpdate.assigneeUid,
+        actorUid: req.uid,
+        actorName: req.userName || req.userEmail || '사용자',
+        ownerUid: before.owner_id,
+        ownerName: before.project_owner_name || '',
+      });
+      addSet('reviewer_uid', reviewer.reviewerUid);
+      addSet('reviewer_name', reviewer.reviewerName);
     }
     const result = await client.query(
       `UPDATE project_tasks SET ${sets.join(', ')}
@@ -4826,6 +4919,12 @@ app.put('/api/projects/:id/tasks/:taskId', authMiddleware, async (req, res) => {
       }
       notification = { title, body };
     }
+    if (!notification && assignmentUpdate) {
+      notification = {
+        title: '업무 재배정',
+        body: `${actor}님이 "${after.title}" 업무를 재배정했습니다.`,
+      };
+    }
     if (notification) {
       await notifyProjectMembers(
         req.params.id,
@@ -4834,9 +4933,11 @@ app.put('/api/projects/:id/tasks/:taskId', authMiddleware, async (req, res) => {
         notification.body,
         {
           taskId: req.params.taskId,
-          targetUids: after.status === 'review'
-            ? [before.reviewer_uid || before.owner_id]
-            : assignmentRows.rows.map(row => row.user_uid),
+          targetUids: assignmentUpdate
+            ? assignmentUpdate.assignees.map(assignee => assignee.uid)
+            : after.status === 'review'
+              ? [before.reviewer_uid || before.owner_id]
+              : assignmentRows.rows.map(row => row.user_uid),
           link: `/?page=project&projectId=${req.params.id}&taskId=${req.params.taskId}`,
         }
       );
@@ -4852,7 +4953,6 @@ app.put('/api/projects/:id/tasks/:taskId', authMiddleware, async (req, res) => {
 
 app.post('/api/projects/:id/tasks/:taskId/review', authMiddleware, async (req, res) => {
   if (!await canAccessProject(req, req.params.id)) return res.status(403).json({ error: 'Not authorized' });
-  const canManage = await canManageProject(req, req.params.id);
   const action = String(req.body?.action || '').trim().toLowerCase();
   const note = String(req.body?.note || '').trim().slice(0, 5000);
   const dueDate = req.body?.dueDate === undefined ? null : String(req.body.dueDate || '').trim().slice(0, 10);
@@ -4886,6 +4986,7 @@ app.post('/api/projects/:id/tasks/:taskId/review', authMiddleware, async (req, r
       return res.status(404).json({ error: 'Task not found' });
     }
     const task = current.rows[0];
+    const canReview = canReviewProjectTask(req, task);
     const assignmentRows = await client.query(
       'SELECT user_uid FROM project_task_assignees WHERE project_id = $1 AND task_id = $2',
       [req.params.id, req.params.taskId]
@@ -4894,7 +4995,7 @@ app.post('/api/projects/:id/tasks/:taskId/review', authMiddleware, async (req, r
       task,
       action,
       actorUid: req.uid,
-      canManage,
+      canReview,
       assignmentUids: assignmentRows.rows.map(row => row.user_uid),
     });
     if (!decision.allowed) {
@@ -5136,7 +5237,7 @@ app.put('/api/projects/:id/tasks/:taskId/completion', authMiddleware, async (req
 });
 
 app.delete('/api/projects/:id/tasks/:taskId', authMiddleware, async (req, res) => {
-  if (!await canManageProject(req, req.params.id)) return res.status(403).json({ error: 'Not authorized' });
+  if (!await canDirectProjectTasks(req, req.params.id)) return res.status(403).json({ error: 'Not authorized' });
   await pool.query(
     'DELETE FROM project_task_assignees WHERE project_id = $1 AND task_id = $2',
     [req.params.id, req.params.taskId]

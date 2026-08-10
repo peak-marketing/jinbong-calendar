@@ -2566,7 +2566,7 @@
     if (typeof task?.permissions?.canEdit === 'boolean') return task.permissions.canEdit;
     if (typeof task?.canManage === 'boolean') return task.canManage;
     if (typeof task?.can_manage === 'boolean') return task.can_manage;
-    return project?.canManage === true;
+    return project?.canDirectTasks ?? (project?.canManage === true);
   }
 
   function projectTaskCanRequestReview(task) {
@@ -3456,25 +3456,51 @@
   function openProjectTaskEditor(project, task = null) {
     if (!collaborationWritable()) return showToast('계정 미리보기에서는 변경할 수 없습니다.');
     const permissions = task?.permissions || {};
-    const mayEdit = task ? (permissions.canEdit ?? (project.canManage === true)) : project.canManage === true;
-    if (!mayEdit) return showToast('프로젝트 상사만 업무를 지시하거나 수정할 수 있습니다.');
+    const canDirectTasks = project.canDirectTasks ?? (project.canManage === true);
+    const mayEdit = task ? (permissions.canEdit ?? canDirectTasks) : project.canCreateTasks === true;
+    if (!mayEdit) return showToast(task ? '업무 수정 권한이 없습니다.' : '업무 등록 권한이 없습니다.');
     const all = task?.assignment_mode === 'all';
-    const reviewerName = projectTaskReviewer(task, project) || project.owner_name || '프로젝트 담당자';
-    openDetailModal(task ? '프로젝트 업무 지시 수정' : '새 업무 지시', `
+    const assignmentLocked = Boolean(task && ['review', 'done'].includes(task.status));
+    const currentMember = (project.members || []).find(member => String(member.uid || '') === String(currentUser?.uid || ''));
+    const assignableMembers = canDirectTasks ? (project.members || []) : (currentMember ? [currentMember] : []);
+    const supervisorReviewerName = userDoc?.name || currentUser?.displayName || currentUser?.email || project.owner_name || '프로젝트 담당자';
+    const ownerReviewerName = project.owner_name || '프로젝트 담당자';
+    const reviewerName = task
+      ? (projectTaskReviewer(task, project) || project.owner_name || '프로젝트 담당자')
+      : (canDirectTasks ? supervisorReviewerName : ownerReviewerName);
+    openDetailModal(task ? '프로젝트 업무 지시 수정' : (canDirectTasks ? '새 업무 지시' : '내 업무 등록'), `
       <form class="collaboration-form" id="collaborationProjectTaskForm">
         <div class="collaboration-form-grid">
           <label class="wide"><span>체크리스트 업무</span><input name="title" maxlength="200" required value="${esc(task?.title || '')}" placeholder="담당자가 완료 후 검토를 요청할 업무를 적어주세요"></label>
-          <label><span>담당자</span><select name="assigneeUid" required><option value="" ${!task?.assignee_uid && !all ? 'selected' : ''} disabled>담당자 선택</option><option value="__all__" ${all ? 'selected' : ''}>모두</option>${(project.members || []).map(member => `<option value="${esc(member.uid)}" ${!all && task?.assignee_uid === member.uid ? 'selected' : ''}>${esc(member.name || member.email)}</option>`).join('')}</select></label>
+          <label><span>담당자</span><select name="assigneeUid" required ${assignmentLocked ? 'disabled' : ''}>${canDirectTasks ? `<option value="" ${!task?.assignee_uid && !all ? 'selected' : ''} disabled>담당자 선택</option><option value="__all__" ${all ? 'selected' : ''}>모두</option>` : ''}${assignableMembers.map(member => `<option value="${esc(member.uid)}" ${(!task && !canDirectTasks) || (!all && task?.assignee_uid === member.uid) ? 'selected' : ''}>${esc(member.name || member.email)}${!canDirectTasks ? ' (나)' : ''}</option>`).join('')}</select>${assignmentLocked ? '<small>검토 요청·완료 상태에서는 담당자 이력을 변경할 수 없습니다.</small>' : ''}</label>
           <label><span>역할</span><input name="roleLabel" maxlength="80" required value="${esc(projectTaskRole(task))}" placeholder="예: 자료 작성, 검수, 승인"></label>
-          <label><span>검토자(상사)</span><input value="${esc(reviewerName)}" disabled aria-label="검토자"></label>
+          <label><span>검토자(상사)</span><input value="${esc(reviewerName)}" disabled aria-label="검토자" data-project-task-reviewer></label>
           <label><span>마감일</span><input name="dueDate" type="date" required value="${esc(task?.due_date || task?.dueDate || '')}"></label>
           <div class="wide project-due-presets" aria-label="빠른 마감기한 선택"><span>기한 빠른 선택</span><div>${[[1,'내일'],[3,'3일 내'],[7,'7일 내'],[14,'14일 내']].map(([days, label]) => `<button type="button" data-project-due-days="${days}">${label}</button>`).join('')}</div></div>
           <label class="wide"><span>지시 내용</span><textarea name="description" rows="4" maxlength="3000" placeholder="완료 기준과 확인할 내용을 구체적으로 적어주세요">${esc(task?.description || '')}</textarea></label>
         </div>
-        <div class="collaboration-form-actions">${task && (permissions.canDelete ?? (project.canManage === true)) ? '<button class="danger" type="button" data-collab-task-delete>삭제</button>' : ''}<span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">${task ? '수정 저장' : '업무 지시'}</button></div>
+        <div class="collaboration-form-actions">${task && (permissions.canDelete ?? canDirectTasks) ? '<button class="danger" type="button" data-collab-task-delete>삭제</button>' : ''}<span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">${task ? '수정 저장' : (canDirectTasks ? '업무 지시' : '내 업무 등록')}</button></div>
       </form>`, { locked: true });
     const form = document.getElementById('collaborationProjectTaskForm');
     const dueDateInput = form.elements.namedItem('dueDate');
+    const assigneeInput = form.elements.namedItem('assigneeUid');
+    const reviewerInput = form.querySelector('[data-project-task-reviewer]');
+    const syncReviewerPreview = () => {
+      if (!reviewerInput || assignmentLocked) return;
+      const assigneeUid = String(assigneeInput?.value || '');
+      const originalAssigneeUid = all ? '__all__' : String(task?.assignee_uid || '');
+      if (task && assigneeUid === originalAssigneeUid) {
+        reviewerInput.value = projectTaskReviewer(task, project) || ownerReviewerName;
+        return;
+      }
+      const isSingleSelfAssignment = assigneeUid !== '__all__'
+        && assigneeUid === String(currentUser?.uid || '');
+      reviewerInput.value = canDirectTasks && assigneeUid && !isSingleSelfAssignment
+        ? supervisorReviewerName
+        : ownerReviewerName;
+    };
+    assigneeInput?.addEventListener('change', syncReviewerPreview);
+    syncReviewerPreview();
     form.querySelectorAll('[data-project-due-days]').forEach(button => button.addEventListener('click', () => {
       dueDateInput.value = addProjectDeadlineDays(button.dataset.projectDueDays);
       dueDateInput.focus();
@@ -3489,16 +3515,23 @@
         description: String(data.get('description') || '').trim(),
         ...(task ? {} : { status: 'todo' }),
         dueDate: String(data.get('dueDate') || ''),
-        roleLabel: String(data.get('roleLabel') || '').trim(),
-        assigneeMode: assignee === '__all__' ? 'all' : 'single',
-        assigneeUid: assignee === '__all__' ? '' : assignee
+        roleLabel: String(data.get('roleLabel') || '').trim()
       };
+      if (!assignmentLocked) {
+        record.assigneeMode = assignee === '__all__' ? 'all' : 'single';
+        record.assigneeUid = assignee === '__all__' ? '' : assignee;
+      }
+      if (!task && !canDirectTasks) {
+        record.assigneeMode = 'single';
+        record.assigneeUid = String(currentUser?.uid || '');
+        record.status = 'todo';
+      }
       const path = task
         ? `/projects/${encodeURIComponent(project.id)}/tasks/${encodeURIComponent(task.id)}`
         : `/projects/${encodeURIComponent(project.id)}/tasks`;
       const saved = await runCollaborationMutation(
         () => collaborationApi(task ? 'PUT' : 'POST', path, record),
-        task ? '업무 지시를 수정했습니다.' : '담당자에게 업무를 지시했습니다.'
+        task ? '업무 지시를 수정했습니다.' : (canDirectTasks ? '담당자에게 업무를 지시했습니다.' : '내 업무를 등록했습니다.')
       );
       if (!saved) return;
       closeDetailModal();
@@ -3723,7 +3756,7 @@
           <div class="project-detail-heading"><span>▰</span><strong>프로젝트</strong></div>
           <div class="project-detail-actions">
             <button type="button" data-project-back>← 목록</button>
-            ${previewPersona ? collaborationReadonlyMarkup() : `${project.canManage ? '<button type="button" class="primary" data-collab-task-create>＋ 업무 지시</button>' : ''}<button type="button" data-collab-project-update-create>＋ 진행사항</button><button type="button" data-collab-project-meeting-create>＋ 회의</button>${project.canManage ? '<button type="button" data-collab-project-edit>프로젝트 수정</button>' : ''}`}
+            ${previewPersona ? collaborationReadonlyMarkup() : `${project.canCreateTasks ? `<button type="button" class="primary" data-collab-task-create>${project.canDirectTasks ? '＋ 업무 지시' : '＋ 내 업무'}</button>` : ''}<button type="button" data-collab-project-update-create>＋ 진행사항</button><button type="button" data-collab-project-meeting-create>＋ 회의</button>${project.canManage ? '<button type="button" data-collab-project-edit>프로젝트 수정</button>' : ''}`}
           </div>
         </header>
         <section class="project-detail-hero deadline-${projectDeadlineMeta(project.deadline, project.status).state}" data-project-deadline-state="${projectDeadlineMeta(project.deadline, project.status).state}">

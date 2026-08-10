@@ -19,12 +19,41 @@ function between(start, end) {
   return indexSource.slice(from, to);
 }
 
-test('task creation is manager-only and records server-derived instruction lineage atomically', () => {
+test('task supervisor authority requires a local project manager membership and excludes oversight', () => {
+  const source = between(
+    'async function canDirectProjectTasks(req, projectId)',
+    'function canReviewProjectTask(req, task)',
+  );
+  assert.match(source, /req\.workspace\.headquartersOversight/);
+  assert.match(source, /req\.userDoc\.role === 'manager'/);
+  assert.match(source, /project_members pm/);
+  assert.match(source, /pm\.user_id = \$2/);
+  assert.match(source, /pwm\.active = TRUE/);
+  assert.match(source, /pwm\.role <> 'oversight'/);
+});
+
+test('task review authority is persisted reviewer, project owner, or admin only', () => {
+  const source = between(
+    'function canReviewProjectTask(req, task)',
+    'async function resolveProjectTaskAssignees',
+  );
+  assert.match(source, /req\.userDoc\.role === 'admin'/);
+  assert.match(source, /task\.owner_id \|\| task\.project_owner_uid/);
+  assert.match(source, /task\.reviewer_uid/);
+  assert.doesNotMatch(source, /role === 'manager'/);
+});
+
+test('task creation separates self-service members from supervisors and records server-derived lineage atomically', () => {
   const source = between(
     "app.post('/api/projects/:id/tasks', authMiddleware",
     "app.put('/api/projects/:id/tasks/:taskId', authMiddleware",
   );
-  assert.match(source, /canManageProject\(req, req\.params\.id\)/);
+  assert.match(source, /canAccessProject\(req, req\.params\.id\)/);
+  assert.match(source, /canDirectProjectTasks\(req, req\.params\.id\)/);
+  assert.match(source, /projectTaskCreationDecision/);
+  assert.match(source, /projectTaskCreationReviewer/);
+  assert.match(source, /ownerUid: project\.owner_id/);
+  assert.match(source, /PROJECT_TASK_SELF_ASSIGN_ONLY|creationDecision\.code/);
   assert.doesNotMatch(source, /req\.body\.(?:assignedBy|assigned_by|reviewer)/);
   assert.match(source, /assigned_by_uid[\s\S]*reviewer_uid/);
   assert.match(source, /recordProjectTaskWorkflowEvent\(client/);
@@ -40,11 +69,22 @@ test('generic task edits lock the row, enforce actor transitions, and reject sta
   );
   assert.match(source, /FOR UPDATE OF pt/);
   assert.match(source, /projectTaskPatchDecision/);
+  assert.match(source, /canDirectProjectTasks/);
+  assert.match(source, /canReviewProjectTask/);
   assert.match(source, /PROJECT_TASK_VERSION_CONFLICT/);
   assert.match(source, /statusWillChange = requestedStatus !== before\.status/);
   assert.match(source, /if \(statusWillChange\) \{[\s\S]*addSet\('status', requestedStatus\)/);
   assert.equal((source.match(/addSet\('reviewer_uid', req\.uid\)/g) || []).length, 2);
   assert.equal((source.match(/addSet\('reviewer_name', req\.userName \|\| req\.userEmail \|\| '사용자'\)/g) || []).length, 2);
+  assert.match(source, /&& taskAssignmentPatchChanges\(before, req\.body\)/);
+  assert.match(source, /if \(canDirectTasks && assignmentUpdate\) \{[\s\S]*addSet\('assigned_by_uid', req\.uid\)/);
+  assert.doesNotMatch(source, /canDirectTasks && \(assignmentUpdate \|\| req\.body\.dueDate/);
+  assert.match(source, /projectTaskCreationReviewer\(\{/);
+  assert.match(source, /assignmentMode: assignmentUpdate\.assignmentMode/);
+  assert.match(source, /assigneeUid: assignmentUpdate\.assigneeUid/);
+  assert.match(source, /addSet\('reviewer_uid', reviewer\.reviewerUid\)/);
+  assert.match(source, /title: '업무 재배정'/);
+  assert.match(source, /targetUids: assignmentUpdate[\s\S]*assignmentUpdate\.assignees\.map/);
   assert.doesNotMatch(source, /req\.body\.(?:reviewerUid|reviewer_uid|reviewerName|reviewer_name)/);
   assert.match(source, /workflow_version = workflow_version \+ 1/);
   assert.match(source, /recordProjectTaskWorkflowEvent\(client/);
@@ -58,6 +98,7 @@ test('review request, approval, and rejection are one locked transaction with ma
   assert.match(source, /PROJECT_TASK_REVIEW_NOTE_REQUIRED/);
   assert.match(source, /FOR UPDATE OF pt/);
   assert.match(source, /projectTaskReviewDecision/);
+  assert.match(source, /canReviewProjectTask/);
   assert.match(source, /PROJECT_TASK_VERSION_CONFLICT/);
   assert.match(source, /project_task_comments/);
   assert.match(source, /project_task_workflow_events|recordProjectTaskWorkflowEvent/);
