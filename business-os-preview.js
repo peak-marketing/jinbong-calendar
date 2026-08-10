@@ -87,12 +87,15 @@
   let chatMessageLoadGeneration = 0;
   let collaborationMutationBusy = false;
   let eventLoadedYear = null;
-  let calendarYear = new Date().getFullYear();
-  let calendarMonth = new Date().getMonth() + 1;
-  let calendarSelected = localDateKey(new Date());
+  const initialKoreaDate = koreaDateKey(new Date());
+  let calendarYear = Number(initialKoreaDate.slice(0, 4));
+  let calendarMonth = Number(initialKoreaDate.slice(5, 7));
+  let calendarSelected = initialKoreaDate;
   let calendarScope = 'all';
   let calendarIncompleteOnly = true;
-  let todoScope = 'all';
+  let todoScope = 'personal';
+  let todoCaptureDraft = '';
+  let todoPriorityFocus = null;
   let projectFilter = 'all';
   let projectDetailTab = 'overview';
   let selectedProjectId = null;
@@ -1924,6 +1927,21 @@
     }
   }
 
+  async function refreshTodoAfterMutation(year) {
+    // 저장 직후의 canonical 재조회까지 한 작업으로 취급해 5초 폴링과
+    // 오래된 응답이 끼어들지 않게 한다.
+    collaborationMutationBusy = true;
+    try {
+      await refreshCollaborationEvents({ year });
+      return true;
+    } catch (error) {
+      showToast(error.message || '저장은 완료했지만 최신 목록을 불러오지 못했습니다.');
+      return false;
+    } finally {
+      collaborationMutationBusy = false;
+    }
+  }
+
   function normalizeEvent(record) {
     return {
       id: record.id,
@@ -1940,7 +1958,8 @@
       isShared: record.is_shared === true || record.isShared === true,
       done: record.done === true,
       projectId: record.project_id ?? record.projectId ?? '',
-      sortOrder: Number(record.sort_order ?? record.sortOrder ?? 0)
+      sortOrder: Number(record.sort_order ?? record.sortOrder ?? 0),
+      createdAt: record.created_at ?? record.createdAt ?? ''
     };
   }
 
@@ -1958,7 +1977,7 @@
   }
 
   async function loadLiveData() {
-    const currentYear = new Date().getFullYear();
+    const currentYear = Number(koreaDateKey(new Date()).slice(0, 4));
     const access = collaborationAccess();
     const [events, checklistSummary, rooms, unread, projectData] = await Promise.all([
       access.events
@@ -1979,7 +1998,7 @@
     liveProjects = Array.isArray(projectData) ? projectData : (projectData.projects || []);
   }
 
-  async function refreshCollaborationEvents({ year = calendarYear || new Date().getFullYear(), render = true } = {}) {
+  async function refreshCollaborationEvents({ year = calendarYear || Number(koreaDateKey(new Date()).slice(0, 4)), render = true } = {}) {
     if (!collaborationAccess().events) {
       liveEvents = [];
       liveChecklistSummary = {};
@@ -2048,11 +2067,19 @@
 
   async function refreshActiveCollaborationView() {
     if (!currentUser || osAuthExpired || osAuthHardNavigating || previewPersona || document.visibilityState === 'hidden') return;
+    if (collaborationMutationBusy) return;
+    // 5초 자동 동기화가 빠른 입력이나 네이티브 시간 선택기를 통째로
+    // 다시 그려 사용자의 초안을 지우지 않도록, 편집 중에는 다음 주기로 미룬다.
+    if (activeView === 'todo'
+      && todoView.contains(document.activeElement)
+      && document.activeElement.matches('input, textarea, select')) return;
     if (collaborationRefreshInFlight) return collaborationRefreshInFlight;
     const task = (async () => {
       const access = collaborationAccess();
       if ((activeView === 'calendar' || activeView === 'todo') && access.events) {
-        await refreshCollaborationEvents({ year: activeView === 'calendar' ? calendarYear : new Date().getFullYear() });
+        await refreshCollaborationEvents({
+          year: activeView === 'calendar' ? calendarYear : Number(koreaDateKey(new Date()).slice(0, 4))
+        });
       } else if (activeView === 'review' && access.projects) {
         if (selectedProjectId || liveProjectDetail?.id) await refreshProjectDetail(selectedProjectId || liveProjectDetail.id);
         else await refreshCollaborationProjects();
@@ -2060,7 +2087,7 @@
         await refreshCollaborationChatRooms();
       } else if (activeView === 'dashboard' && access.projects) {
         await Promise.all([
-          refreshCollaborationEvents({ year: new Date().getFullYear(), render: false }),
+          refreshCollaborationEvents({ year: Number(koreaDateKey(new Date()).slice(0, 4)), render: false }),
           refreshCollaborationProjects({ render: false }),
           refreshCollaborationChatRooms({ render: false })
         ]);
@@ -2101,6 +2128,8 @@
     chatReadAckByRoom.clear();
     selectedChatRoomId = null;
     eventLoadedYear = null;
+    todoCaptureDraft = '';
+    todoPriorityFocus = null;
   }
 
   function startCollaborationPolling() {
@@ -2433,7 +2462,7 @@
 
   function updateNavigationBadges() {
     const unreadTotal = Object.values(liveUnreadCounts).reduce((sum, value) => sum + Number(value || 0), 0);
-    const today = localDateKey(new Date());
+    const today = koreaDateKey(new Date());
     const todoRemaining = liveEvents.filter(event => event.type === 'todo' && event.date === today && !event.done).length;
     const reviewProjects = liveProjects.filter(project => project.status === 'review').length;
     const chatBadge = document.querySelector('[data-view="chat"] .nav-badge');
@@ -2459,7 +2488,7 @@
 
   function renderDashboard() {
     const content = dashboardView.querySelector('.dashboard-grid .content-stack');
-    const today = localDateKey(new Date());
+    const today = koreaDateKey(new Date());
     const monthPrefix = today.slice(0, 7);
     const todayTodos = liveEvents.filter(event => event.type === 'todo' && event.date === today);
     const monthEvents = liveEvents.filter(event => event.date.startsWith(monthPrefix));
@@ -2559,7 +2588,7 @@
   } = {}) {
     const editing = Boolean(event?.id);
     const selectedType = event?.type || type || 'event';
-    const selectedDate = event?.date || date || localDateKey(new Date());
+    const selectedDate = event?.date || date || koreaDateKey(new Date());
     const selectedScope = allowTeam ? (event?.scope || 'personal') : 'personal';
     const shareOptions = eventShareOptionsMarkup(users, shareIds);
     return `
@@ -2805,7 +2834,7 @@
       const weekday = new Date(calendarYear, calendarMonth - 1, day).getDay();
       const eventMarkup = dateEvents.slice(0, 3).map(event => `<span class="calendar-event ${esc(event.type)}"><i></i><span>${esc(event.title)}</span></span>`).join('');
       cells.push(`
-        <button class="home-calendar-cell ${dateEvents.length ? 'has-events' : ''} ${key === localDateKey(new Date()) ? 'today' : ''} ${key === calendarSelected ? 'selected' : ''} ${weekday === 0 ? 'sun' : ''} ${weekday === 6 ? 'sat' : ''}" type="button" data-date="${key}">
+        <button class="home-calendar-cell ${dateEvents.length ? 'has-events' : ''} ${key === koreaDateKey(new Date()) ? 'today' : ''} ${key === calendarSelected ? 'selected' : ''} ${weekday === 0 ? 'sun' : ''} ${weekday === 6 ? 'sat' : ''}" type="button" data-date="${key}">
           <span class="calendar-date-line"><span class="calendar-date">${day}</span>${dateEvents.length ? `<span class="calendar-count">${dateEvents.length}</span>` : ''}</span>
           <span class="calendar-events">${eventMarkup}</span>${dateEvents.length > 3 ? `<span class="calendar-more">+${dateEvents.length - 3}개 더보기</span>` : ''}
         </button>`);
@@ -2941,41 +2970,67 @@
   }
 
   function renderTodo() {
-    const today = localDateKey(new Date());
+    // 할 일은 PC/브라우저 시간대와 무관하게 한국 날짜가 바뀌는 순간
+    // 다음 날 계획으로 전환한다. 저장소는 기존 workspace-scoped events다.
+    const today = koreaDateKey(new Date());
     let items = liveEvents.filter(event => event.type === 'todo' && event.date === today);
     if (todoScope === 'team') items = items.filter(event => event.scope === 'team');
-    if (todoScope === 'personal') items = items.filter(event => event.scope !== 'team');
-    const done = items.filter(event => event.done).length;
-    // 미완료를 먼저 보여 준다. 다 끝낸 일이 위에 있으면 놓치기 쉽다.
-    items = [...items].sort((a, b) => Number(Boolean(a.done)) - Number(Boolean(b.done)));
-    const grouped = new Map();
-    items.forEach(event => {
-      const key = event.todoCat || (event.scope === 'team' ? '팀 업무' : `${event.ownerName || '내'} 업무`);
-      if (!grouped.has(key)) grouped.set(key, []);
-      grouped.get(key).push(event);
-    });
-    const groupMarkup = [...grouped.entries()]
-      .sort((x, y) => y[1].filter(e => !e.done).length - x[1].filter(e => !e.done).length)
-      .map(([name, events]) => {
-      const groupDone = events.filter(event => event.done).length;
-      return `<article class="todo-group" data-scope="${events[0]?.scope || 'personal'}">
-        <button class="todo-group-head" type="button">
-          <span class="todo-group-caret">▼</span><i class="todo-group-dot ${events[0]?.scope === 'team' ? 'teal' : 'red'}"></i>
-          <span class="todo-group-title">${esc(name)}</span><span class="todo-group-count">${groupDone}/${events.length}</span>
-        </button>
-        <div class="todo-group-body">
-          ${events.map(event => `
-            <div class="todo-task ${event.done ? 'done' : ''}" data-collab-event="${esc(event.id)}">
-              <button class="todo-task-check ${event.done ? 'checked' : ''}" type="button" ${canEditCollaborationEvent(event) ? `data-collab-event-toggle="${esc(event.id)}"` : 'disabled'} aria-label="${esc(event.title)} ${event.done ? '완료' : '미완료'}">${event.done ? '✓' : ''}</button>
-              <button class="todo-task-main collaboration-task-open" type="button" data-collab-event-open="${esc(event.id)}">
-                <div class="todo-task-title">${esc(event.title)}</div>
-                <div class="todo-task-meta">담당 ${esc(event.ownerName || '미지정')} · ${esc(formatTime(event.time))}</div>
-                ${event.memo ? `<div class="todo-task-note">${esc(event.memo)}</div>` : ''}
-              </button>
-              <div class="todo-task-side"><span class="todo-progress-pill ${event.done ? '' : 'review'}">${event.done ? '완료' : '진행 중'}</span></div>
-            </div>`).join('')}
+    if (todoScope === 'personal') items = items.filter(event =>
+      event.scope !== 'team' && String(event.ownerId || '') === String(currentUser?.uid || '')
+    );
+    const byPriority = (a, b) => Number(Boolean(a.done)) - Number(Boolean(b.done))
+      || Number(a.sortOrder || 0) - Number(b.sortOrder || 0)
+      || String(a.time || '99:99').localeCompare(String(b.time || '99:99'))
+      || String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
+      || String(a.title || '').localeCompare(String(b.title || ''), 'ko');
+    items = [...items].sort(byPriority);
+    const openItems = items.filter(event => !event.done);
+    const done = items.length - openItems.length;
+    const scheduledItems = items.filter(event => Boolean(String(event.time || '').slice(0, 5)))
+      .sort((a, b) => String(a.time).localeCompare(String(b.time)) || byPriority(a, b));
+    const unscheduledItems = openItems.filter(event => !String(event.time || '').slice(0, 5));
+    const timelineUnscheduledItems = items.filter(event => !String(event.time || '').slice(0, 5));
+    const priorityEditable = openItems.filter(event => canEditCollaborationEvent(event));
+    const canReorderVisible = todoScope === 'personal' || userDoc?.role === 'admin';
+
+    const taskOpenMarkup = event => `
+      <button class="daily-plan-task-open" type="button" data-collab-event-open="${esc(event.id)}">
+        <strong>${esc(event.title)}</strong>
+        <small>${esc(event.ownerName || '담당자 미지정')}${event.todoCat ? ` · ${esc(event.todoCat)}` : ''}</small>
+      </button>`;
+
+    const priorityMarkup = openItems.map((event, index) => {
+      const editableIndex = priorityEditable.findIndex(item => String(item.id) === String(event.id));
+      const editable = canReorderVisible && editableIndex >= 0;
+      return `<div class="daily-priority-row" data-daily-priority-id="${esc(event.id)}">
+        <span class="daily-priority-rank" aria-label="${index + 1}순위">${index + 1}</span>
+        ${taskOpenMarkup(event)}
+        <span class="daily-priority-time">${esc(formatTime(event.time))}</span>
+        <div class="daily-priority-actions" aria-label="${esc(event.title)} 우선순위 이동">
+          ${editable ? `<button type="button" data-todo-priority-move="${esc(event.id)}" data-direction="up" ${editableIndex === 0 ? 'disabled' : ''} aria-label="우선순위 올리기">↑</button>
+          <button type="button" data-todo-priority-move="${esc(event.id)}" data-direction="down" ${editableIndex === priorityEditable.length - 1 ? 'disabled' : ''} aria-label="우선순위 내리기">↓</button>` : `<span class="daily-plan-locked">${canReorderVisible ? '조회' : '개인 업무만 정렬'}</span>`}
         </div>
-      </article>`;
+      </div>`;
+    }).join('');
+
+    const thoughtMarkup = unscheduledItems.map(event => `<div class="daily-thought-row">
+      <button class="todo-task-check" type="button" ${canEditCollaborationEvent(event) ? `data-collab-event-toggle="${esc(event.id)}"` : 'disabled'} aria-label="${esc(event.title)} 완료"></button>
+      ${taskOpenMarkup(event)}
+      <span>시간 미정</span>
+    </div>`).join('');
+
+    const timelineItems = [
+      ...scheduledItems,
+      ...timelineUnscheduledItems
+    ];
+    const timelineMarkup = timelineItems.map(event => {
+      const editable = canEditCollaborationEvent(event) && !event.done;
+      return `<div class="daily-timeline-row ${event.done ? 'done' : ''}" data-daily-timeline-id="${esc(event.id)}">
+        <label class="daily-timeline-time"><span class="sr-only">${esc(event.title)} 시간</span><input type="time" value="${esc(String(event.time || '').slice(0, 5))}" ${editable ? `data-todo-time="${esc(event.id)}"` : 'disabled'} aria-label="${esc(event.title)} 시간 정하기"></label>
+        <button class="todo-task-check ${event.done ? 'checked' : ''}" type="button" ${canEditCollaborationEvent(event) ? `data-collab-event-toggle="${esc(event.id)}"` : 'disabled'} aria-label="${esc(event.title)} ${event.done ? '미완료로 변경' : '완료'}">${event.done ? '✓' : ''}</button>
+        ${taskOpenMarkup(event)}
+        <span class="daily-timeline-state">${event.done ? '완료' : (event.time ? '예정' : '시간 미정')}</span>
+      </div>`;
     }).join('');
 
     todoView.innerHTML = `
@@ -2989,25 +3044,122 @@
         <button class="todo-scope-button ${todoScope === 'all' ? 'active' : ''}" type="button" data-todo-scope="all">전체</button>
       </nav>
       <section class="todo-summary" aria-label="오늘 업무 요약">
-        <article class="todo-summary-card primary"><span>남은 업무</span><strong>${items.length - done}건</strong></article>
+        <article class="todo-summary-card primary"><span>우선순위 업무</span><strong>${openItems.length}건</strong></article>
         <article class="todo-summary-card"><span>오늘 할 일</span><strong>${items.length}건</strong></article>
+        <article class="todo-summary-card"><span>시간 확정</span><strong>${scheduledItems.filter(event => !event.done).length}건</strong></article>
         <article class="todo-summary-card"><span>완료</span><strong>${done}건</strong></article>
-        <article class="todo-summary-card"><span>팀 업무</span><strong>${items.filter(event => event.scope === 'team').length}건</strong></article>
       </section>
-      <section class="todo-board" aria-label="오늘의 업무 목록">
-        <header class="todo-board-head"><div><strong>오늘의 업무</strong><span>${isWorkspaceRoute() && activeWorkspaceSlug !== 'peak' ? '현재 워크스페이스의 할 일만 표시합니다' : '파라곤 캘린더의 할 일 데이터를 표시합니다'}</span></div><div class="todo-board-progress">${items.length ? Math.round(done / items.length * 100) : 0}% 완료</div></header>
-        ${groupMarkup || '<div class="live-list-empty">오늘 등록된 할 일이 없습니다.</div>'}
-      </section>`;
+      <div class="daily-plan" data-daily-plan-date="${esc(today)}">
+        <section class="daily-plan-step" data-daily-plan-step="priority">
+          <header class="daily-plan-step-head"><span>1</span><div><strong>우선순위 정하기</strong><small>오늘 반드시 끝낼 일부터 위로 올려 순서를 정하세요.</small></div><em>${openItems.length}건</em></header>
+          <div class="daily-priority-list">${priorityMarkup || '<div class="daily-plan-empty">우선순위를 정할 할 일이 없습니다.</div>'}</div>
+        </section>
+
+        <section class="daily-plan-step" data-daily-plan-step="capture">
+          <header class="daily-plan-step-head"><span>2</span><div><strong>생각한 일 전부 쓰기</strong><small>머릿속의 일을 빠르게 적으면 오늘 내 일정으로 저장됩니다.</small></div><em>${unscheduledItems.length}건 미정</em></header>
+          ${collaborationWritable('calendar') && todoScope === 'personal' ? `<form class="daily-capture-form" data-todo-capture>
+            <label><span class="sr-only">생각한 일</span><input name="title" maxlength="180" autocomplete="off" value="${esc(todoCaptureDraft)}" placeholder="생각난 일을 하나씩 적어 주세요" required></label>
+            <button type="submit">＋ 적기</button>
+          </form>` : `<div class="daily-plan-empty">${todoScope === 'personal' ? '읽기 전용에서는 할 일을 추가할 수 없습니다.' : '생각한 일은 내 일정 탭에서 적을 수 있습니다.'}</div>`}
+          <div class="daily-thought-list">${thoughtMarkup || '<div class="daily-plan-empty">시간을 정하지 않은 일이 없습니다.</div>'}</div>
+        </section>
+
+        <section class="daily-plan-step" data-daily-plan-step="timeline">
+          <header class="daily-plan-step-head"><span>3</span><div><strong>타임라인 잡기</strong><small>각 업무의 시작 시간을 정해 오늘의 흐름을 완성하세요.</small></div><em>${scheduledItems.length}/${items.length}</em></header>
+          <div class="daily-timeline-list">${timelineMarkup || '<div class="daily-plan-empty">타임라인에 배치할 일이 없습니다.</div>'}</div>
+          <footer class="daily-plan-progress"><span><i style="width:${items.length ? Math.round(done / items.length * 100) : 0}%"></i></span><strong>${items.length ? Math.round(done / items.length * 100) : 0}% 완료</strong></footer>
+        </section>
+      </div>`;
 
     todoView.querySelectorAll('[data-todo-scope]').forEach(button => button.addEventListener('click', () => {
       todoScope = button.dataset.todoScope;
       renderTodo();
     }));
-    todoView.querySelectorAll('.todo-group-head').forEach(button => button.addEventListener('click', () => button.closest('.todo-group').classList.toggle('collapsed')));
     todoView.querySelector('[data-collab-add-todo]')?.addEventListener('click', () => openEventEditor(null, { type: 'todo', date: today }));
+    todoView.querySelector('[data-todo-capture] [name="title"]')?.addEventListener('input', inputEvent => {
+      todoCaptureDraft = inputEvent.currentTarget.value;
+    });
+    todoView.querySelector('[data-todo-capture]')?.addEventListener('submit', async submitEvent => {
+      submitEvent.preventDefault();
+      const form = submitEvent.currentTarget;
+      const title = String(new FormData(form).get('title') || '').trim();
+      if (!title) return;
+      todoCaptureDraft = title;
+      const submissionDate = koreaDateKey(new Date());
+      const submitButton = form.querySelector('button[type="submit"]');
+      if (submitButton) submitButton.disabled = true;
+      const result = await runCollaborationMutation(async () => {
+        const created = await collaborationApi('POST', '/events', {
+          type: 'todo', title, date: submissionDate, time: '', memo: '', todoCat: '',
+          scope: 'personal', shareWith: [], checklist: []
+        });
+        let prioritySaved = Boolean(created?.id);
+        if (created?.id) {
+          try {
+            let orderBase = priorityEditable;
+            if (submissionDate !== today) {
+              const year = Number(submissionDate.slice(0, 4));
+              const records = await collaborationApi('GET', `/events?from=${year}-01-01&to=${year}-12-31`);
+              orderBase = (Array.isArray(records) ? records.map(normalizeEvent) : [])
+                .filter(event => event.type === 'todo'
+                  && event.date === submissionDate
+                  && !event.done
+                  && event.scope !== 'team'
+                  && String(event.ownerId || '') === String(currentUser?.uid || '')
+                  && String(event.id) !== String(created.id))
+                .sort(byPriority);
+            }
+            await collaborationApi('POST', '/events/reorder', {
+              items: [...orderBase, created]
+                .filter((event, index, all) => all.findIndex(item => String(item.id) === String(event.id)) === index)
+                .map((event, index) => ({ id: event.id, sortOrder: (index + 1) * 10 }))
+            });
+          } catch (_) {
+            prioritySaved = false;
+          }
+        }
+        return { created, prioritySaved, submissionDate };
+      });
+      if (!result) { if (submitButton) submitButton.disabled = false; return; }
+      todoCaptureDraft = '';
+      form.reset();
+      await refreshTodoAfterMutation(Number(result.submissionDate.slice(0, 4)));
+      showToast(result.prioritySaved
+        ? '생각한 일을 오늘 우선순위 맨 아래에 적었습니다.'
+        : '할 일은 저장했지만 순서는 저장하지 못했습니다. 화살표로 다시 정리해 주세요.');
+    });
     todoView.querySelectorAll('[data-collab-event-open]').forEach(button => button.addEventListener('click', () => {
       const event = liveEvents.find(item => String(item.id) === String(button.dataset.collabEventOpen));
       if (event) openEventDetail(event);
+    }));
+    todoView.querySelectorAll('[data-todo-priority-move]').forEach(button => button.addEventListener('click', async () => {
+      const currentIndex = priorityEditable.findIndex(event => String(event.id) === String(button.dataset.todoPriorityMove));
+      const offset = button.dataset.direction === 'up' ? -1 : 1;
+      const targetIndex = currentIndex + offset;
+      if (currentIndex < 0 || targetIndex < 0 || targetIndex >= priorityEditable.length) return;
+      const reordered = [...priorityEditable];
+      [reordered[currentIndex], reordered[targetIndex]] = [reordered[targetIndex], reordered[currentIndex]];
+      button.disabled = true;
+      todoPriorityFocus = { id: button.dataset.todoPriorityMove, direction: button.dataset.direction };
+      const saved = await runCollaborationMutation(
+        () => collaborationApi('POST', '/events/reorder', {
+          items: reordered.map((event, index) => ({ id: event.id, sortOrder: (index + 1) * 10 }))
+        }),
+        '오늘 할 일의 우선순위를 저장했습니다.'
+      );
+      if (!saved) { todoPriorityFocus = null; button.disabled = false; return; }
+      await refreshTodoAfterMutation(Number(today.slice(0, 4)));
+    }));
+    todoView.querySelectorAll('[data-todo-time]').forEach(input => input.addEventListener('change', async () => {
+      const event = liveEvents.find(item => String(item.id) === String(input.dataset.todoTime));
+      if (!event) return;
+      input.disabled = true;
+      const saved = await runCollaborationMutation(
+        () => collaborationApi('PUT', `/events/${encodeURIComponent(event.id)}`, { time: input.value }),
+        input.value ? '타임라인 시간을 저장했습니다.' : '타임라인 시간을 비웠습니다.'
+      );
+      if (!saved) { input.disabled = false; input.value = String(event.time || '').slice(0, 5); return; }
+      await refreshTodoAfterMutation(Number(today.slice(0, 4)));
     }));
     todoView.querySelectorAll('[data-collab-event-toggle]').forEach(button => button.addEventListener('click', async () => {
       const event = liveEvents.find(item => String(item.id) === String(button.dataset.collabEventToggle));
@@ -3018,8 +3170,16 @@
         event.done ? '미완료로 변경했습니다.' : '할 일을 완료했습니다.'
       );
       if (!saved) { button.disabled = false; return; }
-      await refreshCollaborationEvents({ year: new Date().getFullYear() });
+      await refreshTodoAfterMutation(Number(today.slice(0, 4)));
     }));
+    if (todoPriorityFocus) {
+      const focus = todoPriorityFocus;
+      todoPriorityFocus = null;
+      const row = todoView.querySelector(`[data-daily-priority-id="${CSS.escape(String(focus.id))}"]`);
+      const requested = row?.querySelector(`[data-direction="${focus.direction}"]:not(:disabled)`);
+      const fallback = row?.querySelector('[data-todo-priority-move]:not(:disabled), [data-collab-event-open]');
+      (requested || fallback)?.focus();
+    }
   }
 
   function renderProjects() {

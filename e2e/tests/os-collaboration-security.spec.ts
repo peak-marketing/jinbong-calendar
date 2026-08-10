@@ -10,6 +10,8 @@ type ApiCall = {
   path: string;
   body: any;
   preview: string;
+  workspace: string;
+  search: string;
 };
 
 type CollaborationState = {
@@ -33,12 +35,13 @@ function uuidFromSequence(sequence: number) {
 }
 
 function todayKey() {
-  const today = new Date();
-  return [
-    today.getFullYear(),
-    String(today.getMonth() + 1).padStart(2, '0'),
-    String(today.getDate()).padStart(2, '0'),
-  ].join('-');
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date()).reduce<Record<string, string>>((result, part) => {
+    if (part.type !== 'literal') result[part.type] = part.value;
+    return result;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
 function createState(overrides: Partial<CollaborationState> = {}): CollaborationState {
@@ -110,6 +113,8 @@ async function installSharedApi(page: Page, state: CollaborationState) {
       path: originalPath,
       body,
       preview: request.headers()['x-peakos-preview'] || '',
+      workspace: request.headers()['x-peakos-workspace'] || '',
+      search: url.search,
     });
 
     const send = (payload: unknown, status = 200) => route.fulfill({
@@ -185,17 +190,32 @@ async function installSharedApi(page: Page, state: CollaborationState) {
     }
     if (resourcePath === '/events' && method === 'GET') return send(state.events.filter(event => !event.deleted));
     if (resourcePath === '/events' && method === 'POST') {
+      const category = String(body?.todoCat || '');
+      const categoryRows = state.events.filter(event =>
+        event.type === 'todo'
+        && event.date === body?.date
+        && event.scope === (body?.scope || 'personal')
+        && String(event.todo_cat || event.todoCat || '') === category
+        && ((body?.scope || 'personal') !== 'personal' || event.owner_id === 'e2e-test-user')
+      );
       const created = {
         id: `event-${++state.sequence}`,
         ...body,
         owner_id: 'e2e-test-user', owner_name: '김대호', done: false, deleted: false,
-        sort_order: state.events.length,
+        sort_order: Math.max(-1, ...categoryRows.map(event => Number(event.sort_order || 0))) + 1,
       };
       state.events.push(created);
       state.checklists[created.id] = (body?.checklist || []).map((title: string, index: number) => ({
         id: `${created.id}-check-${index + 1}`, event_id: created.id, title, done: false, sort_order: index,
       }));
       return send(created);
+    }
+    if (resourcePath === '/events/reorder' && method === 'POST') {
+      for (const item of body?.items || []) {
+        const event = state.events.find(entry => String(entry.id) === String(item.id));
+        if (event) event.sort_order = item.sortOrder;
+      }
+      return send({ ok: true, updated: body?.items?.length || 0 });
     }
     const eventMatch = resourcePath.match(/^\/events\/([^/]+)$/);
     if (eventMatch && method === 'PUT') {
@@ -444,9 +464,131 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     await page.locator('.nav-item[data-view="todo"]').click();
     await expect(page.locator('#todoView [data-collab-readonly]')).toBeVisible();
     await expect(page.locator('#todoView [data-collab-add-todo]')).toHaveCount(0);
-    await expect(page.locator('#todoView [data-collab-event="owned-todo"] .todo-task-check')).toBeDisabled();
+    await expect(page.locator('#todoView [data-daily-timeline-id="owned-todo"] .todo-task-check')).toBeDisabled();
     await page.waitForTimeout(250);
     expect(state.calls.filter(call => call.method !== 'GET' && call.path.startsWith('/peakos/collaboration/'))).toHaveLength(beforePreview);
+  });
+
+  test('today todo follows priority, capture, and timeline steps through one protected event record', async ({ page }) => {
+    const date = todayKey();
+    const tomorrow = new Date(`${date}T12:00:00+09:00`);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const tomorrowKey = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(tomorrow);
+    const state = createState({
+      events: [
+        { id: 'first', type: 'todo', title: '먼저 생각한 일', date, time: '', todo_cat: '기획', scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', sort_order: 10, done: false, deleted: false },
+        { id: 'second', type: 'todo', title: '시간 있는 일', date, time: '11:00', todo_cat: '영업', scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', sort_order: 20, done: false, deleted: false },
+        { id: 'tomorrow', type: 'todo', title: '내일 할 일', date: tomorrowKey, time: '', scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', sort_order: 30, done: false, deleted: false },
+      ],
+    });
+    await setup(page, state);
+    await page.locator('.nav-item[data-view="todo"]').click();
+
+    const steps = page.locator('#todoView [data-daily-plan-step]');
+    await expect(steps).toHaveCount(3);
+    await expect(steps.nth(0)).toHaveAttribute('data-daily-plan-step', 'priority');
+    await expect(steps.nth(1)).toHaveAttribute('data-daily-plan-step', 'capture');
+    await expect(steps.nth(2)).toHaveAttribute('data-daily-plan-step', 'timeline');
+    await expect(page.locator('#todoView')).toContainText('우선순위 정하기');
+    await expect(page.locator('#todoView')).toContainText('생각한 일 전부 쓰기');
+    await expect(page.locator('#todoView')).toContainText('타임라인 잡기');
+    await expect(page.locator('#todoView')).not.toContainText('내일 할 일');
+
+    await page.locator('[data-todo-priority-move="first"][data-direction="down"]').click();
+    const priorityRows = page.locator('[data-daily-priority-id]');
+    await expect(priorityRows.nth(0)).toHaveAttribute('data-daily-priority-id', 'second');
+    await expect(priorityRows.nth(1)).toHaveAttribute('data-daily-priority-id', 'first');
+    const reorderCall = state.calls.find(call => call.method === 'POST' && call.path === '/peakos/collaboration/events/reorder');
+    expect(reorderCall).toMatchObject({
+      workspace: 'peak',
+      body: { items: [{ id: 'second', sortOrder: 10 }, { id: 'first', sortOrder: 20 }] },
+    });
+
+    const capture = page.locator('[data-todo-capture]');
+    await capture.locator('[name="title"]').fill('방금 생각난 일');
+    await capture.getByRole('button', { name: '＋ 적기' }).click();
+    await expect(page.locator('#todoView')).toContainText('방금 생각난 일');
+    const captured = state.events.find(event => event.title === '방금 생각난 일');
+    expect(captured).toMatchObject({ type: 'todo', date, time: '', scope: 'personal' });
+    const captureOrderCall = state.calls.filter(call =>
+      call.method === 'POST' && call.path === '/peakos/collaboration/events/reorder'
+    ).at(-1);
+    expect(captureOrderCall?.body?.items.at(-1)).toMatchObject({ id: captured.id });
+    await expect(page.locator('[data-daily-priority-id]').last()).toHaveAttribute('data-daily-priority-id', captured.id);
+
+    const timeInput = page.locator('[data-daily-timeline-id="first"] [data-todo-time="first"]');
+    await timeInput.fill('09:30');
+    await timeInput.press('Tab');
+    await expect(page.locator('[data-daily-timeline-id="first"] [data-todo-time="first"]')).toHaveValue('09:30');
+    const timeCall = state.calls.find(call => call.method === 'PUT' && call.path === '/peakos/collaboration/events/first' && call.body?.time === '09:30');
+    expect(timeCall).toMatchObject({ workspace: 'peak', body: { time: '09:30' } });
+    expect(state.calls.some(call => call.path.startsWith('/timetable'))).toBe(false);
+    expect(state.calls.some(call => call.method !== 'GET' && /^\/events(?:\/|$)/.test(call.path))).toBe(false);
+  });
+
+  test('Korea New Year loads and renders the new Korean calendar year', async ({ page }) => {
+    await page.clock.install({ time: new Date('2026-12-31T15:05:00.000Z') });
+    const state = createState({
+      events: [{
+        id: 'new-year', type: 'todo', title: '새해 첫 할 일', date: '2027-01-01', time: '',
+        scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', sort_order: 10,
+        done: false, deleted: false,
+      }],
+    });
+    await setup(page, state);
+    await page.locator('.nav-item[data-view="todo"]').click();
+
+    await expect(page.locator('[data-daily-plan-date]')).toHaveAttribute('data-daily-plan-date', '2027-01-01');
+    await expect(page.locator('#todoView')).toContainText('새해 첫 할 일');
+    expect(state.calls.some(call =>
+      call.method === 'GET'
+      && call.path === '/peakos/collaboration/events'
+      && call.search.includes('from=2027-01-01')
+      && call.search.includes('to=2027-12-31')
+    )).toBe(true);
+  });
+
+  test('a draft opened before Korean midnight is saved to the new Korean day', async ({ page }) => {
+    await page.clock.install({ time: new Date('2026-12-31T14:59:30.000Z') });
+    const state = createState();
+    await setup(page, state);
+    await page.locator('.nav-item[data-view="todo"]').click();
+    const capture = page.locator('[data-todo-capture]');
+    await capture.locator('[name="title"]').fill('자정 이후 오늘 할 일');
+
+    await page.clock.setFixedTime(new Date('2026-12-31T15:00:30.000Z'));
+    await capture.getByRole('button', { name: '＋ 적기' }).click();
+
+    await expect(page.locator('[data-daily-plan-date]')).toHaveAttribute('data-daily-plan-date', '2027-01-01');
+    expect(state.events.find(event => event.title === '자정 이후 오늘 할 일')).toMatchObject({
+      date: '2027-01-01', scope: 'personal', type: 'todo',
+    });
+  });
+
+  test('the five-second sync does not erase a todo draft while its editor has focus', async ({ page }) => {
+    const state = createState();
+    await setup(page, state);
+    await page.locator('.nav-item[data-view="todo"]').click();
+    const draft = page.locator('[data-todo-capture] [name="title"]');
+    await draft.fill('자동 동기화에도 남아야 하는 생각');
+    const readsBefore = state.calls.filter(call =>
+      call.method === 'GET' && call.path === '/peakos/collaboration/events'
+    ).length;
+
+    await page.waitForTimeout(5_400);
+    await expect(draft).toHaveValue('자동 동기화에도 남아야 하는 생각');
+    expect(state.calls.filter(call =>
+      call.method === 'GET' && call.path === '/peakos/collaboration/events'
+    )).toHaveLength(readsBefore);
+
+    await draft.press('Tab');
+    await page.waitForTimeout(5_400);
+    await expect(draft).toHaveValue('자동 동기화에도 남아야 하는 생각');
+    expect(state.calls.filter(call =>
+      call.method === 'GET' && call.path === '/peakos/collaboration/events'
+    ).length).toBeGreaterThan(readsBefore);
   });
 
   test('protected OS writes and legacy writes round-trip through one shared state', async ({ page }) => {
@@ -528,7 +670,7 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     await expect(colleague).toBeVisible();
     await colleague.check();
     await form.getByRole('button', { name: '등록', exact: true }).click();
-    expect(state.events.find(event => event.title === '실패 후에도 남는 팀 일정')).toMatchObject({
+    await expect.poll(() => state.events.find(event => event.title === '실패 후에도 남는 팀 일정')).toMatchObject({
       scope: 'team', shareWith: ['other-user'],
     });
   });

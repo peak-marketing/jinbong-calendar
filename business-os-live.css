@@ -1192,6 +1192,199 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   opacity: 1;
 }
 
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.daily-plan {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.daily-plan-step {
+  overflow: hidden;
+  border: 1px solid #dfe7ed;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 7px 22px rgba(34, 63, 84, .055);
+}
+
+.daily-plan-step-head {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 11px;
+  align-items: center;
+  min-height: 67px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e8edf1;
+  background: #f9fbfc;
+}
+
+.daily-plan-step-head > span {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: #348ecd;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.daily-plan-step-head strong,
+.daily-plan-step-head small { display: block; }
+.daily-plan-step-head strong { color: #203342; font-size: 13px; letter-spacing: -.02em; }
+.daily-plan-step-head small { margin-top: 4px; color: #7d8d9a; font-size: 9px; line-height: 1.45; }
+.daily-plan-step-head em { color: #348ecd; font-size: 9px; font-style: normal; font-weight: 850; white-space: nowrap; }
+
+.daily-priority-list,
+.daily-thought-list,
+.daily-timeline-list { padding: 4px 16px; }
+
+.daily-priority-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 90px 72px;
+  gap: 10px;
+  align-items: center;
+  min-height: 58px;
+  border-bottom: 1px solid #edf1f4;
+}
+
+.daily-priority-row:last-child,
+.daily-thought-row:last-child,
+.daily-timeline-row:last-child { border-bottom: 0; }
+
+.daily-priority-rank {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid #c8dfef;
+  border-radius: 8px;
+  background: #eef7fc;
+  color: #2779b2;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.daily-plan-task-open {
+  min-width: 0;
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.daily-plan-task-open strong,
+.daily-plan-task-open small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.daily-plan-task-open strong { color: #263947; font-size: 11px; }
+.daily-plan-task-open small { margin-top: 4px; color: #8795a1; font-size: 8px; }
+.daily-priority-time { color: #637686; font-size: 9px; text-align: right; white-space: nowrap; }
+.daily-priority-actions { display: flex; justify-content: flex-end; gap: 5px; }
+.daily-priority-actions button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid #cfdae2;
+  border-radius: 7px;
+  background: #fff;
+  color: #348ecd;
+  font-size: 12px;
+  font-weight: 900;
+}
+.daily-priority-actions button:disabled { color: #b9c3cb; cursor: default; }
+.daily-plan-locked { color: #9aa7b1; font-size: 8px; font-weight: 750; }
+
+.daily-capture-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 14px 16px 8px;
+}
+.daily-capture-form input {
+  width: 100%;
+  min-height: 39px;
+  padding: 0 12px;
+  border: 1px solid #d2dde5;
+  border-radius: 9px;
+  color: #2d4050;
+  font: inherit;
+  font-size: 11px;
+}
+.daily-capture-form input:focus { border-color: #348ecd; outline: 3px solid rgba(52, 142, 205, .1); }
+.daily-capture-form button {
+  min-width: 76px;
+  border: 0;
+  border-radius: 9px;
+  background: #348ecd;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.daily-thought-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  min-height: 50px;
+  border-bottom: 1px solid #edf1f4;
+}
+.daily-thought-row > span { color: #a07124; font-size: 8px; font-weight: 800; white-space: nowrap; }
+.daily-thought-row .todo-task-check,
+.daily-timeline-row .todo-task-check {
+  width: 32px;
+  height: 32px;
+  margin: 0;
+}
+
+.daily-timeline-row {
+  display: grid;
+  grid-template-columns: 82px 32px minmax(0, 1fr) 58px;
+  gap: 9px;
+  align-items: center;
+  min-height: 56px;
+  border-bottom: 1px solid #edf1f4;
+}
+.daily-timeline-row.done { opacity: .65; }
+.daily-timeline-row.done .daily-plan-task-open strong { text-decoration: line-through; }
+.daily-timeline-time input {
+  width: 78px;
+  min-height: 31px;
+  padding: 0 6px;
+  border: 1px solid #cfdae2;
+  border-radius: 8px;
+  background: #fff;
+  color: #385164;
+  font: inherit;
+  font-size: 9px;
+}
+.daily-timeline-time input:not(:disabled):focus { border-color: #348ecd; outline: 3px solid rgba(52, 142, 205, .1); }
+.daily-timeline-state { color: #4383ad; font-size: 8px; font-weight: 850; text-align: right; white-space: nowrap; }
+
+.daily-plan-empty { padding: 24px 10px; color: #94a1ac; font-size: 10px; text-align: center; }
+.daily-plan-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 16px 14px;
+  border-top: 1px solid #edf1f4;
+}
+.daily-plan-progress > span { flex: 1; height: 6px; overflow: hidden; border-radius: 999px; background: #e8eef2; }
+.daily-plan-progress i { display: block; height: 100%; border-radius: inherit; background: #35a873; }
+.daily-plan-progress strong { color: #507083; font-size: 9px; white-space: nowrap; }
+
 .review-project-card[data-project-id] { cursor: pointer; }
 .review-project-card[data-project-id]:hover { border-color: #bcd9ed; box-shadow: 0 9px 24px rgba(52, 142, 205, .09); }
 .review-card-status.review { background: #fff3db; color: #a96f16; }
@@ -4325,6 +4518,27 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .collaboration-task-open:focus-visible { outline: 2px solid #348ecd; outline-offset: 3px; border-radius: 5px; }
 
 @media (max-width: 700px) {
+  .daily-plan-step-head { grid-template-columns: 31px minmax(0, 1fr); padding-inline: 12px; }
+  .daily-plan-step-head > em { grid-column: 2; margin-top: -7px; }
+  .daily-priority-list,
+  .daily-thought-list,
+  .daily-timeline-list { padding-inline: 12px; }
+  .daily-plan-task-open strong { font-size: 12px; }
+  .daily-plan-task-open small,
+  .daily-thought-row > span,
+  .daily-timeline-state { font-size: 11px; }
+  .daily-priority-row { grid-template-columns: 28px minmax(0, 1fr) 88px; gap: 7px; }
+  .daily-priority-time { display: none; }
+  .daily-priority-actions button { width: 40px; height: 40px; }
+  .daily-capture-form { grid-template-columns: minmax(0, 1fr); padding-inline: 12px; }
+  .daily-capture-form input,
+  .daily-capture-form button { min-height: 44px; font-size: 12px; }
+  .daily-timeline-row { grid-template-columns: 100px 40px minmax(0, 1fr); gap: 7px; }
+  .daily-thought-row { grid-template-columns: 40px minmax(0, 1fr) auto; }
+  .daily-thought-row .todo-task-check,
+  .daily-timeline-row .todo-task-check { width: 40px; height: 40px; }
+  .daily-timeline-state { grid-column: 3; margin-top: -8px; text-align: left; }
+  .daily-timeline-time input { width: 96px; min-height: 40px; font-size: 12px; }
   .collaboration-toolbar-actions { width: 100%; flex-wrap: wrap; justify-content: flex-start; }
   .collaboration-form-grid,
   .collaboration-member-list { grid-template-columns: minmax(0, 1fr); }
