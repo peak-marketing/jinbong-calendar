@@ -13,7 +13,7 @@
     }
   </script>
   <title>PEAK OS · Business OS Preview</title>
-  <link rel="stylesheet" href="./business-os-live.css?v=20260810-workspace-labels1">
+  <link rel="stylesheet" href="./business-os-live.css?v=20260810-nav-collapsed1">
   <style>
     :root {
       color-scheme: light;
@@ -2117,8 +2117,8 @@
           </div>
         </section>
 
-        <section class="nav-section nav-cluster" data-nav-cluster="sales-operations">
-          <button class="nav-cluster-toggle" type="button" aria-expanded="true"><span>영업 운영</span><span class="nav-cluster-caret">⌃</span></button>
+        <section class="nav-section nav-cluster closed" data-nav-cluster="sales-operations">
+          <button class="nav-cluster-toggle" type="button" aria-expanded="false"><span>영업 운영</span><span class="nav-cluster-caret">⌄</span></button>
           <div class="nav-cluster-items">
             <button class="nav-item" type="button" data-view="settlement" data-tab-search="SETTLEMENT 개인 정산서 개인정산서 영업자 정산"><span class="nav-icon">◉</span>개인 정산서</button>
             <button class="nav-item" type="button" data-view="deposit-check" data-tab-search="DEPOSIT CHECK 입금체크 미수금 입금확인"><span class="nav-icon">◎</span>입금체크</button>
@@ -2157,8 +2157,8 @@
           <div class="nav-cluster-items">
             <button class="nav-item nav-item-middle" type="button" data-view="bank" data-nav-locked="true" hidden data-tab-search="BANK 통장별 거래내역 매출통장 리뷰스페이스 리워드스페이스 공급처 고정비 입출금"><span class="nav-icon">▨</span>통장별 거래내역</button>
 
-            <div class="nav-subcluster" data-nav-subcluster="tax-invoice" data-tax-banking-group="bank-tax">
-              <button class="nav-subcluster-toggle" type="button" aria-expanded="true"><span><i>▧</i>세금계산서</span><span class="nav-subcluster-caret">⌃</span></button>
+            <div class="nav-subcluster closed" data-nav-subcluster="tax-invoice" data-tax-banking-group="bank-tax">
+              <button class="nav-subcluster-toggle" type="button" aria-expanded="false"><span><i>▧</i>세금계산서</span><span class="nav-subcluster-caret">⌄</span></button>
               <div class="nav-subcluster-items">
                 <button class="nav-item nav-item-child" type="button" data-view="invoice" data-tab-search="INVOICE 세금계산서 매출 발행 매출계산서"><span class="nav-icon">·</span>세금계산서 매출</button>
                 <button class="nav-item nav-item-child" type="button" data-view="tax-advance" data-tab-search="TAX ADVANCE 세금계산서 선발행 요청 사업자등록증"><span class="nav-icon">·</span>세금계산서 선발행 요청</button>
@@ -2166,8 +2166,8 @@
               </div>
             </div>
 
-            <div class="nav-subcluster" data-nav-subcluster="refund" data-tax-banking-group="refund">
-              <button class="nav-subcluster-toggle" type="button" aria-expanded="true"><span><i>↩</i>환불금 정산</span><span class="nav-subcluster-caret">⌃</span></button>
+            <div class="nav-subcluster closed" data-nav-subcluster="refund" data-tax-banking-group="refund">
+              <button class="nav-subcluster-toggle" type="button" aria-expanded="false"><span><i>↩</i>환불금 정산</span><span class="nav-subcluster-caret">⌄</span></button>
               <div class="nav-subcluster-items">
                 <button class="nav-item nav-item-child" type="button" data-view="refund-history" data-tab-search="REFUND HISTORY 환불내역 환불금 처리"><span class="nav-icon">·</span>환불내역</button>
                 <button class="nav-item nav-item-child" type="button" data-view="refund-client" data-tab-search="CLIENT REFUND 거래처환불 환불 요청"><span class="nav-icon">·</span>거래처환불</button>
@@ -2176,16 +2176,16 @@
               </div>
             </div>
 
-            <div class="nav-subcluster" data-nav-subcluster="expense" data-tax-banking-group="expense">
-              <button class="nav-subcluster-toggle" type="button" aria-expanded="true"><span><i>₩</i>광고비 및 복리후생</span><span class="nav-subcluster-caret">⌃</span></button>
+            <div class="nav-subcluster closed" data-nav-subcluster="expense" data-tax-banking-group="expense">
+              <button class="nav-subcluster-toggle" type="button" aria-expanded="false"><span><i>₩</i>광고비 및 복리후생</span><span class="nav-subcluster-caret">⌄</span></button>
               <div class="nav-subcluster-items">
                 <button class="nav-item nav-item-child" type="button" data-view="expense-ad" data-tab-search="AD EXPENSE 광고비 요청 커뮤니티 결제"><span class="nav-icon">·</span>광고비 요청</button>
                 <button class="nav-item nav-item-child" type="button" data-view="expense-supplies" data-tab-search="SUPPLIES EXPENSE 비품 요청 복리후생"><span class="nav-icon">·</span>비품 요청</button>
               </div>
             </div>
 
-            <div class="nav-subcluster" data-nav-subcluster="tax-purchase" data-tax-banking-group="purchase" data-nav-locked="true" hidden>
-              <button class="nav-subcluster-toggle" type="button" aria-expanded="true"><span><i>▤</i>세금계산서 매입</span><span class="nav-subcluster-caret">⌃</span></button>
+            <div class="nav-subcluster closed" data-nav-subcluster="tax-purchase" data-tax-banking-group="purchase" data-nav-locked="true" hidden>
+              <button class="nav-subcluster-toggle" type="button" aria-expanded="false"><span><i>▤</i>세금계산서 매입</span><span class="nav-subcluster-caret">⌄</span></button>
               <div class="nav-subcluster-items">
                 <button class="nav-item nav-item-child" type="button" data-view="purchase-fixed" data-nav-locked="true" hidden data-tab-search="PURCHASE TAX FIXED 고정비용통장 세금계산서 매입"><span class="nav-icon">·</span>고정비용통장</button>
                 <button class="nav-item nav-item-child" type="button" data-view="purchase-supplier" data-nav-locked="true" hidden data-tab-search="PURCHASE TAX SUPPLIER 공급처입금통장 세금계산서 매입"><span class="nav-icon">·</span>공급처입금통장</button>
@@ -3717,6 +3717,6 @@
   </script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-  <script src="./business-os-preview.js?v=20260810-workspace-labels1"></script>
+  <script src="./business-os-preview.js?v=20260810-nav-collapsed1"></script>
 </body>
 </html>

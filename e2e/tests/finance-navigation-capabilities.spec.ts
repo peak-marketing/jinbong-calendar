@@ -43,6 +43,14 @@ async function expandCluster(page: Page, selector: string) {
   return cluster;
 }
 
+async function expandSubcluster(subcluster: ReturnType<Page['locator']>) {
+  await expect(subcluster).toBeVisible();
+  if ((await subcluster.getAttribute('class'))?.split(/\s+/).includes('closed')) {
+    await subcluster.locator(':scope > .nav-subcluster-toggle').click();
+  }
+  return subcluster;
+}
+
 for (const name of FINANCE_VIEWERS) {
   test(`서버 재무 capability가 있는 지정 계정만 재무 · 운영을 본다 — ${name}`, async ({ page }) => {
     await openOs(page, name);
@@ -162,9 +170,7 @@ test('전현우는 매입 거래를 tax-purchase scope로 읽고 통장 잔액�
   const taxBanking = await expandCluster(page, '[data-nav-cluster="tax-banking"]');
   const purchase = taxBanking.locator('[data-tax-banking-group="purchase"]');
   await expect(purchase).toBeVisible();
-  if ((await purchase.getAttribute('class'))?.split(/\s+/).includes('closed')) {
-    await purchase.locator(':scope > .nav-subcluster-toggle').click();
-  }
+  await expandSubcluster(purchase);
   await purchase.locator('[data-view="purchase-fixed"]').click();
 
   const ledger = page.locator('[data-purchase-ledger="ibk-hq-fixed"]');
@@ -201,6 +207,7 @@ test('기존 잔액 권한 계정의 매입 화면은 서버가 허용한 잔액
 
   const taxBanking = await expandCluster(page, '[data-nav-cluster="tax-banking"]');
   const purchase = taxBanking.locator('[data-tax-banking-group="purchase"]');
+  await expandSubcluster(purchase);
   await purchase.locator('[data-view="purchase-fixed"]').click();
   const ledger = page.locator('[data-purchase-ledger="ibk-hq-fixed"]');
   await expect(ledger).toContainText('9,800,000원');
@@ -246,9 +253,7 @@ test('계정 미리보기는 대상 계정의 세금·최종정산 메뉴만 재
     await expect(page.locator('[data-finance-persona-preview="final-execution-settlement"]')).toBeVisible();
 
     const purchase = taxBanking.locator('[data-tax-banking-group="purchase"]');
-    if ((await purchase.getAttribute('class'))?.split(/\s+/).includes('closed')) {
-      await purchase.locator(':scope > .nav-subcluster-toggle').click();
-    }
+    await expandSubcluster(purchase);
     await purchase.locator('[data-view="purchase-fixed"]').click();
     await expect(page.locator('[data-finance-persona-preview="purchase-fixed"]')).toBeVisible();
   }
@@ -265,6 +270,7 @@ test('계정 미리보기는 대상 계정의 세금·최종정산 메뉴만 재
   const jeonTax = await expandCluster(page, '[data-nav-cluster="tax-banking"]');
   const jeonPurchase = jeonTax.locator('[data-tax-banking-group="purchase"]');
   await expect(jeonPurchase).toBeVisible();
+  await expandSubcluster(jeonPurchase);
   await jeonPurchase.locator('[data-view="purchase-supplier"]').click();
   await expect(page.locator('[data-finance-persona-preview="purchase-supplier"]')).toBeVisible();
 
@@ -272,7 +278,9 @@ test('계정 미리보기는 대상 계정의 세금·최종정산 메뉴만 재
   await expect(page.locator('[data-nav-cluster="finance"]')).toBeHidden();
   const ordinaryTax = await expandCluster(page, '[data-nav-cluster="tax-banking"]');
   await expect(ordinaryTax.locator('[data-tax-banking-group="purchase"]')).toBeHidden();
-  const taxInvoice = ordinaryTax.locator('[data-view="invoice"]');
+  const invoiceGroup = ordinaryTax.locator('[data-nav-subcluster="tax-invoice"]');
+  await expandSubcluster(invoiceGroup);
+  const taxInvoice = invoiceGroup.locator('[data-view="invoice"]');
   await expect(taxInvoice).toBeVisible();
   await taxInvoice.click();
   await expect(page.locator('[data-finance-persona-preview="invoice"]')).toBeVisible();

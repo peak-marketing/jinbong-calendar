@@ -9,6 +9,25 @@ async function openIntake(page: Page) {
   await expect(page.locator('[data-intake="client"]')).toBeVisible();
 }
 
+async function revealNavView(page: Page, view: string) {
+  const tab = page.locator(`.app-sidebar .nav-item[data-view="${view}"]`).first();
+  const cluster = tab.locator('xpath=ancestor::*[@data-nav-cluster][1]');
+  if (await cluster.count() && (await cluster.getAttribute('class'))?.split(/\s+/).includes('closed')) {
+    await cluster.locator(':scope > .nav-cluster-toggle').click();
+  }
+  const subcluster = tab.locator('xpath=ancestor::*[@data-nav-subcluster][1]');
+  if (await subcluster.count() && (await subcluster.getAttribute('class'))?.split(/\s+/).includes('closed')) {
+    await subcluster.locator(':scope > .nav-subcluster-toggle').click();
+  }
+  await expect(tab).toBeVisible();
+  return tab;
+}
+
+async function openNavView(page: Page, view: string) {
+  const tab = await revealNavView(page, view);
+  await tab.click();
+}
+
 test.describe('Business OS read-only operating data', () => {
   test('renders account-scoped Paragon data through the protected collaboration alias', async ({ page }) => {
     test.setTimeout(60_000);
@@ -377,7 +396,7 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView')).toContainText('손지호');
     await page.locator('#moduleView [data-org-branch-filter]').selectOption('all');
 
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await openIntake(page);
     await expect(page.locator('#moduleView')).toContainText('내 개인정산서');
     await expect(page.locator('#moduleView')).toContainText('최종정산서');
@@ -414,12 +433,12 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView .ledger-total')).not.toContainText('회사원가');
 
     // 임의 admin 표시 역할만으로는 서버의 회사 원가 UID 권한이 생기지 않는다.
-    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await openNavView(page, 'final-settlement');
     await expect(page.locator('.final-total')).toContainText('회사 공급가 0');
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
 
     await page.locator('[data-nav-cluster="tax-banking"] > .nav-cluster-toggle').click();
-    await page.locator('.nav-item[data-view="invoice"]').click();
+    await openNavView(page, 'invoice');
     await expect(page.locator('#moduleView')).toContainText('세금계산서 매출');
     await expect(page.locator('#moduleView')).toContainText('발행 대상');
 
@@ -444,7 +463,7 @@ test.describe('Business OS read-only operating data', () => {
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await openIntake(page);
     await expect(page.locator('#moduleView')).toContainText('내 개인정산서');
     await expect(page.locator('.nav-item[data-view="final-settlement"]')).toBeHidden();
@@ -493,7 +512,7 @@ test.describe('Business OS read-only operating data', () => {
 
       await page.goto('/business-os-preview.html');
       await expect(page.locator('#authGate')).toBeHidden();
-      await page.locator('.nav-item[data-view="settlement"]').click();
+      await openNavView(page, 'settlement');
       await openIntake(page);
       // 접수 화면은 누구에게나 열린다
       await expect(page.locator('#moduleView .intake-form')).toHaveCount(1);
@@ -519,7 +538,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await openIntake(page);
 
     const fillRow = async (qty: string) => {
@@ -604,7 +623,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await openIntake(page);
 
     // 원고 100개 선입금 — 회사원가 10,000짜리 상품
@@ -624,9 +643,9 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-intake="refOf"]').selectOption({ index: 1 });
     await page.locator('[data-intake="qty"]').fill('40');
     await page.locator('[data-intake-add]').click();
-    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await openNavView(page, 'final-settlement');
     await expect(page.locator('.final-total')).toContainText('회사 공급가 400,000');
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
 
     // -10으로 되돌리면 매출·회사원가가 함께 빠지고 예약 잔여가 돌아온다
     await page.locator('[data-intake="refOf"]').selectOption({ index: 1 });
@@ -634,9 +653,9 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-intake-add]').click();
     await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(3);
     await expect(page.locator('#moduleView .ledger-total')).toContainText('매출 1,500,000');
-    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await openNavView(page, 'final-settlement');
     await expect(page.locator('.final-total')).toContainText('회사 공급가 300,000');
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await expect(page.locator('#moduleView .ledger-total')).toContainText('예약금 잔여 3,500,000');
     await expect(page.locator('[data-intake="refOf"] option').nth(1)).toContainText('잔여 70개');
 
@@ -666,7 +685,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await openIntake(page);
 
     // 접수 등록에서 담당자를 함께 보내지 않는다. 담당 배정은 최종정산 전용
@@ -688,7 +707,7 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView .ledger-table thead').first()).not.toContainText('접수담당자');
 
     // 최종정산서에서만 접수담당자와 접수자가 갈린다
-    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await openNavView(page, 'final-settlement');
     await openIntake(page);
     const head = page.locator('.final-day-table thead').first();
     await expect(head).toContainText('접수담당자');
@@ -720,7 +739,7 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('.top-actions .primary-button')).toHaveCount(0);
 
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await openIntake(page);
 
     for (const [date, client, b, c] of [
@@ -738,7 +757,7 @@ test.describe('Business OS read-only operating data', () => {
       await page.locator('[data-intake-add]').click();
     }
 
-    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await openNavView(page, 'final-settlement');
     await openIntake(page);
     const rows = page.locator('.final-day-table tbody tr');
     await expect(rows).toHaveCount(3);
@@ -798,14 +817,14 @@ test.describe('Business OS read-only operating data', () => {
       await page.locator('[data-intake-add]').click();
     };
 
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await openIntake(page);
     await fill('2026-08-01', '한결에이전시');
     await fill('2026-08-02', '나스컴퍼니');
     await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(2);
 
     // 최종정산서에도 접수 폼이 있고, 전용 건임을 알린다
-    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await openNavView(page, 'final-settlement');
     await openIntake(page);
     await expect(page.locator('#moduleView .module-section-head strong').first()).toHaveText('최종정산서 접수');
     await expect(page.locator('#moduleView .module-section-head .module-chip').first()).toHaveText('최종정산서 전용');
@@ -828,13 +847,13 @@ test.describe('Business OS read-only operating data', () => {
     await assignDate('2026-08-03', '박종원');
 
     // 개인정산서에는 올라가지 않는다
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await openIntake(page);
     await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(2);
     await expect(page.locator('#moduleView')).not.toContainText('퍼플페퍼');
 
     // 영업자로 추리면 그 사람 건만 남는다
-    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await openNavView(page, 'final-settlement');
     await openIntake(page);
     await page.locator('[data-final-filter="manager"]').selectOption('박종원');
     await expect(finalRows).toHaveCount(2);
@@ -855,7 +874,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await openIntake(page);
 
     // 같은 공급처(키지애드)로 붙는 상품 두 건 — 20개 + 30개
@@ -871,7 +890,7 @@ test.describe('Business OS read-only operating data', () => {
       await page.locator('[data-intake-add]').click();
     }
 
-    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await openNavView(page, 'final-settlement');
     await openIntake(page);
 
     // 일별 취합은 시트와 같은 열로 그린다
@@ -934,7 +953,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await openIntake(page);
 
     const pick = async (b: string, c: string) => {
@@ -979,7 +998,7 @@ test.describe('Business OS read-only operating data', () => {
     // 배지로 환불과 예약건환불이 갈린다
     await expect(page.locator('#moduleView .kind-badge', { hasText: '예약건환불' })).toHaveCount(1);
 
-    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await openNavView(page, 'final-settlement');
     await openIntake(page);
     const final = page.locator('#moduleView .final-settlement');
     await expect(final).toHaveCount(1);
@@ -1007,7 +1026,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await openIntake(page);
 
     for (const [client, b, c, qty, sell] of [
@@ -1062,7 +1081,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await openIntake(page);
 
     for (const [client, b, c, qty, sell] of [
@@ -1135,13 +1154,13 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
 
     // 개인정산서 단가표에서는 고칠 수 없다
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await page.locator('[data-price-table]').click();
     await expect(page.locator('[data-price-edit-open]')).toHaveCount(0);
     await page.locator('[data-price-close]').click();
 
     // 최종정산서에서 최블 B 단가를 고친다 (17,000 / 19,000)
-    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await openNavView(page, 'final-settlement');
     await page.locator('[data-price-table]').click();
     await page.locator('#priceSearch').fill('최블 B');
     const row = page.locator('.price-table tbody tr').first();
@@ -1169,7 +1188,7 @@ test.describe('Business OS read-only operating data', () => {
     // 계정 미리보기는 대상자의 메뉴 구조만 재현하며 금융 API·단가 데이터는
     // 읽지 않는다. 실제 타 계정 로그인 공유는 서버 단가 계약에서 검증한다.
     await page.locator('#personaSelect').selectOption('김용일');
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await page.locator('[data-price-table]').click();
     await page.locator('#priceSearch').fill('최블 B');
     const shared = page.locator('.price-table tbody tr').first();
@@ -1182,7 +1201,7 @@ test.describe('Business OS read-only operating data', () => {
     // 되돌리면 원래 단가로 돌아온다
     await page.locator('#personaSelect').selectOption('');
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
-    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await openNavView(page, 'final-settlement');
     await page.locator('[data-price-table]').click();
     await page.locator('#priceSearch').fill('최블 B');
     await page.locator('[data-price-edit-reset]').first().click();
@@ -1456,6 +1475,7 @@ test.describe('Business OS read-only operating data', () => {
 
       await page.goto('/business-os-preview.html');
       await expect(page.locator('#authGate')).toBeHidden();
+      await revealNavView(page, 'settlement');
 
       for (const [view, allowed] of [
         ['monthly-guarantee', guarantee],
@@ -1479,7 +1499,7 @@ test.describe('Business OS read-only operating data', () => {
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
-    await page.locator('.nav-item[data-view="monthly-guarantee"]').click();
+    await openNavView(page, 'monthly-guarantee');
 
     const pick = async (a: string, b: string, c: string) => {
       await page.locator('[data-monthly="a"]').selectOption(a);
@@ -1554,7 +1574,7 @@ test.describe('Business OS read-only operating data', () => {
 
       await page.goto('/business-os-preview.html');
       await expect(page.locator('#authGate')).toBeHidden();
-      await page.locator('.nav-item[data-view="settlement"]').click();
+      await openNavView(page, 'settlement');
 
       await openIntake(page);
       await page.locator('[data-intake="a"]').selectOption('블로그');
@@ -1575,7 +1595,7 @@ test.describe('Business OS read-only operating data', () => {
         await expect(banner).toContainText('회사 원가는 최종정산서에서만 봅니다');
         // 단가표에서도 회사원가가 보인다
         await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
-        await page.locator('.nav-item[data-view="final-settlement"]').click();
+        await openNavView(page, 'final-settlement');
         await page.locator('[data-price-table]').click();
         await expect(page.locator('.price-table thead th')).toHaveText(['대분류', '중분류', '소분류', '회사원가', '영업자단가', '']);
       } else {
@@ -1614,7 +1634,7 @@ test.describe('Business OS read-only operating data', () => {
 
       await page.goto('/business-os-preview.html');
       await expect(page.locator('#authGate')).toBeHidden();
-      await page.locator('.nav-item[data-view="settlement"]').click();
+      await openNavView(page, 'settlement');
 
       // 개인정산서에서는 영업자단가만 보인다
       await page.locator('[data-price-table]').click();
@@ -1634,7 +1654,7 @@ test.describe('Business OS read-only operating data', () => {
 
       // 최종정산서에서는 회사원가까지 나온다
       await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
-      await page.locator('.nav-item[data-view="final-settlement"]').click();
+      await openNavView(page, 'final-settlement');
       await page.locator('[data-price-table]').click();
       await expect(page.locator('#readonlyModalTitle')).toHaveText('단가표 · 회사원가 / 영업자단가');
       await expect(page.locator('.price-table thead th')).toHaveText(['대분류', '중분류', '소분류', '회사원가', '영업자단가', '']);
@@ -1651,14 +1671,14 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
 
     // 개인정산서 단가표에는 추가 버튼이 없다
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await page.locator('[data-price-table]').click();
     await expect(page.locator('[data-price-add]')).toHaveCount(0);
     await expect(page.locator('#priceTableBody .paid-hint')).toContainText('전체 165건');
     await page.locator('[data-price-close]').click();
 
     // 최종정산서에서 추가한다
-    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await openNavView(page, 'final-settlement');
     await page.locator('[data-price-table]').click();
     await page.locator('[data-price-add]').click();
     await page.locator('#newMajor').fill('블로그');
@@ -1692,7 +1712,7 @@ test.describe('Business OS read-only operating data', () => {
     // 계정 미리보기에서는 금융 API를 호출하지 않으므로 단가 자체를 비운다.
     // 회사 원가뿐 아니라 새 상품의 존재도 실제 타 계정 데이터처럼 노출하지 않는다.
     await page.locator('#personaSelect').selectOption('김용일');
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await page.locator('[data-price-table]').click();
     await expect(page.locator('.price-table thead th')).toHaveText(['대분류', '중분류', '소분류', '영업자단가']);
     await page.locator('#priceSearch').fill('AI 원고');
@@ -1705,7 +1725,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-price-close]').click();
     await page.locator('#personaSelect').selectOption('');
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
-    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await openNavView(page, 'final-settlement');
     await page.locator('[data-price-table]').click();
     await page.locator('#priceSearch').fill('AI 원고');
     const restored = page.locator('.price-table tbody tr').first();
@@ -1721,7 +1741,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
 
     // 처음에는 접혀 있다
     const toggle = page.locator('[data-intake-toggle]');
@@ -1744,7 +1764,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('[data-intake="sell"]').fill('600000');
     await page.locator('[data-intake-add]').click();
 
-    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await openNavView(page, 'final-settlement');
 
     // 최종정산서 접수에서는 상시변동 상품에 회사 원가 칸이 뜬다
     await openIntake(page);
@@ -1775,7 +1795,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await openIntake(page);
 
     // 프리미엄원고대필 — 회사원가 10,000 / 영업자단가 11,000 / 판매 15,000
@@ -1790,7 +1810,7 @@ test.describe('Business OS read-only operating data', () => {
       await page.locator('[data-intake-add]').click();
     }
 
-    await page.locator('.nav-item[data-view="final-settlement"]').click();
+    await openNavView(page, 'final-settlement');
     await openIntake(page);
 
     const head = page.locator('.final-day-table thead').first();
@@ -1855,7 +1875,7 @@ test.describe('Business OS read-only operating data', () => {
 
       await page.goto('/business-os-preview.html');
       await expect(page.locator('#authGate')).toBeHidden();
-      await page.locator('.nav-item[data-view="settlement"]').click();
+      await openNavView(page, 'settlement');
     await openIntake(page);
 
       // 같은 업체에 메모만 다른 예약 두 건
@@ -1897,7 +1917,7 @@ test.describe('Business OS read-only operating data', () => {
         });
         await page.reload();
         await expect(page.locator('#authGate')).toBeHidden();
-        await page.locator('.nav-item[data-view="settlement"]').click();
+        await openNavView(page, 'settlement');
         await openIntake(page);
       }
 
@@ -1930,7 +1950,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await openIntake(page);
 
     const add = async (date: string, client: string, b: string, c: string, sell: string, memo: string) => {
@@ -1983,7 +2003,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
-    await page.locator('.nav-item[data-view="settlement"]').click();
+    await openNavView(page, 'settlement');
     await openIntake(page);
 
     // 같은 업체로 두 건 접수 — 판매액 20,000 + 30,000
@@ -2079,7 +2099,7 @@ test.describe('Business OS read-only operating data', () => {
 
       await page.goto('/business-os-preview.html');
       await expect(page.locator('#authGate')).toBeHidden();
-      await page.locator('.nav-item[data-view="settlement"]').click();
+      await openNavView(page, 'settlement');
       await openIntake(page);
       await expect(page.locator('#moduleView .team-roster')).toHaveCount(allowed ? 1 : 0);
       if (allowed) {
@@ -2117,7 +2137,7 @@ test.describe('Business OS read-only operating data', () => {
 
       await page.goto('/business-os-preview.html');
       await expect(page.locator('#authGate')).toBeHidden();
-      await page.locator('.nav-item[data-view="settlement"]').click();
+      await openNavView(page, 'settlement');
       // 지사는 접수 자체가 열리지 않아 펼칠 폼도 없다
       if (open) await openIntake(page);
       await expect(page.locator('#moduleView .intake-form')).toHaveCount(open ? 1 : 0);

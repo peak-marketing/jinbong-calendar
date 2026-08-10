@@ -1,5 +1,15 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { installFirebaseStub, installPeakosStub, handlePeakos, createPeakosStore } from './helpers';
+
+async function openNavView(page: Page, view: string) {
+  const tab = page.locator(`.app-sidebar .nav-item[data-view="${view}"]`).first();
+  const cluster = tab.locator('xpath=ancestor::*[@data-nav-cluster][1]');
+  if (await cluster.count() && (await cluster.getAttribute('class'))?.split(/\s+/).includes('closed')) {
+    await cluster.locator(':scope > .nav-cluster-toggle').click();
+  }
+  await expect(tab).toBeVisible();
+  await tab.click();
+}
 
 // 서버가 회사원가를 걸러 내려주는지, 화면 파일에는 값이 없는지
 test('단가표가 화면 파일에 없다', async ({ page }) => {
@@ -24,7 +34,12 @@ for (const [name, seesCost] of [['김대호', true]] as [string, boolean][]) {
       if (handlePeakos(store, route)) return;
       const p = new URL(route.request().url()).pathname.replace(/^\/api/, '');
       let payload: unknown = [];
-      if (p === '/users/me') payload = { uid: 'u', name, role: 'manager', approved: true, is_active: true, group_name: '본사 영업팀' };
+      if (p === '/users/me') {
+        payload = {
+          uid: 'u', name, role: 'manager', approved: true, is_active: true,
+          group_name: '본사 영업팀', peakos_can_view_finance_operations: seesCost,
+        };
+      }
       else if (p === '/chat-rooms/unread') payload = {};
       else if (p === '/projects') payload = { canManageAll: false, projects: [] };
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
@@ -33,7 +48,7 @@ for (const [name, seesCost] of [['김대호', true]] as [string, boolean][]) {
     await expect(page.locator('#authGate')).toBeHidden();
     // 회사원가는 최종정산서 화면에서만 드러난다. 개인정산서는 누구든 영업자단가 기준.
     const view = seesCost ? 'final-settlement' : 'settlement';
-    await page.evaluate(v => (document.querySelector(`.nav-item[data-view="${v}"]`) as HTMLElement)?.click(), view);
+    await openNavView(page, view);
     await page.locator('[data-price-table]').click();
     await page.locator('#priceSearch').fill('최블 B');
     const row = page.locator('.price-table tbody tr').first();
@@ -65,8 +80,7 @@ test('영업자는 회사원가에 닿을 수 없다 - 김용일', async ({ page
   await expect(page.locator('#authGate')).toBeHidden();
 
   // 개인 정산서는 열 수 있지만 단가표에는 영업자단가만 표시된다.
-  await expect(page.locator('.nav-item[data-view="settlement"]')).toBeVisible();
-  await page.evaluate(() => (document.querySelector('.nav-item[data-view="settlement"]') as HTMLElement)?.click());
+  await openNavView(page, 'settlement');
   await expect(page.locator('#moduleView')).toBeVisible();
   await page.locator('[data-price-table]').click();
   await page.locator('#priceSearch').fill('최블 B');

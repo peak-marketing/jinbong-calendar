@@ -2327,7 +2327,7 @@
       };
     }
     // 계정이 바뀌면 이전 사용자가 펼쳐 둔 메뉴 상태를 이어받지 않는다.
-    // 영업 운영만 기본으로 열고 나머지는 사용자가 필요할 때 펼친다.
+    // 모든 대분류를 접고 사용자가 필요한 묶음만 직접 펼치게 한다.
     resetNavClustersToDefault();
     // 통장 원장은 계정 미리보기에서 절대 이어 보이지 않는다.
     // 진행 중인 조회 결과도 세대 번호로 폐기하고 다른 화면으로 즉시 이동한다.
@@ -12324,9 +12324,35 @@
     if (caret) caret.textContent = closed ? '⌄' : '⌃';
   }
 
-  function resetNavClustersToDefault() {
+  function resetNavSearchState() {
+    const search = document.getElementById('sidebarTabSearch');
+    if (search) search.value = '';
+    document.querySelectorAll('.nav-section .nav-item[data-tab-search]').forEach(button => {
+      button.hidden = button.dataset.navLocked === 'true';
+    });
+    document.querySelectorAll('[data-nav-subcluster]').forEach(subcluster => {
+      subcluster.classList.remove('search-open');
+      const items = [...subcluster.querySelectorAll('.nav-item[data-tab-search]')];
+      subcluster.hidden = items.length > 0 && items.every(item => item.hidden);
+      setNavSubclusterClosed(subcluster, subcluster.classList.contains('closed'));
+    });
     document.querySelectorAll('[data-nav-cluster]').forEach(cluster => {
-      setNavClusterClosed(cluster, cluster.dataset.navCluster !== 'sales-operations');
+      cluster.classList.remove('search-open');
+      const items = [...cluster.querySelectorAll('.nav-item[data-tab-search]')];
+      cluster.hidden = items.length > 0 && items.every(item => item.hidden);
+      setNavClusterClosed(cluster, cluster.classList.contains('closed'));
+    });
+    const empty = document.getElementById('tabSearchEmpty');
+    if (empty) empty.hidden = true;
+  }
+
+  function resetNavClustersToDefault() {
+    resetNavSearchState();
+    document.querySelectorAll('[data-nav-cluster]').forEach(cluster => {
+      setNavClusterClosed(cluster, true);
+    });
+    document.querySelectorAll('[data-nav-subcluster]').forEach(subcluster => {
+      setNavSubclusterClosed(subcluster, true);
     });
   }
 
@@ -12430,11 +12456,16 @@
     document.querySelectorAll('.tree-trigger').forEach(button => button.addEventListener('click', () => button.closest('.tree-group').classList.toggle('closed')));
     document.querySelectorAll('[data-nav-cluster]').forEach(cluster => {
       cluster.querySelector('.nav-cluster-toggle')?.addEventListener('click', () => {
+        if (document.getElementById('sidebarTabSearch')?.value.trim()) resetNavSearchState();
         setNavClusterClosed(cluster, !cluster.classList.contains('closed'));
       });
     });
     document.querySelectorAll('[data-nav-subcluster]').forEach(subcluster => {
       subcluster.querySelector('.nav-subcluster-toggle')?.addEventListener('click', () => {
+        if (document.getElementById('sidebarTabSearch')?.value.trim()) {
+          resetNavSearchState();
+          setNavClusterClosed(subcluster.closest('[data-nav-cluster]'), false);
+        }
         setNavSubclusterClosed(subcluster, !subcluster.classList.contains('closed'));
       });
     });
@@ -12455,14 +12486,25 @@
       });
       navClusters.forEach(cluster => {
         const hasVisibleItem = [...cluster.querySelectorAll('.nav-item[data-tab-search]')].some(button => !button.hidden);
-        cluster.hidden = !!query && !hasVisibleItem;
-        cluster.classList.toggle('search-open', !!query && hasVisibleItem);
+        const searchExpanded = !!query && hasVisibleItem;
+        cluster.hidden = !hasVisibleItem;
+        cluster.classList.toggle('search-open', searchExpanded);
+        const expanded = searchExpanded || !cluster.classList.contains('closed');
+        const toggle = cluster.querySelector(':scope > .nav-cluster-toggle');
+        const caret = cluster.querySelector(':scope > .nav-cluster-toggle .nav-cluster-caret');
+        if (toggle) toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        if (caret) caret.textContent = expanded ? '⌃' : '⌄';
       });
       navSubclusters.forEach(subcluster => {
         const hasVisibleItem = [...subcluster.querySelectorAll('.nav-item[data-tab-search]')].some(button => !button.hidden);
         subcluster.hidden = !hasVisibleItem;
-        subcluster.classList.toggle('search-open', !!query && hasVisibleItem);
-        if (query && hasVisibleItem) setNavSubclusterClosed(subcluster, false);
+        const searchExpanded = !!query && hasVisibleItem;
+        subcluster.classList.toggle('search-open', searchExpanded);
+        const expanded = searchExpanded || !subcluster.classList.contains('closed');
+        const toggle = subcluster.querySelector(':scope > .nav-subcluster-toggle');
+        const caret = subcluster.querySelector(':scope > .nav-subcluster-toggle .nav-subcluster-caret');
+        if (toggle) toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        if (caret) caret.textContent = expanded ? '⌃' : '⌄';
       });
       document.getElementById('tabSearchEmpty').hidden = visible !== 0;
       return searchable.filter(button => !button.hidden);

@@ -45,6 +45,20 @@ async function openFinalExecution(page: Page) {
   await expect(page.locator('#moduleView')).toContainText('최종실행정산서');
 }
 
+async function openNavView(page: Page, view: string) {
+  const tab = page.locator(`.app-sidebar .nav-item[data-view="${view}"]`).first();
+  const cluster = tab.locator('xpath=ancestor::*[@data-nav-cluster][1]');
+  if (await cluster.count() && (await cluster.getAttribute('class'))?.split(/\s+/).includes('closed')) {
+    await cluster.locator(':scope > .nav-cluster-toggle').click();
+  }
+  const subcluster = tab.locator('xpath=ancestor::*[@data-nav-subcluster][1]');
+  if (await subcluster.count() && (await subcluster.getAttribute('class'))?.split(/\s+/).includes('closed')) {
+    await subcluster.locator(':scope > .nav-subcluster-toggle').click();
+  }
+  await expect(tab).toBeVisible();
+  await tab.click();
+}
+
 test.describe('최종실행정산서', () => {
   test('기존 매출·실행·이관 이전 연결 실행을 versioned PATCH로 수정하고 원본 lineage를 보존한다', async ({ page }) => {
     await installFirebaseStub(page);
@@ -66,7 +80,7 @@ test.describe('최종실행정산서', () => {
     });
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
-    await page.locator('.nav-item[data-view="direct-execution"]').click();
+    await openNavView(page, 'direct-execution');
 
     await page.locator('[data-monthly-edit="edit-sale"]').click();
     await expect(page.locator('[data-monthly-form]')).toContainText('매출 수정');
@@ -113,7 +127,7 @@ test.describe('최종실행정산서', () => {
     });
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
-    await page.locator('.nav-item[data-view="direct-execution"]').click();
+    await openNavView(page, 'direct-execution');
     await page.locator('[data-monthly-edit="conflict-sale"]').click();
     store.monthly['direct-execution'][0] = {
       ...store.monthly['direct-execution'][0], client: '외부 최신 수정', rowVersion: 2,
@@ -136,7 +150,7 @@ test.describe('최종실행정산서', () => {
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
-    await page.locator('.nav-item[data-view="monthly-guarantee"]').click();
+    await openNavView(page, 'monthly-guarantee');
 
     const orphanGroup = page.locator('[data-monthly-orphans]');
     await expect(orphanGroup).toContainText('이관 이전 매출 연결 실행건');

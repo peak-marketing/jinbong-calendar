@@ -12,8 +12,16 @@ async function openBusinessOs(
   return store;
 }
 
+async function expandCluster(page: Page, name: string) {
+  const cluster = page.locator(`[data-nav-cluster="${name}"]`);
+  if ((await cluster.getAttribute('class'))?.split(/\s+/).includes('closed')) {
+    await cluster.locator(':scope > .nav-cluster-toggle').click();
+  }
+  return cluster;
+}
+
 test.describe('직무별 하위 메뉴', () => {
-  test('처음에는 영업 운영만 펼치고 나머지 대분류는 모두 접는다', async ({ page }) => {
+  test('처음과 계정 전환 뒤에는 모든 대분류를 접는다', async ({ page }) => {
     await openBusinessOs(page, {
       name: '김대호',
       role: 'manager',
@@ -25,25 +33,75 @@ test.describe('직무별 하위 메뉴', () => {
     for (const name of clusterNames) {
       const cluster = page.locator(`[data-nav-cluster="${name}"]`);
       await expect(cluster).toBeVisible();
-      const shouldOpen = name === 'sales-operations';
-      await expect(cluster).toHaveClass(shouldOpen ? /^(?!.*\bclosed\b).*$/ : /\bclosed\b/);
-      await expect(cluster.locator(':scope > .nav-cluster-toggle')).toHaveAttribute(
-        'aria-expanded',
-        shouldOpen ? 'true' : 'false',
-      );
-      if (shouldOpen) await expect(cluster.locator(':scope > .nav-cluster-items')).toBeVisible();
-      else await expect(cluster.locator(':scope > .nav-cluster-items')).toBeHidden();
+      await expect(cluster).toHaveClass(/\bclosed\b/);
+      await expect(cluster.locator(':scope > .nav-cluster-toggle')).toHaveAttribute('aria-expanded', 'false');
+      await expect(cluster.locator(':scope > .nav-cluster-items')).toBeHidden();
+    }
+    for (const subcluster of await page.locator('[data-nav-subcluster]').all()) {
+      await expect(subcluster).toHaveClass(/\bclosed\b/);
+      await expect(subcluster.locator(':scope > .nav-subcluster-toggle')).toHaveAttribute('aria-expanded', 'false');
     }
 
     const company = page.locator('[data-nav-cluster="company"]');
-    await company.locator(':scope > .nav-cluster-toggle').click();
+    const companyToggle = company.locator(':scope > .nav-cluster-toggle');
+    await companyToggle.focus();
+    await companyToggle.press('Enter');
     await expect(company).not.toHaveClass(/\bclosed\b/);
-    await expect(company.locator(':scope > .nav-cluster-toggle')).toHaveAttribute('aria-expanded', 'true');
+    await expect(companyToggle).toHaveAttribute('aria-expanded', 'true');
     await expect(company.locator(':scope > .nav-cluster-items')).toBeVisible();
+    await companyToggle.press('Space');
+    await expect(company).toHaveClass(/\bclosed\b/);
+    await expect(companyToggle).toHaveAttribute('aria-expanded', 'false');
+    await companyToggle.press('Enter');
 
     await page.locator('#personaSelect').selectOption('손명아');
-    await expect(company).toHaveClass(/\bclosed\b/);
-    await expect(page.locator('[data-nav-cluster="sales-operations"]')).not.toHaveClass(/\bclosed\b/);
+    for (const name of clusterNames) {
+      const cluster = page.locator(`[data-nav-cluster="${name}"]`);
+      if (await cluster.isVisible()) {
+        await expect(cluster).toHaveClass(/\bclosed\b/);
+        await expect(cluster.locator(':scope > .nav-cluster-toggle')).toHaveAttribute('aria-expanded', 'false');
+      }
+    }
+  });
+
+  test('검색은 필요한 묶음만 임시로 펼치고 계정 전환 때 완전히 초기화한다', async ({ page }) => {
+    await openBusinessOs(page, {
+      name: '김대호',
+      role: 'manager',
+      group_name: '본사 경영지원팀',
+      group_type: 'support',
+    });
+
+    const search = page.locator('#sidebarTabSearch');
+    const tax = page.locator('[data-nav-cluster="tax-banking"]');
+    const invoice = page.locator('[data-nav-subcluster="tax-invoice"]');
+    await search.fill('세금계산서 매출');
+    await expect(tax).toHaveClass(/\bsearch-open\b/);
+    await expect(tax.locator(':scope > .nav-cluster-toggle')).toHaveAttribute('aria-expanded', 'true');
+    await expect(invoice).toHaveClass(/\bsearch-open\b/);
+    await expect(invoice.locator(':scope > .nav-subcluster-toggle')).toHaveAttribute('aria-expanded', 'true');
+    await expect(invoice.locator('[data-view="invoice"]')).toBeVisible();
+
+    await tax.locator(':scope > .nav-cluster-toggle').click();
+    await expect(search).toHaveValue('');
+    await expect(page.locator('.search-open')).toHaveCount(0);
+    await expect(tax).not.toHaveClass(/\bclosed\b/);
+    await expect(tax.locator(':scope > .nav-cluster-toggle')).toHaveAttribute('aria-expanded', 'true');
+    await expect(invoice).toHaveClass(/\bclosed\b/);
+    await expect(invoice.locator(':scope > .nav-subcluster-toggle')).toHaveAttribute('aria-expanded', 'false');
+
+    await search.fill('없는 메뉴 이름');
+    await expect(page.locator('#tabSearchEmpty')).toBeVisible();
+    await page.locator('#personaSelect').selectOption('손명아');
+    await expect(search).toHaveValue('');
+    await expect(page.locator('.search-open')).toHaveCount(0);
+    await expect(page.locator('#tabSearchEmpty')).toBeHidden();
+    for (const cluster of await page.locator('[data-nav-cluster]').all()) {
+      if (await cluster.isVisible()) {
+        await expect(cluster).toHaveClass(/\bclosed\b/);
+        await expect(cluster.locator(':scope > .nav-cluster-toggle')).toHaveAttribute('aria-expanded', 'false');
+      }
+    }
   });
 
   test('영업자는 주요 메뉴를 그대로 보고 영업 운영의 개인 정산서와 입금체크를 본다', async ({ page }) => {
@@ -59,7 +117,7 @@ test.describe('직무별 하위 메뉴', () => {
     });
 
     await expect(page.locator('[data-nav-cluster="main"]')).toBeVisible();
-    const sales = page.locator('[data-nav-cluster="sales-operations"]');
+    const sales = await expandCluster(page, 'sales-operations');
     await expect(sales).toBeVisible();
     await expect(sales.locator('[data-view="settlement"]')).toHaveText(/개인 정산서/);
     await expect(sales.locator('[data-view="deposit-check"]')).toHaveText(/입금체크/);
@@ -89,7 +147,7 @@ test.describe('직무별 하위 메뉴', () => {
         group_type: 'sales',
       });
 
-      const sales = page.locator('[data-nav-cluster="sales-operations"]');
+      const sales = await expandCluster(page, 'sales-operations');
       const ownTab = sales.locator(`[data-view="${owner.view}"]`);
       await expect(ownTab).toHaveText(new RegExp(owner.label));
       await expect(ownTab).toBeVisible();
@@ -126,7 +184,7 @@ test.describe('직무별 하위 메뉴', () => {
     await expect(page.locator('#accountPreviewSlot')).not.toContainText('계정 권한으로 조회 중');
     await expect(page.locator('.persona-preview-warning')).toHaveCount(0);
 
-    const sales = page.locator('[data-nav-cluster="sales-operations"]');
+    const sales = await expandCluster(page, 'sales-operations');
     await expect(sales.locator('[data-view="direct-execution"]')).toBeVisible();
     await expect(sales.locator('[data-view="monthly-guarantee"]')).toBeHidden();
     await expect(sales.locator('[data-view="monthly-manage"]')).toBeHidden();
@@ -146,6 +204,7 @@ test.describe('직무별 하위 메뉴', () => {
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
     await expect(page.locator('.prototype-bar')).toHaveCount(0);
+    await expandCluster(page, 'sales-operations');
     await expect(page.locator('[data-view="direct-execution"]')).toBeVisible();
     await expect(page.locator('#personaSelect')).toHaveValue('');
 
@@ -179,8 +238,9 @@ test.describe('직무별 하위 메뉴', () => {
       a: '플레이스', b: '관리', c: '월관리', amount: 440000, qty: 1, period: '8월', memo: '',
     }];
 
-    const sales = page.locator('[data-nav-cluster="sales-operations"]');
+    let sales = await expandCluster(page, 'sales-operations');
     await page.locator('#personaSelect').selectOption('김지홍');
+    sales = await expandCluster(page, 'sales-operations');
     await expect(sales.locator('[data-view="monthly-guarantee"]')).toBeVisible();
     await expect(sales.locator('[data-view="monthly-manage"]')).toBeHidden();
     await expect(sales.locator('[data-view="direct-execution"]')).toBeHidden();
@@ -191,6 +251,7 @@ test.describe('직무별 하위 메뉴', () => {
     await expect(page.getByText('김지홍 계정의 정산서를 읽기 전용으로 보는 중입니다', { exact: true })).toBeVisible();
 
     await page.locator('#personaSelect').selectOption('박우진');
+    sales = await expandCluster(page, 'sales-operations');
     await expect(sales.locator('[data-view="monthly-guarantee"]')).toBeHidden();
     await expect(sales.locator('[data-view="monthly-manage"]')).toBeVisible();
     await sales.locator('[data-view="monthly-manage"]').click();
@@ -241,6 +302,13 @@ test.describe('직무별 하위 메뉴', () => {
       group_type: 'support',
     });
 
+    for (const cluster of await page.locator('[data-nav-cluster]').all()) {
+      if (await cluster.evaluate(element => !(element as HTMLElement).hidden)) {
+        await expect(cluster).toHaveClass(/\bclosed\b/);
+        await expect(cluster.locator(':scope > .nav-cluster-toggle')).toHaveAttribute('aria-expanded', 'false');
+      }
+    }
+
     await page.locator('#personaSelect').selectOption('김용일');
     await expect(page.locator('.persona-preview-warning')).toHaveText('미리보기 중 · 저장 안 됨');
     const layout = await page.evaluate(() => {
@@ -282,6 +350,9 @@ test.describe('직무별 하위 메뉴', () => {
     await expect(page.locator('#authGate')).toBeHidden();
 
     await expect(page.locator('[data-nav-cluster="sales-operations"]')).toBeHidden();
+    await page.locator('#sidebarTabSearch').fill('정산');
+    await page.locator('#sidebarTabSearch').fill('');
+    await expect(page.locator('[data-nav-cluster="sales-operations"]')).toBeHidden();
     const main = page.locator('[data-nav-cluster="main"]');
     await main.locator(':scope > .nav-cluster-toggle').click();
     const requestTab = page.locator('[data-view="requests"]');
@@ -300,7 +371,7 @@ test.describe('직무별 하위 메뉴', () => {
       group_type: 'support',
     });
 
-    const sales = page.locator('[data-nav-cluster="sales-operations"]');
+    const sales = await expandCluster(page, 'sales-operations');
     await expect(sales).toBeVisible();
     await expect(sales.locator('[data-view="settlement"]')).toBeVisible();
     await expect(sales.locator('[data-view="deposit-check"]')).toBeVisible();

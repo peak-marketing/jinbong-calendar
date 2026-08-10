@@ -187,9 +187,13 @@ test('canonical workspace route sends a non-overridable workspace header and kee
   await expect(page.locator('#authGate')).toBeHidden();
   await expect(page.locator('[data-active-workspace-name]')).toHaveText('피크마케팅 대구지사 OS');
   await expect(page.locator('[data-workspace-selector]')).toHaveValue('daegu');
-  await expect(page.locator('[data-nav-cluster="sales-operations"]')).not.toHaveClass(/\bclosed\b/);
-  for (const cluster of ['main', 'company', 'finance', 'tax-banking', 'tools']) {
-    await expect(page.locator(`[data-nav-cluster="${cluster}"]`)).toHaveClass(/\bclosed\b/);
+  for (const clusterName of ['main', 'sales-operations', 'company', 'finance', 'tax-banking', 'tools']) {
+    const cluster = page.locator(`[data-nav-cluster="${clusterName}"]`);
+    if (await cluster.isVisible()) {
+      await expect(cluster).toHaveClass(/\bclosed\b/);
+      await expect(cluster.locator(':scope > .nav-cluster-toggle')).toHaveAttribute('aria-expanded', 'false');
+      await expect(cluster.locator(':scope > .nav-cluster-items')).toBeHidden();
+    }
   }
   await expandMainNavigation(page);
 
