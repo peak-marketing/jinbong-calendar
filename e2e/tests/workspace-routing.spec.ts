@@ -15,14 +15,30 @@ type WorkspaceTestOptions = {
   permissions?: Partial<Record<(typeof VALID_SLUGS)[number], Record<string, unknown>>>;
   intakeRows?: Partial<Record<(typeof VALID_SLUGS)[number], Record<string, unknown>[]>>;
   companyDocuments?: Partial<Record<(typeof VALID_SLUGS)[number], Record<string, unknown>[]>>;
+  viewer?: {
+    uid: string;
+    name: string;
+    email: string;
+    role: 'admin' | 'manager' | 'member';
+    groupName: string;
+  };
 };
 
 const names: Record<(typeof VALID_SLUGS)[number], string> = {
-  peak: '피크마케팅',
+  peak: '피크마케팅 본사',
   'build-solution': '빌드솔루션',
-  jeonju: '전주지사',
-  daegu: '대구지사',
+  jeonju: '피크마케팅 전주지사',
+  daegu: '피크마케팅 대구지사',
 };
+
+const branchAccountMappings = [
+  { uid: 'test-daegu-kim-jinpyo', name: '김진표', email: 'kim-jinpyo@test.local', role: 'manager', slug: 'daegu' },
+  { uid: 'test-daegu-lim-gyutae', name: '임규태', email: 'lim-gyutae@test.local', role: 'member', slug: 'daegu' },
+  { uid: 'test-daegu-jin-youngseok', name: '진영석', email: 'jin-youngseok@test.local', role: 'member', slug: 'daegu' },
+  { uid: 'test-daegu-kim-seunghyun', name: '김승현', email: 'kim-seunghyun@test.local', role: 'member', slug: 'daegu' },
+  { uid: 'test-daegu-lee-jongyong', name: '이종용', email: 'lee-jongyong@test.local', role: 'member', slug: 'daegu' },
+  { uid: 'test-jeonju-son-jiho', name: '손지호', email: 'son-jiho@test.local', role: 'manager', slug: 'jeonju' },
+] as const;
 
 function send(route: Route, payload: unknown, status = 200) {
   return route.fulfill({
@@ -66,9 +82,11 @@ async function installWorkspaceApi(page: Page, options: WorkspaceTestOptions = {
     calls.push({ path: apiPath, search: url.search, method: request.method(), workspace, pageUrl: request.frame().url() });
 
     if (apiPath === '/users/me') {
+      const viewer = options.viewer;
       return send(route, {
-        uid: 'e2e-test-user', name: '김대호', email: 'e2e@test.local', role: 'admin',
-        approved: true, is_active: true, group_name: '본사 영업팀', group_type: 'sales',
+        uid: viewer?.uid || 'e2e-test-user', name: viewer?.name || '김대호', email: viewer?.email || 'e2e@test.local',
+        role: viewer?.role || 'admin', approved: true, is_active: true,
+        group_name: viewer?.groupName || '본사 영업팀', group_type: 'sales',
         peakos_can_view_finance_operations: true, peakos_can_view_tax_purchase: true,
         peakos_can_preview_accounts: true, peakos_can_read_bank: true,
         peakos_can_review_finance: true, peakos_can_view_final_execution: true,
@@ -167,7 +185,7 @@ test('canonical workspace route sends a non-overridable workspace header and kee
   const calls = await setup(page, { defaultSlug: 'daegu', activeRoles: { peak: 'admin', daegu: 'member' } });
   await page.goto('/os/w/daegu');
   await expect(page.locator('#authGate')).toBeHidden();
-  await expect(page.locator('[data-active-workspace-name]')).toHaveText('대구지사 OS');
+  await expect(page.locator('[data-active-workspace-name]')).toHaveText('피크마케팅 대구지사 OS');
   await expect(page.locator('[data-workspace-selector]')).toHaveValue('daegu');
   await expect(page.locator('[data-nav-cluster="sales-operations"]')).not.toHaveClass(/\bclosed\b/);
   for (const cluster of ['main', 'company', 'finance', 'tax-banking', 'tools']) {
@@ -339,6 +357,79 @@ test('/os/ resolves only the server default membership before any business API i
   expect(calls.slice(0, contextCall).some(call => call.path.startsWith('/peakos/'))).toBe(false);
   expect(calls.filter(call => call.path.startsWith('/peakos/')).every(call => call.workspace === 'daegu')).toBe(true);
 });
+
+for (const account of branchAccountMappings) {
+  test(`${account.name} account opens only its mapped ${account.slug} workspace`, async ({ page }) => {
+    const branchName = names[account.slug];
+    const branchClient = `${branchName} · ${account.name} 전용 업체`;
+    const peakClient = `본사 기밀 · ${account.name}`;
+    const calls = await setup(page, {
+      defaultSlug: account.slug,
+      activeRoles: { [account.slug]: account.role },
+      viewer: {
+        uid: account.uid,
+        name: account.name,
+        email: account.email,
+        role: account.role,
+        groupName: branchName,
+      },
+      intakeRows: {
+        [account.slug]: [{
+          id: `${account.slug}-${account.uid}-intake`, rowVersion: 1, date: '2026-08-10', client: branchClient,
+          a: '블로그', b: '원고', c: '일반', unit: 1000, qty: 1, sell: 2000,
+          owner: account.uid, ownerName: account.name, kind: 'normal', paid: 'none',
+        }],
+        peak: [{
+          id: `peak-${account.uid}-secret`, rowVersion: 1, date: '2026-08-10', client: peakClient,
+          a: '본사', b: '기밀', c: '자료', unit: 9000, qty: 1, sell: 10000,
+          owner: 'peak-owner', ownerName: '본사 담당자', kind: 'normal', paid: 'none',
+        }],
+      },
+    });
+
+    await page.goto('/os/');
+    await page.waitForURL(new RegExp(`/os/w/${account.slug}$`));
+    await expect(page.locator('#authGate')).toBeHidden();
+    await expect(page.locator('[data-active-workspace-name]')).toHaveText(`${branchName} OS`);
+    await expect(page).toHaveTitle(`${branchName} OS · PEAK OS`);
+    await expect(page.locator('[data-active-workspace-meta]')).toContainText(account.role === 'manager' ? '매니저' : '구성원');
+    await expect(page.locator('[data-workspace-selector]')).toHaveValue(account.slug);
+    await expect(page.locator('[data-workspace-selector] option')).toHaveCount(1);
+
+    const contextIndex = calls.findIndex(call => call.path === `/os/workspaces/${account.slug}/context`);
+    const firstBusinessIndex = calls.findIndex(call => call.path.startsWith('/peakos/')
+      || call.path === '/ideas' || call.path === '/service-requests');
+    expect(contextIndex).toBeGreaterThanOrEqual(0);
+    expect(firstBusinessIndex).toBeGreaterThan(contextIndex);
+    const mappedBusinessCalls = calls.filter(call => call.path.startsWith('/peakos/'));
+    expect(mappedBusinessCalls.length).toBeGreaterThan(0);
+    expect(mappedBusinessCalls.every(call => call.workspace === account.slug)).toBe(true);
+
+    await page.locator('.app-sidebar .nav-item[data-view="settlement"]')
+      .evaluate(element => (element as HTMLElement).click());
+    await expect(page.locator('#moduleView')).toContainText(branchClient);
+    await expect(page.locator('#moduleView')).not.toContainText(peakClient);
+
+    const forbiddenContext = await page.evaluate(async () => {
+      const response = await fetch('/api/os/workspaces/peak/context', {
+        headers: { 'x-peakos-workspace': 'peak' },
+      });
+      return { status: response.status, body: await response.json() };
+    });
+    expect(forbiddenContext).toEqual({
+      status: 403,
+      body: expect.objectContaining({ code: 'PEAKOS_WORKSPACE_FORBIDDEN' }),
+    });
+
+    await page.goto('/os/w/peak');
+    await expect(page.locator('#authGate')).toBeVisible();
+    await expect(page.locator('#authGate')).toContainText('이 워크스페이스를 열 수 없습니다');
+    const peakBusinessCalls = calls.filter(call => call.workspace === 'peak'
+      && (call.path.startsWith('/peakos/') || call.path === '/ideas' || call.path === '/service-requests'));
+    expect(peakBusinessCalls).toEqual([]);
+    expect(calls.filter(call => call.path === '/os/workspaces/peak/context')).toHaveLength(1);
+  });
+}
 
 test('invalid workspace slug fails closed before authentication or data requests', async ({ page }) => {
   const calls = await setup(page);

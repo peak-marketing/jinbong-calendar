@@ -25,10 +25,10 @@
   const OS_AUTH_SYNC_STORAGE_KEY = 'peakos-os-auth-sync-event-v1';
   const OS_AUTH_SYNC_MIN_INTERVAL_MS = 1500;
   const WORKSPACE_CATALOG = Object.freeze({
-    peak: Object.freeze({ slug: 'peak', name: '피크마케팅', shortName: 'P', kind: 'headquarters' }),
+    peak: Object.freeze({ slug: 'peak', name: '피크마케팅 본사', shortName: 'P', kind: 'headquarters' }),
     'build-solution': Object.freeze({ slug: 'build-solution', name: '빌드솔루션', shortName: 'B', kind: 'company' }),
-    jeonju: Object.freeze({ slug: 'jeonju', name: '전주지사', shortName: '전', kind: 'branch' }),
-    daegu: Object.freeze({ slug: 'daegu', name: '대구지사', shortName: '대', kind: 'branch' })
+    jeonju: Object.freeze({ slug: 'jeonju', name: '피크마케팅 전주지사', shortName: '전', kind: 'branch' }),
+    daegu: Object.freeze({ slug: 'daegu', name: '피크마케팅 대구지사', shortName: '대', kind: 'branch' })
   });
   const WORKSPACE_PERMISSION_AREAS = Object.freeze([
     'calendar', 'chat', 'projects', 'settlements', 'documents'

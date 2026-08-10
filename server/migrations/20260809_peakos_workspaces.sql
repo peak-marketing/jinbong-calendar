@@ -27,8 +27,8 @@ INSERT INTO peakos_workspaces (id, slug, name, kind)
 VALUES
   ('ws_peak', 'peak', '피크마케팅 본사', 'headquarters'),
   ('ws_build_solution', 'build-solution', '빌드솔루션', 'company'),
-  ('ws_jeonju', 'jeonju', '전주지사', 'branch'),
-  ('ws_daegu', 'daegu', '대구지사', 'branch')
+  ('ws_jeonju', 'jeonju', '피크마케팅 전주지사', 'branch'),
+  ('ws_daegu', 'daegu', '피크마케팅 대구지사', 'branch')
 ON CONFLICT (id) DO UPDATE
 SET slug = EXCLUDED.slug,
     name = EXCLUDED.name,

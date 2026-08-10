@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 const {
   DIRECT_PERMISSIONS,
@@ -64,6 +65,24 @@ test('migration은 네 workspace를 seed하고 BuildSolution에 암묵적 member
   assert.doesNotMatch(sql, /WHEN COALESCE\(g\.name, ''\).*빌드/s);
   assert.match(sql, /UPDATE peakos_price SET workspace_id = 'ws_peak'/);
   assert.match(sql, /PRIMARY KEY \(workspace_id, key\)/);
+});
+
+test('본사와 지사 workspace 이름은 로그인 화면에서 명확히 구분된다', () => {
+  assert.deepEqual(
+    Object.fromEntries(WORKSPACES.map(workspace => [workspace.slug, workspace.name])),
+    {
+      peak: '피크마케팅 본사',
+      'build-solution': '빌드솔루션',
+      jeonju: '피크마케팅 전주지사',
+      daegu: '피크마케팅 대구지사',
+    },
+  );
+  const labelMigration = fs.readFileSync(
+    path.join(__dirname, '..', 'migrations', '20260810_peakos_workspace_labels.sql'),
+    'utf8',
+  );
+  assert.match(labelMigration, /WHEN 'daegu' THEN '피크마케팅 대구지사'/);
+  assert.match(labelMigration, /WHEN 'jeonju' THEN '피크마케팅 전주지사'/);
 });
 
 test('서버 startup은 owner DDL을 재실행하지 않고 workspace schema readiness만 검사한다', async () => {

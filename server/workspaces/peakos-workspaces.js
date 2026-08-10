@@ -22,8 +22,8 @@ const PERMISSION_LEVELS = Object.freeze(['none', 'read', 'write']);
 const WORKSPACES = Object.freeze([
   Object.freeze({ id: PEAK_WORKSPACE_ID, slug: 'peak', name: '피크마케팅 본사', kind: 'headquarters' }),
   Object.freeze({ id: 'ws_build_solution', slug: 'build-solution', name: '빌드솔루션', kind: 'company' }),
-  Object.freeze({ id: 'ws_jeonju', slug: 'jeonju', name: '전주지사', kind: 'branch' }),
-  Object.freeze({ id: 'ws_daegu', slug: 'daegu', name: '대구지사', kind: 'branch' }),
+  Object.freeze({ id: 'ws_jeonju', slug: 'jeonju', name: '피크마케팅 전주지사', kind: 'branch' }),
+  Object.freeze({ id: 'ws_daegu', slug: 'daegu', name: '피크마케팅 대구지사', kind: 'branch' }),
 ]);
 const WORKSPACE_BY_SLUG = new Map(WORKSPACES.map(workspace => [workspace.slug, workspace]));
 const REQUIRED_WORKSPACE_COLUMNS = Object.freeze([
