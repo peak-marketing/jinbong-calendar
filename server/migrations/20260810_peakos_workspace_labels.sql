@@ -1,6 +1,8 @@
 -- Keep the visible workspace identity explicit so branch users never mistake
 -- their isolated OS for the headquarters workspace.
 
+BEGIN;
+
 SELECT pg_advisory_xact_lock(hashtext('peakos-workspace-labels-v1'));
 
 UPDATE peakos_workspaces
@@ -13,3 +15,5 @@ UPDATE peakos_workspaces
    END,
        updated_at = NOW()
  WHERE slug IN ('peak', 'daegu', 'jeonju', 'build-solution');
+
+COMMIT;
