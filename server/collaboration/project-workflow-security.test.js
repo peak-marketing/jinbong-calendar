@@ -132,6 +132,50 @@ test('detail payload exposes instruction, reviewer, and append-only workflow his
   assert.match(source, /taskWorkflowEvents/);
 });
 
+test('my-task summary is a static, workspace-scoped assignee read with detail-equivalent permissions', () => {
+  const source = between(
+    "app.get('/api/projects/my-tasks', authMiddleware",
+    "app.get('/api/projects/:id', authMiddleware",
+  );
+  assert.match(source, /req\.userDoc\?\.approved/);
+  assert.match(source, /req\.workspace\.headquartersOversight === true/);
+  assert.match(source, /readOnly: true, tasks: \[\]/);
+  assert.equal((source.match(/pool\.query\(/g) || []).length, 1);
+
+  assert.match(source, /p\.workspace_id = \$2 OR \(p\.workspace_id IS NULL AND \$2 = \$3\)/);
+  assert.match(source, /COALESCE\(pd\.deleted, false\) = false/);
+  assert.match(source, /p\.status IS DISTINCT FROM 'archived'/);
+  assert.match(source, /current_project_member\.user_id = \$1/);
+  assert.match(source, /current_workspace_member\.workspace_id = COALESCE\(p\.workspace_id, \$3\)/);
+  assert.match(source, /current_workspace_member\.active = TRUE/);
+  assert.match(source, /current_workspace_member\.role <> 'oversight'/);
+  assert.match(source, /pt\.assignee_uid = \$1[\s\S]*mine\.user_uid = \$1/);
+
+  assert.equal((source.match(/JSONB_AGG/g) || []).length, 1);
+  assert.match(source, /assignee_workspace_member\.workspace_id = COALESCE\(p\.workspace_id, \$3\)/);
+  assert.match(source, /assignee_workspace_member\.active = TRUE/);
+  assert.match(source, /assignee_workspace_member\.role <> 'oversight'/);
+  assert.match(source, /TRUE AS is_assignee/);
+  assert.match(source, /AS creator_name/);
+  assert.match(source, /reviewer_uid: task\.reviewer_uid \|\| projectOwnerUid/);
+  assert.match(source, /reviewer_name: task\.reviewer_name \|\| reviewerDirectoryName/);
+  assert.match(source, /can_direct_tasks/);
+  assert.match(source, /can_review_task/);
+  assert.match(source, /canRequestReview/);
+  assert.match(source, /canComplete/);
+  assert.match(source, /project: \{[\s\S]*owner_name: projectOwnerName/);
+  assert.match(source, /task: \{[\s\S]*permissions:/);
+  assert.doesNotMatch(source, /req\.query\.(?:uid|user|workspace)|req\.body/);
+});
+
+test('my-task static route is registered before the generic project detail route', () => {
+  const staticIndex = indexSource.indexOf("app.get('/api/projects/my-tasks', authMiddleware");
+  const dynamicIndex = indexSource.indexOf("app.get('/api/projects/:id', authMiddleware");
+  assert.notEqual(staticIndex, -1);
+  assert.notEqual(dynamicIndex, -1);
+  assert.ok(staticIndex < dynamicIndex);
+});
+
 test('versioned migration preserves existing task statuses while adding workflow metadata and audit', () => {
   for (const field of [
     'role_label',

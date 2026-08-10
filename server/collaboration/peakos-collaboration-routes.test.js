@@ -52,6 +52,7 @@ test('resolves the reviewed collaboration surface to the identical legacy API UR
     ['POST', '/chat-rooms/room-1/upload-file'],
     ['GET', '/chat-rooms/room-1/unread-counts'],
     ['POST', '/projects'],
+    ['GET', '/projects/my-tasks'],
     ['POST', '/projects/upload'],
     ['PUT', '/projects/project-1/tasks/task-1/completion'],
     ['POST', '/projects/project-1/tasks/task-1/review'],
@@ -91,7 +92,7 @@ test('allowlist covers every collaboration handler exposed to PEAK OS', () => {
     ['GET', '/chat-rooms/r-1/messages'], ['POST', '/chat-rooms/r-1/messages'],
     ['POST', '/chat-rooms/r-1/upload'], ['POST', '/chat-rooms/r-1/upload-file'],
     ['POST', '/chat-rooms/r-1/read'], ['GET', '/chat-rooms/r-1/unread-counts'],
-    ['GET', '/projects'], ['POST', '/projects'], ['POST', '/projects/upload'],
+    ['GET', '/projects'], ['POST', '/projects'], ['GET', '/projects/my-tasks'], ['POST', '/projects/upload'],
     ['GET', '/projects/p-1'], ['PUT', '/projects/p-1'], ['DELETE', '/projects/p-1'],
     ['POST', '/projects/p-1/events'], ['POST', '/projects/p-1/meetings'],
     ['POST', '/projects/p-1/tasks'], ['PUT', '/projects/p-1/tasks/t-1'],
@@ -130,6 +131,13 @@ test('fails closed for unrelated, unsafe, or wrong-method routes', () => {
     resolvePeakosCollaborationTarget('PUT', `${PEAKOS_COLLABORATION_PREFIX}/projects/upload`).status,
     'method_not_allowed',
   );
+  for (const method of ['POST', 'PUT', 'DELETE']) {
+    assert.equal(
+      resolvePeakosCollaborationTarget(method, `${PEAKOS_COLLABORATION_PREFIX}/projects/my-tasks`).status,
+      'method_not_allowed',
+      `${method} /projects/my-tasks`,
+    );
+  }
   assert.equal(
     resolvePeakosCollaborationTarget('GET', `${PEAKOS_COLLABORATION_PREFIX}/peakos/bank/accounts`).status,
     'not_found',

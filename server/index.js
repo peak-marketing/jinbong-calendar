@@ -4305,6 +4305,151 @@ app.post('/api/projects', authMiddleware, async (req, res) => {
   } catch (err) { res.status(err.statusCode || 500).json({ error: err.message }); }
 });
 
+app.get('/api/projects/my-tasks', authMiddleware, async (req, res) => {
+  if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
+  if (!req.workspace) {
+    return res.status(403).json({ code: 'PEAKOS_WORKSPACE_REQUIRED', error: 'Workspace required' });
+  }
+  // 본사 열람 계정은 지사 프로젝트 전체를 읽을 수 있지만 지사 업무의
+  // 담당자가 될 수는 없다. "프로젝트 할 일" 응답도 그 경계를 그대로 지킨다.
+  if (req.workspace.headquartersOversight === true) {
+    return res.json({ readOnly: true, tasks: [] });
+  }
+
+  const isAdmin = req.userDoc.role === 'admin';
+  const isManager = req.userDoc.role === 'manager';
+  try {
+    const result = await pool.query(
+      `SELECT
+         pt.*,
+         p.name AS project_name,
+         p.status AS project_status,
+         COALESCE(pd.owner_name, owner_user.name, '') AS project_owner_name,
+         MAX(p.owner_id) AS project_owner_uid,
+         COALESCE(
+           NULLIF(MAX(pt.assigned_by_name), ''),
+           MAX(task_creator.name),
+           MAX(task_reviewer.name),
+           ''
+         ) AS creator_name,
+         COALESCE(MAX(task_reviewer.name), '') AS reviewer_directory_name,
+         TRUE AS is_assignee,
+         COALESCE(
+           JSONB_AGG(
+             JSONB_BUILD_OBJECT(
+               'uid', pta.user_uid,
+               'name', pta.user_name,
+               'completed', pta.completed,
+               'completedAt', pta.completed_at
+             )
+             ORDER BY pta.user_name
+           ) FILTER (WHERE pta.user_uid IS NOT NULL),
+           '[]'::jsonb
+         ) AS assignees,
+         COUNT(pta.user_uid)::int AS assignee_count,
+         COUNT(pta.user_uid) FILTER (WHERE pta.completed)::int AS completed_assignee_count,
+         ($4::boolean OR p.owner_id = $1 OR $5::boolean) AS can_direct_tasks,
+         ($4::boolean OR p.owner_id = $1 OR pt.reviewer_uid = $1) AS can_review_task
+       FROM project_tasks pt
+       JOIN projects p ON p.id = pt.project_id
+       LEFT JOIN project_details pd ON pd.project_id = p.id
+       LEFT JOIN users owner_user ON owner_user.uid = p.owner_id
+       LEFT JOIN users task_creator ON task_creator.uid = pt.created_by
+       LEFT JOIN users task_reviewer ON task_reviewer.uid = COALESCE(pt.reviewer_uid, p.owner_id)
+       JOIN project_members current_project_member
+         ON current_project_member.project_id = p.id
+        AND current_project_member.user_id = $1
+       JOIN peakos_workspace_memberships current_workspace_member
+         ON current_workspace_member.user_uid = $1
+        AND current_workspace_member.workspace_id = COALESCE(p.workspace_id, $3)
+        AND current_workspace_member.active = TRUE
+        AND current_workspace_member.role <> 'oversight'
+       LEFT JOIN project_task_assignees pta
+         ON pta.task_id = pt.id
+        AND pta.project_id = p.id
+        AND EXISTS (
+          SELECT 1
+          FROM peakos_workspace_memberships assignee_workspace_member
+          WHERE assignee_workspace_member.user_uid = pta.user_uid
+            AND assignee_workspace_member.workspace_id = COALESCE(p.workspace_id, $3)
+            AND assignee_workspace_member.active = TRUE
+            AND assignee_workspace_member.role <> 'oversight'
+        )
+       WHERE COALESCE(pd.deleted, false) = false
+         AND p.status IS DISTINCT FROM 'archived'
+         AND (p.workspace_id = $2 OR (p.workspace_id IS NULL AND $2 = $3))
+         AND (
+           pt.assignee_uid = $1
+           OR EXISTS (
+             SELECT 1
+             FROM project_task_assignees mine
+             WHERE mine.project_id = p.id
+               AND mine.task_id = pt.id
+               AND mine.user_uid = $1
+           )
+         )
+       GROUP BY pt.id, p.id, pd.project_id, owner_user.uid
+       ORDER BY
+         CASE pt.status
+           WHEN 'review' THEN 1
+           WHEN 'doing' THEN 2
+           WHEN 'todo' THEN 3
+           WHEN 'hold' THEN 4
+           WHEN 'done' THEN 5
+           ELSE 6
+         END,
+         CASE
+           WHEN pt.due_date ~ '^\\d{4}-\\d{2}-\\d{2}$' THEN pt.due_date
+           ELSE '9999-12-31'
+         END,
+         p.name,
+         pt.sort_order,
+         pt.created_at`,
+      [req.uid, requestWorkspaceId(req), PEAK_WORKSPACE_ID, isAdmin, isManager]
+    );
+
+    const tasks = result.rows.map(row => {
+      const {
+        project_name: projectName,
+        project_status: projectStatus,
+        project_owner_name: projectOwnerName,
+        project_owner_uid: projectOwnerUid,
+        reviewer_directory_name: reviewerDirectoryName,
+        can_direct_tasks: canDirectTasks,
+        can_review_task: canReviewTask,
+        ...task
+      } = row;
+      return {
+        project: {
+          id: task.project_id,
+          name: projectName,
+          status: projectStatus,
+          owner_name: projectOwnerName,
+        },
+        task: {
+          ...task,
+          is_assignee: true,
+          reviewer_uid: task.reviewer_uid || projectOwnerUid || null,
+          reviewer_name: task.reviewer_name || reviewerDirectoryName || '',
+          permissions: {
+            canEdit: canDirectTasks === true,
+            canSetDeadline: canDirectTasks === true,
+            canDelete: canDirectTasks === true,
+            canReview: canReviewTask === true && task.status === 'review',
+            canRequestReview: task.assignment_mode !== 'all'
+              && ['todo', 'doing'].includes(task.status),
+            canComplete: task.assignment_mode === 'all'
+              && ['todo', 'doing'].includes(task.status),
+          },
+        },
+      };
+    });
+    return res.json({ readOnly: false, tasks });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/projects/:id', authMiddleware, async (req, res) => {
   if (!await canAccessProject(req, req.params.id)) return res.status(403).json({ error: 'Not authorized' });
   const result = await pool.query(

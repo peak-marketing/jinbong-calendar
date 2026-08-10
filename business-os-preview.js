@@ -73,6 +73,11 @@
   let liveEvents = [];
   let liveChecklistSummary = {};
   let liveProjects = [];
+  // `/projects` 목록은 업무 합계만 내려준다. 할 일 화면의 우측 체크리스트는
+  // 서버가 현재 사용자에게 배정된 업무만 모아 주는 별도 canonical 응답을 쓴다.
+  let liveProjectTodos = [];
+  let liveProjectTodosState = { status: 'idle', error: '', contextKey: '' };
+  let liveProjectTodosLoadGeneration = 0;
   let liveChatRooms = [];
   let liveUnreadCounts = {};
   let liveProjectDetail = null;
@@ -96,6 +101,7 @@
   let todoScope = 'personal';
   let todoCaptureDraft = '';
   let todoPriorityFocus = null;
+  let personalTodoPlannerExpanded = false;
   let projectFilter = 'all';
   let projectSearch = '';
   let projectDetailTab = 'overview';
@@ -1979,10 +1985,52 @@
     return liveEvents;
   }
 
+  function projectTodosContextKey() {
+    return [activeWorkspaceSlug || 'peak', currentUser?.uid || '', osAuthAccessGeneration, previewPersona || 'self'].join('|');
+  }
+
+  function normalizeProjectTodoPayload(payload) {
+    const records = Array.isArray(payload) ? payload : (Array.isArray(payload?.tasks) ? payload.tasks : []);
+    return records.map(record => ({
+      project: record?.project && typeof record.project === 'object' ? record.project : {},
+      task: record?.task && typeof record.task === 'object' ? record.task : {}
+    })).filter(record => record.project.id && record.task.id);
+  }
+
+  async function refreshLiveProjectTodos({ render = true } = {}) {
+    const contextKey = projectTodosContextKey();
+    if (!collaborationAccess().projects) {
+      liveProjectTodosLoadGeneration += 1;
+      liveProjectTodos = [];
+      liveProjectTodosState = { status: 'ready', error: '', contextKey };
+      if (render && activeView === 'todo') renderTodo();
+      return liveProjectTodos;
+    }
+    const generation = ++liveProjectTodosLoadGeneration;
+    liveProjectTodosState = { status: 'loading', error: '', contextKey };
+    try {
+      const payload = await collaborationApi('GET', '/projects/my-tasks');
+      if (generation !== liveProjectTodosLoadGeneration || contextKey !== projectTodosContextKey()) return liveProjectTodos;
+      liveProjectTodos = normalizeProjectTodoPayload(payload);
+      liveProjectTodosState = { status: 'ready', error: '', contextKey };
+    } catch (error) {
+      if (generation !== liveProjectTodosLoadGeneration || contextKey !== projectTodosContextKey()) return liveProjectTodos;
+      liveProjectTodos = [];
+      liveProjectTodosState = {
+        status: 'error',
+        error: error.message || '프로젝트 할 일을 불러오지 못했습니다.',
+        contextKey
+      };
+    }
+    updateNavigationBadges();
+    if (render && activeView === 'todo') renderTodo();
+    return liveProjectTodos;
+  }
+
   async function loadLiveData() {
     const currentYear = Number(koreaDateKey(new Date()).slice(0, 4));
     const access = collaborationAccess();
-    const [events, checklistSummary, rooms, unread, projectData] = await Promise.all([
+    const [events, checklistSummary, rooms, unread, projectData, projectTodoData] = await Promise.all([
       access.events
         ? collaborationApi('GET', `/events?from=${currentYear}-01-01&to=${currentYear}-12-31`)
         : Promise.resolve([]),
@@ -1991,7 +2039,10 @@
         : Promise.resolve({}),
       access.chat ? collaborationApi('GET', '/chat-rooms') : Promise.resolve([]),
       access.chat ? collaborationApi('GET', '/chat-rooms/unread').catch(() => ({})) : Promise.resolve({}),
-      access.projects ? collaborationApi('GET', '/projects') : Promise.resolve({ projects: [] })
+      access.projects ? collaborationApi('GET', '/projects') : Promise.resolve({ projects: [] }),
+      access.projects
+        ? collaborationApi('GET', '/projects/my-tasks').catch(error => ({ tasks: [], loadError: error.message }))
+        : Promise.resolve({ tasks: [] })
     ]);
     liveEvents = Array.isArray(events) ? events.map(normalizeEvent) : [];
     liveChecklistSummary = checklistSummary && typeof checklistSummary === 'object' ? checklistSummary : {};
@@ -1999,6 +2050,10 @@
     liveChatRooms = Array.isArray(rooms) ? rooms : [];
     liveUnreadCounts = unread && typeof unread === 'object' ? unread : {};
     liveProjects = Array.isArray(projectData) ? projectData : (projectData.projects || []);
+    liveProjectTodos = normalizeProjectTodoPayload(projectTodoData);
+    liveProjectTodosState = projectTodoData?.loadError
+      ? { status: 'error', error: projectTodoData.loadError, contextKey: projectTodosContextKey() }
+      : { status: 'ready', error: '', contextKey: projectTodosContextKey() };
   }
 
   async function refreshCollaborationEvents({ year = calendarYear || Number(koreaDateKey(new Date()).slice(0, 4)), render = true } = {}) {
@@ -2071,18 +2126,29 @@
   async function refreshActiveCollaborationView() {
     if (!currentUser || osAuthExpired || osAuthHardNavigating || previewPersona || document.visibilityState === 'hidden') return;
     if (collaborationMutationBusy) return;
-    // 5초 자동 동기화가 빠른 입력이나 네이티브 시간 선택기를 통째로
-    // 다시 그려 사용자의 초안을 지우지 않도록, 편집 중에는 다음 주기로 미룬다.
+    // 5초 자동 동기화가 할 일 DOM 전체를 다시 만든다. 입력 초안뿐 아니라
+    // 키보드 사용자의 체크·이동 버튼 포커스도 잃지 않도록, 할 일 화면 안의
+    // 조작 요소를 사용 중일 때는 다음 주기로 미룬다.
     if (activeView === 'todo'
       && todoView.contains(document.activeElement)
-      && document.activeElement.matches('input, textarea, select')) return;
+      && document.activeElement.matches('button, a[href], input, textarea, select, [tabindex]:not([tabindex="-1"])')) return;
     if (collaborationRefreshInFlight) return collaborationRefreshInFlight;
     const task = (async () => {
       const access = collaborationAccess();
-      if ((activeView === 'calendar' || activeView === 'todo') && access.events) {
+      if (activeView === 'calendar' && access.events) {
         await refreshCollaborationEvents({
-          year: activeView === 'calendar' ? calendarYear : Number(koreaDateKey(new Date()).slice(0, 4))
+          year: calendarYear
         });
+      } else if (activeView === 'todo') {
+        await Promise.all([
+          access.events
+            ? refreshCollaborationEvents({ year: Number(koreaDateKey(new Date()).slice(0, 4)), render: false })
+            : Promise.resolve([]),
+          access.projects ? refreshLiveProjectTodos({ render: false }) : Promise.resolve([])
+        ]);
+        updateNavigationBadges();
+        renderDashboard();
+        renderTodo();
       } else if (activeView === 'review' && access.projects) {
         if (selectedProjectId || liveProjectDetail?.id) await refreshProjectDetail(selectedProjectId || liveProjectDetail.id);
         else await refreshCollaborationProjects();
@@ -2121,6 +2187,9 @@
     liveEvents = [];
     liveChecklistSummary = {};
     liveProjects = [];
+    liveProjectTodos = [];
+    liveProjectTodosState = { status: 'idle', error: '', contextKey: '' };
+    liveProjectTodosLoadGeneration += 1;
     liveProjectDetail = null;
     selectedProjectId = null;
     projectDetailLoadGeneration += 1;
@@ -2133,6 +2202,7 @@
     eventLoadedYear = null;
     todoCaptureDraft = '';
     todoPriorityFocus = null;
+    personalTodoPlannerExpanded = false;
     projectFilter = 'all';
     projectSearch = '';
     projectTaskAssigneeFilter = 'all';
@@ -2356,7 +2426,15 @@
         activateView('calendar', { revealNav: false });
       }
     }
-    loadPeakosData().then(() => {
+    // 미리보기 대상은 실제 인증 UID를 바꾸지 않는다. 따라서 비동기 운영 자료를
+    // 다시 불러오는 동안에도 로그인 사용자의 할 일이 남의 업무처럼 보이지 않도록
+    // 전환한 같은 프레임에서 두 체크리스트 DOM을 먼저 비공개 상태로 교체한다.
+    applyUserIdentity();
+    updateNavigationBadges();
+    renderTodo();
+    loadPeakosData().catch(error => {
+      showToast(`계정 미리보기 자료 조회 실패: ${error.message}`);
+    }).then(() => {
       applyUserIdentity();
       const lost = (activeView === 'final-settlement' && !canNavigateFinanceOperation(activeView))
         || (activeView === 'final-execution-settlement' && !canNavigateFinanceOperation(activeView))
@@ -2470,7 +2548,27 @@
   function updateNavigationBadges() {
     const unreadTotal = Object.values(liveUnreadCounts).reduce((sum, value) => sum + Number(value || 0), 0);
     const today = koreaDateKey(new Date());
-    const todoRemaining = liveEvents.filter(event => event.type === 'todo' && event.date === today && !event.done).length;
+    const personalRemaining = previewPersona ? 0 : liveEvents.filter(event => event.type === 'todo'
+      && event.date === today
+      && event.scope !== 'team'
+      && String(event.ownerId || '') === String(currentUser?.uid || '')
+      && !event.done).length;
+    const projectRemaining = previewPersona || liveProjectTodosState.status !== 'ready'
+      || liveProjectTodosState.contextKey !== projectTodosContextKey()
+      ? 0
+      : liveProjectTodos.filter(({ task }) => {
+        const status = task.status || 'todo';
+        if (['review', 'done'].includes(status)) return false;
+        const mine = projectTaskAssignees(task)
+          .find(item => String(item.uid || '') === String(currentUser?.uid || ''));
+        if (task.assignment_mode === 'all') {
+          return Boolean(mine && !mine.completed
+            && (typeof task?.permissions?.canComplete !== 'boolean' || task.permissions.canComplete));
+        }
+        return task?.permissions?.canRequestReview !== false
+          && (task.is_assignee === true || Boolean(mine));
+      }).length;
+    const todoRemaining = personalRemaining + projectRemaining;
     const reviewProjects = liveProjects.reduce((sum, project) => sum + Number(project.review_task_count || project.reviewTaskCount || (project.status === 'review' ? 1 : 0)), 0);
     const chatBadge = document.querySelector('[data-view="chat"] .nav-badge');
     const todoBadge = document.querySelector('[data-view="todo"] .nav-badge');
@@ -3072,11 +3170,14 @@
     // 할 일은 PC/브라우저 시간대와 무관하게 한국 날짜가 바뀌는 순간
     // 다음 날 계획으로 전환한다. 저장소는 기존 workspace-scoped events다.
     const today = koreaDateKey(new Date());
-    let items = liveEvents.filter(event => event.type === 'todo' && event.date === today);
-    if (todoScope === 'team') items = items.filter(event => event.scope === 'team');
-    if (todoScope === 'personal') items = items.filter(event =>
-      event.scope !== 'team' && String(event.ownerId || '') === String(currentUser?.uid || '')
+    // 왼쪽 면은 이름 그대로 로그인 사용자의 개인 할 일만 보여준다.
+    // 팀 일정은 캘린더에서 계속 조회하며, 프로젝트 지시는 우측 canonical 목록으로 분리한다.
+    let items = liveEvents.filter(event => event.type === 'todo'
+      && event.date === today
+      && event.scope !== 'team'
+      && String(event.ownerId || '') === String(currentUser?.uid || '')
     );
+    if (previewPersona) items = [];
     const byPriority = (a, b) => Number(Boolean(a.done)) - Number(Boolean(b.done))
       || Number(a.sortOrder || 0) - Number(b.sortOrder || 0)
       || String(a.time || '99:99').localeCompare(String(b.time || '99:99'))
@@ -3090,7 +3191,7 @@
     const unscheduledItems = openItems.filter(event => !String(event.time || '').slice(0, 5));
     const timelineUnscheduledItems = items.filter(event => !String(event.time || '').slice(0, 5));
     const priorityEditable = openItems.filter(event => canEditCollaborationEvent(event));
-    const canReorderVisible = todoScope === 'personal' || userDoc?.role === 'admin';
+    const canReorderVisible = true;
 
     const taskOpenMarkup = event => `
       <button class="daily-plan-task-open" type="button" data-collab-event-open="${esc(event.id)}">
@@ -3132,48 +3233,135 @@
       </div>`;
     }).join('');
 
+    const personalChecklistMarkup = items.map(event => `<article class="todo-split-row ${event.done ? 'done' : ''}" data-personal-todo-id="${esc(event.id)}">
+      <button class="todo-task-check ${event.done ? 'checked' : ''}" type="button" ${canEditCollaborationEvent(event) ? `data-collab-event-toggle="${esc(event.id)}"` : 'disabled'} aria-label="${esc(event.title)} ${event.done ? '미완료로 변경' : '완료'}">${event.done ? '✓' : ''}</button>
+      ${taskOpenMarkup(event)}
+      <span class="todo-split-row-state">${event.done ? '완료' : (event.time ? esc(formatTime(event.time)) : '오늘')}</span>
+    </article>`).join('');
+
+    const projectContextReady = liveProjectTodosState.contextKey === projectTodosContextKey();
+    const projectTodoEntries = projectContextReady && !previewPersona ? [...liveProjectTodos] : [];
+    const projectTodoCompleted = entry => {
+      const { task } = entry;
+      const mine = projectTaskAssignees(task).find(item => String(item.uid || '') === String(currentUser?.uid || ''));
+      return task.status === 'done' || (task.assignment_mode === 'all' && mine?.completed === true);
+    };
+    projectTodoEntries.sort((a, b) => Number(projectTodoCompleted(a)) - Number(projectTodoCompleted(b))
+      || Number(projectDeadlineMeta(a.task.due_date || a.task.dueDate, a.task.status).days ?? 99999)
+        - Number(projectDeadlineMeta(b.task.due_date || b.task.dueDate, b.task.status).days ?? 99999)
+      || String(a.project.name || '').localeCompare(String(b.project.name || ''), 'ko')
+      || String(a.task.title || '').localeCompare(String(b.task.title || ''), 'ko'));
+    const projectDone = projectTodoEntries.filter(projectTodoCompleted).length;
+    const projectChecklistMarkup = projectTodoEntries.map(({ project, task }) => {
+      const status = task.status || 'todo';
+      const mine = projectTaskAssignees(task).find(item => String(item.uid || '') === String(currentUser?.uid || ''));
+      const complete = projectTodoCompleted({ task });
+      const reviewRequested = status === 'review';
+      const canCompleteAll = task.assignment_mode === 'all'
+        && mine
+        && (typeof task?.permissions?.canComplete !== 'boolean' || task.permissions.canComplete);
+      const actionAttribute = status === 'done' || reviewRequested || !collaborationWritable('projects')
+        ? 'disabled'
+        : canCompleteAll
+          ? `data-collab-task-completion="${esc(task.id)}"`
+          : projectTaskCanRequestReview(task)
+            ? `data-collab-task-review-request="${esc(task.id)}"`
+            : 'disabled';
+      const statusLabel = status === 'done' ? '완료' : reviewRequested ? '검토 중' : complete ? '내 완료' : (TASK_STATUS[status] || '진행');
+      const actionLabel = status === 'done'
+        ? '승인 완료'
+        : reviewRequested
+          ? '검토 요청됨'
+          : canCompleteAll
+            ? (mine.completed ? '내 완료 체크 해제' : '내 업무 완료 체크')
+            : projectTaskCanRequestReview(task)
+              ? '상사에게 검토 요청'
+              : '변경할 수 없음';
+      return `<article class="todo-split-row project ${complete ? 'done' : ''} ${reviewRequested ? 'review' : ''}" data-project-todo-id="${esc(task.id)}" data-project-id="${esc(project.id)}">
+        <button class="todo-task-check ${complete ? 'checked' : ''} ${reviewRequested ? 'review-requested' : ''}" type="button" ${actionAttribute} ${canCompleteAll ? `aria-pressed="${mine.completed ? 'true' : 'false'}"` : ''} aria-label="${esc(task.title || '프로젝트 업무')} ${actionLabel}">${complete ? '✓' : reviewRequested ? '↗' : ''}</button>
+        <button class="daily-plan-task-open" type="button" data-project-todo-open="${esc(project.id)}">
+          <strong>${esc(task.title || '업무명 없음')}</strong>
+          <small>${esc(project.name || '프로젝트')}${projectTaskRole(task) ? ` · ${esc(projectTaskRole(task))}` : ''}</small>
+        </button>
+        <span class="todo-split-row-state ${reviewRequested ? 'review' : ''}">${esc(statusLabel)}</span>
+        ${projectDeadlineBadge(task.due_date || task.dueDate, status, 'todo-project-deadline')}
+      </article>`;
+    }).join('');
+    const projectListMarkup = !projectContextReady || liveProjectTodosState.status === 'loading'
+      ? '<div class="todo-split-empty loading"><span></span><strong>프로젝트 할 일을 불러오는 중입니다</strong></div>'
+      : liveProjectTodosState.status === 'error'
+        ? `<div class="todo-split-empty error"><strong>프로젝트 할 일을 불러오지 못했습니다</strong><small>${esc(liveProjectTodosState.error)}</small><button type="button" data-project-todo-retry>다시 불러오기</button></div>`
+        : (projectChecklistMarkup || '<div class="todo-split-empty"><strong>배정된 프로젝트 할 일이 없습니다</strong><small>프로젝트에서 담당자로 지정되면 여기에 표시됩니다.</small></div>');
+
+    const previewPrivateMarkup = '<div class="todo-split-empty private"><strong>계정 미리보기에서는 업무 데이터가 비공개입니다</strong><small>실제 계정의 나의 할 일과 프로젝트 지시를 다른 사람의 업무처럼 오인하지 않도록 표시하지 않습니다.</small></div>';
+    const personalListMarkup = previewPersona
+      ? previewPrivateMarkup
+      : (personalChecklistMarkup || '<div class="todo-split-empty"><strong>오늘 등록된 나의 할 일이 없습니다</strong><small>위 입력창에서 생각난 일을 바로 적어 보세요.</small></div>');
+    const visibleProjectListMarkup = previewPersona ? previewPrivateMarkup : projectListMarkup;
+    const personalPercent = items.length ? Math.round(done / items.length * 100) : 0;
+    const projectPercent = projectTodoEntries.length ? Math.round(projectDone / projectTodoEntries.length * 100) : 0;
+
     todoView.innerHTML = `
-      <header class="todo-page-toolbar">
-        <div class="todo-date-copy"><strong>${formatDate(today, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</strong><span>${isWorkspaceRoute() && activeWorkspaceSlug !== 'peak' ? '현재 워크스페이스 캘린더에만 저장됩니다' : '일반 할 일은 기존 파라곤 캘린더와 함께 저장됩니다'}</span></div>
+      <header class="todo-page-toolbar todo-split-toolbar">
+        <div class="todo-date-copy"><strong>오늘 업무 체크리스트</strong><span>${formatDate(today, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })} · 개인 업무와 프로젝트 지시를 한 화면에서 확인합니다.</span></div>
         <div class="collaboration-toolbar-actions">${collaborationReadonlyMarkup()}${collaborationWritable('calendar') ? '<button class="todo-add-button" type="button" data-collab-add-todo>＋ 할 일 추가</button>' : ''}</div>
       </header>
-      <nav class="todo-scope-tabs" aria-label="오늘 할 일 범위">
-        <button class="todo-scope-button ${todoScope === 'personal' ? 'active' : ''}" type="button" data-todo-scope="personal">내 일정</button>
-        <button class="todo-scope-button ${todoScope === 'team' ? 'active' : ''}" type="button" data-todo-scope="team">팀</button>
-        <button class="todo-scope-button ${todoScope === 'all' ? 'active' : ''}" type="button" data-todo-scope="all">전체</button>
-      </nav>
-      <section class="todo-summary" aria-label="오늘 업무 요약">
-        <article class="todo-summary-card primary"><span>우선순위 업무</span><strong>${openItems.length}건</strong></article>
-        <article class="todo-summary-card"><span>오늘 할 일</span><strong>${items.length}건</strong></article>
-        <article class="todo-summary-card"><span>시간 확정</span><strong>${scheduledItems.filter(event => !event.done).length}건</strong></article>
-        <article class="todo-summary-card"><span>완료</span><strong>${done}건</strong></article>
-      </section>
-      <div class="daily-plan" data-daily-plan-date="${esc(today)}">
-        <section class="daily-plan-step" data-daily-plan-step="priority">
-          <header class="daily-plan-step-head"><span>1</span><div><strong>우선순위 정하기</strong><small>오늘 반드시 끝낼 일부터 위로 올려 순서를 정하세요.</small></div><em>${openItems.length}건</em></header>
-          <div class="daily-priority-list">${priorityMarkup || '<div class="daily-plan-empty">우선순위를 정할 할 일이 없습니다.</div>'}</div>
-        </section>
-
-        <section class="daily-plan-step" data-daily-plan-step="capture">
-          <header class="daily-plan-step-head"><span>2</span><div><strong>생각한 일 전부 쓰기</strong><small>머릿속의 일을 빠르게 적으면 오늘 내 일정으로 저장됩니다.</small></div><em>${unscheduledItems.length}건 미정</em></header>
-          ${collaborationWritable('calendar') && todoScope === 'personal' ? `<form class="daily-capture-form" data-todo-capture>
-            <label><span class="sr-only">생각한 일</span><input name="title" maxlength="180" autocomplete="off" value="${esc(todoCaptureDraft)}" placeholder="생각난 일을 하나씩 적어 주세요" required></label>
+      <section class="todo-split-view" data-todo-split-view aria-label="오늘 업무 체크리스트">
+        <section class="todo-split-panel personal" data-todo-panel="personal" aria-labelledby="personalTodoHeading">
+          <header class="todo-split-panel-head">
+            <div><span>PERSONAL</span><strong id="personalTodoHeading">나의 할 일</strong><small>오늘 내가 정한 개인 업무</small></div>
+            <em>${previewPersona ? 0 : openItems.length}건 남음</em>
+          </header>
+          <div class="todo-split-progress" aria-label="나의 할 일 ${personalPercent}% 완료"><span><i style="width:${personalPercent}%"></i></span><strong>${done}/${items.length}</strong></div>
+          ${collaborationWritable('calendar') ? `<form class="daily-capture-form todo-split-capture" data-todo-capture>
+            <label><span class="sr-only">생각한 일</span><input name="title" maxlength="180" autocomplete="off" value="${esc(todoCaptureDraft)}" placeholder="생각난 일을 바로 적어 주세요" required></label>
             <button type="submit">＋ 적기</button>
-          </form>` : `<div class="daily-plan-empty">${todoScope === 'personal' ? '읽기 전용에서는 할 일을 추가할 수 없습니다.' : '생각한 일은 내 일정 탭에서 적을 수 있습니다.'}</div>`}
-          <div class="daily-thought-list">${thoughtMarkup || '<div class="daily-plan-empty">시간을 정하지 않은 일이 없습니다.</div>'}</div>
+          </form>` : ''}
+          <div class="todo-split-list" aria-live="polite">${personalListMarkup}</div>
+          <button class="personal-plan-toggle" type="button" data-personal-plan-toggle aria-expanded="${personalTodoPlannerExpanded ? 'true' : 'false'}" aria-controls="personalTodoPlanner">
+            <span><strong>3단계 상세 플래너</strong><small>우선순위 · 생각한 일 · 타임라인</small></span><i aria-hidden="true">${personalTodoPlannerExpanded ? '접기' : '펼치기'}</i>
+          </button>
+          <div class="personal-plan-panel" id="personalTodoPlanner" ${personalTodoPlannerExpanded ? '' : 'hidden'}>
+            <section class="todo-summary" aria-label="나의 오늘 업무 요약">
+              <article class="todo-summary-card primary"><span>우선순위 업무</span><strong>${openItems.length}건</strong></article>
+              <article class="todo-summary-card"><span>시간 확정</span><strong>${scheduledItems.filter(event => !event.done).length}건</strong></article>
+              <article class="todo-summary-card"><span>완료</span><strong>${done}건</strong></article>
+            </section>
+            <div class="daily-plan" data-daily-plan-date="${esc(today)}">
+              <section class="daily-plan-step" data-daily-plan-step="priority">
+                <header class="daily-plan-step-head"><span>1</span><div><strong>우선순위 정하기</strong><small>오늘 반드시 끝낼 일부터 위로 올려 순서를 정하세요.</small></div><em>${openItems.length}건</em></header>
+                <div class="daily-priority-list">${priorityMarkup || '<div class="daily-plan-empty">우선순위를 정할 할 일이 없습니다.</div>'}</div>
+              </section>
+              <section class="daily-plan-step" data-daily-plan-step="capture">
+                <header class="daily-plan-step-head"><span>2</span><div><strong>생각한 일 전부 쓰기</strong><small>상단 빠른 입력으로 적은 뒤 빠짐없이 확인하세요.</small></div><em>${unscheduledItems.length}건 미정</em></header>
+                <div class="daily-thought-list">${thoughtMarkup || '<div class="daily-plan-empty">시간을 정하지 않은 일이 없습니다.</div>'}</div>
+              </section>
+              <section class="daily-plan-step" data-daily-plan-step="timeline">
+                <header class="daily-plan-step-head"><span>3</span><div><strong>타임라인 잡기</strong><small>각 업무의 시작 시간을 정해 오늘의 흐름을 완성하세요.</small></div><em>${scheduledItems.length}/${items.length}</em></header>
+                <div class="daily-timeline-list">${timelineMarkup || '<div class="daily-plan-empty">타임라인에 배치할 일이 없습니다.</div>'}</div>
+                <footer class="daily-plan-progress"><span><i style="width:${personalPercent}%"></i></span><strong>${personalPercent}% 완료</strong></footer>
+              </section>
+            </div>
+          </div>
         </section>
-
-        <section class="daily-plan-step" data-daily-plan-step="timeline">
-          <header class="daily-plan-step-head"><span>3</span><div><strong>타임라인 잡기</strong><small>각 업무의 시작 시간을 정해 오늘의 흐름을 완성하세요.</small></div><em>${scheduledItems.length}/${items.length}</em></header>
-          <div class="daily-timeline-list">${timelineMarkup || '<div class="daily-plan-empty">타임라인에 배치할 일이 없습니다.</div>'}</div>
-          <footer class="daily-plan-progress"><span><i style="width:${items.length ? Math.round(done / items.length * 100) : 0}%"></i></span><strong>${items.length ? Math.round(done / items.length * 100) : 0}% 완료</strong></footer>
+        <section class="todo-split-panel project" data-todo-panel="project" aria-labelledby="projectTodoHeading">
+          <header class="todo-split-panel-head">
+            <div><span>PROJECT</span><strong id="projectTodoHeading">프로젝트 할 일</strong><small>프로젝트에서 나에게 배정된 업무</small></div>
+            <em>${previewPersona ? 0 : Math.max(projectTodoEntries.length - projectDone, 0)}건 남음</em>
+          </header>
+          <div class="todo-split-progress project" aria-label="프로젝트 할 일 ${projectPercent}% 완료"><span><i style="width:${projectPercent}%"></i></span><strong>${projectDone}/${projectTodoEntries.length}</strong></div>
+          <div class="todo-split-project-guide"><span>체크하면</span><strong>상사에게 검토 요청</strong><small>전체 담당 업무는 내 완료 상태로 저장됩니다.</small></div>
+          <div class="todo-split-list" aria-live="polite">${visibleProjectListMarkup}</div>
         </section>
-      </div>`;
+      </section>`;
 
-    todoView.querySelectorAll('[data-todo-scope]').forEach(button => button.addEventListener('click', () => {
-      todoScope = button.dataset.todoScope;
-      renderTodo();
-    }));
+    const personalPlanToggle = todoView.querySelector('[data-personal-plan-toggle]');
+    personalPlanToggle?.addEventListener('click', () => {
+      personalTodoPlannerExpanded = !personalTodoPlannerExpanded;
+      personalPlanToggle.setAttribute('aria-expanded', String(personalTodoPlannerExpanded));
+      personalPlanToggle.querySelector('i').textContent = personalTodoPlannerExpanded ? '접기' : '펼치기';
+      document.getElementById('personalTodoPlanner').hidden = !personalTodoPlannerExpanded;
+    });
     todoView.querySelector('[data-collab-add-todo]')?.addEventListener('click', () => openEventEditor(null, { type: 'todo', date: today }));
     todoView.querySelector('[data-todo-capture] [name="title"]')?.addEventListener('input', inputEvent => {
       todoCaptureDraft = inputEvent.currentTarget.value;
@@ -3271,6 +3459,46 @@
       if (!saved) { button.disabled = false; return; }
       await refreshTodoAfterMutation(Number(today.slice(0, 4)));
     }));
+    todoView.querySelector('[data-project-todo-retry]')?.addEventListener('click', () => refreshLiveProjectTodos());
+    todoView.querySelectorAll('[data-project-todo-open]').forEach(button => button.addEventListener('click', () => {
+      const projectId = String(button.dataset.projectTodoOpen || '');
+      if (!projectId || !collaborationAccess().projects) return;
+      activateView('review');
+      openProjectDetail(projectId);
+    }));
+    todoView.querySelectorAll('[data-collab-task-review-request]').forEach(button => button.addEventListener('click', async () => {
+      const row = button.closest('[data-project-todo-id][data-project-id]');
+      const entry = liveProjectTodos.find(item => String(item.project.id) === String(row?.dataset.projectId)
+        && String(item.task.id) === String(row?.dataset.projectTodoId));
+      if (!entry || previewPersona) return;
+      button.disabled = true;
+      const saved = await runCollaborationMutation(
+        () => projectTaskReviewApi(entry.project, entry.task, 'request'),
+        '완료 체크했습니다. 상사에게 검토를 요청했습니다.'
+      );
+      if (!saved) { button.disabled = false; return; }
+      await refreshLiveProjectTodos();
+    }));
+    todoView.querySelectorAll('[data-collab-task-completion]').forEach(button => button.addEventListener('click', async () => {
+      const row = button.closest('[data-project-todo-id][data-project-id]');
+      const entry = liveProjectTodos.find(item => String(item.project.id) === String(row?.dataset.projectId)
+        && String(item.task.id) === String(row?.dataset.projectTodoId));
+      const mine = entry && projectTaskAssignees(entry.task)
+        .find(item => String(item.uid || '') === String(currentUser?.uid || ''));
+      if (!entry || !mine || previewPersona) return;
+      button.disabled = true;
+      const saved = await runCollaborationMutation(
+        () => collaborationApi('PUT', `/projects/${encodeURIComponent(entry.project.id)}/tasks/${encodeURIComponent(entry.task.id)}/completion`, {
+          completed: !mine.completed
+        }),
+        mine.completed ? '내 완료 체크를 해제했습니다.' : '내 업무를 완료했습니다.'
+      );
+      if (!saved) { button.disabled = false; return; }
+      await refreshLiveProjectTodos();
+    }));
+    if (!previewPersona && (!projectContextReady || liveProjectTodosState.status === 'idle')) {
+      refreshLiveProjectTodos();
+    }
     if (todoPriorityFocus) {
       const focus = todoPriorityFocus;
       todoPriorityFocus = null;

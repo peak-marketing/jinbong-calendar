@@ -28,6 +28,7 @@ type CollaborationState = {
   roomMembers: Record<string, any[]>;
   messages: Record<string, any[]>;
   projects: any[];
+  workspaceData?: Record<string, { events: any[]; projects: any[] }>;
 };
 
 function uuidFromSequence(sequence: number) {
@@ -78,7 +79,7 @@ async function serveOsShell(page: Page) {
   await page.route('**/os/**', async route => {
     const pathname = new URL(route.request().url()).pathname;
     if (pathname === '/os/' || pathname === '/os/login' || pathname === '/os/login/'
-      || pathname === '/os/w/peak' || pathname === '/os/w/peak/') {
+      || /^\/os\/w\/[a-z0-9-]+\/?$/.test(pathname)) {
       return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
     }
     if (pathname === '/os/business-os-preview.js') {
@@ -108,6 +109,10 @@ async function installSharedApi(page: Page, state: CollaborationState) {
       : originalPath;
     const method = request.method().toUpperCase();
     const body = parseBody(route);
+    const workspaceSlug = request.headers()['x-peakos-workspace'] || 'peak';
+    const workspaceFixture = state.workspaceData?.[workspaceSlug];
+    const requestEvents = workspaceFixture?.events || state.events;
+    const requestProjects = workspaceFixture?.projects || state.projects;
     state.calls.push({
       method,
       path: originalPath,
@@ -137,16 +142,31 @@ async function installSharedApi(page: Page, state: CollaborationState) {
     }
     if (originalPath === '/os/workspaces') return send({
       default_slug: 'peak',
-      workspaces: [{ id: 'workspace-peak', slug: 'peak', name: '피크마케팅', kind: 'headquarters', role: 'admin' }],
+      workspaces: [
+        { id: 'workspace-peak', slug: 'peak', name: '피크마케팅', kind: 'headquarters', role: 'admin' },
+        ...Object.keys(state.workspaceData || {}).filter(slug => slug !== 'peak').map(slug => ({
+          id: `workspace-${slug}`, slug, name: slug === 'daegu' ? '피크마케팅 대구지사' : slug,
+          kind: 'branch', role: 'admin',
+        })),
+      ],
     });
-    if (originalPath === '/os/workspaces/peak/context') return send({
-      workspace: { id: 'workspace-peak', slug: 'peak', name: '피크마케팅', kind: 'headquarters' },
-      membership: { role: 'admin' },
-      permissions: {
-        calendar: 'write', chat: 'write', projects: 'write', settlements: 'write', documents: 'write',
-        headquartersOversight: false,
-      },
-    });
+    const workspaceContextMatch = originalPath.match(/^\/os\/workspaces\/([^/]+)\/context$/);
+    if (workspaceContextMatch) {
+      const slug = decodeURIComponent(workspaceContextMatch[1]);
+      if (slug !== 'peak' && !state.workspaceData?.[slug]) return send({ error: 'Not found' }, 404);
+      return send({
+        workspace: {
+          id: `workspace-${slug}`, slug,
+          name: slug === 'peak' ? '피크마케팅' : slug === 'daegu' ? '피크마케팅 대구지사' : slug,
+          kind: slug === 'peak' ? 'headquarters' : 'branch',
+        },
+        membership: { role: 'admin' },
+        permissions: {
+          calendar: 'write', chat: 'write', projects: 'write', settlements: 'write', documents: 'write',
+          headquartersOversight: false,
+        },
+      });
+    }
 
     if (protectedRequest && !state.otpVerified) {
       return send({
@@ -188,7 +208,7 @@ async function installSharedApi(page: Page, state: CollaborationState) {
       ]));
       return send(summary);
     }
-    if (resourcePath === '/events' && method === 'GET') return send(state.events.filter(event => !event.deleted));
+    if (resourcePath === '/events' && method === 'GET') return send(requestEvents.filter(event => !event.deleted));
     if (resourcePath === '/events' && method === 'POST') {
       const category = String(body?.todoCat || '');
       const categoryRows = state.events.filter(event =>
@@ -321,7 +341,23 @@ async function installSharedApi(page: Page, state: CollaborationState) {
       return send({ ok: true });
     }
 
-    if (resourcePath === '/projects' && method === 'GET') return send({ canManageAll: true, projects: state.projects });
+    if (resourcePath === '/projects' && method === 'GET') return send({ canManageAll: true, projects: requestProjects });
+    if (resourcePath === '/projects/my-tasks' && method === 'GET') {
+      const tasks = requestProjects.flatMap(project => (project.tasks || [])
+        .filter((task: any) => {
+          const assignees = Array.isArray(task.assignees) ? task.assignees : [];
+          return String(task.assignee_uid || task.assigneeUid || '') === String(state.user.uid)
+            || assignees.some((assignee: any) => String(assignee.uid || '') === String(state.user.uid));
+        })
+        .map((task: any) => ({
+          project: {
+            id: project.id, name: project.name, status: project.status,
+            owner_name: project.owner_name || project.ownerName || '',
+          },
+          task,
+        })));
+      return send({ readOnly: false, tasks });
+    }
     if (resourcePath === '/projects' && method === 'POST') {
       const projectId = `project-${++state.sequence}`;
       const project = {
@@ -439,11 +475,11 @@ async function installSharedApi(page: Page, state: CollaborationState) {
   });
 }
 
-async function setup(page: Page, state: CollaborationState) {
+async function setup(page: Page, state: CollaborationState, url = '/os/') {
   await installFirebaseStub(page);
   await serveOsShell(page);
   await installSharedApi(page, state);
-  await page.goto('/os/');
+  await page.goto(url);
   await expect(page.locator('#authGate')).toBeHidden();
   const main = page.locator('[data-nav-cluster="main"]');
   if ((await main.getAttribute('class'))?.split(/\s+/).includes('closed')) {
@@ -475,6 +511,15 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
         id: 'owned-todo', type: 'todo', title: '미리보기 차단 확인', date,
         scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', done: false, deleted: false,
       }],
+      projects: [{
+        id: 'preview-project', name: '미리보기 비공개 프로젝트', status: 'active', owner_name: '김대호',
+        tasks: [{
+          id: 'preview-project-task', project_id: 'preview-project', title: '미리보기 비공개 프로젝트 업무',
+          status: 'todo', assignment_mode: 'single', assignee_uid: 'e2e-test-user', assignee_name: '김대호',
+          assignees: [{ uid: 'e2e-test-user', name: '김대호', completed: false }],
+          permissions: { canRequestReview: true },
+        }],
+      }],
     });
     await setup(page, state);
 
@@ -491,15 +536,37 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     );
     expect(directLegacyWrites).toEqual([]);
 
+    await expect(page.locator('[data-personal-todo-id="owned-todo"]')).toBeVisible();
+    await expect(page.locator('[data-project-todo-id="preview-project-task"]')).toBeVisible();
+    let releasePreviewLoad!: () => void;
+    let previewLoadStarted = 0;
+    let previewLoadSettled = 0;
+    const previewLoadGate = new Promise<void>(resolve => { releasePreviewLoad = resolve; });
+    await page.route(/\/api\/peakos\/intake\?owner=/, async route => {
+      previewLoadStarted += 1;
+      await previewLoadGate;
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: '미리보기 지연 조회 테스트' }),
+      });
+      previewLoadSettled += 1;
+    });
+
     const beforePreview = collaborationMutations.length;
     await page.locator('#personaSelect').selectOption('박우진');
-    await page.locator('[data-nav-cluster="main"] > .nav-cluster-toggle').click();
-    await page.locator('.nav-item[data-view="todo"]').click();
+    await expect.poll(() => previewLoadStarted).toBeGreaterThan(0);
+    // loadPeakosData가 아직 멈춰 있는 같은 전환 단계에서도 로그인 사용자의
+    // 업무 DOM은 즉시 제거되어야 한다.
     await expect(page.locator('#todoView [data-collab-readonly]')).toBeVisible();
     await expect(page.locator('#todoView [data-collab-add-todo]')).toHaveCount(0);
-    await expect(page.locator('#todoView [data-daily-timeline-id="owned-todo"] .todo-task-check')).toBeDisabled();
-    await page.waitForTimeout(250);
+    await expect(page.locator('#todoView [data-personal-todo-id]')).toHaveCount(0);
+    await expect(page.locator('#todoView [data-project-todo-id]')).toHaveCount(0);
+    await expect(page.getByText('계정 미리보기에서는 업무 데이터가 비공개입니다')).toHaveCount(2);
     expect(state.calls.filter(call => call.method !== 'GET' && call.path.startsWith('/peakos/collaboration/'))).toHaveLength(beforePreview);
+    releasePreviewLoad();
+    await expect.poll(() => previewLoadSettled).toBeGreaterThan(0);
+    await page.unroute(/\/api\/peakos\/intake\?owner=/);
   });
 
   test('today todo follows priority, capture, and timeline steps through one protected event record', async ({ page }) => {
@@ -528,6 +595,10 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     await expect(page.locator('#todoView')).toContainText('생각한 일 전부 쓰기');
     await expect(page.locator('#todoView')).toContainText('타임라인 잡기');
     await expect(page.locator('#todoView')).not.toContainText('내일 할 일');
+    const plannerToggle = page.locator('[data-personal-plan-toggle]');
+    await expect(plannerToggle).toHaveAttribute('aria-expanded', 'false');
+    await plannerToggle.click();
+    await expect(plannerToggle).toHaveAttribute('aria-expanded', 'true');
 
     await page.locator('[data-todo-priority-move="first"][data-direction="down"]').click();
     const priorityRows = page.locator('[data-daily-priority-id]');
@@ -559,6 +630,144 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     expect(timeCall).toMatchObject({ workspace: 'peak', body: { time: '09:30' } });
     expect(state.calls.some(call => call.path.startsWith('/timetable'))).toBe(false);
     expect(state.calls.some(call => call.method !== 'GET' && /^\/events(?:\/|$)/.test(call.path))).toBe(false);
+  });
+
+  test('one desktop view separates personal and project checklists with distinct completion workflows', async ({ page }) => {
+    const date = todayKey();
+    const state = createState({
+      events: [{
+        id: 'personal-split-task', type: 'todo', title: '개인 체크리스트 업무', date, time: '10:00',
+        scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', sort_order: 10,
+        done: false, deleted: false,
+      }],
+      projects: [{
+        id: 'split-project', name: '신규 캠페인 프로젝트', status: 'active', owner_name: '김대호',
+        tasks: [{
+          id: 'project-split-task', project_id: 'split-project', title: '프로젝트 원고 작성',
+          status: 'doing', due_date: date, assignment_mode: 'single',
+          assignee_uid: 'e2e-test-user', assignee_name: '김대호',
+          assignees: [{ uid: 'e2e-test-user', name: '김대호', completed: false }],
+          role_label: '콘텐츠 작성', reviewer_uid: 'manager-user', reviewer_name: '팀장',
+          permissions: { canRequestReview: true, canReview: false, canComplete: false },
+        }],
+      }],
+    });
+    await setup(page, state);
+    await page.locator('.nav-item[data-view="todo"]').click();
+
+    const split = page.locator('[data-todo-split-view]');
+    const personal = split.locator('[data-todo-panel="personal"]');
+    const project = split.locator('[data-todo-panel="project"]');
+    await expect(split).toBeVisible();
+    await expect(personal.getByText('나의 할 일', { exact: true })).toBeVisible();
+    await expect(project.getByText('프로젝트 할 일', { exact: true })).toBeVisible();
+    await expect(personal.locator('[data-personal-todo-id="personal-split-task"]')).toContainText('개인 체크리스트 업무');
+    await expect(project.locator('[data-project-todo-id="project-split-task"]')).toContainText('프로젝트 원고 작성');
+    await expect(project.locator('[data-project-todo-id="project-split-task"]')).toContainText('신규 캠페인 프로젝트');
+
+    const [personalBox, projectBox] = await Promise.all([personal.boundingBox(), project.boundingBox()]);
+    expect(personalBox).not.toBeNull();
+    expect(projectBox).not.toBeNull();
+    expect(Math.abs((personalBox?.y || 0) - (projectBox?.y || 0))).toBeLessThan(4);
+    expect(projectBox?.x || 0).toBeGreaterThan((personalBox?.x || 0) + (personalBox?.width || 0) - 2);
+
+    await personal.locator('[data-personal-todo-id="personal-split-task"] [data-collab-event-toggle]').click();
+    await expect(personal.locator('[data-personal-todo-id="personal-split-task"]')).toHaveClass(/done/);
+    expect(state.calls.find(call => call.method === 'PUT'
+      && call.path === '/peakos/collaboration/events/personal-split-task')).toMatchObject({
+      workspace: 'peak', body: { done: true },
+    });
+
+    await project.locator('[data-project-todo-id="project-split-task"] [data-collab-task-review-request]').click();
+    await expect(project.locator('[data-project-todo-id="project-split-task"]')).toHaveClass(/review/);
+    const reviewCall = state.calls.find(call => call.method === 'POST'
+      && call.path === '/peakos/collaboration/projects/split-project/tasks/project-split-task/review');
+    expect(reviewCall).toMatchObject({ workspace: 'peak', body: { action: 'request' } });
+    expect(state.calls.filter(call => call.method === 'PUT'
+      && call.path === '/peakos/collaboration/events/personal-split-task')).toHaveLength(1);
+  });
+
+  test('the two todo panels stack on mobile without horizontal overflow and keep the planner folded', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const date = todayKey();
+    const state = createState({
+      events: [{
+        id: 'mobile-personal-task', type: 'todo', title: '모바일 개인 업무', date,
+        scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', done: false, deleted: false,
+      }],
+      projects: [{
+        id: 'mobile-project', name: '모바일 프로젝트', status: 'active', owner_name: '김대호',
+        tasks: [{
+          id: 'mobile-project-task', project_id: 'mobile-project', title: '모바일 프로젝트 업무', status: 'todo',
+          assignment_mode: 'single', assignee_uid: 'e2e-test-user', assignee_name: '김대호',
+          assignees: [{ uid: 'e2e-test-user', name: '김대호', completed: false }],
+          permissions: { canRequestReview: true },
+        }],
+      }],
+    });
+    await setup(page, state);
+    await page.locator('.nav-item[data-view="todo"]').click();
+
+    const personal = page.locator('[data-todo-panel="personal"]');
+    const project = page.locator('[data-todo-panel="project"]');
+    const [personalBox, projectBox] = await Promise.all([personal.boundingBox(), project.boundingBox()]);
+    expect(projectBox?.y || 0).toBeGreaterThan((personalBox?.y || 0) + (personalBox?.height || 0) - 2);
+    expect(Math.abs((personalBox?.x || 0) - (projectBox?.x || 0))).toBeLessThan(4);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+    const plannerToggle = page.locator('[data-personal-plan-toggle]');
+    await expect(plannerToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#personalTodoPlanner')).toBeHidden();
+    await plannerToggle.click();
+    await expect(plannerToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('#personalTodoPlanner')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+
+  test('a branch todo split reads only that workspace personal and project records', async ({ page }) => {
+    const date = todayKey();
+    const state = createState({
+      events: [{
+        id: 'peak-private-task', type: 'todo', title: '본사 전용 개인 업무', date,
+        scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', done: false, deleted: false,
+      }],
+      projects: [{
+        id: 'peak-private-project', name: '본사 전용 프로젝트', status: 'active',
+        tasks: [{
+          id: 'peak-private-project-task', project_id: 'peak-private-project', title: '본사 전용 프로젝트 업무',
+          status: 'todo', assignee_uid: 'e2e-test-user', assignees: [{ uid: 'e2e-test-user', name: '김대호' }],
+        }],
+      }],
+      workspaceData: {
+        daegu: {
+          events: [{
+            id: 'daegu-personal-task', type: 'todo', title: '대구지사 개인 업무', date,
+            scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', done: false, deleted: false,
+          }],
+          projects: [{
+            id: 'daegu-project', name: '대구지사 프로젝트', status: 'active', owner_name: '대구 책임자',
+            tasks: [{
+              id: 'daegu-project-task', project_id: 'daegu-project', title: '대구지사 프로젝트 업무',
+              status: 'todo', assignment_mode: 'single', assignee_uid: 'e2e-test-user', assignee_name: '김대호',
+              assignees: [{ uid: 'e2e-test-user', name: '김대호', completed: false }],
+              permissions: { canRequestReview: true },
+            }],
+          }],
+        },
+      },
+    });
+    await setup(page, state, '/os/w/daegu');
+    await page.locator('.nav-item[data-view="todo"]').click();
+
+    await expect(page.locator('[data-personal-todo-id="daegu-personal-task"]')).toContainText('대구지사 개인 업무');
+    await expect(page.locator('[data-project-todo-id="daegu-project-task"]')).toContainText('대구지사 프로젝트 업무');
+    await expect(page.locator('#todoView')).not.toContainText('본사 전용 개인 업무');
+    await expect(page.locator('#todoView')).not.toContainText('본사 전용 프로젝트 업무');
+    const splitReads = state.calls.filter(call => call.method === 'GET'
+      && (call.path === '/peakos/collaboration/events'
+        || call.path === '/peakos/collaboration/projects/my-tasks'));
+    expect(splitReads.length).toBeGreaterThanOrEqual(2);
+    expect(splitReads.every(call => call.workspace === 'daegu')).toBe(true);
   });
 
   test('Korea New Year loads and renders the new Korean calendar year', async ({ page }) => {
@@ -600,7 +809,7 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     });
   });
 
-  test('the five-second sync does not erase a todo draft while its editor has focus', async ({ page }) => {
+  test('the five-second sync preserves a todo draft and focused button until focus leaves the view', async ({ page }) => {
     const state = createState();
     await setup(page, state);
     await page.locator('.nav-item[data-view="todo"]').click();
@@ -609,19 +818,42 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     const readsBefore = state.calls.filter(call =>
       call.method === 'GET' && call.path === '/peakos/collaboration/events'
     ).length;
+    const projectReadsBefore = state.calls.filter(call =>
+      call.method === 'GET' && call.path === '/peakos/collaboration/projects/my-tasks'
+    ).length;
 
     await page.waitForTimeout(5_400);
     await expect(draft).toHaveValue('자동 동기화에도 남아야 하는 생각');
     expect(state.calls.filter(call =>
       call.method === 'GET' && call.path === '/peakos/collaboration/events'
     )).toHaveLength(readsBefore);
+    expect(state.calls.filter(call =>
+      call.method === 'GET' && call.path === '/peakos/collaboration/projects/my-tasks'
+    )).toHaveLength(projectReadsBefore);
 
     await draft.press('Tab');
+    const captureButton = page.locator('[data-todo-capture] button[type="submit"]');
+    await expect(captureButton).toBeFocused();
+    await page.waitForTimeout(5_400);
+    await expect(draft).toHaveValue('자동 동기화에도 남아야 하는 생각');
+    await expect(captureButton).toBeFocused();
+    expect(state.calls.filter(call =>
+      call.method === 'GET' && call.path === '/peakos/collaboration/events'
+    )).toHaveLength(readsBefore);
+    expect(state.calls.filter(call =>
+      call.method === 'GET' && call.path === '/peakos/collaboration/projects/my-tasks'
+    )).toHaveLength(projectReadsBefore);
+
+    await page.locator('#personaSelect').focus();
+    await expect(page.locator('#personaSelect')).toBeFocused();
     await page.waitForTimeout(5_400);
     await expect(draft).toHaveValue('자동 동기화에도 남아야 하는 생각');
     expect(state.calls.filter(call =>
       call.method === 'GET' && call.path === '/peakos/collaboration/events'
     ).length).toBeGreaterThan(readsBefore);
+    expect(state.calls.filter(call =>
+      call.method === 'GET' && call.path === '/peakos/collaboration/projects/my-tasks'
+    ).length).toBeGreaterThan(projectReadsBefore);
   });
 
   test('protected OS writes and legacy writes round-trip through one shared state', async ({ page }) => {

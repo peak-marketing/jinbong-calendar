@@ -50,7 +50,8 @@ const COLLABORATION_ROUTE_RULES = Object.freeze([
 
   route(['GET', 'POST'], /^\/projects$/),
   route(['POST'], /^\/projects\/upload$/),
-  route(['GET', 'PUT', 'DELETE'], /^\/projects\/(?!upload$)[^/]+$/),
+  route(['GET'], /^\/projects\/my-tasks$/),
+  route(['GET', 'PUT', 'DELETE'], /^\/projects\/(?!upload$|my-tasks$)[^/]+$/),
   route(['POST'], /^\/projects\/[^/]+\/(?:events|meetings|tasks|updates|comments)$/),
   route(['PUT', 'DELETE'], /^\/projects\/[^/]+\/tasks\/[^/]+$/),
   route(['PUT'], /^\/projects\/[^/]+\/tasks\/[^/]+\/completion$/),
