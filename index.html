@@ -7495,7 +7495,7 @@ async function renderProjectPage(body, right) {
     right.innerHTML = `<button onclick="selectedProjectId=null;selectedProject=null;selectedProjectTaskId=null;renderPage()" class="btn btn-dark">← 목록</button>
       <button onclick="openProjectModal()" class="btn btn-red">+ 프로젝트</button>
       ${selectedProject.canManage ? `<button onclick="openProjectModal(selectedProject)" class="btn btn-dark">수정</button>` : ''}
-      ${projectSubTab === 'tasks' ? `<button onclick="openProjectTaskModal()" class="btn btn-red">+ 업무</button>` : ''}
+      ${projectSubTab === 'tasks' && selectedProject.canManage ? `<button onclick="openProjectTaskModal()" class="btn btn-red">+ 업무</button>` : ''}
       ${projectSubTab === 'updates' ? `<button onclick="openProjectUpdateModal()" class="btn btn-red">+ 진행사항</button>` : ''}
       ${projectSubTab === 'schedule' ? `<button onclick="openProjectMeetingModal()" class="btn btn-red">+ 회의일정</button>` : ''}`;
     if (selectedProjectTaskId && !(selectedProject.tasks || []).some(t => String(t.id) === String(selectedProjectTaskId))) {
@@ -7581,8 +7581,15 @@ function renderProjectTaskRow(task) {
   const myAssignment = completion.assignees.find(
     assignee => currentUser && String(assignee.uid) === String(currentUser.uid)
   );
+  const isSingleAssignee = !!(
+    currentUser
+    && task.assignee_uid
+    && String(task.assignee_uid) === String(currentUser.uid)
+  );
   const checked = isAllAssignees ? !!myAssignment?.completed : ['review', 'done'].includes(task.status);
-  const canToggle = !isAllAssignees || !!myAssignment;
+  const canToggle = isAllAssignees
+    ? (task.permissions?.canComplete ?? (!!myAssignment && ['todo', 'doing'].includes(task.status)))
+    : (task.permissions?.canRequestReview ?? (isSingleAssignee && ['todo', 'doing'].includes(task.status)));
   const toggleAction = isAllAssignees
     ? `toggleProjectTaskCompletion('${task.id}', ${checked ? 'false' : 'true'})`
     : `updateProjectTaskStatus('${task.id}', '${checked ? 'doing' : 'review'}')`;
@@ -7599,7 +7606,7 @@ function renderProjectTaskRow(task) {
       </div>` : ''}
       ${renderProjectTaskActions(task)}
     </div>
-    <button onclick="event.stopPropagation();openProjectTaskModal('${task.id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px">수정</button>
+    ${selectedProject?.canManage ? `<button onclick="event.stopPropagation();openProjectTaskModal('${task.id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px">수정</button>` : ''}
   </div>`;
 }
 
@@ -7873,7 +7880,7 @@ async function openProjectTaskModal(taskId = null) {
       <div class="form-group"><label class="form-label">담당자</label><select class="form-input" id="projectTaskAssignee"><option value="">미지정</option><option value="__all__" ${isAllAssignees?'selected':''}>모두 (프로젝트 참여자 전원)</option>${members.map(m => `<option value="${esc(m.uid)}" ${!isAllAssignees && task?.assignee_uid===m.uid?'selected':''}>${esc(m.name)}</option>`).join('')}</select></div>
       <div class="form-group"><label class="form-label">상태</label><select class="form-input" id="projectTaskStatus">${Object.entries(PROJECT_TASK_STATUS).map(([value, meta]) => `<option value="${value}" ${task?.status===value?'selected':''}>${meta.label}</option>`).join('')}</select></div>
     </div>
-    <div class="form-group"><label class="form-label">마감일</label><input type="date" class="form-input" id="projectTaskDue" value="${esc(task?.due_date || '')}"></div>
+    <div class="form-group"><label class="form-label">마감일 <span style="color:var(--red)">필수</span></label><input type="date" class="form-input" id="projectTaskDue" value="${esc(task?.due_date || '')}" required></div>
     <div style="display:flex;gap:8px">
       <button class="btn btn-dark" onclick="closeModal()" style="flex:1">취소</button>
       ${task ? `<button class="btn btn-dark" onclick="deleteProjectTask('${task.id}')" style="flex:1;color:var(--red)">삭제</button>` : ''}
@@ -7894,6 +7901,8 @@ async function saveProjectTask(taskId = null) {
     dueDate: document.getElementById('projectTaskDue')?.value || ''
   };
   if (!body.title) return alert('업무명을 입력하세요');
+  if (!body.assigneeUid && body.assigneeMode !== 'all') return alert('담당자를 선택하세요');
+  if (!body.dueDate) return alert('업무 마감일을 지정하세요');
   const saved = taskId
     ? await api('PUT', `/projects/${selectedProjectId}/tasks/${taskId}`, body)
     : await api('POST', `/projects/${selectedProjectId}/tasks`, body);

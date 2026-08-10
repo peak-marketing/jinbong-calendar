@@ -1,6 +1,14 @@
 import { test, expect } from '@playwright/test';
 import { setupStubs } from './helpers';
 
+function koreaTodayKey() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
 test.describe('project tab', () => {
   test('supports multiple projects with search and status filters', async ({ page }) => {
     await page.setViewportSize({ width: 1366, height: 850 });
@@ -128,6 +136,7 @@ test.describe('project tab', () => {
     await page.getByRole('button', { name: '+ 업무' }).click();
     await page.locator('#projectTaskTitle').fill('정산 화면 문구 정리');
     await page.locator('#projectTaskAssignee').selectOption('member-1');
+    await page.locator('#projectTaskDue').fill('2026-06-29');
     await page.getByRole('button', { name: '저장' }).click();
     await expect(page.getByText('정산 화면 문구 정리').first()).toBeVisible();
     await expect(page.getByText('담당 김대호').first()).toBeVisible();
@@ -454,12 +463,13 @@ test.describe('project tab', () => {
 
   test('refreshes stale calendar data when selecting a date and highlights project meetings', async ({ page }) => {
     await page.setViewportSize({ width: 1366, height: 850 });
+    const testDate = koreaTodayKey();
     await setupStubs(page, {
       events: [{
         id: 'reviewspace-team-todo',
         type: 'todo',
         title: '리뷰스페이스',
-        date: '2026-07-07',
+        date: testDate,
         scope: 'team',
         owner_id: 'member-1',
         owner_name: '김지홍',
@@ -482,13 +492,13 @@ test.describe('project tab', () => {
     await page.goto('/');
     await page.waitForSelector('.cal-grid.month-grid', { timeout: 15_000 });
 
-    await page.evaluate(() => {
+    await page.evaluate(date => {
       const state = (window as any).__e2e_api_state;
       state.events.unshift({
         id: 'project-meeting-late',
         type: 'meeting',
         title: '키워드 마스터 판매 기획 회의',
-        date: '2026-07-07',
+        date,
         time: '15:00',
         memo: '회의 안건',
         scope: 'team',
@@ -497,9 +507,9 @@ test.describe('project tab', () => {
         project_id: 'project-keyword',
         deleted: false,
       });
-    });
+    }, testDate);
 
-    await page.locator('.cal-cell[data-date="2026-07-07"]').click();
+    await page.locator(`.cal-cell[data-date="${testDate}"]`).click();
 
     await expect(page.locator('#rightPanel').getByText('📁 프로젝트 회의')).toBeVisible();
     await expect(page.locator('#rightPanel').getByText('키워드 마스터 판매 기획 회의')).toBeVisible();
@@ -507,11 +517,12 @@ test.describe('project tab', () => {
 
   test('hides project meeting events from archived or deleted duplicate projects', async ({ page }) => {
     await page.setViewportSize({ width: 1366, height: 850 });
+    const testDate = koreaTodayKey();
     const activeMeeting = {
       id: 'active-project-meeting',
       type: 'meeting',
       title: '장기,단기적인 프로젝트에 대한 회의',
-      date: '2026-07-03',
+      date: testDate,
       time: '15:00',
       scope: 'team',
       owner_id: 'e2e-test-user',
@@ -573,7 +584,7 @@ test.describe('project tab', () => {
 
     await page.goto('/');
     await page.waitForSelector('.cal-grid.month-grid', { timeout: 15_000 });
-    await page.locator('.cal-cell[data-date="2026-07-03"]').click();
+    await page.locator(`.cal-cell[data-date="${testDate}"]`).click();
 
     await expect(page.locator('#rightPanel').getByText('📁 프로젝트 회의')).toBeVisible();
     await expect(page.locator('#rightPanel').getByText('장기,단기적인 프로젝트에 대한 회의')).toHaveCount(1);

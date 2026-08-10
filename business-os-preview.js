@@ -97,7 +97,10 @@
   let todoCaptureDraft = '';
   let todoPriorityFocus = null;
   let projectFilter = 'all';
+  let projectSearch = '';
   let projectDetailTab = 'overview';
+  let projectTaskAssigneeFilter = 'all';
+  let projectTaskRoleFilter = 'all';
   let selectedProjectId = null;
   let projectDetailLoadGeneration = 0;
   let chatFilter = 'all';
@@ -2130,6 +2133,10 @@
     eventLoadedYear = null;
     todoCaptureDraft = '';
     todoPriorityFocus = null;
+    projectFilter = 'all';
+    projectSearch = '';
+    projectTaskAssigneeFilter = 'all';
+    projectTaskRoleFilter = 'all';
   }
 
   function startCollaborationPolling() {
@@ -2464,7 +2471,7 @@
     const unreadTotal = Object.values(liveUnreadCounts).reduce((sum, value) => sum + Number(value || 0), 0);
     const today = koreaDateKey(new Date());
     const todoRemaining = liveEvents.filter(event => event.type === 'todo' && event.date === today && !event.done).length;
-    const reviewProjects = liveProjects.filter(project => project.status === 'review').length;
+    const reviewProjects = liveProjects.reduce((sum, project) => sum + Number(project.review_task_count || project.reviewTaskCount || (project.status === 'review' ? 1 : 0)), 0);
     const chatBadge = document.querySelector('[data-view="chat"] .nav-badge');
     const todoBadge = document.querySelector('[data-view="todo"] .nav-badge');
     const projectBadge = document.querySelector('[data-view="review"] .nav-badge');
@@ -2484,6 +2491,98 @@
     const total = Number(project.task_count || 0);
     const done = Number(project.done_task_count || 0);
     return { total, done, percent: total ? Math.round(done / total * 100) : 0 };
+  }
+
+  function projectDateNumber(value) {
+    const key = String(value || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return null;
+    const [year, month, day] = key.split('-').map(Number);
+    const number = Date.UTC(year, month - 1, day) / 86400000;
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function projectDeadlineMeta(value, status = '') {
+    const key = String(value || '').slice(0, 10);
+    const deadline = projectDateNumber(key);
+    if (deadline === null) return { key: '', state: 'none', label: '마감일 없음', days: null };
+    if (status === 'done') return { key, state: 'complete', label: `완료 · ${key}`, days: null };
+    const today = projectDateNumber(koreaDateKey(new Date()));
+    const days = deadline - today;
+    if (days < 0) return { key, state: 'overdue', label: `기한 초과 ${Math.abs(days)}일`, days };
+    if (days === 0) return { key, state: 'today', label: '오늘 마감', days };
+    if (days <= 3) return { key, state: 'soon', label: `D-${days}`, days };
+    return { key, state: 'scheduled', label: `D-${days}`, days };
+  }
+
+  function projectDeadlineBadge(value, status = '', className = '') {
+    const meta = projectDeadlineMeta(value, status);
+    return `<span class="project-deadline-badge ${meta.state} ${className}" data-deadline-state="${meta.state}" title="${esc(meta.key || meta.label)}">${esc(meta.label)}</span>`;
+  }
+
+  function addProjectDeadlineDays(days) {
+    const today = koreaDateKey(new Date());
+    const [year, month, day] = today.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    date.setUTCDate(date.getUTCDate() + Number(days || 0));
+    return date.toISOString().slice(0, 10);
+  }
+
+  function projectTaskAssignees(task) {
+    const assignees = Array.isArray(task?.assignees) ? task.assignees : [];
+    if (assignees.length) return assignees;
+    if (!task?.assignee_uid && !task?.assigneeUid) return [];
+    return [{
+      uid: task.assignee_uid || task.assigneeUid,
+      name: task.assignee_name || task.assigneeName || '',
+      completed: task.completed === true
+    }];
+  }
+
+  function projectTaskRole(task) {
+    return String(task?.role_label || task?.roleLabel || task?.assignee_role || task?.assigneeRole || '').trim();
+  }
+
+  function projectTaskCreator(task, project) {
+    return String(
+      task?.assigned_by_name || task?.assignedByName || task?.creator_name || task?.creatorName || task?.created_by_name || task?.createdByName
+      || (String(task?.created_by || task?.createdBy || '') === String(currentUser?.uid || '')
+        ? (userDoc?.name || currentUser?.displayName || currentUser?.email || '')
+        : '')
+      || project?.owner_name || project?.ownerName || ''
+    ).trim() || '지시자 미지정';
+  }
+
+  function projectTaskReviewer(task, project) {
+    return String(task?.reviewer_name || task?.reviewerName || project?.owner_name || project?.ownerName || '').trim();
+  }
+
+  function projectTaskMine(task) {
+    const uid = String(currentUser?.uid || '');
+    return Boolean(uid && projectTaskAssignees(task).some(item => String(item.uid || '') === uid));
+  }
+
+  function projectTaskCanManage(task, project) {
+    if (!collaborationWritable('projects')) return false;
+    if (typeof task?.permissions?.canEdit === 'boolean') return task.permissions.canEdit;
+    if (typeof task?.canManage === 'boolean') return task.canManage;
+    if (typeof task?.can_manage === 'boolean') return task.can_manage;
+    return project?.canManage === true;
+  }
+
+  function projectTaskCanRequestReview(task) {
+    if (!collaborationWritable('projects')) return false;
+    if (typeof task?.canRequestReview === 'boolean') return task.canRequestReview;
+    if (typeof task?.can_request_review === 'boolean') return task.can_request_review;
+    if (typeof task?.permissions?.canRequestReview === 'boolean') return task.permissions.canRequestReview;
+    return projectTaskMine(task) && ['todo', 'doing'].includes(task?.status || 'todo');
+  }
+
+  function projectTaskCanReview(task, project) {
+    if (!collaborationWritable('projects')) return false;
+    if (typeof task?.permissions?.canReview === 'boolean') return task.permissions.canReview;
+    if (typeof task?.canReview === 'boolean') return task.canReview;
+    if (typeof task?.can_review === 'boolean') return task.can_review;
+    return project?.canManage === true;
   }
 
   function renderDashboard() {
@@ -3187,43 +3286,62 @@
     projectDetailLoadGeneration += 1;
     selectedProjectId = null;
     liveProjectDetail = null;
+    const query = projectSearch.trim().toLocaleLowerCase('ko-KR');
     const counts = {
       all: liveProjects.length,
       review: liveProjects.filter(project => project.status === 'review').length,
       active: liveProjects.filter(project => project.status === 'active').length,
       planning: liveProjects.filter(project => project.status === 'planning').length,
       done: liveProjects.filter(project => project.status === 'done').length,
-      hold: liveProjects.filter(project => project.status === 'hold').length
+      hold: liveProjects.filter(project => project.status === 'hold').length,
+      overdue: liveProjects.filter(project => projectDeadlineMeta(project.deadline, project.status).state === 'overdue').length,
+      taskReview: liveProjects.reduce((sum, project) => sum + Number(project.review_task_count || project.reviewTaskCount || 0), 0),
+      taskOverdue: liveProjects.reduce((sum, project) => sum + Number(project.overdue_task_count || project.overdueTaskCount || 0), 0)
     };
     const filtered = liveProjects.filter(project => {
-      return projectFilter === 'all' || project.status === projectFilter;
+      if (projectFilter !== 'all' && project.status !== projectFilter) return false;
+      if (!query) return true;
+      return [project.name, project.description, project.member_names, project.owner_name, project.deadline]
+        .map(value => String(value || '').toLocaleLowerCase('ko-KR'))
+        .some(value => value.includes(query));
+    }).sort((a, b) => {
+      const priority = { overdue: 0, today: 1, soon: 2, scheduled: 3, none: 4, complete: 5 };
+      const aDeadline = projectDeadlineMeta(a.deadline, a.status);
+      const bDeadline = projectDeadlineMeta(b.deadline, b.status);
+      return Number(b.overdue_task_count || b.overdueTaskCount || 0) - Number(a.overdue_task_count || a.overdueTaskCount || 0)
+        || (priority[aDeadline.state] ?? 9) - (priority[bDeadline.state] ?? 9)
+        || String(b.updated_at || b.created_at || '').localeCompare(String(a.updated_at || a.created_at || ''));
     });
     const cards = filtered.map(project => {
       const status = PROJECT_STATUS[project.status] || PROJECT_STATUS.active;
       const progress = projectProgress(project);
       const people = project.member_names || project.owner_name || `${project.member_count || 0}명`;
-      return `<article class="review-project-card" data-project-id="${esc(project.id)}">
-        <div class="review-card-head"><span class="review-card-status ${status[1]}">${status[0]}</span><span class="readonly-badge" ${!collaborationWritable('projects') ? 'data-collab-readonly' : ''}>${!collaborationWritable('projects') ? '조회 · 읽기 전용' : (isWorkspaceRoute() && activeWorkspaceSlug !== 'peak' ? '워크스페이스 저장' : '파라곤 연동')}</span></div>
+      const deadline = projectDeadlineMeta(project.deadline, project.status);
+      const reviewTasks = Number(project.review_task_count || project.reviewTaskCount || 0);
+      const overdueTasks = Number(project.overdue_task_count || project.overdueTaskCount || 0);
+      return `<article class="review-project-card project-command-card deadline-${deadline.state}" data-project-id="${esc(project.id)}" data-deadline-state="${deadline.state}" tabindex="0" role="button" aria-label="${esc(project.name || '프로젝트')} 상세보기">
+        <div class="review-card-head"><span class="review-card-status ${status[1]}">${status[0]}</span>${projectDeadlineBadge(project.deadline, project.status)}</div>
         <h2 class="review-card-title">${esc(project.name || '프로젝트명 없음')}</h2>
         <p class="review-card-description">${esc(project.description || '등록된 설명이 없습니다.')}</p>
+        <div class="project-card-command"><span><b>검토자</b>${esc(project.owner_name || '미지정')}</span><span><b>참여</b>${esc(people)}</span></div>
         <div class="review-card-progress"><div class="review-card-progress-label"><span>진행률</span><strong>${progress.percent}%</strong></div><div class="progress-track"><i style="width:${progress.percent}%"></i></div></div>
-        <div class="review-card-meta"><span class="review-card-members">담당 ${esc(people)}</span><span>${esc(project.deadline || '마감일 없음')}</span></div>
-        <div class="review-card-actions"><span class="review-card-count">업무 ${progress.done}/${progress.total}</span><button class="review-open-button" type="button">상세보기</button></div>
+        <div class="review-card-actions"><span class="review-card-count">체크리스트 ${progress.done}/${progress.total}${reviewTasks ? ` · 검토 ${reviewTasks}` : ''}${overdueTasks ? ` · 초과 ${overdueTasks}` : ''}</span><span class="review-open-button">상세보기</span></div>
       </article>`;
     }).join('');
 
     reviewView.innerHTML = `
       <header class="review-page-toolbar collaboration-page-toolbar">
-        <div class="review-page-copy"><strong>프로젝트</strong><span>${isWorkspaceRoute() && activeWorkspaceSlug !== 'peak' ? '현재 워크스페이스의 프로젝트와 업무만 관리합니다' : '기존 파라곤 프로젝트와 업무를 함께 관리합니다'}</span></div>
+        <div class="review-page-copy"><strong>프로젝트 업무 지시</strong><span>지시자, 담당자, 역할과 마감기한을 한눈에 확인하고 완료 후 상사 검토까지 진행합니다</span></div>
         <div class="collaboration-toolbar-actions">${collaborationReadonlyMarkup()}${collaborationWritable('projects') ? '<button class="review-create-button" type="button" data-collab-project-create>＋ 새 프로젝트</button>' : ''}</div>
       </header>
       <section class="review-summary" aria-label="프로젝트 요약">
-        <article class="review-summary-card primary"><span>전체</span><strong>${counts.all}</strong></article>
+        <article class="review-summary-card urgent"><span>기한 초과 업무</span><strong>${counts.taskOverdue || counts.overdue}</strong></article>
         <article class="review-summary-card"><span>진행 중</span><strong>${counts.active}</strong></article>
-        <article class="review-summary-card"><span>확인 대기</span><strong>${counts.review}</strong></article>
-        <article class="review-summary-card"><span>완료</span><strong>${counts.done}</strong></article>
+        <article class="review-summary-card"><span>검토 요청 업무</span><strong>${counts.taskReview}</strong></article>
+        <article class="review-summary-card primary"><span>전체 프로젝트</span><strong>${counts.all}</strong></article>
       </section>
-      <section class="review-controls">
+      <section class="review-controls project-list-controls">
+        <label class="project-search-field"><span class="sr-only">프로젝트 검색</span><input type="search" value="${esc(projectSearch)}" placeholder="프로젝트명, 담당자, 내용 검색" data-project-search></label>
         <nav class="review-filter-tabs" aria-label="프로젝트 상태">
           ${[['all','전체'],['active','진행 중'],['review','확인 대기'],['planning','기획 중'],['done','완료'],['hold','보류']].map(([key, label]) => `<button class="review-filter ${projectFilter === key ? 'active' : ''}" type="button" data-project-filter="${key}">${label} ${counts[key]}</button>`).join('')}
         </nav>
@@ -3231,11 +3349,40 @@
       </section>
       <section class="review-project-grid" aria-label="프로젝트 목록">${cards || '<div class="review-empty">조건에 맞는 프로젝트가 없습니다.</div>'}</section>`;
 
+    const search = reviewView.querySelector('[data-project-search]');
+    let projectSearchComposing = false;
+    const applyProjectSearch = () => {
+      projectSearch = search.value;
+      const start = search.selectionStart;
+      renderProjects();
+      const next = reviewView.querySelector('[data-project-search]');
+      next?.focus();
+      if (typeof start === 'number') next?.setSelectionRange(start, start);
+    };
+    search?.addEventListener('compositionstart', () => { projectSearchComposing = true; });
+    search?.addEventListener('compositionend', () => {
+      projectSearchComposing = false;
+      applyProjectSearch();
+    });
+    search?.addEventListener('input', () => {
+      if (projectSearchComposing) {
+        projectSearch = search.value;
+        return;
+      }
+      applyProjectSearch();
+    });
     reviewView.querySelectorAll('[data-project-filter]').forEach(button => button.addEventListener('click', () => {
       projectFilter = button.dataset.projectFilter;
       renderProjects();
     }));
-    reviewView.querySelectorAll('[data-project-id]').forEach(card => card.addEventListener('click', () => openProjectDetail(card.dataset.projectId)));
+    reviewView.querySelectorAll('[data-project-id]').forEach(card => {
+      card.addEventListener('click', () => openProjectDetail(card.dataset.projectId));
+      card.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        openProjectDetail(card.dataset.projectId);
+      });
+    });
     reviewView.querySelector('[data-collab-project-create]')?.addEventListener('click', () => openProjectEditor());
   }
 
@@ -3308,19 +3455,30 @@
 
   function openProjectTaskEditor(project, task = null) {
     if (!collaborationWritable()) return showToast('계정 미리보기에서는 변경할 수 없습니다.');
+    const permissions = task?.permissions || {};
+    const mayEdit = task ? (permissions.canEdit ?? (project.canManage === true)) : project.canManage === true;
+    if (!mayEdit) return showToast('프로젝트 상사만 업무를 지시하거나 수정할 수 있습니다.');
     const all = task?.assignment_mode === 'all';
-    openDetailModal(task ? '프로젝트 업무 수정' : '프로젝트 업무 추가', `
+    const reviewerName = projectTaskReviewer(task, project) || project.owner_name || '프로젝트 담당자';
+    openDetailModal(task ? '프로젝트 업무 지시 수정' : '새 업무 지시', `
       <form class="collaboration-form" id="collaborationProjectTaskForm">
         <div class="collaboration-form-grid">
-          <label class="wide"><span>업무명</span><input name="title" maxlength="200" required value="${esc(task?.title || '')}"></label>
-          <label><span>담당자</span><select name="assigneeUid"><option value="">미지정</option><option value="__all__" ${all ? 'selected' : ''}>모두</option>${(project.members || []).map(member => `<option value="${esc(member.uid)}" ${!all && task?.assignee_uid === member.uid ? 'selected' : ''}>${esc(member.name || member.email)}</option>`).join('')}</select></label>
-          <label><span>상태</span><select name="status">${Object.entries(TASK_STATUS).map(([key, label]) => `<option value="${key}" ${task?.status === key || (!task && key === 'todo') ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></label>
-          <label><span>마감일</span><input name="dueDate" type="date" value="${esc(task?.due_date || '')}"></label><span></span>
-          <label class="wide"><span>설명</span><textarea name="description" rows="4" maxlength="3000">${esc(task?.description || '')}</textarea></label>
+          <label class="wide"><span>체크리스트 업무</span><input name="title" maxlength="200" required value="${esc(task?.title || '')}" placeholder="담당자가 완료 후 검토를 요청할 업무를 적어주세요"></label>
+          <label><span>담당자</span><select name="assigneeUid" required><option value="" ${!task?.assignee_uid && !all ? 'selected' : ''} disabled>담당자 선택</option><option value="__all__" ${all ? 'selected' : ''}>모두</option>${(project.members || []).map(member => `<option value="${esc(member.uid)}" ${!all && task?.assignee_uid === member.uid ? 'selected' : ''}>${esc(member.name || member.email)}</option>`).join('')}</select></label>
+          <label><span>역할</span><input name="roleLabel" maxlength="80" required value="${esc(projectTaskRole(task))}" placeholder="예: 자료 작성, 검수, 승인"></label>
+          <label><span>검토자(상사)</span><input value="${esc(reviewerName)}" disabled aria-label="검토자"></label>
+          <label><span>마감일</span><input name="dueDate" type="date" required value="${esc(task?.due_date || task?.dueDate || '')}"></label>
+          <div class="wide project-due-presets" aria-label="빠른 마감기한 선택"><span>기한 빠른 선택</span><div>${[[1,'내일'],[3,'3일 내'],[7,'7일 내'],[14,'14일 내']].map(([days, label]) => `<button type="button" data-project-due-days="${days}">${label}</button>`).join('')}</div></div>
+          <label class="wide"><span>지시 내용</span><textarea name="description" rows="4" maxlength="3000" placeholder="완료 기준과 확인할 내용을 구체적으로 적어주세요">${esc(task?.description || '')}</textarea></label>
         </div>
-        <div class="collaboration-form-actions">${task && project.canManage ? '<button class="danger" type="button" data-collab-task-delete>삭제</button>' : ''}<span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">저장</button></div>
+        <div class="collaboration-form-actions">${task && (permissions.canDelete ?? (project.canManage === true)) ? '<button class="danger" type="button" data-collab-task-delete>삭제</button>' : ''}<span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">${task ? '수정 저장' : '업무 지시'}</button></div>
       </form>`, { locked: true });
     const form = document.getElementById('collaborationProjectTaskForm');
+    const dueDateInput = form.elements.namedItem('dueDate');
+    form.querySelectorAll('[data-project-due-days]').forEach(button => button.addEventListener('click', () => {
+      dueDateInput.value = addProjectDeadlineDays(button.dataset.projectDueDays);
+      dueDateInput.focus();
+    }));
     form.querySelector('[data-collab-cancel]').addEventListener('click', () => closeDetailModal());
     form.addEventListener('submit', async submitEvent => {
       submitEvent.preventDefault();
@@ -3329,8 +3487,9 @@
       const record = {
         title: String(data.get('title') || '').trim(),
         description: String(data.get('description') || '').trim(),
-        status: String(data.get('status') || 'todo'),
+        ...(task ? {} : { status: 'todo' }),
         dueDate: String(data.get('dueDate') || ''),
+        roleLabel: String(data.get('roleLabel') || '').trim(),
         assigneeMode: assignee === '__all__' ? 'all' : 'single',
         assigneeUid: assignee === '__all__' ? '' : assignee
       };
@@ -3339,7 +3498,7 @@
         : `/projects/${encodeURIComponent(project.id)}/tasks`;
       const saved = await runCollaborationMutation(
         () => collaborationApi(task ? 'PUT' : 'POST', path, record),
-        task ? '업무를 수정했습니다.' : '업무를 추가했습니다.'
+        task ? '업무 지시를 수정했습니다.' : '담당자에게 업무를 지시했습니다.'
       );
       if (!saved) return;
       closeDetailModal();
@@ -3389,29 +3548,91 @@
   }
 
   function projectTaskRow(task, project = liveProjectDetail) {
-    const assignees = Array.isArray(task.assignees) ? task.assignees : [];
+    const assignees = projectTaskAssignees(task);
     const completed = assignees.filter(item => item.completed).length;
-    const assigneeLabel = assignees.map(item => item.name).filter(Boolean).join(', ') || task.assignee_name || '미지정';
+    const assigneeLabel = assignees.map(item => item.name).filter(Boolean).join(', ') || task.assignee_name || task.assigneeName || '미지정';
     const taskStatus = task.status || 'todo';
     const statusClass = taskStatus === 'done' ? 'done' : taskStatus === 'review' ? 'review' : taskStatus === 'hold' ? 'hold' : 'active';
     const completion = assignees.length > 1 ? ` ${completed}/${assignees.length}` : '';
     const mine = assignees.find(item => String(item.uid) === String(currentUser?.uid));
     const commentCount = (project?.taskComments || []).filter(comment => String(comment.task_id) === String(task.id) && comment.deleted !== true).length;
     const isComplete = task.assignment_mode === 'all' ? Boolean(mine?.completed) : taskStatus === 'done';
-    const toggleAttribute = !collaborationWritable()
+    const canRequestReview = projectTaskCanRequestReview(task);
+    const canReview = projectTaskCanReview(task, project);
+    const canManage = projectTaskCanManage(task, project);
+    const canCompleteAll = typeof task?.permissions?.canComplete === 'boolean' ? task.permissions.canComplete : Boolean(mine);
+    const toggleAttribute = taskStatus === 'done' || !collaborationWritable('projects')
       ? 'disabled'
       : task.assignment_mode === 'all'
-        ? (mine ? `data-collab-task-completion="${esc(task.id)}"` : 'disabled')
-        : `data-collab-task-toggle="${esc(task.id)}"`;
-    return `<article class="project-detail-task" data-task-id="${esc(task.id)}">
-      <button class="project-detail-check ${isComplete ? 'checked' : ''}" type="button" ${toggleAttribute} aria-label="${esc(task.title)} 완료 상태">${isComplete ? '✓' : ''}</button>
+        ? (mine && canCompleteAll ? `data-collab-task-completion="${esc(task.id)}"` : 'disabled')
+        : (canRequestReview ? `data-collab-task-review-request="${esc(task.id)}"` : 'disabled');
+    const deadline = projectDeadlineMeta(task.due_date || task.dueDate, taskStatus);
+    const role = projectTaskRole(task) || '역할 미지정';
+    const creator = projectTaskCreator(task, project);
+    const reviewer = projectTaskReviewer(task, project);
+    const reviewRequestedAt = task.review_requested_at || task.reviewRequestedAt;
+    const reviewedAt = task.reviewed_at || task.reviewedAt;
+    const reviewActions = taskStatus === 'review' && canReview
+      ? `<div class="project-task-review-actions"><button class="approve" type="button" data-collab-task-review-decision="${esc(task.id)}" data-decision="approve">완료 승인</button><button class="reject" type="button" data-collab-task-review-decision="${esc(task.id)}" data-decision="reject">반려</button></div>`
+      : '';
+    const allProgress = task.assignment_mode === 'all' && assignees.length
+      ? `<div class="project-task-assignee-progress"><span>담당자별 완료</span><strong>${completed}/${assignees.length}</strong><i><b style="width:${Math.round(completed / assignees.length * 100)}%"></b></i></div>`
+      : '';
+    const checkLabel = taskStatus === 'done'
+      ? `${task.title} 완료됨`
+      : taskStatus === 'review'
+        ? `${task.title} 검토 요청됨`
+        : task.assignment_mode === 'all'
+          ? `${task.title} 내 완료 체크`
+          : `${task.title} 완료 후 상사에게 검토 요청`;
+    return `<article class="project-detail-task project-workflow-task deadline-${deadline.state}" data-task-id="${esc(task.id)}" data-task-status="${esc(taskStatus)}" data-deadline-state="${deadline.state}">
+      <button class="project-detail-check ${isComplete ? 'checked' : ''} ${taskStatus === 'review' ? 'review-requested' : ''}" type="button" ${toggleAttribute} aria-label="${esc(checkLabel)}">${isComplete ? '✓' : taskStatus === 'review' ? '↗' : ''}</button>
       <div class="project-detail-task-copy">
-        <div class="project-detail-task-meta"><span class="review-card-status ${statusClass}">${esc(TASK_STATUS[taskStatus] || taskStatus)}${completion}</span><span>담당 ${esc(assigneeLabel)}</span>${task.due_date ? `<span>마감 ${esc(task.due_date)}</span>` : ''}</div>
+        <div class="project-detail-task-meta"><span class="review-card-status ${statusClass}">${esc(TASK_STATUS[taskStatus] || taskStatus)}${completion}</span>${projectDeadlineBadge(task.due_date || task.dueDate, taskStatus)}<span class="project-task-role">역할 · ${esc(role)}</span></div>
         <strong>${esc(task.title || '업무명 없음')}</strong>
+        <div class="project-task-command-line"><span><b>지시</b>${esc(creator)}</span><i aria-hidden="true">→</i><span><b>담당</b>${esc(assigneeLabel)}</span>${reviewer ? `<i aria-hidden="true">→</i><span><b>검토</b>${esc(reviewer)}</span>` : ''}</div>
         ${task.description ? `<p>${esc(task.description)}</p>` : ''}
+        ${taskStatus === 'doing' && (task.review_note || task.reviewNote) ? `<div class="project-review-note"><b>반려 사유</b><span>${esc(task.review_note || task.reviewNote)}</span></div>` : ''}
+        ${allProgress}
+        ${taskStatus === 'review' && reviewRequestedAt ? `<small class="project-review-history">${esc(formatDate(reviewRequestedAt, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }))} 검토 요청</small>` : ''}
+        ${taskStatus === 'done' && reviewedAt ? `<small class="project-review-history done">${esc(formatDate(reviewedAt, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }))} 승인 완료</small>` : ''}
       </div>
-      <div class="collaboration-task-actions"><button class="project-detail-text-action" type="button" data-collab-task-comments="${esc(task.id)}">대화 ${commentCount}</button>${collaborationWritable() ? `<button class="project-detail-text-action" type="button" data-collab-task-edit="${esc(task.id)}">수정</button>` : ''}</div>
+      <div class="collaboration-task-actions">${reviewActions}<div class="project-task-secondary-actions"><button class="project-detail-text-action" type="button" data-collab-task-comments="${esc(task.id)}">대화 ${commentCount}</button>${canManage ? `<button class="project-detail-text-action" type="button" data-collab-task-edit="${esc(task.id)}">수정</button>` : ''}</div></div>
     </article>`;
+  }
+
+  function projectWorkflowBoard(tasks, project) {
+    const roles = [...new Set(tasks.map(projectTaskRole).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
+    const assignees = new Map();
+    tasks.forEach(task => projectTaskAssignees(task).forEach(item => {
+      const uid = String(item.uid || '');
+      if (uid) assignees.set(uid, item.name || task.assignee_name || '담당자');
+    }));
+    const filtered = tasks.filter(task => {
+      if (projectTaskRoleFilter !== 'all' && projectTaskRole(task) !== projectTaskRoleFilter) return false;
+      if (projectTaskAssigneeFilter === 'mine' && !projectTaskMine(task)) return false;
+      if (projectTaskAssigneeFilter !== 'all' && projectTaskAssigneeFilter !== 'mine'
+        && !projectTaskAssignees(task).some(item => String(item.uid || '') === projectTaskAssigneeFilter)) return false;
+      return true;
+    });
+    const groups = [
+      ['review', '검토 요청', filtered.filter(task => task.status === 'review')],
+      ['active', '진행할 업무', filtered.filter(task => ['todo', 'doing'].includes(task.status || 'todo'))],
+      ['hold', '보류', filtered.filter(task => task.status === 'hold')],
+      ['done', '완료', filtered.filter(task => task.status === 'done')]
+    ];
+    const overdue = filtered.filter(task => projectDeadlineMeta(task.due_date || task.dueDate, task.status).state === 'overdue').length;
+    return `<section class="project-workflow-board">
+      <header class="project-workflow-toolbar">
+        <div><strong>담당자 · 역할별 체크리스트</strong><span>담당자는 완료 체크로 상사에게 검토를 요청하고, 검토자는 승인 또는 반려합니다.</span></div>
+        <div class="project-workflow-filters">
+          <label><span>담당자</span><select data-project-task-assignee-filter><option value="all">전체 담당자</option><option value="mine" ${projectTaskAssigneeFilter === 'mine' ? 'selected' : ''}>내 업무</option>${[...assignees.entries()].map(([uid, name]) => `<option value="${esc(uid)}" ${projectTaskAssigneeFilter === uid ? 'selected' : ''}>${esc(name)}</option>`).join('')}</select></label>
+          <label><span>역할</span><select data-project-task-role-filter><option value="all">전체 역할</option>${roles.map(role => `<option value="${esc(role)}" ${projectTaskRoleFilter === role ? 'selected' : ''}>${esc(role)}</option>`).join('')}</select></label>
+        </div>
+      </header>
+      <div class="project-workflow-summary" aria-label="체크리스트 현황"><span class="review"><b>${groups[0][2].length}</b>검토 요청</span><span class="overdue"><b>${overdue}</b>기한 초과</span><span><b>${groups[1][2].length}</b>진행 중</span><span class="done"><b>${groups[3][2].length}</b>완료</span></div>
+      <div class="project-workflow-lanes">${groups.map(([key, label, items]) => `<section class="project-workflow-lane ${key}" data-project-task-group="${key}"><header><strong>${label}</strong><span>${items.length}</span></header><div>${items.map(task => projectTaskRow(task, project)).join('') || '<p class="project-detail-empty">해당 업무가 없습니다.</p>'}</div></section>`).join('')}</div>
+    </section>`;
   }
 
   function projectUpdateRow(update, project = liveProjectDetail) {
@@ -3467,9 +3688,18 @@
     const comments = Array.isArray(project.comments) ? project.comments : [];
     const events = Array.isArray(project.events) ? project.events : [];
     const doneTasks = tasks.filter(task => task.status === 'done').length;
+    const reviewTasks = tasks.filter(task => task.status === 'review').length;
+    const overdueTasks = tasks.filter(task => projectDeadlineMeta(task.due_date || task.dueDate, task.status).state === 'overdue').length;
     const percent = tasks.length ? Math.round(doneTasks / tasks.length * 100) : 0;
-    const memberRows = members.map(member => `<span class="project-member-chip"><i>${esc((member.name || '?').slice(0, 1))}</i>${esc(member.name || member.email || '이름 없음')}${member.role === 'manager' ? '<b>담당</b>' : ''}</span>`).join('');
-    const taskRows = tasks.map(task => projectTaskRow(task, project)).join('');
+    const memberRows = members.map(member => `<span class="project-member-chip"><i>${esc((member.name || '?').slice(0, 1))}</i>${esc(member.name || member.email || '이름 없음')}${member.role === 'manager' ? '<b>검토 책임</b>' : '<b>담당 가능</b>'}</span>`).join('');
+    const urgentTasks = [...tasks].filter(task => task.status !== 'done').sort((a, b) => {
+      if (a.status === 'review' && b.status !== 'review') return -1;
+      if (b.status === 'review' && a.status !== 'review') return 1;
+      const aDeadline = projectDeadlineMeta(a.due_date || a.dueDate, a.status);
+      const bDeadline = projectDeadlineMeta(b.due_date || b.dueDate, b.status);
+      return (aDeadline.days ?? Number.MAX_SAFE_INTEGER) - (bDeadline.days ?? Number.MAX_SAFE_INTEGER);
+    });
+    const taskRows = urgentTasks.slice(0, 5).map(task => projectTaskRow(task, project)).join('');
     const updateRows = updates.map(update => projectUpdateRow(update, project)).join('');
     const eventRows = events.map(projectEventRow).join('');
     const commentRows = comments.map(comment => projectCommentRow(comment, project)).join('');
@@ -3477,12 +3707,12 @@
       <div class="project-overview-grid">
         ${projectDetailPanel('개요', `<p class="project-description">${esc(project.description || '등록된 프로젝트 설명이 없습니다.')}</p>`, '')}
         ${projectDetailPanel('참여 멤버', `<div class="project-member-list">${memberRows || '<div class="project-detail-empty">등록된 참여 멤버가 없습니다.</div>'}</div>`, '')}
-        ${projectDetailPanel('다음 업무', taskRows, '등록된 업무가 없습니다.')}
+        ${projectDetailPanel('우선 확인 체크리스트', taskRows, '진행할 체크리스트가 없습니다.')}
         ${projectDetailPanel('최근 진행사항', updates.slice(0, 5).map(update => projectUpdateRow(update, project)).join(''), '아직 진행사항 기록이 없습니다.')}
       </div>`;
     const tabContent = {
       overview,
-      tasks: projectDetailPanel(`업무 ${tasks.length}개`, taskRows, '등록된 업무가 없습니다.', 'project-detail-panel-wide'),
+      tasks: projectWorkflowBoard(tasks, project),
       updates: projectDetailPanel(`진행사항 ${updates.length}개`, updateRows, '아직 진행사항 기록이 없습니다.', 'project-detail-panel-wide'),
       schedule: projectDetailPanel(`일정 ${events.length}개`, eventRows, '등록된 프로젝트 일정이 없습니다.', 'project-detail-panel-wide')
     }[tab] || overview;
@@ -3493,19 +3723,19 @@
           <div class="project-detail-heading"><span>▰</span><strong>프로젝트</strong></div>
           <div class="project-detail-actions">
             <button type="button" data-project-back>← 목록</button>
-            ${previewPersona ? collaborationReadonlyMarkup() : `<button type="button" class="primary" data-collab-task-create>＋ 업무</button><button type="button" data-collab-project-update-create>＋ 진행사항</button><button type="button" data-collab-project-meeting-create>＋ 회의</button>${project.canManage ? '<button type="button" data-collab-project-edit>프로젝트 수정</button>' : ''}`}
+            ${previewPersona ? collaborationReadonlyMarkup() : `${project.canManage ? '<button type="button" class="primary" data-collab-task-create>＋ 업무 지시</button>' : ''}<button type="button" data-collab-project-update-create>＋ 진행사항</button><button type="button" data-collab-project-meeting-create>＋ 회의</button>${project.canManage ? '<button type="button" data-collab-project-edit>프로젝트 수정</button>' : ''}`}
           </div>
         </header>
-        <section class="project-detail-hero">
+        <section class="project-detail-hero deadline-${projectDeadlineMeta(project.deadline, project.status).state}" data-project-deadline-state="${projectDeadlineMeta(project.deadline, project.status).state}">
           <div>
-            <div class="project-detail-hero-meta"><span class="review-card-status ${status[1]}">${esc(status[0])}</span>${project.deadline ? `<span>마감 ${esc(project.deadline)}</span>` : ''}</div>
+            <div class="project-detail-hero-meta"><span class="review-card-status ${status[1]}">${esc(status[0])}</span>${projectDeadlineBadge(project.deadline, project.status, 'hero')}</div>
             <h1>${esc(project.name || '프로젝트명 없음')}</h1>
-            <p>담당 ${esc(project.owner_name || '미지정')} · 참여 ${members.length}명</p>
+            <p>검토 책임 ${esc(project.owner_name || '미지정')} · 참여 ${members.length}명 · 검토 요청 ${reviewTasks}건${overdueTasks ? ` · 기한 초과 ${overdueTasks}건` : ''}</p>
           </div>
           <div class="project-detail-progress"><span><b>진행률</b><strong>${percent}%</strong></span><div class="progress-track"><i style="width:${percent}%"></i></div><small>${doneTasks}/${tasks.length} 완료</small></div>
         </section>
         <nav class="project-detail-tabs" aria-label="프로젝트 상세 메뉴">
-          ${[['overview','개요'],['tasks','업무'],['updates','진행사항'],['schedule','일정']].map(([key, label]) => `<button class="${tab === key ? 'active' : ''}" type="button" data-project-detail-tab="${key}">${label}</button>`).join('')}
+          ${[['overview','개요'],['tasks',`체크리스트 ${tasks.length}`],['updates','진행사항'],['schedule','일정']].map(([key, label]) => `<button class="${tab === key ? 'active' : ''}" type="button" data-project-detail-tab="${key}">${label}</button>`).join('')}
         </nav>
         <div class="project-detail-layout">
           <main class="project-detail-main">${tabContent}</main>
@@ -3526,6 +3756,14 @@
 
     reviewView.querySelector('[data-project-back]').addEventListener('click', () => { liveProjectDetail = null; renderProjects(); });
     reviewView.querySelectorAll('[data-project-detail-tab]').forEach(button => button.addEventListener('click', () => renderProjectDetail(project, button.dataset.projectDetailTab)));
+    reviewView.querySelector('[data-project-task-assignee-filter]')?.addEventListener('change', event => {
+      projectTaskAssigneeFilter = event.target.value;
+      renderProjectDetail(project, 'tasks');
+    });
+    reviewView.querySelector('[data-project-task-role-filter]')?.addEventListener('change', event => {
+      projectTaskRoleFilter = event.target.value;
+      renderProjectDetail(project, 'tasks');
+    });
     wireProjectDetailActions(project);
   }
 
@@ -3604,6 +3842,53 @@
     }));
   }
 
+  async function projectTaskReviewApi(project, task, action, details = {}) {
+    const projectId = encodeURIComponent(project.id);
+    const taskId = encodeURIComponent(task.id);
+    const expectedVersion = task.workflow_version ?? task.workflowVersion;
+    const versionBody = expectedVersion === undefined || expectedVersion === null ? {} : { expectedVersion };
+    const path = `/projects/${projectId}/tasks/${taskId}/review`;
+    const body = {
+      action,
+      note: String(details.note || '').trim(),
+      ...(String(details.dueDate || '').trim() ? { dueDate: String(details.dueDate).trim() } : {}),
+      ...versionBody
+    };
+    return collaborationApi('POST', path, body);
+  }
+
+  function openProjectReviewRejectEditor(project, task) {
+    openDetailModal('업무 반려', `
+      <form class="collaboration-form" id="collaborationProjectReviewRejectForm">
+        <p class="project-review-form-copy"><strong>${esc(task.title || '업무')}</strong><span>담당자가 바로 수정할 수 있도록 반려 사유를 구체적으로 적어주세요.</span></p>
+        <div class="collaboration-form-grid">
+          <label class="wide"><span>반려 사유</span><textarea name="note" rows="5" maxlength="2000" required placeholder="수정해야 할 내용을 적어주세요"></textarea></label>
+          <label><span>새 마감일 (선택)</span><input name="dueDate" type="date" value="${esc(task.due_date || task.dueDate || '')}"></label>
+          <div class="project-due-presets compact"><span>기한 재설정</span><div>${[[1,'내일'],[3,'3일 내'],[7,'7일 내']].map(([days, label]) => `<button type="button" data-project-due-days="${days}">${label}</button>`).join('')}</div></div>
+        </div>
+        <div class="collaboration-form-actions"><span></span><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">반려하고 다시 진행</button></div>
+      </form>`, { locked: true });
+    const form = document.getElementById('collaborationProjectReviewRejectForm');
+    const dueDateInput = form.elements.namedItem('dueDate');
+    form.querySelectorAll('[data-project-due-days]').forEach(button => button.addEventListener('click', () => {
+      dueDateInput.value = addProjectDeadlineDays(button.dataset.projectDueDays);
+    }));
+    form.querySelector('[data-collab-cancel]').addEventListener('click', closeDetailModal);
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const data = new FormData(form);
+      const note = String(data.get('note') || '').trim();
+      if (!note) return showToast('반려 사유를 입력해 주세요.');
+      const saved = await runCollaborationMutation(
+        () => projectTaskReviewApi(project, task, 'reject', { note, dueDate: data.get('dueDate') }),
+        '업무를 반려하고 담당자에게 다시 전달했습니다.'
+      );
+      if (!saved) return;
+      closeDetailModal();
+      await refreshProjectDetail(project.id);
+    });
+  }
+
   function wireProjectDetailActions(project) {
     reviewView.querySelector('[data-collab-project-edit]')?.addEventListener('click', () => openProjectEditor(project));
     reviewView.querySelector('[data-collab-task-create]')?.addEventListener('click', () => openProjectTaskEditor(project));
@@ -3617,13 +3902,25 @@
       const task = (project.tasks || []).find(item => String(item.id) === String(button.dataset.collabTaskComments));
       if (task) openProjectTaskConversation(project, task);
     }));
-    reviewView.querySelectorAll('[data-collab-task-toggle]').forEach(button => button.addEventListener('click', async () => {
-      const task = (project.tasks || []).find(item => String(item.id) === String(button.dataset.collabTaskToggle));
+    reviewView.querySelectorAll('[data-collab-task-review-request]').forEach(button => button.addEventListener('click', async () => {
+      const task = (project.tasks || []).find(item => String(item.id) === String(button.dataset.collabTaskReviewRequest));
       if (!task) return;
       button.disabled = true;
       const saved = await runCollaborationMutation(
-        () => collaborationApi('PUT', `/projects/${encodeURIComponent(project.id)}/tasks/${encodeURIComponent(task.id)}`, { status: task.status === 'done' ? 'doing' : 'done' }),
-        task.status === 'done' ? '업무를 다시 진행으로 변경했습니다.' : '업무를 완료했습니다.'
+        () => projectTaskReviewApi(project, task, 'request'),
+        '완료 체크했습니다. 상사에게 검토를 요청했습니다.'
+      );
+      if (!saved) { button.disabled = false; return; }
+      await refreshProjectDetail(project.id);
+    }));
+    reviewView.querySelectorAll('[data-collab-task-review-decision]').forEach(button => button.addEventListener('click', async () => {
+      const task = (project.tasks || []).find(item => String(item.id) === String(button.dataset.collabTaskReviewDecision));
+      if (!task) return;
+      if (button.dataset.decision === 'reject') return openProjectReviewRejectEditor(project, task);
+      button.disabled = true;
+      const saved = await runCollaborationMutation(
+        () => projectTaskReviewApi(project, task, 'approve'),
+        '업무 검토를 완료하고 승인했습니다.'
       );
       if (!saved) { button.disabled = false; return; }
       await refreshProjectDetail(project.id);
@@ -3634,7 +3931,9 @@
       if (!task || !mine) return;
       button.disabled = true;
       const saved = await runCollaborationMutation(
-        () => collaborationApi('PUT', `/projects/${encodeURIComponent(project.id)}/tasks/${encodeURIComponent(task.id)}/completion`, { completed: !mine.completed }),
+        () => collaborationApi('PUT', `/projects/${encodeURIComponent(project.id)}/tasks/${encodeURIComponent(task.id)}/completion`, {
+          completed: !mine.completed
+        }),
         mine.completed ? '내 완료 체크를 해제했습니다.' : '내 업무를 완료했습니다.'
       );
       if (!saved) { button.disabled = false; return; }
@@ -3706,6 +4005,8 @@
     const requestedId = String(projectId || '');
     if (!requestedId || !collaborationAccess().projects) return;
     projectDetailTab = 'overview';
+    projectTaskAssigneeFilter = 'all';
+    projectTaskRoleFilter = 'all';
     selectedProjectId = requestedId;
     const generation = ++projectDetailLoadGeneration;
     liveProjectDetail = null;

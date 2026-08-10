@@ -54,6 +54,7 @@ test('resolves the reviewed collaboration surface to the identical legacy API UR
     ['POST', '/projects'],
     ['POST', '/projects/upload'],
     ['PUT', '/projects/project-1/tasks/task-1/completion'],
+    ['POST', '/projects/project-1/tasks/task-1/review'],
     ['DELETE', '/projects/project-1/comments/comment-1'],
   ];
 
@@ -95,6 +96,7 @@ test('allowlist covers every collaboration handler exposed to PEAK OS', () => {
     ['POST', '/projects/p-1/events'], ['POST', '/projects/p-1/meetings'],
     ['POST', '/projects/p-1/tasks'], ['PUT', '/projects/p-1/tasks/t-1'],
     ['DELETE', '/projects/p-1/tasks/t-1'], ['PUT', '/projects/p-1/tasks/t-1/completion'],
+    ['POST', '/projects/p-1/tasks/t-1/review'],
     ['POST', '/projects/p-1/tasks/t-1/comments'],
     ['DELETE', '/projects/p-1/tasks/t-1/comments/c-1'],
     ['POST', '/projects/p-1/updates'], ['PUT', '/projects/p-1/updates/u-1'],

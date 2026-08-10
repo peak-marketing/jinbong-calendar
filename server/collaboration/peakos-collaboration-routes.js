@@ -54,6 +54,7 @@ const COLLABORATION_ROUTE_RULES = Object.freeze([
   route(['POST'], /^\/projects\/[^/]+\/(?:events|meetings|tasks|updates|comments)$/),
   route(['PUT', 'DELETE'], /^\/projects\/[^/]+\/tasks\/[^/]+$/),
   route(['PUT'], /^\/projects\/[^/]+\/tasks\/[^/]+\/completion$/),
+  route(['POST'], /^\/projects\/[^/]+\/tasks\/[^/]+\/review$/),
   route(['POST'], /^\/projects\/[^/]+\/tasks\/[^/]+\/comments$/),
   route(['DELETE'], /^\/projects\/[^/]+\/tasks\/[^/]+\/comments\/[^/]+$/),
   route(['PUT', 'DELETE'], /^\/projects\/[^/]+\/updates\/[^/]+$/),

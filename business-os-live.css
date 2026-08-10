@@ -1403,6 +1403,130 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 #reviewView .review-card-count { font-size: 10px; }
 #reviewView .review-open-button { min-height: 32px; font-size: 10px; }
 
+#reviewView .review-summary-card.urgent {
+  border-color: #f1cbc5;
+  background: #fff5f3;
+}
+#reviewView .review-summary-card.urgent strong { color: #c64f43; }
+
+.project-list-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, .8fr) minmax(0, 1.8fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.project-search-field { min-width: 0; }
+.project-search-field input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 13px;
+  border: 1px solid #d9e4eb;
+  border-radius: 9px;
+  background: #fff;
+  color: #2c3d4a;
+  font: inherit;
+  font-size: 11px;
+}
+.project-search-field input:focus {
+  border-color: #348ecd;
+  box-shadow: 0 0 0 3px rgba(52, 142, 205, .1);
+  outline: 0;
+}
+
+#reviewView .project-command-card {
+  position: relative;
+  min-height: 258px;
+  border-top-width: 4px;
+  outline: 0;
+}
+#reviewView .project-command-card:focus-visible {
+  border-color: #348ecd;
+  box-shadow: 0 0 0 3px rgba(52, 142, 205, .14);
+}
+#reviewView .project-command-card.deadline-overdue { border-top-color: #d95d51; }
+#reviewView .project-command-card.deadline-today { border-top-color: #e88b32; }
+#reviewView .project-command-card.deadline-soon { border-top-color: #e9ad45; }
+#reviewView .project-command-card.deadline-scheduled { border-top-color: #78afd4; }
+#reviewView .project-command-card.deadline-none,
+#reviewView .project-command-card.deadline-complete { border-top-color: #c8d5de; }
+
+.project-deadline-badge {
+  display: inline-flex;
+  min-height: 24px;
+  padding: 0 9px;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: #eef3f6;
+  color: #788793;
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+.project-deadline-badge.overdue { border-color: #efc1bc; background: #fff0ed; color: #bd4439; }
+.project-deadline-badge.today { border-color: #f0c78e; background: #fff4e6; color: #b66a18; }
+.project-deadline-badge.soon { border-color: #efd9a9; background: #fff8e8; color: #9d721d; }
+.project-deadline-badge.scheduled { border-color: #d7e5ee; background: #f3f8fb; color: #56778e; }
+.project-deadline-badge.complete { border-color: #cce7d9; background: #edf9f3; color: #2d8159; }
+.project-deadline-badge.hero { min-height: 28px; padding-inline: 11px; font-size: 11px; }
+
+.project-card-command {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0 0 14px;
+}
+.project-card-command span {
+  min-width: 0;
+  padding: 8px 9px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #f5f8fa;
+  color: #516675;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-card-command b { margin-right: 5px; color: #8b99a5; font-size: 9px; }
+
+.project-due-presets {
+  display: grid;
+  gap: 7px;
+  align-content: end;
+}
+.project-due-presets > span {
+  color: #405464;
+  font-size: 10px;
+  font-weight: 850;
+}
+.project-due-presets > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.project-due-presets button {
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid #d5e1e9;
+  border-radius: 8px;
+  background: #f7fafc;
+  color: #526b7d;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.project-due-presets button:hover { border-color: #8fc2e5; color: #2674ac; }
+.project-due-presets.compact { align-self: end; }
+
+.project-review-form-copy {
+  display: grid;
+  gap: 5px;
+  margin: 0 0 16px;
+  padding: 13px 14px;
+  border-radius: 10px;
+  background: #fff6ee;
+}
+.project-review-form-copy strong { color: #2e414f; font-size: 13px; }
+.project-review-form-copy span { color: #7d6654; font-size: 11px; line-height: 1.55; }
+
 .project-detail-page {
   display: grid;
   gap: 14px;
@@ -1481,6 +1605,17 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   box-shadow: 0 4px 16px rgba(29, 58, 82, .04);
 }
 
+.project-detail-hero.deadline-overdue {
+  border-color: #efc8c3;
+  background: linear-gradient(110deg, #fff, #fff5f3);
+  box-shadow: inset 5px 0 #d95d51, 0 4px 16px rgba(29, 58, 82, .04);
+}
+.project-detail-hero.deadline-today {
+  border-color: #efd2aa;
+  background: linear-gradient(110deg, #fff, #fff8ee);
+  box-shadow: inset 5px 0 #e58a31, 0 4px 16px rgba(29, 58, 82, .04);
+}
+
 .project-detail-hero-meta {
   gap: 7px;
   color: #8291a0;
@@ -1492,6 +1627,11 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   border-radius: 999px;
   background: #f0f4f7;
 }
+.project-detail-hero-meta > .project-deadline-badge.overdue { border-color: #efc1bc; background: #fff0ed; color: #bd4439; }
+.project-detail-hero-meta > .project-deadline-badge.today { border-color: #f0c78e; background: #fff4e6; color: #b66a18; }
+.project-detail-hero-meta > .project-deadline-badge.soon { border-color: #efd9a9; background: #fff8e8; color: #9d721d; }
+.project-detail-hero-meta > .project-deadline-badge.scheduled { border-color: #d7e5ee; background: #f3f8fb; color: #56778e; }
+.project-detail-hero-meta > .project-deadline-badge.complete { border-color: #cce7d9; background: #edf9f3; color: #2d8159; }
 
 .project-detail-hero h1 {
   max-width: 100%;
@@ -1726,6 +1866,231 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   color: #348ecd;
   font-size: 10px;
 }
+
+.project-workflow-board {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.project-workflow-toolbar {
+  display: flex;
+  min-width: 0;
+  padding: 15px 16px;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid #dfe7ed;
+  border-radius: 12px;
+  background: #fff;
+}
+.project-workflow-toolbar > div:first-child { min-width: 0; }
+.project-workflow-toolbar > div:first-child strong,
+.project-workflow-toolbar > div:first-child span { display: block; }
+.project-workflow-toolbar > div:first-child strong { color: #263744; font-size: 15px; }
+.project-workflow-toolbar > div:first-child span { margin-top: 5px; color: #7d8d9a; font-size: 10px; line-height: 1.55; }
+
+.project-workflow-filters { display: flex; flex: 0 0 auto; gap: 8px; }
+.project-workflow-filters label { display: grid; gap: 5px; }
+.project-workflow-filters label > span { color: #7c8c98; font-size: 9px; font-weight: 850; }
+.project-workflow-filters select {
+  min-width: 125px;
+  min-height: 38px;
+  padding: 0 32px 0 10px;
+  border: 1px solid #d7e2e9;
+  border-radius: 8px;
+  background: #f9fbfc;
+  color: #405565;
+  font: inherit;
+  font-size: 10px;
+}
+
+.project-workflow-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.project-workflow-summary > span {
+  display: flex;
+  min-height: 48px;
+  padding: 0 13px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #e0e8ee;
+  border-radius: 10px;
+  background: #fff;
+  color: #748592;
+  font-size: 10px;
+  font-weight: 800;
+}
+.project-workflow-summary b { color: #344c5d; font-size: 19px; }
+.project-workflow-summary .review { border-color: #ecd7aa; background: #fffaf0; color: #9d7020; }
+.project-workflow-summary .review b { color: #b47b1d; }
+.project-workflow-summary .overdue { border-color: #efcbc6; background: #fff7f5; color: #ad5147; }
+.project-workflow-summary .overdue b { color: #c14b40; }
+.project-workflow-summary .done { border-color: #d2e8dd; background: #f3fbf7; color: #438066; }
+.project-workflow-summary .done b { color: #32825d; }
+
+.project-workflow-lanes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.project-workflow-lane {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #dfe7ed;
+  border-radius: 12px;
+  background: #f7f9fb;
+}
+.project-workflow-lane > header {
+  display: flex;
+  min-height: 48px;
+  padding: 0 13px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #e6edf2;
+}
+.project-workflow-lane > header strong { color: #3b4d5b; font-size: 12px; }
+.project-workflow-lane > header span {
+  display: grid;
+  min-width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 999px;
+  background: #e8eef2;
+  color: #667a89;
+  font-size: 10px;
+  font-weight: 900;
+}
+.project-workflow-lane.review { border-color: #ead7b1; background: #fffcf5; }
+.project-workflow-lane.review > header { border-bottom-color: #f0e2c5; }
+.project-workflow-lane.review > header strong { color: #97691e; }
+.project-workflow-lane.review > header span { background: #fff0cf; color: #a56c12; }
+.project-workflow-lane.done { background: #f7fbf9; }
+.project-workflow-lane.done > header strong { color: #39765a; }
+.project-workflow-lane > div { display: grid; gap: 8px; padding: 9px; }
+
+.project-detail-task.project-workflow-task {
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  gap: 10px;
+  margin: 0;
+  padding: 13px;
+  border: 1px solid #e0e8ee;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(34, 62, 82, .035);
+}
+.project-detail-task.project-workflow-task.deadline-overdue { border-color: #edc7c2; box-shadow: inset 3px 0 #d85c50; }
+.project-detail-task.project-workflow-task.deadline-today { border-color: #ecd2aa; box-shadow: inset 3px 0 #e18a32; }
+.project-detail-task.project-workflow-task:last-child { border-bottom: 1px solid #e0e8ee; }
+.project-detail-task.project-workflow-task .project-detail-check {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: transparent;
+  font-size: 13px;
+  font-weight: 900;
+}
+.project-detail-task.project-workflow-task .project-detail-check.review-requested {
+  border-color: #e4ba6c;
+  background: #fff3d9;
+  color: #a46b12;
+}
+.project-detail-task.project-workflow-task .project-detail-check:disabled { cursor: default; }
+.project-detail-task.project-workflow-task .project-detail-task-meta { gap: 5px; }
+.project-detail-task.project-workflow-task .project-detail-task-meta .project-deadline-badge {
+  min-height: 21px;
+  padding-inline: 7px;
+  font-size: 9px;
+}
+.project-task-role {
+  display: inline-flex;
+  min-height: 21px;
+  padding: 0 7px;
+  align-items: center;
+  border-radius: 999px;
+  background: #f0ebfa;
+  color: #6f58a3;
+  font-weight: 800;
+}
+.project-detail-task.project-workflow-task .project-detail-task-copy > strong {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.project-task-command-line {
+  display: flex;
+  margin-top: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  color: #536a7a;
+  font-size: 10px;
+}
+.project-task-command-line span {
+  display: inline-flex;
+  min-height: 25px;
+  padding: 0 8px;
+  align-items: center;
+  border-radius: 7px;
+  background: #f3f7f9;
+}
+.project-task-command-line span b { margin-right: 5px; color: #8795a0; font-size: 9px; }
+.project-task-command-line > i { color: #91a3af; font-style: normal; font-weight: 900; }
+
+.project-task-assignee-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 8px;
+  margin-top: 10px;
+  color: #758795;
+  font-size: 9px;
+}
+.project-task-assignee-progress strong { color: #3f647c; }
+.project-task-assignee-progress > i {
+  grid-column: 1 / -1;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e7eef2;
+}
+.project-task-assignee-progress > i b { display: block; height: 100%; border-radius: inherit; background: #348ecd; }
+.project-review-history { display: block; margin-top: 8px; color: #9b7026; font-size: 9px; }
+.project-review-history.done { color: #3e8262; }
+.project-review-note {
+  display: grid;
+  gap: 4px;
+  margin-top: 9px;
+  padding: 9px 10px;
+  border: 1px solid #efcec9;
+  border-radius: 8px;
+  background: #fff6f4;
+}
+.project-review-note b { color: #ad4f45; font-size: 9px; }
+.project-review-note span { color: #755b57; font-size: 10px; line-height: 1.55; white-space: pre-wrap; }
+
+.project-detail-task.project-workflow-task .collaboration-task-actions {
+  min-width: 108px;
+  flex-direction: column;
+  align-items: stretch;
+}
+.project-task-review-actions,
+.project-task-secondary-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.project-task-review-actions { flex-direction: column; }
+.project-task-review-actions button {
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.project-task-review-actions .approve { border: 1px solid #b8ddca; background: #ecf8f2; color: #287b54; }
+.project-task-review-actions .reject { border: 1px solid #ebcbc7; background: #fff5f3; color: #b04c42; }
+.project-task-secondary-actions { margin-top: auto; }
 
 .project-detail-update,
 .project-comment {
@@ -4518,6 +4883,35 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .collaboration-task-open:focus-visible { outline: 2px solid #348ecd; outline-offset: 3px; border-radius: 5px; }
 
 @media (max-width: 700px) {
+  .project-list-controls { grid-template-columns: minmax(0, 1fr); gap: 9px; }
+  .project-list-controls .review-filter-tabs { width: 100%; overflow-x: auto; }
+  .project-list-controls .review-visible-count { justify-self: end; }
+  .project-search-field input { min-height: 44px; font-size: 12px; }
+  #reviewView .project-command-card { min-height: 0; }
+  .project-card-command { grid-template-columns: minmax(0, 1fr); }
+  .project-workflow-toolbar { align-items: stretch; flex-direction: column; }
+  .project-workflow-filters { width: 100%; }
+  .project-workflow-filters label { flex: 1; min-width: 0; }
+  .project-workflow-filters select { width: 100%; min-width: 0; min-height: 44px; font-size: 11px; }
+  .project-workflow-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .project-workflow-lanes { grid-template-columns: minmax(0, 1fr); }
+  .project-detail-task.project-workflow-task { grid-template-columns: 44px minmax(0, 1fr); padding: 12px; }
+  .project-detail-task.project-workflow-task .project-detail-check { width: 44px; height: 44px; }
+  .project-detail-task.project-workflow-task .collaboration-task-actions {
+    grid-column: 2;
+    width: 100%;
+    min-width: 0;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .project-task-review-actions { flex-direction: row; }
+  .project-task-review-actions button { min-height: 44px; padding-inline: 13px; font-size: 10px; }
+  .project-task-secondary-actions { margin: 0 0 0 auto; }
+  .project-task-secondary-actions .project-detail-text-action { min-height: 44px; padding: 0 6px; }
+  .project-task-command-line > i { display: none; }
+  .project-task-command-line span { flex: 1 1 120px; min-height: 31px; }
+  .project-due-presets button { min-height: 44px; }
   .daily-plan-step-head { grid-template-columns: 31px minmax(0, 1fr); padding-inline: 12px; }
   .daily-plan-step-head > em { grid-column: 2; margin-top: -7px; }
   .daily-priority-list,

@@ -361,6 +361,9 @@ async function installSharedApi(page: Page, state: CollaborationState) {
         title: body?.title || '', description: body?.description || '', status: body?.status || 'todo',
         due_date: body?.dueDate || '', assignment_mode: body?.assigneeMode || 'single',
         assignee_uid: assignee.uid, assignee_name: assignee.name, assignees: [assignee],
+        role_label: body?.roleLabel || '', reviewer_uid: body?.reviewerUid || 'e2e-test-user', reviewer_name: '김대호',
+        assigned_by_uid: 'e2e-test-user', assigned_by_name: '김대호', workflow_version: 1,
+        permissions: { canEdit: true, canSetDeadline: true, canRequestReview: true, canReview: true, canDelete: true },
       };
       project.tasks.push(task);
       project.task_count = project.tasks.length;
@@ -375,7 +378,30 @@ async function installSharedApi(page: Page, state: CollaborationState) {
         ...(body?.description === undefined ? {} : { description: body.description }),
         ...(body?.status === undefined ? {} : { status: body.status }),
         ...(body?.dueDate === undefined ? {} : { due_date: body.dueDate }),
+        ...(body?.roleLabel === undefined ? {} : { role_label: body.roleLabel }),
+        ...(body?.reviewerUid === undefined ? {} : { reviewer_uid: body.reviewerUid, reviewer_name: '김대호' }),
       });
+      task.workflow_version = Number(task.workflow_version || 0) + 1;
+      project.done_task_count = project.tasks.filter((item: any) => item.status === 'done').length;
+      return send(task);
+    }
+    const projectTaskReviewMatch = resourcePath.match(/^\/projects\/([^/]+)\/tasks\/([^/]+)\/review$/);
+    if (projectTaskReviewMatch && method === 'POST') {
+      const project = state.projects.find(item => String(item.id) === decodeURIComponent(projectTaskReviewMatch[1]));
+      const task = project?.tasks.find((item: any) => String(item.id) === decodeURIComponent(projectTaskReviewMatch[2]));
+      if (!project || !task) return send({ error: 'Not found' }, 404);
+      if (body?.action === 'request') {
+        task.status = 'review';
+        task.review_requested_at = new Date().toISOString();
+      } else if (body?.action === 'approve') {
+        task.status = 'done';
+        task.reviewed_at = new Date().toISOString();
+      } else {
+        task.status = 'doing';
+        task.review_note = body?.note || '';
+        if (body?.dueDate) task.due_date = body.dueDate;
+      }
+      task.workflow_version = Number(task.workflow_version || 0) + 1;
       project.done_task_count = project.tasks.filter((item: any) => item.status === 'done').length;
       return send(task);
     }
@@ -420,7 +446,13 @@ async function setup(page: Page, state: CollaborationState) {
   await expect(page.locator('#authGate')).toBeHidden();
   const main = page.locator('[data-nav-cluster="main"]');
   if ((await main.getAttribute('class'))?.split(/\s+/).includes('closed')) {
-    await main.locator(':scope > .nav-cluster-toggle').click();
+    const toggle = main.locator(':scope > .nav-cluster-toggle');
+    const inViewport = await toggle.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      return rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
+    });
+    if (!inViewport) await page.locator('.mobile-menu').click();
+    await toggle.click();
   }
 }
 
@@ -790,14 +822,18 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     const taskForm = page.locator('#collaborationProjectTaskForm');
     await taskForm.locator('[name="title"]').fill('초기 업무명');
     await taskForm.locator('[name="description"]').fill('업무 설명');
+    await taskForm.locator('[name="roleLabel"]').fill('콘텐츠 검수');
     await taskForm.locator('[name="assigneeUid"]').selectOption('e2e-test-user');
-    await taskForm.getByRole('button', { name: '저장', exact: true }).click();
+    await taskForm.locator('[data-project-due-days="3"]').click();
+    await taskForm.getByRole('button', { name: '업무 지시', exact: true }).click();
     await expect(page.locator('.project-detail-task')).toContainText('초기 업무명');
+    await expect(page.locator('.project-detail-task')).toContainText('콘텐츠 검수');
+    await expect(page.locator('.project-detail-task')).toContainText('지시김대호');
 
     await page.locator('[data-collab-task-edit]').click();
     const editTaskForm = page.locator('#collaborationProjectTaskForm');
     await editTaskForm.locator('[name="title"]').fill('수정된 업무명');
-    await editTaskForm.getByRole('button', { name: '저장', exact: true }).click();
+    await editTaskForm.getByRole('button', { name: '수정 저장', exact: true }).click();
     await expect(page.locator('.project-detail-task')).toContainText('수정된 업무명');
 
     const projectCommentForm = page.locator('#collaborationProjectCommentForm');
@@ -810,16 +846,91 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     await taskCommentForm.locator('[name="content"]').fill('업무별 확인사항');
     await taskCommentForm.getByRole('button', { name: '등록', exact: true }).click();
     await expect(page.locator('#readonlyModalBody')).toContainText('업무별 확인사항');
+    await page.locator('#readonlyModalClose').click();
+
+    await page.locator('[data-project-detail-tab="tasks"]').click();
+    await expect(page.locator('.project-workflow-board')).toContainText('담당자 · 역할별 체크리스트');
+    await page.locator('[data-collab-task-review-request="task-2"]').click();
+    await expect(page.locator('[data-project-task-group="review"]')).toContainText('수정된 업무명');
+    await page.locator('[data-collab-task-review-decision="task-2"][data-decision="approve"]').click();
+    await expect(page.locator('[data-project-task-group="done"]')).toContainText('수정된 업무명');
+
+    const canonicalProject = await page.evaluate(async () => {
+      const response = await fetch('/api/projects/project-1');
+      if (!response.ok) throw new Error(`Legacy project read failed: ${response.status}`);
+      return response.json();
+    });
+    expect(canonicalProject.tasks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: '수정된 업무명', role_label: '콘텐츠 검수', status: 'done' }),
+    ]));
 
     const paths = state.calls.filter(call => call.method !== 'GET').map(call => `${call.method} ${call.path}`);
     expect(paths).toEqual(expect.arrayContaining([
       'POST /peakos/collaboration/projects',
       'POST /peakos/collaboration/projects/project-1/tasks',
       'PUT /peakos/collaboration/projects/project-1/tasks/task-2',
+      'POST /peakos/collaboration/projects/project-1/tasks/task-2/review',
       'POST /peakos/collaboration/projects/project-1/comments',
       'POST /peakos/collaboration/projects/project-1/tasks/task-2/comments',
     ]));
     expect(paths.some(pathname => /^\w+ \/(?:projects|events|chat-rooms)(?:\/|$)/.test(pathname))).toBe(false);
+    expect(state.calls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ method: 'GET', path: '/projects/project-1' }),
+    ]));
+  });
+
+  test('project reviewer rejects with a required reason and resets the deadline through the atomic workflow route', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const date = todayKey();
+    const state = createState({
+      projects: [{
+        id: 'review-project', name: '검토 흐름 프로젝트', description: 'OS 전용 업무 지시 화면',
+        status: 'active', deadline: date, owner_id: 'e2e-test-user', owner_name: '김대호', canManage: true,
+        member_count: 2, member_names: '김대호, 박우진', task_count: 1, done_task_count: 0,
+        review_task_count: 1, overdue_task_count: 0,
+        members: [
+          { uid: 'e2e-test-user', name: '김대호', role: 'manager' },
+          { uid: 'other-user', name: '박우진', role: 'member' },
+        ],
+        tasks: [{
+          id: 'review-task', project_id: 'review-project', title: '캠페인 원고 검수', description: '완료 기준 확인',
+          status: 'review', due_date: date, assignment_mode: 'single', assignee_uid: 'other-user', assignee_name: '박우진',
+          assignees: [{ uid: 'other-user', name: '박우진', completed: false }], role_label: '콘텐츠 작성',
+          assigned_by_uid: 'e2e-test-user', assigned_by_name: '김대호', reviewer_uid: 'e2e-test-user', reviewer_name: '김대호',
+          review_requested_at: new Date().toISOString(), workflow_version: 4,
+          permissions: { canEdit: true, canSetDeadline: true, canRequestReview: false, canReview: true, canDelete: true },
+        }],
+        updates: [], comments: [], taskComments: [], events: [],
+      }],
+    });
+    await setup(page, state);
+    await page.locator('.nav-item[data-view="review"]').click();
+    await page.locator('[data-project-id="review-project"]').click();
+    await page.locator('[data-project-detail-tab="tasks"]').click();
+
+    await expect(page.locator('[data-project-task-group="review"]')).toContainText('지시김대호');
+    await expect(page.locator('[data-project-task-group="review"]')).toContainText('담당박우진');
+    await expect(page.locator('[data-project-task-group="review"]')).toContainText('콘텐츠 작성');
+    const rejectButton = page.locator('[data-collab-task-review-decision="review-task"][data-decision="reject"]');
+    expect((await rejectButton.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await rejectButton.click();
+
+    const form = page.locator('#collaborationProjectReviewRejectForm');
+    await form.locator('[name="note"]').fill('근거 이미지를 추가하고 문구를 다시 확인해 주세요.');
+    await form.locator('[data-project-due-days="3"]').click();
+    await form.getByRole('button', { name: '반려하고 다시 진행', exact: true }).click();
+
+    await expect(page.locator('[data-project-task-group="active"]')).toContainText('캠페인 원고 검수');
+    await expect(page.locator('.project-review-note')).toContainText('근거 이미지를 추가하고 문구를 다시 확인해 주세요.');
+    const call = state.calls.find(entry => entry.method === 'POST'
+      && entry.path === '/peakos/collaboration/projects/review-project/tasks/review-task/review');
+    expect(call?.body).toMatchObject({
+      action: 'reject',
+      note: '근거 이미지를 추가하고 문구를 다시 확인해 주세요.',
+      expectedVersion: 4,
+    });
+    expect(call?.body?.dueDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   test('chat room, message, attachment, member, and settings use protected contracts', async ({ page }) => {

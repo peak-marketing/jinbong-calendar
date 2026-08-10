@@ -60,6 +60,10 @@ const {
   normalizeEventReorderItems,
 } = require('./collaboration/peakos-collaboration-policy');
 const {
+  projectTaskPatchDecision,
+  projectTaskReviewDecision,
+} = require('./collaboration/project-workflow-policy');
+const {
   PEAK_WORKSPACE_ID,
   createPeakosWorkspaceService,
   ensurePeakosWorkspaceInfrastructure,
@@ -658,6 +662,68 @@ async function ensureProjectInfrastructure() {
       ADD COLUMN IF NOT EXISTS assignment_mode TEXT NOT NULL DEFAULT 'single'
     `);
     await pool.query(`
+      ALTER TABLE project_tasks
+      ADD COLUMN IF NOT EXISTS role_label TEXT NOT NULL DEFAULT ''
+    `);
+    await pool.query(`
+      ALTER TABLE project_tasks
+        ADD COLUMN IF NOT EXISTS assigned_by_uid TEXT,
+        ADD COLUMN IF NOT EXISTS assigned_by_name TEXT NOT NULL DEFAULT '',
+        ADD COLUMN IF NOT EXISTS reviewer_uid TEXT,
+        ADD COLUMN IF NOT EXISTS reviewer_name TEXT NOT NULL DEFAULT '',
+        ADD COLUMN IF NOT EXISTS review_requested_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS review_note TEXT NOT NULL DEFAULT '',
+        ADD COLUMN IF NOT EXISTS workflow_version INTEGER NOT NULL DEFAULT 1
+    `);
+    await pool.query(`
+      UPDATE project_tasks pt
+      SET assigned_by_uid = COALESCE(pt.assigned_by_uid, pt.created_by, p.owner_id),
+          assigned_by_name = CASE
+            WHEN pt.assigned_by_name <> '' THEN pt.assigned_by_name
+            ELSE COALESCE((SELECT name FROM users WHERE uid = COALESCE(pt.created_by, p.owner_id)), '')
+          END,
+          reviewer_uid = COALESCE(pt.reviewer_uid, p.owner_id),
+          reviewer_name = CASE
+            WHEN pt.reviewer_name <> '' THEN pt.reviewer_name
+            ELSE COALESCE((SELECT name FROM users WHERE uid = p.owner_id), '')
+          END,
+          review_requested_at = CASE
+            WHEN pt.status = 'review' THEN COALESCE(pt.review_requested_at, pt.updated_at)
+            ELSE pt.review_requested_at
+          END,
+          reviewed_at = CASE
+            WHEN pt.status = 'done' THEN COALESCE(pt.reviewed_at, pt.updated_at)
+            ELSE pt.reviewed_at
+          END
+      FROM projects p
+      WHERE p.id = pt.project_id
+        AND (
+          pt.assigned_by_uid IS NULL
+          OR pt.assigned_by_name = ''
+          OR pt.reviewer_uid IS NULL
+          OR pt.reviewer_name = ''
+          OR (pt.status = 'review' AND pt.review_requested_at IS NULL)
+          OR (pt.status = 'done' AND pt.reviewed_at IS NULL)
+        )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS project_task_workflow_events (
+        id BIGSERIAL PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        actor_uid TEXT NOT NULL,
+        actor_name TEXT NOT NULL DEFAULT '',
+        note TEXT NOT NULL DEFAULT '',
+        from_status TEXT NOT NULL DEFAULT '',
+        to_status TEXT NOT NULL DEFAULT '',
+        due_date_snapshot TEXT NOT NULL DEFAULT '',
+        workflow_version INTEGER NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS project_task_assignees (
         task_id TEXT NOT NULL,
         project_id TEXT NOT NULL,
@@ -731,7 +797,8 @@ async function ensureProjectInfrastructure() {
       'CREATE INDEX IF NOT EXISTS idx_project_task_assignees_project ON project_task_assignees (project_id, task_id)',
       'CREATE INDEX IF NOT EXISTS idx_project_updates_project ON project_updates (project_id, created_at DESC)',
       'CREATE INDEX IF NOT EXISTS idx_project_comments_project ON project_comments (project_id, created_at DESC) WHERE deleted = false',
-      'CREATE INDEX IF NOT EXISTS idx_project_task_comments_task ON project_task_comments (project_id, task_id, created_at) WHERE deleted = false'
+      'CREATE INDEX IF NOT EXISTS idx_project_task_comments_task ON project_task_comments (project_id, task_id, created_at) WHERE deleted = false',
+      'CREATE INDEX IF NOT EXISTS idx_project_task_workflow_events_task ON project_task_workflow_events (project_id, task_id, created_at DESC)'
     ];
     for (const ddl of indexes) {
       try {
@@ -775,6 +842,56 @@ function projectTaskStatusLabel(value) {
     done: '완료',
     hold: '보류'
   }[value] || '상태 변경';
+}
+
+function isProjectDateKey(value) {
+  const text = String(value || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+  const [year, month, day] = text.split('-').map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day;
+}
+
+async function recordProjectTaskWorkflowEvent(db, {
+  projectId,
+  taskId,
+  action,
+  actorUid,
+  actorName,
+  note = '',
+  fromStatus = '',
+  toStatus = '',
+  dueDate = '',
+  workflowVersion,
+}) {
+  await db.query(
+    `INSERT INTO project_task_workflow_events
+     (project_id, task_id, action, actor_uid, actor_name, note, from_status, to_status, due_date_snapshot, workflow_version)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [
+      projectId,
+      taskId,
+      action,
+      actorUid,
+      String(actorName || '').slice(0, 160),
+      String(note || '').slice(0, 5000),
+      fromStatus,
+      toStatus,
+      dueDate,
+      workflowVersion,
+    ]
+  );
+}
+
+async function touchProjectWithDb(db, projectId) {
+  await db.query(
+    `INSERT INTO project_details (project_id, updated_at)
+     VALUES ($1, NOW())
+     ON CONFLICT (project_id) DO UPDATE SET updated_at = NOW()`,
+    [projectId]
+  );
 }
 
 async function canAccessProject(req, projectId) {
@@ -952,6 +1069,10 @@ async function createProjectMeetingEvent(projectId, req, meeting = {}) {
 
 async function notifyProjectMembers(projectId, actorUid, title, body, data = {}) {
   try {
+    const requestedTargets = Array.isArray(data.targetUids)
+      ? [...new Set(data.targetUids.map(uid => String(uid || '').trim()).filter(Boolean))]
+      : null;
+    const { targetUids: _targetUids, ...pushData } = data;
     const targets = await pool.query(
       `SELECT DISTINCT target.uid
        FROM (
@@ -969,8 +1090,9 @@ async function notifyProjectMembers(projectId, actorUid, title, body, data = {})
        WHERE target.uid IS NOT NULL
          AND target.uid != $2
          AND u.approved = true
-         AND u.is_active != false`,
-      [projectId, actorUid || '', PEAK_WORKSPACE_ID]
+         AND u.is_active != false
+         AND ($4::text[] IS NULL OR target.uid = ANY($4::text[]))`,
+      [projectId, actorUid || '', PEAK_WORKSPACE_ID, requestedTargets?.length ? requestedTargets : null]
     );
     await Promise.all(targets.rows.map(row => sendPushToUser(
       row.uid,
@@ -980,7 +1102,7 @@ async function notifyProjectMembers(projectId, actorUid, title, body, data = {})
         kind: 'project',
         projectId,
         link: `/?page=project&projectId=${projectId}`,
-        ...data
+        ...pushData
       }
     )));
   } catch (err) {
@@ -4046,6 +4168,12 @@ app.get('/api/projects', authMiddleware, async (req, res) => {
             COUNT(DISTINCT pm.user_id)::int AS member_count,
             COUNT(DISTINCT pt.id)::int AS task_count,
             COUNT(DISTINCT pt.id) FILTER (WHERE pt.status = 'done')::int AS done_task_count,
+            COUNT(DISTINCT pt.id) FILTER (WHERE pt.status = 'review')::int AS review_task_count,
+            COUNT(DISTINCT pt.id) FILTER (
+              WHERE pt.status <> 'done'
+                AND pt.due_date ~ '^\\d{4}-\\d{2}-\\d{2}$'
+                AND pt.due_date < TO_CHAR(NOW() AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD')
+            )::int AS overdue_task_count,
             COUNT(DISTINCT pc.id) FILTER (WHERE pc.deleted = false)::int AS comment_count,
             MAX(pc.created_at) FILTER (WHERE pc.deleted = false) AS last_comment_at,
             COALESCE(STRING_AGG(DISTINCT u.name, ', ' ORDER BY u.name), '') AS member_names
@@ -4176,6 +4304,13 @@ app.get('/api/projects/:id', authMiddleware, async (req, res) => {
   const tasks = await pool.query(
     `SELECT
        pt.*,
+       COALESCE(NULLIF(MAX(pt.assigned_by_name), ''), MAX(task_creator.name), MAX(task_reviewer.name), '') AS creator_name,
+       MAX(task_project.owner_id) AS project_owner_uid,
+       COALESCE(MAX(task_reviewer.name), '') AS reviewer_directory_name,
+       (
+         COALESCE(pt.assignee_uid = $3, false)
+         OR COALESCE(BOOL_OR(pta.user_uid = $3), false)
+       ) AS is_assignee,
        COALESCE(
          JSONB_AGG(
            JSONB_BUILD_OBJECT(
@@ -4192,6 +4327,8 @@ app.get('/api/projects/:id', authMiddleware, async (req, res) => {
        COUNT(pta.user_uid) FILTER (WHERE pta.completed)::int AS completed_assignee_count
      FROM project_tasks pt
      JOIN projects task_project ON task_project.id = pt.project_id
+     LEFT JOIN users task_creator ON task_creator.uid = pt.created_by
+     LEFT JOIN users task_reviewer ON task_reviewer.uid = COALESCE(pt.reviewer_uid, task_project.owner_id)
      LEFT JOIN project_task_assignees pta
        ON pta.task_id = pt.id
       AND EXISTS (
@@ -4204,7 +4341,7 @@ app.get('/api/projects/:id', authMiddleware, async (req, res) => {
      WHERE pt.project_id = $1
      GROUP BY pt.id
      ORDER BY pt.sort_order, pt.created_at`,
-    [req.params.id, PEAK_WORKSPACE_ID]
+    [req.params.id, PEAK_WORKSPACE_ID, req.uid]
   );
   const updates = await pool.query(
     'SELECT * FROM project_updates WHERE project_id = $1 ORDER BY created_at DESC',
@@ -4218,6 +4355,14 @@ app.get('/api/projects/:id', authMiddleware, async (req, res) => {
     'SELECT * FROM project_task_comments WHERE project_id = $1 AND deleted = false ORDER BY created_at ASC',
     [req.params.id]
   );
+  const taskWorkflowEvents = await pool.query(
+    `SELECT id, project_id, task_id, action, actor_uid, actor_name, note,
+            from_status, to_status, due_date_snapshot, workflow_version, created_at
+     FROM project_task_workflow_events
+     WHERE project_id = $1
+     ORDER BY created_at ASC, id ASC`,
+    [req.params.id]
+  );
   const events = await pool.query(
     `SELECT * FROM events
       WHERE project_id = $1 AND deleted = false
@@ -4225,14 +4370,36 @@ app.get('/api/projects/:id', authMiddleware, async (req, res) => {
       ORDER BY date`,
     [req.params.id, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
   );
+  const canManage = await canManageProject(req, req.params.id);
+  const taskRows = tasks.rows.map(task => {
+    const { project_owner_uid: projectOwnerUid, reviewer_directory_name: reviewerDirectoryName, ...publicTask } = task;
+    return {
+      ...publicTask,
+      reviewer_uid: task.reviewer_uid || projectOwnerUid || null,
+      reviewer_name: task.reviewer_name || reviewerDirectoryName || '',
+      permissions: {
+        canEdit: canManage,
+        canSetDeadline: canManage,
+        canDelete: canManage,
+        canReview: canManage && task.status === 'review',
+        canRequestReview: task.is_assignee === true
+          && task.assignment_mode !== 'all'
+          && ['todo', 'doing'].includes(task.status),
+        canComplete: task.is_assignee === true
+          && task.assignment_mode === 'all'
+          && ['todo', 'doing'].includes(task.status),
+      },
+    };
+  });
   res.json({
     ...result.rows[0],
-    canManage: await canManageProject(req, req.params.id),
+    canManage,
     members: members.rows,
-    tasks: tasks.rows,
+    tasks: taskRows,
     updates: updates.rows,
     comments: comments.rows,
     taskComments: taskComments.rows,
+    taskWorkflowEvents: taskWorkflowEvents.rows,
     events: events.rows
   });
 });
@@ -4365,237 +4532,607 @@ app.post('/api/projects/upload', authMiddleware, uploadJpgPng.array('images', 10
 });
 
 app.post('/api/projects/:id/tasks', authMiddleware, async (req, res) => {
-  if (!await canAccessProject(req, req.params.id)) return res.status(403).json({ error: 'Not authorized' });
+  if (!await canManageProject(req, req.params.id)) {
+    return res.status(403).json({ code: 'PROJECT_TASK_MANAGER_REQUIRED', error: '프로젝트 책임자만 업무를 지시할 수 있습니다.' });
+  }
   const title = String(req.body.title || '').trim().slice(0, 200);
   if (!title) return res.status(400).json({ error: '업무명을 입력하세요' });
   const description = String(req.body.description || '').trim().slice(0, 3000);
-  const status = normalizeProjectTaskStatus(req.body.status);
+  const roleLabel = String(req.body.roleLabel ?? req.body.role_label ?? '').trim().slice(0, 80);
+  const requestedStatus = String(req.body.status || 'todo').trim();
+  if (!['todo', 'doing', 'hold'].includes(requestedStatus)) {
+    return res.status(400).json({ code: 'PROJECT_TASK_REVIEW_REQUIRED', error: '새 업무는 담당자의 검토 요청 전 상태로만 등록할 수 있습니다.' });
+  }
+  const status = normalizeProjectTaskStatus(requestedStatus);
   const dueDate = String(req.body.dueDate || req.body.due_date || '').trim().slice(0, 10);
+  if (!isProjectDateKey(dueDate)) {
+    return res.status(400).json({ code: 'PROJECT_TASK_DUE_DATE_REQUIRED', error: '업무 마감일을 지정하세요.' });
+  }
   const assignmentMode = req.body.assigneeMode === 'all' ? 'all' : 'single';
   const assigneeUid = String(req.body.assigneeUid || req.body.assignee_uid || '').trim();
-  let assignees;
+  const client = await pool.connect();
   try {
-    assignees = await resolveProjectTaskAssignees(pool, req.params.id, assignmentMode, assigneeUid);
-  } catch (err) {
-    return res.status(err.statusCode || 500).json({ error: err.message });
-  }
-  const primaryAssignee = assignmentMode === 'single' ? assignees[0] : null;
-  const result = await pool.query(
-    `INSERT INTO project_tasks
-     (id, project_id, title, description, assignee_uid, assignee_name, assignment_mode, status, due_date, sort_order, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,(SELECT COALESCE(MAX(sort_order),0)+1 FROM project_tasks WHERE project_id=$2),$10)
-     RETURNING *`,
-    [
-      crypto.randomUUID(),
-      req.params.id,
-      title,
-      description,
-      primaryAssignee?.uid || null,
-      assignmentMode === 'all' ? '모두' : primaryAssignee?.name || null,
-      assignmentMode,
-      status,
-      dueDate,
-      req.uid
-    ]
-  );
-  await syncProjectTaskAssignees(pool, req.params.id, result.rows[0].id, assignees);
-  if (status === 'done' && assignees.length) {
-    await pool.query(
-      `UPDATE project_task_assignees
-       SET completed = true, completed_at = NOW()
-       WHERE project_id = $1 AND task_id = $2`,
-      [req.params.id, result.rows[0].id]
+    await client.query('BEGIN');
+    const projectResult = await client.query(
+      `SELECT p.id, p.name, p.owner_id, COALESCE(owner_user.name, '') AS reviewer_name
+       FROM projects p
+       LEFT JOIN project_details pd ON pd.project_id = p.id
+       LEFT JOIN users owner_user ON owner_user.uid = p.owner_id
+       WHERE p.id = $1
+         AND COALESCE(pd.deleted, false) = false
+         AND p.status IS DISTINCT FROM 'archived'
+         AND (p.workspace_id = $2 OR (p.workspace_id IS NULL AND $2 = $3))
+       FOR UPDATE OF p`,
+      [req.params.id, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
     );
+    if (!projectResult.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    const assignees = await resolveProjectTaskAssignees(client, req.params.id, assignmentMode, assigneeUid);
+    if (!assignees.length) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ code: 'PROJECT_TASK_ASSIGNEE_REQUIRED', error: '업무 담당자를 지정하세요.' });
+    }
+    const primaryAssignee = assignmentMode === 'single' ? assignees[0] : null;
+    const taskId = crypto.randomUUID();
+    const actorName = req.userName || req.userEmail || '사용자';
+    const project = projectResult.rows[0];
+    const result = await client.query(
+      `INSERT INTO project_tasks
+       (id, project_id, title, description, role_label, assignee_uid, assignee_name,
+        assignment_mode, status, due_date, sort_order, created_by, assigned_by_uid,
+        assigned_by_name, reviewer_uid, reviewer_name, workflow_version)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+         (SELECT COALESCE(MAX(sort_order),0)+1 FROM project_tasks WHERE project_id=$2),
+         $11,$11,$12,$13,$14,1)
+       RETURNING *`,
+      [
+        taskId,
+        req.params.id,
+        title,
+        description,
+        roleLabel,
+        primaryAssignee?.uid || null,
+        assignmentMode === 'all' ? '모두' : primaryAssignee?.name || null,
+        assignmentMode,
+        status,
+        dueDate,
+        req.uid,
+        actorName,
+        project.owner_id,
+        project.reviewer_name || '',
+      ]
+    );
+    await syncProjectTaskAssignees(client, req.params.id, taskId, assignees);
+    await recordProjectTaskWorkflowEvent(client, {
+      projectId: req.params.id,
+      taskId,
+      action: 'assigned',
+      actorUid: req.uid,
+      actorName,
+      fromStatus: '',
+      toStatus: status,
+      dueDate,
+      workflowVersion: 1,
+    });
+    await touchProjectWithDb(client, req.params.id);
+    await client.query('COMMIT');
+    await notifyProjectMembers(
+      req.params.id,
+      req.uid,
+      '새 업무 지시',
+      `${actorName}님이 "${title}" 업무를 배정했습니다. 마감 ${dueDate}`,
+      {
+        taskId,
+        targetUids: assignees.map(assignee => assignee.uid),
+        link: `/?page=project&projectId=${req.params.id}&taskId=${taskId}`,
+      }
+    );
+    return res.json({
+      ...result.rows[0],
+      creator_name: actorName,
+      assignees: assignees.map(assignee => ({
+        uid: assignee.uid,
+        name: assignee.name,
+        completed: false,
+        completedAt: null,
+      })),
+      assignee_count: assignees.length,
+      completed_assignee_count: 0,
+    });
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    return res.status(err.statusCode || 500).json({ error: err.message });
+  } finally {
+    client.release();
   }
-  await touchProject(req.params.id);
-  res.json({
-    ...result.rows[0],
-    assignees: assignees.map(assignee => ({
-      uid: assignee.uid,
-      name: assignee.name,
-      completed: status === 'done',
-      completedAt: status === 'done' ? new Date().toISOString() : null
-    })),
-    assignee_count: assignees.length,
-    completed_assignee_count: status === 'done' ? assignees.length : 0
-  });
 });
 
 app.put('/api/projects/:id/tasks/:taskId', authMiddleware, async (req, res) => {
   if (!await canAccessProject(req, req.params.id)) return res.status(403).json({ error: 'Not authorized' });
-  const previous = await pool.query(
-    `SELECT pt.*, p.name AS project_name
-     FROM project_tasks pt
-     JOIN projects p ON p.id = pt.project_id
-     WHERE pt.id = $1 AND pt.project_id = $2`,
-    [req.params.taskId, req.params.id]
-  );
-  if (!previous.rows[0]) return res.status(404).json({ error: 'Task not found' });
-  const sets = ['updated_at = NOW()'];
-  const params = [req.params.taskId, req.params.id];
-  const addSet = (column, value) => {
-    params.push(value);
-    sets.push(`${column} = $${params.length}`);
-  };
-  if (req.body.title !== undefined) {
-    const title = String(req.body.title || '').trim().slice(0, 200);
-    if (!title) return res.status(400).json({ error: '업무명을 입력하세요' });
-    addSet('title', title);
-  }
-  if (req.body.description !== undefined) addSet('description', String(req.body.description || '').trim().slice(0, 3000));
-  if (req.body.status !== undefined) addSet('status', normalizeProjectTaskStatus(req.body.status));
-  if (req.body.dueDate !== undefined || req.body.due_date !== undefined) addSet('due_date', String(req.body.dueDate ?? req.body.due_date ?? '').trim().slice(0, 10));
-  let assignmentUpdate = null;
-  if (
-    req.body.assigneeMode !== undefined
-    || req.body.assigneeUid !== undefined
-    || req.body.assignee_uid !== undefined
-  ) {
-    const assignmentMode = req.body.assigneeMode === 'all' ? 'all' : 'single';
-    const assigneeUid = String(req.body.assigneeUid ?? req.body.assignee_uid ?? '').trim();
-    let assignees;
-    try {
-      assignees = await resolveProjectTaskAssignees(pool, req.params.id, assignmentMode, assigneeUid);
-    } catch (err) {
-      return res.status(err.statusCode || 500).json({ error: err.message });
+  const canManage = await canManageProject(req, req.params.id);
+  const client = await pool.connect();
+  let notification = null;
+  try {
+    await client.query('BEGIN');
+    const previous = await client.query(
+      `SELECT pt.*, p.name AS project_name, p.owner_id
+       FROM project_tasks pt
+       JOIN projects p ON p.id = pt.project_id
+       LEFT JOIN project_details pd ON pd.project_id = p.id
+       WHERE pt.id = $1 AND pt.project_id = $2
+         AND COALESCE(pd.deleted, false) = false
+         AND p.status IS DISTINCT FROM 'archived'
+         AND (p.workspace_id = $3 OR (p.workspace_id IS NULL AND $3 = $4))
+       FOR UPDATE OF pt, p`,
+      [req.params.taskId, req.params.id, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
+    );
+    if (!previous.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Task not found' });
     }
-    const primaryAssignee = assignmentMode === 'single' ? assignees[0] : null;
-    addSet('assignment_mode', assignmentMode);
-    addSet('assignee_uid', primaryAssignee?.uid || null);
-    addSet('assignee_name', assignmentMode === 'all' ? '모두' : primaryAssignee?.name || null);
-    assignmentUpdate = { assignmentMode, assignees };
+    const assignmentRows = await client.query(
+      'SELECT user_uid FROM project_task_assignees WHERE project_id = $1 AND task_id = $2',
+      [req.params.id, req.params.taskId]
+    );
+    const before = previous.rows[0];
+    const patchDecision = projectTaskPatchDecision({
+      task: before,
+      body: req.body || {},
+      actorUid: req.uid,
+      canManage,
+      assignmentUids: assignmentRows.rows.map(row => row.user_uid),
+    });
+    if (!patchDecision.allowed) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ code: patchDecision.code, error: patchDecision.error });
+    }
+    if (req.body.expectedVersion !== undefined && Number(req.body.expectedVersion) !== Number(before.workflow_version || 1)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ code: 'PROJECT_TASK_VERSION_CONFLICT', error: '다른 사용자가 먼저 업무를 변경했습니다. 최신 내용을 다시 확인하세요.' });
+    }
+
+    const sets = ['updated_at = NOW()', 'workflow_version = workflow_version + 1'];
+    const params = [req.params.taskId, req.params.id];
+    const addSet = (column, value) => {
+      params.push(value);
+      sets.push(`${column} = $${params.length}`);
+    };
+    if (req.body.title !== undefined) {
+      const value = String(req.body.title || '').trim().slice(0, 200);
+      if (!value) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: '업무명을 입력하세요' });
+      }
+      addSet('title', value);
+    }
+    if (req.body.description !== undefined) addSet('description', String(req.body.description || '').trim().slice(0, 3000));
+    if (req.body.roleLabel !== undefined || req.body.role_label !== undefined) {
+      addSet('role_label', String(req.body.roleLabel ?? req.body.role_label ?? '').trim().slice(0, 80));
+    }
+
+    let requestedStatus = null;
+    let statusWillChange = false;
+    if (req.body.status !== undefined) {
+      requestedStatus = String(req.body.status || '').trim();
+      if (!['todo', 'doing', 'review', 'done', 'hold'].includes(requestedStatus)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: '업무 상태가 올바르지 않습니다.' });
+      }
+      statusWillChange = requestedStatus !== before.status;
+      if (statusWillChange) {
+        addSet('status', requestedStatus);
+        if (requestedStatus === 'review') {
+          sets.push('review_requested_at = NOW()', 'reviewed_at = NULL', "review_note = ''");
+        } else if (requestedStatus === 'done') {
+          sets.push('reviewed_at = NOW()');
+          addSet('review_note', String(req.body.reviewNote || '').trim().slice(0, 5000));
+          addSet('reviewer_uid', req.uid);
+          addSet('reviewer_name', req.userName || req.userEmail || '사용자');
+        } else if (before.status === 'review' && requestedStatus === 'doing') {
+          sets.push('reviewed_at = NOW()');
+          addSet('review_note', String(req.body.reviewNote || '기존 파라곤에서 다시 진행 처리').trim().slice(0, 5000));
+          addSet('reviewer_uid', req.uid);
+          addSet('reviewer_name', req.userName || req.userEmail || '사용자');
+        }
+      }
+    }
+    if (req.body.dueDate !== undefined || req.body.due_date !== undefined) {
+      const dueDate = String(req.body.dueDate ?? req.body.due_date ?? '').trim().slice(0, 10);
+      if (!isProjectDateKey(dueDate)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ code: 'PROJECT_TASK_DUE_DATE_REQUIRED', error: '업무 마감일을 지정하세요.' });
+      }
+      addSet('due_date', dueDate);
+    }
+
+    let assignmentUpdate = null;
+    if (req.body.assigneeMode !== undefined || req.body.assigneeUid !== undefined || req.body.assignee_uid !== undefined) {
+      const assignmentMode = req.body.assigneeMode === 'all' ? 'all' : 'single';
+      const assigneeUid = String(req.body.assigneeUid ?? req.body.assignee_uid ?? '').trim();
+      const assignees = await resolveProjectTaskAssignees(client, req.params.id, assignmentMode, assigneeUid);
+      if (!assignees.length) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ code: 'PROJECT_TASK_ASSIGNEE_REQUIRED', error: '업무 담당자를 지정하세요.' });
+      }
+      const primaryAssignee = assignmentMode === 'single' ? assignees[0] : null;
+      addSet('assignment_mode', assignmentMode);
+      addSet('assignee_uid', primaryAssignee?.uid || null);
+      addSet('assignee_name', assignmentMode === 'all' ? '모두' : primaryAssignee?.name || null);
+      assignmentUpdate = { assignmentMode, assignees };
+    }
+
+    if (canManage && (assignmentUpdate || req.body.dueDate !== undefined || req.body.due_date !== undefined)) {
+      addSet('assigned_by_uid', req.uid);
+      addSet('assigned_by_name', req.userName || req.userEmail || '사용자');
+    }
+    const result = await client.query(
+      `UPDATE project_tasks SET ${sets.join(', ')}
+       WHERE id = $1 AND project_id = $2
+       RETURNING *`,
+      params
+    );
+    const after = result.rows[0];
+    const statusChanged = before.status !== after.status;
+    if (assignmentUpdate) {
+      await syncProjectTaskAssignees(client, req.params.id, req.params.taskId, assignmentUpdate.assignees);
+    }
+    if ((statusChanged || assignmentUpdate) && after.status === 'done') {
+      await client.query(
+        `UPDATE project_task_assignees
+         SET completed = true, completed_at = COALESCE(completed_at, NOW())
+         WHERE project_id = $1 AND task_id = $2`,
+        [req.params.id, req.params.taskId]
+      );
+    } else if (statusChanged && ['review', 'done'].includes(before.status) && after.status === 'doing' && after.assignment_mode === 'all') {
+      await client.query(
+        `UPDATE project_task_assignees
+         SET completed = false, completed_at = NULL
+         WHERE project_id = $1 AND task_id = $2`,
+        [req.params.id, req.params.taskId]
+      );
+    }
+    const actor = req.userName || req.userEmail || '사용자';
+    await recordProjectTaskWorkflowEvent(client, {
+      projectId: req.params.id,
+      taskId: req.params.taskId,
+      action: statusChanged
+        ? (after.status === 'review' ? 'review_requested' : after.status === 'done' ? 'approved' : before.status === 'review' && after.status === 'doing' ? 'rejected' : 'status_changed')
+        : 'edited',
+      actorUid: req.uid,
+      actorName: actor,
+      note: after.review_note || '',
+      fromStatus: before.status,
+      toStatus: after.status,
+      dueDate: after.due_date,
+      workflowVersion: after.workflow_version,
+    });
+    await touchProjectWithDb(client, req.params.id);
+    await client.query('COMMIT');
+
+    if (statusChanged) {
+      let title = '업무 상태 변경';
+      let body = `${before.project_name} · ${after.title}: ${projectTaskStatusLabel(after.status)}`;
+      if (after.status === 'review') {
+        title = '업무 검토요청';
+        body = `${actor}님이 "${after.title}" 업무 검토를 요청했습니다.`;
+      } else if (after.status === 'done') {
+        title = '업무 완료 승인';
+        body = `${actor}님이 "${after.title}" 업무를 완료 승인했습니다.`;
+      } else if (before.status === 'review' && after.status === 'doing') {
+        title = '업무 수정 요청';
+        body = `${actor}님이 "${after.title}" 업무를 다시 진행으로 돌렸습니다.`;
+      }
+      notification = { title, body };
+    }
+    if (notification) {
+      await notifyProjectMembers(
+        req.params.id,
+        req.uid,
+        notification.title,
+        notification.body,
+        {
+          taskId: req.params.taskId,
+          targetUids: after.status === 'review'
+            ? [before.reviewer_uid || before.owner_id]
+            : assignmentRows.rows.map(row => row.user_uid),
+          link: `/?page=project&projectId=${req.params.id}&taskId=${req.params.taskId}`,
+        }
+      );
+    }
+    return res.json(after);
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    return res.status(err.statusCode || 500).json({ error: err.message });
+  } finally {
+    client.release();
   }
-  const result = await pool.query(
-    `UPDATE project_tasks SET ${sets.join(', ')}
-     WHERE id = $1 AND project_id = $2
-     RETURNING *`,
-    params
-  );
-  if (!result.rows[0]) return res.status(404).json({ error: 'Task not found' });
-  if (assignmentUpdate) {
-    await syncProjectTaskAssignees(
-      pool,
+});
+
+app.post('/api/projects/:id/tasks/:taskId/review', authMiddleware, async (req, res) => {
+  if (!await canAccessProject(req, req.params.id)) return res.status(403).json({ error: 'Not authorized' });
+  const canManage = await canManageProject(req, req.params.id);
+  const action = String(req.body?.action || '').trim().toLowerCase();
+  const note = String(req.body?.note || '').trim().slice(0, 5000);
+  const dueDate = req.body?.dueDate === undefined ? null : String(req.body.dueDate || '').trim().slice(0, 10);
+  if (action === 'reject' && !note) {
+    return res.status(400).json({ code: 'PROJECT_TASK_REVIEW_NOTE_REQUIRED', error: '수정 요청 사유를 입력하세요.' });
+  }
+  if (dueDate !== null && action !== 'reject') {
+    return res.status(403).json({ code: 'PROJECT_TASK_MANAGER_REQUIRED', error: '새 마감일은 책임자가 수정 요청할 때만 지정할 수 있습니다.' });
+  }
+  if (dueDate !== null && !isProjectDateKey(dueDate)) {
+    return res.status(400).json({ code: 'PROJECT_TASK_DUE_DATE_REQUIRED', error: '새 마감일을 올바르게 지정하세요.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const current = await client.query(
+      `SELECT pt.*, p.name AS project_name, p.owner_id
+       FROM project_tasks pt
+       JOIN projects p ON p.id = pt.project_id
+       LEFT JOIN project_details pd ON pd.project_id = p.id
+       WHERE pt.id = $1 AND pt.project_id = $2
+         AND COALESCE(pd.deleted, false) = false
+         AND p.status IS DISTINCT FROM 'archived'
+         AND (p.workspace_id = $3 OR (p.workspace_id IS NULL AND $3 = $4))
+       FOR UPDATE OF pt, p`,
+      [req.params.taskId, req.params.id, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
+    );
+    if (!current.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    const task = current.rows[0];
+    const assignmentRows = await client.query(
+      'SELECT user_uid FROM project_task_assignees WHERE project_id = $1 AND task_id = $2',
+      [req.params.id, req.params.taskId]
+    );
+    const decision = projectTaskReviewDecision({
+      task,
+      action,
+      actorUid: req.uid,
+      canManage,
+      assignmentUids: assignmentRows.rows.map(row => row.user_uid),
+    });
+    if (!decision.allowed) {
+      await client.query('ROLLBACK');
+      const status = decision.code === 'PROJECT_TASK_TRANSITION_FORBIDDEN' || decision.code === 'PROJECT_TASK_REVIEW_REQUIRED' ? 409 : 403;
+      return res.status(status).json({ code: decision.code, error: decision.error });
+    }
+    if (req.body.expectedVersion !== undefined && Number(req.body.expectedVersion) !== Number(task.workflow_version || 1)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ code: 'PROJECT_TASK_VERSION_CONFLICT', error: '다른 사용자가 먼저 업무를 처리했습니다. 최신 내용을 다시 확인하세요.' });
+    }
+    const actorName = req.userName || req.userEmail || '사용자';
+    const params = [
       req.params.id,
       req.params.taskId,
-      assignmentUpdate.assignees
+      decision.nextStatus,
+      action === 'request' ? '' : note,
+      req.uid,
+      actorName,
+    ];
+    const dueSet = dueDate === null ? '' : ', due_date = $7';
+    if (dueDate !== null) params.push(dueDate);
+    const result = await client.query(
+      `UPDATE project_tasks
+       SET status = $3,
+           review_requested_at = CASE WHEN $3 = 'review' THEN NOW() ELSE review_requested_at END,
+           reviewed_at = CASE WHEN $3 IN ('done','doing') THEN NOW() ELSE NULL END,
+           review_note = $4,
+           reviewer_uid = CASE WHEN $3 IN ('done','doing') THEN $5 ELSE reviewer_uid END,
+           reviewer_name = CASE WHEN $3 IN ('done','doing') THEN $6 ELSE reviewer_name END,
+           workflow_version = workflow_version + 1,
+           updated_at = NOW()
+           ${dueSet}
+       WHERE project_id = $1 AND id = $2
+       RETURNING *`,
+      params
     );
-  }
-  const before = previous.rows[0];
-  const after = result.rows[0];
-  if (after.status === 'done') {
-    await pool.query(
-      `UPDATE project_task_assignees
-       SET completed = true, completed_at = COALESCE(completed_at, NOW())
-       WHERE project_id = $1 AND task_id = $2`,
-      [req.params.id, req.params.taskId]
-    );
-  } else if (['review', 'done'].includes(before.status) && after.status === 'doing' && after.assignment_mode === 'all') {
-    await pool.query(
-      `UPDATE project_task_assignees
-       SET completed = false, completed_at = NULL
-       WHERE project_id = $1 AND task_id = $2`,
-      [req.params.id, req.params.taskId]
-    );
-  }
-  await touchProject(req.params.id);
-  if (req.body.status !== undefined && before.status !== after.status) {
-    const actor = req.userName || req.userEmail || '사용자';
-    let title = '업무 상태 변경';
-    let body = `${before.project_name} · ${after.title}: ${projectTaskStatusLabel(after.status)}`;
-    if (after.status === 'review') {
-      title = '업무 검토요청';
-      body = `${actor}님이 "${after.title}" 업무 검토를 요청했습니다.`;
-    } else if (after.status === 'done') {
-      title = '업무 완료 처리';
-      body = `${actor}님이 "${after.title}" 업무를 완료 처리했습니다.`;
-    } else if (before.status === 'review' && after.status === 'doing') {
-      title = '업무 다시 진행';
-      body = `${actor}님이 "${after.title}" 업무를 다시 진행으로 변경했습니다.`;
+    const after = result.rows[0];
+    if (action === 'approve') {
+      await client.query(
+        `UPDATE project_task_assignees
+         SET completed = true, completed_at = COALESCE(completed_at, NOW())
+         WHERE project_id = $1 AND task_id = $2`,
+        [req.params.id, req.params.taskId]
+      );
+    } else if (action === 'reject') {
+      await client.query(
+        `UPDATE project_task_assignees
+         SET completed = false, completed_at = NULL
+         WHERE project_id = $1 AND task_id = $2`,
+        [req.params.id, req.params.taskId]
+      );
     }
+
+    let reviewComment = null;
+    if (note) {
+      const comment = await client.query(
+        `INSERT INTO project_task_comments
+         (id, project_id, task_id, content, author_uid, author_name, author_photo)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         RETURNING *`,
+        [crypto.randomUUID(), req.params.id, req.params.taskId, note, req.uid, actorName, req.userPhoto || '']
+      );
+      reviewComment = comment.rows[0];
+    }
+    await recordProjectTaskWorkflowEvent(client, {
+      projectId: req.params.id,
+      taskId: req.params.taskId,
+      action: action === 'request' ? 'review_requested' : action === 'approve' ? 'approved' : 'rejected',
+      actorUid: req.uid,
+      actorName,
+      note,
+      fromStatus: task.status,
+      toStatus: after.status,
+      dueDate: after.due_date,
+      workflowVersion: after.workflow_version,
+    });
+    await touchProjectWithDb(client, req.params.id);
+    await client.query('COMMIT');
+
+    const notification = action === 'request'
+      ? { title: '업무 검토요청', body: `${actorName}님이 "${task.title}" 업무 검토를 요청했습니다.` }
+      : action === 'approve'
+        ? { title: '업무 완료 승인', body: `${actorName}님이 "${task.title}" 업무를 완료 승인했습니다.` }
+        : { title: '업무 수정 요청', body: `${actorName}님이 "${task.title}" 업무의 수정을 요청했습니다. ${note.slice(0, 80)}` };
     await notifyProjectMembers(
       req.params.id,
       req.uid,
-      title,
-      body,
-      { taskId: req.params.taskId, link: `/?page=project&projectId=${req.params.id}&taskId=${req.params.taskId}` }
+      notification.title,
+      notification.body,
+      {
+        taskId: req.params.taskId,
+        targetUids: action === 'request'
+          ? [task.reviewer_uid || task.owner_id]
+          : assignmentRows.rows.map(row => row.user_uid),
+        link: `/?page=project&projectId=${req.params.id}&taskId=${req.params.taskId}`,
+      }
     );
+    return res.json({ ...after, reviewComment });
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    return res.status(err.statusCode || 500).json({ error: err.message });
+  } finally {
+    client.release();
   }
-  res.json(result.rows[0]);
 });
 
 app.put('/api/projects/:id/tasks/:taskId/completion', authMiddleware, async (req, res) => {
   if (!await canAccessProject(req, req.params.id)) return res.status(403).json({ error: 'Not authorized' });
-  const task = await pool.query(
-    `SELECT pt.*, p.name AS project_name
-     FROM project_tasks pt
-     JOIN projects p ON p.id = pt.project_id
-     WHERE pt.id = $1 AND pt.project_id = $2`,
-    [req.params.taskId, req.params.id]
-  );
-  if (!task.rows[0]) return res.status(404).json({ error: 'Task not found' });
-  if (task.rows[0].assignment_mode !== 'all') {
-    return res.status(400).json({ error: '모두 담당 업무만 개인별 완료 체크할 수 있습니다' });
-  }
-  const assigned = await pool.query(
-    `SELECT 1
-     FROM project_task_assignees
-     WHERE project_id = $1 AND task_id = $2 AND user_uid = $3`,
-    [req.params.id, req.params.taskId, req.uid]
-  );
-  if (!assigned.rows[0]) {
-    return res.status(403).json({ error: '이 업무의 담당자만 완료 체크할 수 있습니다' });
-  }
-  const completed = req.body.completed !== false;
-  await pool.query(
-    `UPDATE project_task_assignees
-     SET completed = $4,
-         completed_at = CASE WHEN $4 THEN NOW() ELSE NULL END
-     WHERE project_id = $1 AND task_id = $2 AND user_uid = $3`,
-    [req.params.id, req.params.taskId, req.uid, completed]
-  );
-  const progress = await pool.query(
-    `SELECT
-       COUNT(*)::int AS total,
-       COUNT(*) FILTER (WHERE completed)::int AS completed
-     FROM project_task_assignees
-     WHERE project_id = $1 AND task_id = $2`,
-    [req.params.id, req.params.taskId]
-  );
-  const total = Number(progress.rows[0]?.total || 0);
-  const completedCount = Number(progress.rows[0]?.completed || 0);
-  const beforeStatus = task.rows[0].status;
-  let nextStatus = beforeStatus;
-  if (total > 0 && completedCount === total && !['review', 'done'].includes(beforeStatus)) {
-    nextStatus = 'review';
-  } else if (completedCount < total && ['review', 'done'].includes(beforeStatus)) {
-    nextStatus = 'doing';
-  } else if (completedCount > 0 && beforeStatus === 'todo') {
-    nextStatus = 'doing';
-  }
-  if (nextStatus !== beforeStatus) {
-    await pool.query(
-      'UPDATE project_tasks SET status = $3, updated_at = NOW() WHERE project_id = $1 AND id = $2',
-      [req.params.id, req.params.taskId, nextStatus]
+  const client = await pool.connect();
+  let response;
+  let shouldNotify = false;
+  let taskTitle = '';
+  let reviewerUid = '';
+  try {
+    await client.query('BEGIN');
+    const task = await client.query(
+      `SELECT pt.*, p.name AS project_name, p.owner_id
+       FROM project_tasks pt
+       JOIN projects p ON p.id = pt.project_id
+       LEFT JOIN project_details pd ON pd.project_id = p.id
+       WHERE pt.id = $1 AND pt.project_id = $2
+         AND COALESCE(pd.deleted, false) = false
+         AND p.status IS DISTINCT FROM 'archived'
+         AND (p.workspace_id = $3 OR (p.workspace_id IS NULL AND $3 = $4))
+       FOR UPDATE OF pt, p`,
+      [req.params.taskId, req.params.id, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
     );
+    if (!task.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    const currentTask = task.rows[0];
+    taskTitle = currentTask.title;
+    reviewerUid = currentTask.reviewer_uid || currentTask.owner_id || '';
+    if (currentTask.assignment_mode !== 'all') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: '모두 담당 업무만 개인별 완료 체크할 수 있습니다' });
+    }
+    if (currentTask.status === 'hold') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ code: 'PROJECT_TASK_COMPLETION_LOCKED', error: '보류 중인 업무는 완료 체크할 수 없습니다.' });
+    }
+    if (['review', 'done'].includes(currentTask.status)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ code: 'PROJECT_TASK_REVIEW_LOCKED', error: '검토 요청 후에는 책임자의 승인 또는 수정 요청을 기다려 주세요.' });
+    }
+    // The task-row lock, not an optimistic client version, serializes independent assignee checks.
+    const assigned = await client.query(
+      `SELECT 1 FROM project_task_assignees
+       WHERE project_id = $1 AND task_id = $2 AND user_uid = $3
+       FOR UPDATE`,
+      [req.params.id, req.params.taskId, req.uid]
+    );
+    if (!assigned.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: '이 업무의 담당자만 완료 체크할 수 있습니다' });
+    }
+    const completed = req.body.completed !== false;
+    await client.query(
+      `UPDATE project_task_assignees
+       SET completed = $4,
+           completed_at = CASE WHEN $4 THEN NOW() ELSE NULL END
+       WHERE project_id = $1 AND task_id = $2 AND user_uid = $3`,
+      [req.params.id, req.params.taskId, req.uid, completed]
+    );
+    const progress = await client.query(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE completed)::int AS completed
+       FROM project_task_assignees
+       WHERE project_id = $1 AND task_id = $2`,
+      [req.params.id, req.params.taskId]
+    );
+    const total = Number(progress.rows[0]?.total || 0);
+    const completedCount = Number(progress.rows[0]?.completed || 0);
+    let nextStatus = currentTask.status;
+    if (total > 0 && completedCount === total) nextStatus = 'review';
+    else if (completedCount > 0 && currentTask.status === 'todo') nextStatus = 'doing';
+    else if (completedCount === 0 && currentTask.status === 'doing') nextStatus = 'todo';
+    let workflowVersion = Number(currentTask.workflow_version || 1);
+    if (nextStatus !== currentTask.status) {
+      const updated = await client.query(
+        `UPDATE project_tasks
+         SET status = $3,
+             review_requested_at = CASE WHEN $3 = 'review' THEN NOW() ELSE review_requested_at END,
+             reviewed_at = CASE WHEN $3 = 'review' THEN NULL ELSE reviewed_at END,
+             review_note = CASE WHEN $3 = 'review' THEN '' ELSE review_note END,
+             workflow_version = workflow_version + 1,
+             updated_at = NOW()
+         WHERE project_id = $1 AND id = $2
+         RETURNING workflow_version`,
+        [req.params.id, req.params.taskId, nextStatus]
+      );
+      workflowVersion = Number(updated.rows[0].workflow_version);
+      await recordProjectTaskWorkflowEvent(client, {
+        projectId: req.params.id,
+        taskId: req.params.taskId,
+        action: nextStatus === 'review' ? 'review_requested' : 'completion_changed',
+        actorUid: req.uid,
+        actorName: req.userName || req.userEmail || '사용자',
+        fromStatus: currentTask.status,
+        toStatus: nextStatus,
+        dueDate: currentTask.due_date,
+        workflowVersion,
+      });
+      shouldNotify = nextStatus === 'review';
+    }
+    await touchProjectWithDb(client, req.params.id);
+    await client.query('COMMIT');
+    response = {
+      taskId: req.params.taskId,
+      completed,
+      completedCount,
+      total,
+      percent: total ? Math.round((completedCount / total) * 100) : 0,
+      status: nextStatus,
+      workflowVersion,
+    };
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    return res.status(err.statusCode || 500).json({ error: err.message });
+  } finally {
+    client.release();
   }
-  await touchProject(req.params.id);
-  if (nextStatus === 'review' && beforeStatus !== 'review') {
+  if (shouldNotify) {
     await notifyProjectMembers(
       req.params.id,
       req.uid,
       '업무 전체 완료',
-      `"${task.rows[0].title}" 담당자 ${total}명이 모두 완료해 검토를 요청했습니다.`,
-      { taskId: req.params.taskId, link: `/?page=project&projectId=${req.params.id}&taskId=${req.params.taskId}` }
+      `"${taskTitle}" 담당자가 모두 체크해 검토를 요청했습니다.`,
+      {
+        taskId: req.params.taskId,
+        targetUids: [reviewerUid],
+        link: `/?page=project&projectId=${req.params.id}&taskId=${req.params.taskId}`,
+      }
     );
   }
-  res.json({
-    taskId: req.params.taskId,
-    completed,
-    completedCount,
-    total,
-    percent: total ? Math.round((completedCount / total) * 100) : 0,
-    status: nextStatus
-  });
+  return res.json(response);
 });
 
 app.delete('/api/projects/:id/tasks/:taskId', authMiddleware, async (req, res) => {
