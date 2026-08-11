@@ -95,6 +95,14 @@
   let selectedStructuredProjectId = '';
   let structuredProjectSearch = '';
   let structuredProjectStatusFilter = 'all';
+  // 기존 계층형 화면은 기본값으로 보존하고, 레퍼런스 검증용 보드는
+  // 같은 상세 DTO를 읽는 표시 전용 상태만 별도로 가진다.
+  let structuredProjectTaskView = 'hierarchy';
+  let structuredBoardSearch = '';
+  let structuredBoardMediumFilter = 'all';
+  let structuredBoardSmallFilter = 'all';
+  let structuredBoardAssigneeFilter = 'all';
+  let selectedStructuredBoardTaskId = '';
   let liveChatMessages = [];
   const chatReadAckByRoom = new Map();
   let collaborationDirectory = [];
@@ -2150,6 +2158,7 @@
     if (activeView === 'new-projects'
       && ((newProjectsView.contains(document.activeElement)
         && document.activeElement.matches('button, a[href], input, textarea, select, [tabindex]:not([tabindex="-1"])'))
+        || newProjectsView.querySelector('[data-structured-task-drawer]')
         || document.getElementById('readonlyDetailModal')?.hidden === false)) return;
     if (collaborationRefreshInFlight) return collaborationRefreshInFlight;
     const task = (async () => {
@@ -2227,6 +2236,12 @@
     selectedStructuredProjectId = '';
     structuredProjectSearch = '';
     structuredProjectStatusFilter = 'all';
+    structuredProjectTaskView = 'hierarchy';
+    structuredBoardSearch = '';
+    structuredBoardMediumFilter = 'all';
+    structuredBoardSmallFilter = 'all';
+    structuredBoardAssigneeFilter = 'all';
+    selectedStructuredBoardTaskId = '';
     structuredProjectLoadGeneration += 1;
     liveChatRooms = [];
     liveChatMessages = [];
@@ -2447,6 +2462,12 @@
         status: 'idle', readOnly: true, capabilities: {}, project: null, error: '', contextKey: structuredProjectContextKey(), projectId: ''
       };
       selectedStructuredProjectId = '';
+      structuredProjectTaskView = 'hierarchy';
+      structuredBoardSearch = '';
+      structuredBoardMediumFilter = 'all';
+      structuredBoardSmallFilter = 'all';
+      structuredBoardAssigneeFilter = 'all';
+      selectedStructuredBoardTaskId = '';
       structuredProjectLoadGeneration += 1;
       if (activeView === 'new-projects') renderStructuredProjects();
       // 열린 채팅 DOM은 실제 로그인 계정의 민감 데이터다.
@@ -2480,6 +2501,12 @@
         status: 'idle', readOnly: true, capabilities: {}, project: null, error: '', contextKey: '', projectId: ''
       };
       selectedStructuredProjectId = '';
+      structuredProjectTaskView = 'hierarchy';
+      structuredBoardSearch = '';
+      structuredBoardMediumFilter = 'all';
+      structuredBoardSmallFilter = 'all';
+      structuredBoardAssigneeFilter = 'all';
+      selectedStructuredBoardTaskId = '';
     }
     // 미리보기 대상은 실제 인증 UID를 바꾸지 않는다. 따라서 비동기 운영 자료를
     // 다시 불러오는 동안에도 로그인 사용자의 할 일이 남의 업무처럼 보이지 않도록
@@ -4434,6 +4461,12 @@
         status: 'ready', readOnly: true, capabilities: {}, projects: [], error: '', contextKey
       };
       selectedStructuredProjectId = '';
+      structuredProjectTaskView = 'hierarchy';
+      structuredBoardSearch = '';
+      structuredBoardMediumFilter = 'all';
+      structuredBoardSmallFilter = 'all';
+      structuredBoardAssigneeFilter = 'all';
+      selectedStructuredBoardTaskId = '';
       structuredProjectDetailState = {
         status: 'idle', readOnly: true, capabilities: {}, project: null, error: '', contextKey, projectId: ''
       };
@@ -4523,6 +4556,12 @@
     const requestedId = String(projectId || '');
     if (!requestedId || previewPersona) return;
     selectedStructuredProjectId = requestedId;
+    structuredProjectTaskView = 'hierarchy';
+    structuredBoardSearch = '';
+    structuredBoardMediumFilter = 'all';
+    structuredBoardSmallFilter = 'all';
+    structuredBoardAssigneeFilter = 'all';
+    selectedStructuredBoardTaskId = '';
     structuredProjectDetailState = {
       status: 'loading', readOnly: true, capabilities: {}, project: null, error: '',
       contextKey: structuredProjectContextKey(), projectId: requestedId
@@ -4534,6 +4573,12 @@
   function closeStructuredProject() {
     structuredProjectLoadGeneration += 1;
     selectedStructuredProjectId = '';
+    structuredProjectTaskView = 'hierarchy';
+    structuredBoardSearch = '';
+    structuredBoardMediumFilter = 'all';
+    structuredBoardSmallFilter = 'all';
+    structuredBoardAssigneeFilter = 'all';
+    selectedStructuredBoardTaskId = '';
     structuredProjectDetailState = {
       status: 'idle', readOnly: true, capabilities: {}, project: null, error: '',
       contextKey: structuredProjectContextKey(), projectId: ''
@@ -4674,6 +4719,138 @@
     </article>`;
   }
 
+  function structuredProjectTaskRecords(project) {
+    const records = [];
+    (Array.isArray(project?.mediumCategories) ? project.mediumCategories : []).forEach(medium => {
+      (Array.isArray(medium?.smallCategories) ? medium.smallCategories : []).forEach(small => {
+        (Array.isArray(small?.tasks) ? small.tasks : []).forEach(task => {
+          const status = STRUCTURED_TASK_STATUS[task?.status] ? task.status : 'todo';
+          records.push({
+            task,
+            medium,
+            small,
+            status,
+            lane: status === 'revision' ? 'doing' : status
+          });
+        });
+      });
+    });
+    return records;
+  }
+
+  function structuredBoardTaskHistory(task) {
+    const history = Array.isArray(task?.history) ? task.history : [];
+    if (!history.length) return '<div class="structured-board-history-empty">아직 처리 이력이 없습니다.</div>';
+    return `<div class="structured-board-history">${history.slice().reverse().map(item => {
+      const actionLabel = { submit: '검토 요청', resubmit: '재검토 요청', approve: '승인', request_revision: '수정 요청', request: '검토 요청', revision: '수정 요청' }[item.action] || item.action || '상태 변경';
+      const actor = structuredProjectMemberName(item.actor, item.actorName || item.actor_name || '처리자');
+      const createdAt = item.createdAt || item.created_at;
+      return `<span><i></i><b>${esc(actionLabel)}</b><em>${esc(actor)}${createdAt ? ` · ${esc(formatDate(createdAt, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}` : ''}</em>${item.note ? `<small>${esc(item.note)}</small>` : ''}</span>`;
+    }).join('')}</div>`;
+  }
+
+  function structuredBoardTaskCard(record) {
+    const { task, medium, small, status, lane } = record;
+    const assignedBy = structuredProjectMemberName(task.assignedBy, '지시자 미지정');
+    const assignee = structuredProjectMemberName(task.assignee, '담당자 미지정');
+    const assigneeUid = String(task?.assignee?.uid || '');
+    return `<article class="structured-board-card status-${esc(status)}" data-work-item-id="${esc(task.id)}" data-task-status="${esc(status)}" data-medium-id="${esc(medium.id || '')}" data-small-id="${esc(small.id || '')}" data-assignee-uid="${esc(assigneeUid)}">
+      <button type="button" data-structured-board-task-open="${esc(task.id)}" aria-label="${esc(task.title || '업무')} 상세 열기">
+        <span class="structured-board-card-top">${structuredTaskStatusBadge(status)}${projectDeadlineBadge(task.dueDate, status)}</span>
+        <span class="structured-board-path"><b>${esc(medium.name || '중분류 미지정')}</b><i aria-hidden="true">›</i><span>${esc(small.name || '소분류 미지정')}</span></span>
+        <strong>${esc(task.title || '업무명 없음')}</strong>
+        ${task.description ? `<span class="structured-board-card-description">${esc(task.description)}</span>` : ''}
+        ${status === 'revision' && task.revisionReason ? `<span class="structured-board-revision"><b>수정 요청</b>${esc(task.revisionReason)}</span>` : ''}
+        <span class="structured-board-flow"><span><b>지시</b>${esc(assignedBy)}</span><i aria-hidden="true">→</i><span><b>담당</b>${esc(assignee)}</span></span>
+      </button>
+    </article>`;
+  }
+
+  function structuredBoardTaskDrawer(record, project) {
+    if (!record) return '';
+    const { task, medium, small, status } = record;
+    const assignedBy = structuredProjectMemberName(task.assignedBy, '지시자 미지정');
+    const assignee = structuredProjectMemberName(task.assignee, '담당자 미지정');
+    const reviewer = structuredProjectMemberName(task.reviewer, task.assignedBy ? assignedBy : structuredProjectMemberName(project?.lead, '검토자 미지정'));
+    const canSubmit = structuredTaskCan(task, 'submit');
+    const canApprove = status === 'review' && structuredTaskCan(task, 'approve');
+    const canRevision = status === 'review' && structuredTaskCan(task, 'requestRevision');
+    const canEdit = structuredTaskCan(task, 'edit') || structuredTaskCan(task, 'reassign');
+    const submitLabel = status === 'revision' ? '수정 완료 · 재검토 요청' : '완료 · 검토 요청';
+    const dueDate = String(task.dueDate || '').slice(0, 10);
+    return `<aside class="structured-task-drawer status-${esc(status)}" data-structured-task-drawer role="dialog" aria-modal="false" aria-label="${esc(task.title || '업무')} 상세" tabindex="-1">
+      <header class="structured-task-drawer-head"><div><span>업무 상세 · 테스트뷰</span><strong>${esc(medium.name || '중분류 미지정')} <i aria-hidden="true">›</i> ${esc(small.name || '소분류 미지정')}</strong></div><button type="button" data-structured-task-drawer-close aria-label="업무 상세 닫기">×</button></header>
+      <div class="structured-task-drawer-body">
+        <div class="structured-task-drawer-status">${structuredTaskStatusBadge(status)}${projectDeadlineBadge(task.dueDate, status)}<small>v${Number(task.workflowVersion ?? task.version ?? 1)}</small></div>
+        <h2>${esc(task.title || '업무명 없음')}</h2>
+        <section><span>업무 내용</span><p>${esc(task.description || '등록된 상세 내용이 없습니다.')}</p></section>
+        <section><span>마감 기한</span><div class="structured-task-drawer-deadline">${dueDate ? `<strong>${esc(dueDate)}</strong>` : '<strong>마감일 미지정</strong>'}${projectDeadlineBadge(task.dueDate, status)}</div></section>
+        <section><span>업무 전달</span><div class="structured-task-drawer-flow"><span><b>업무 지시자</b><strong>${esc(assignedBy)}</strong></span><i aria-hidden="true">→</i><span><b>업무 담당자</b><strong>${esc(assignee)}</strong></span><i aria-hidden="true">→</i><span><b>검토자</b><strong>${esc(reviewer)}</strong></span></div></section>
+        ${status === 'revision' ? `<section class="structured-task-drawer-revision"><span>수정 요청 사유</span><p>${esc(task.revisionReason || '수정 요청 내용을 확인해 주세요.')}</p></section>` : ''}
+        <section><span>처리 이력</span>${structuredBoardTaskHistory(task)}</section>
+      </div>
+      <footer class="structured-task-drawer-actions">
+        ${canSubmit ? `<button class="submit" type="button" data-work-item-submit="${esc(task.id)}">${esc(submitLabel)}</button>` : ''}
+        ${canApprove ? `<button class="approve" type="button" data-work-item-approve="${esc(task.id)}">승인</button>` : ''}
+        ${canRevision ? `<button class="revision" type="button" data-work-item-revision="${esc(task.id)}">수정 요청</button>` : ''}
+        ${canEdit ? `<button class="edit" type="button" data-work-item-edit="${esc(task.id)}">업무 수정</button>` : ''}
+        ${!canSubmit && !canApprove && !canRevision && !canEdit ? '<span>현재 계정에서 처리할 수 있는 작업이 없습니다.</span>' : ''}
+      </footer>
+    </aside>`;
+  }
+
+  function structuredProjectBoard(project) {
+    const records = structuredProjectTaskRecords(project);
+    const mediums = Array.isArray(project?.mediumCategories) ? project.mediumCategories : [];
+    const visibleMediums = structuredBoardMediumFilter === 'all'
+      ? mediums
+      : mediums.filter(medium => String(medium.id) === String(structuredBoardMediumFilter));
+    const smalls = visibleMediums.flatMap(medium => Array.isArray(medium?.smallCategories) ? medium.smallCategories : []);
+    const members = structuredProjectDirectory([], project);
+    const query = structuredBoardSearch.trim().toLowerCase();
+    const hasUnassigned = records.some(({ task }) => !task?.assignee?.uid);
+    const filtered = records.filter(record => {
+      const mediumMatch = structuredBoardMediumFilter === 'all' || String(record.medium.id) === String(structuredBoardMediumFilter);
+      const smallMatch = structuredBoardSmallFilter === 'all' || String(record.small.id) === String(structuredBoardSmallFilter);
+      const assigneeUid = String(record.task?.assignee?.uid || '');
+      const assigneeMatch = structuredBoardAssigneeFilter === 'all'
+        || (structuredBoardAssigneeFilter === 'unassigned' ? !assigneeUid : assigneeUid === String(structuredBoardAssigneeFilter));
+      const text = [
+        record.task?.title, record.task?.description, record.task?.revisionReason,
+        record.medium?.name, record.small?.name,
+        structuredProjectMemberName(record.task?.assignedBy, ''),
+        structuredProjectMemberName(record.task?.assignee, '')
+      ].join(' ').toLowerCase();
+      return mediumMatch && smallMatch && assigneeMatch && (!query || text.includes(query));
+    });
+    const laneMeta = [
+      ['todo', '할 일', '업무 시작 전'],
+      ['doing', '진행 중', '수정 요청 포함'],
+      ['review', '검토 요청', '승인·수정 판단'],
+      ['done', '완료', '승인 완료']
+    ];
+    const selectedRecord = records.find(record => String(record.task?.id) === String(selectedStructuredBoardTaskId));
+    if (selectedStructuredBoardTaskId && !selectedRecord) selectedStructuredBoardTaskId = '';
+    return `<section class="structured-board-view" data-structured-task-board>
+      <header class="structured-board-head"><div><span>BOARD TEST VIEW</span><strong>업무 진행 보드</strong><small>카드를 선택하면 오른쪽에서 상세 내용과 검토 이력을 확인할 수 있습니다.</small></div><b>${filtered.length}/${records.length}개 업무</b></header>
+      <div class="structured-board-controls">
+        <label class="structured-board-search"><span aria-hidden="true">⌕</span><input type="search" data-structured-board-search value="${esc(structuredBoardSearch)}" placeholder="업무명, 분류, 담당자 검색" aria-label="보드 업무 검색"></label>
+        <label><span>업무 중분류</span><select data-structured-board-medium-filter aria-label="업무 중분류 필터"><option value="all">전체 중분류</option>${mediums.map(medium => `<option value="${esc(medium.id)}" ${String(medium.id) === String(structuredBoardMediumFilter) ? 'selected' : ''}>${esc(medium.name || '이름 없는 중분류')}</option>`).join('')}</select></label>
+        <label><span>업무 소분류</span><select data-structured-board-small-filter aria-label="업무 소분류 필터"><option value="all">전체 소분류</option>${smalls.map(small => `<option value="${esc(small.id)}" ${String(small.id) === String(structuredBoardSmallFilter) ? 'selected' : ''}>${esc(small.name || '이름 없는 소분류')}</option>`).join('')}</select></label>
+        <label><span>담당자</span><select data-structured-board-assignee-filter aria-label="업무 담당자 필터"><option value="all">전체 담당자</option>${members.map(member => `<option value="${esc(member.uid)}" ${String(member.uid) === String(structuredBoardAssigneeFilter) ? 'selected' : ''}>${esc(structuredProjectMemberLabel(member))}</option>`).join('')}${hasUnassigned ? `<option value="unassigned" ${structuredBoardAssigneeFilter === 'unassigned' ? 'selected' : ''}>담당자 미지정</option>` : ''}</select></label>
+      </div>
+      ${!filtered.length ? `<div class="structured-board-empty" data-structured-board-empty><strong>조건에 맞는 업무가 없습니다.</strong><span>검색어나 필터를 바꿔 보세요.</span></div>` : ''}
+      <div class="structured-board-grid" aria-label="업무 상태 보드">
+        ${laneMeta.map(([lane, label, caption]) => {
+          const laneRecords = filtered.filter(record => record.lane === lane);
+          const revisions = lane === 'doing' ? laneRecords.filter(record => record.status === 'revision').length : 0;
+          return `<section class="structured-board-column lane-${lane}" data-structured-board-column="${lane}"><header><div><strong>${label}</strong><small>${caption}</small></div><span>${laneRecords.length}</span></header>${revisions ? `<div class="structured-board-revision-count">수정 요청 ${revisions}건 우선 확인</div>` : ''}<div class="structured-board-column-body">${laneRecords.map(structuredBoardTaskCard).join('') || '<span class="structured-board-lane-empty">표시할 업무가 없습니다.</span>'}</div></section>`;
+        }).join('')}
+      </div>
+      ${structuredBoardTaskDrawer(selectedRecord, project)}
+    </section>`;
+  }
+
   function structuredSmallCategory(small, project, medium) {
     const tasks = Array.isArray(small.tasks) ? small.tasks : [];
     const done = tasks.filter(task => task.status === 'done').length;
@@ -4743,7 +4920,10 @@
         </div>
         <div class="structured-detail-progress"><span><b>전체 진행률</b><strong>${percent}%</strong></span><i><b style="width:${percent}%"></b></i><small>승인 완료 ${done}/${tasks.length} · 검토 요청 ${review} · 수정 요청 ${revision}</small></div>
       </section>
-      <section class="structured-medium-list">${mediums.map(medium => structuredMediumCategory(medium, project)).join('') || `<div class="structured-empty"><strong>아직 업무 중분류가 없습니다.</strong><span>${canManage ? '중분류를 추가해 프로젝트 업무를 나눠 주세요.' : '프로젝트 담당자가 업무 구조를 준비하고 있습니다.'}</span>${canManage ? '<button class="structured-empty-action" type="button" data-structured-medium-create>＋ 업무 중분류 만들기</button>' : ''}</div>`}</section>
+      <section class="structured-task-viewbar"><div><strong>업무 보기</strong><small>기존 계층 구조와 보드 테스트뷰를 전환해 비교할 수 있습니다.</small></div><nav data-structured-task-view-toggle aria-label="업무 보기 방식"><button type="button" data-structured-task-view="hierarchy" class="${structuredProjectTaskView === 'hierarchy' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'hierarchy' ? 'true' : 'false'}">계층 보기</button><button type="button" data-structured-task-view="board" class="${structuredProjectTaskView === 'board' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'board' ? 'true' : 'false'}">보드 테스트뷰</button></nav></section>
+      ${structuredProjectTaskView === 'board'
+        ? structuredProjectBoard(project)
+        : `<section class="structured-medium-list">${mediums.map(medium => structuredMediumCategory(medium, project)).join('') || `<div class="structured-empty"><strong>아직 업무 중분류가 없습니다.</strong><span>${canManage ? '중분류를 추가해 프로젝트 업무를 나눠 주세요.' : '프로젝트 담당자가 업무 구조를 준비하고 있습니다.'}</span>${canManage ? '<button class="structured-empty-action" type="button" data-structured-medium-create>＋ 업무 중분류 만들기</button>' : ''}</div>`}</section>`}
     </section>`;
     wireStructuredDetailActions(project);
   }
@@ -4789,6 +4969,69 @@
 
   function wireStructuredDetailActions(project) {
     newProjectsView.querySelector('[data-structured-project-back]')?.addEventListener('click', closeStructuredProject);
+    newProjectsView.querySelectorAll('[data-structured-task-view]').forEach(button => button.addEventListener('click', () => {
+      const nextView = button.dataset.structuredTaskView === 'board' ? 'board' : 'hierarchy';
+      if (nextView === structuredProjectTaskView) return;
+      structuredProjectTaskView = nextView;
+      selectedStructuredBoardTaskId = '';
+      renderStructuredProjectDetail();
+    }));
+    const boardSearch = newProjectsView.querySelector('[data-structured-board-search]');
+    let boardSearchComposing = false;
+    const updateBoardSearch = () => {
+      structuredBoardSearch = boardSearch?.value || '';
+      renderStructuredProjectDetail();
+      const next = newProjectsView.querySelector('[data-structured-board-search]');
+      next?.focus();
+      next?.setSelectionRange(structuredBoardSearch.length, structuredBoardSearch.length);
+    };
+    boardSearch?.addEventListener('compositionstart', () => { boardSearchComposing = true; });
+    boardSearch?.addEventListener('compositionend', () => {
+      boardSearchComposing = false;
+      updateBoardSearch();
+    });
+    boardSearch?.addEventListener('input', () => {
+      structuredBoardSearch = boardSearch.value;
+      if (!boardSearchComposing) updateBoardSearch();
+    });
+    newProjectsView.querySelector('[data-structured-board-medium-filter]')?.addEventListener('change', event => {
+      structuredBoardMediumFilter = event.currentTarget.value || 'all';
+      structuredBoardSmallFilter = 'all';
+      renderStructuredProjectDetail();
+    });
+    newProjectsView.querySelector('[data-structured-board-small-filter]')?.addEventListener('change', event => {
+      structuredBoardSmallFilter = event.currentTarget.value || 'all';
+      renderStructuredProjectDetail();
+    });
+    newProjectsView.querySelector('[data-structured-board-assignee-filter]')?.addEventListener('change', event => {
+      structuredBoardAssigneeFilter = event.currentTarget.value || 'all';
+      renderStructuredProjectDetail();
+    });
+    newProjectsView.querySelectorAll('[data-structured-board-task-open]').forEach(button => button.addEventListener('click', () => {
+      selectedStructuredBoardTaskId = String(button.dataset.structuredBoardTaskOpen || '');
+      renderStructuredProjectDetail();
+      window.requestAnimationFrame(() => newProjectsView.querySelector('[data-structured-task-drawer]')?.focus());
+    }));
+    newProjectsView.querySelector('[data-structured-task-drawer-close]')?.addEventListener('click', () => {
+      const previousTaskId = selectedStructuredBoardTaskId;
+      selectedStructuredBoardTaskId = '';
+      renderStructuredProjectDetail();
+      window.requestAnimationFrame(() => {
+        [...newProjectsView.querySelectorAll('[data-structured-board-task-open]')]
+          .find(button => String(button.dataset.structuredBoardTaskOpen || '') === String(previousTaskId))?.focus();
+      });
+    });
+    newProjectsView.querySelector('[data-structured-task-drawer]')?.addEventListener('keydown', event => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      const previousTaskId = selectedStructuredBoardTaskId;
+      selectedStructuredBoardTaskId = '';
+      renderStructuredProjectDetail();
+      window.requestAnimationFrame(() => {
+        [...newProjectsView.querySelectorAll('[data-structured-board-task-open]')]
+          .find(button => String(button.dataset.structuredBoardTaskOpen || '') === String(previousTaskId))?.focus();
+      });
+    });
     newProjectsView.querySelectorAll('[data-structured-project-edit], [data-structured-project-lead-edit]').forEach(button => button.addEventListener('click', () => openStructuredProjectEditor(project)));
     newProjectsView.querySelectorAll('[data-structured-medium-create]').forEach(button => button.addEventListener('click', () => openStructuredCategoryEditor('medium', project)));
     newProjectsView.querySelectorAll('[data-structured-small-create]').forEach(button => button.addEventListener('click', () => openStructuredCategoryEditor('small', project, button.dataset.structuredSmallCreate)));

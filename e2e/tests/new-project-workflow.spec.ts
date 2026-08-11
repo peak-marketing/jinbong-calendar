@@ -86,6 +86,102 @@ function makeProject({
   };
 }
 
+function makeBoardProject({
+  id = 'board-project',
+  canManage = true,
+  canEditSettings = canManage,
+} = {}) {
+  const project = makeProject({ id, name: '캠페인 보드 테스트', canManage, canEditSettings });
+  const makeTask = ({
+    key,
+    title,
+    status,
+    dueDate,
+    assignee = { uid: 'worker-uid', name: '업무담당자 이사원' },
+    description = '',
+    revisionReason = '',
+  }: {
+    key: string;
+    title: string;
+    status: string;
+    dueDate: string;
+    assignee?: { uid: string; name: string };
+    description?: string;
+    revisionReason?: string;
+  }) => ({
+    id: `${id}-${key}`,
+    title,
+    description,
+    status,
+    dueDate,
+    workflowVersion: 3,
+    assignedBy: { uid: 'lead-uid', name: '업무지시자 김팀장' },
+    assignee,
+    reviewer: { uid: 'lead-uid', name: '업무지시자 김팀장' },
+    revisionReason,
+    history: status === 'revision' ? [{
+      action: 'revision',
+      actor: { uid: 'lead-uid', name: '업무지시자 김팀장' },
+      note: revisionReason,
+      createdAt: '2026-08-11T10:00:00+09:00',
+    }] : [],
+    capabilities: taskCapabilities(status),
+  });
+  project.mediumCategories = [
+    {
+      id: `${id}-medium-content`,
+      name: '콘텐츠 제작',
+      version: 1,
+      manager: { uid: 'worker-uid', name: '업무담당자 이사원' },
+      smallCategories: [{
+        id: `${id}-small-design`,
+        name: '광고 시안',
+        version: 1,
+        tasks: [
+          makeTask({
+            key: 'todo', title: '첫 시안 방향 정리', status: 'todo', dueDate: '2026-08-13',
+            description: '브랜드 톤을 정리합니다.',
+          }),
+          makeTask({
+            key: 'doing', title: 'PC 광고 시안 제작', status: 'doing', dueDate: '2026-08-14',
+            assignee: { uid: 'viewer-uid', name: '공동구성원 박대리' },
+          }),
+          makeTask({
+            key: 'revision', title: '모바일 광고 시안 보완', status: 'revision', dueDate: '2026-08-12',
+            revisionReason: 'CTA 버튼 간격을 다시 맞춰 주세요.',
+          }),
+        ],
+      }],
+    },
+    {
+      id: `${id}-medium-operation`,
+      name: '캠페인 운영',
+      version: 1,
+      manager: { uid: 'lead-uid', name: '업무지시자 김팀장' },
+      smallCategories: [{
+        id: `${id}-small-channel`,
+        name: '채널 점검',
+        version: 1,
+        tasks: [
+          makeTask({
+            key: 'review', title: '게시 전 링크 검수', status: 'review', dueDate: '2026-08-15',
+            description: '최종 링크와 문구를 검토합니다.',
+          }),
+          makeTask({
+            key: 'done', title: '매체 계정 권한 확인', status: 'done', dueDate: '2026-08-10',
+            assignee: { uid: 'viewer-uid', name: '공동구성원 박대리' },
+          }),
+        ],
+      }],
+    },
+  ];
+  project.taskCount = 5;
+  project.doneTaskCount = 1;
+  project.reviewTaskCount = 1;
+  project.nearestDueDate = '2026-08-12';
+  return project;
+}
+
 function projectSummary(project: any) {
   return {
     id: project.id,
@@ -553,6 +649,204 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     expect(fixture.calls.filter(call => call.method !== 'GET' && call.path.includes('/projects'))).toEqual([]);
   });
 
+  test('기존 계층 보기를 보존한 채 4열 보드에서 상태·분류·담당자·검색과 업무 상세를 비교한다', async ({ page }) => {
+    test.setTimeout(45_000);
+    const project = makeBoardProject();
+    const fixture: NewProjectFixture = {
+      calls: [],
+      projectsByWorkspace: { peak: [project] },
+      capabilities: { viewPortfolio: true, createProject: true },
+    };
+    await setup(page, fixture);
+    await openNewProjects(page);
+    await page.locator('[data-structured-project-open="board-project"]').click();
+
+    const hierarchyToggle = page.locator('[data-structured-task-view="hierarchy"]');
+    const boardToggle = page.locator('[data-structured-task-view="board"]');
+    await expect(hierarchyToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-work-category-id]')).toHaveCount(2);
+    await expect(page.locator('[data-structured-task-board]')).toHaveCount(0);
+    const readsBeforeToggle = fixture.calls.filter(call => call.method === 'GET' && call.path.includes('/new-projects')).length;
+
+    await boardToggle.click();
+    await expect(boardToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-work-category-id]')).toHaveCount(0);
+    const board = page.locator('[data-structured-task-board]');
+    await expect(board).toBeVisible();
+    await expect(page.locator('[data-structured-board-column]')).toHaveCount(4);
+    await expect(page.locator('[data-structured-board-column="todo"]')).toContainText('첫 시안 방향 정리');
+    const doingLane = page.locator('[data-structured-board-column="doing"]');
+    await expect(doingLane).toContainText('PC 광고 시안 제작');
+    await expect(doingLane).toContainText('모바일 광고 시안 보완');
+    await expect(doingLane).toContainText('수정 요청 1건 우선 확인');
+    await expect(page.locator('[data-structured-board-column="review"]')).toContainText('게시 전 링크 검수');
+    await expect(page.locator('[data-structured-board-column="done"]')).toContainText('매체 계정 권한 확인');
+    await expect(page.locator('[data-structured-board-column="todo"] [data-task-status="revision"]')).toHaveCount(0);
+    await expect(doingLane.locator('[data-task-status="revision"]')).toHaveCount(1);
+    await expect(page.locator('[data-structured-task-board] [data-work-item-id]')).toHaveCount(5);
+
+    const revisionCard = page.locator('[data-work-item-id="board-project-revision"]');
+    await expect(revisionCard).toContainText('콘텐츠 제작');
+    await expect(revisionCard).toContainText('광고 시안');
+    await expect(revisionCard).toContainText('업무지시자 김팀장');
+    await expect(revisionCard).toContainText('업무담당자 이사원');
+    await expect(revisionCard.locator('.project-deadline-badge')).toHaveCount(1);
+    await revisionCard.locator('[data-structured-board-task-open]').click();
+    const drawer = page.locator('[data-structured-task-drawer]');
+    await expect(drawer).toBeFocused();
+    await expect(drawer).toContainText('콘텐츠 제작');
+    await expect(drawer).toContainText('광고 시안');
+    await expect(drawer).toContainText('2026-08-12');
+    await expect(drawer).toContainText('업무지시자 김팀장');
+    await expect(drawer).toContainText('업무담당자 이사원');
+    await expect(drawer).toContainText('CTA 버튼 간격을 다시 맞춰 주세요.');
+    await expect(drawer.locator('[data-work-item-submit="board-project-revision"]')).toBeVisible();
+    await page.setViewportSize({ width: 1280, height: 480 });
+    const drawerBody = drawer.locator('.structured-task-drawer-body');
+    await drawerBody.hover();
+    await page.mouse.wheel(0, 220);
+    const drawerScrollBeforePoll = await expect.poll(() => drawerBody.evaluate(element => element.scrollTop))
+      .toBeGreaterThan(0)
+      .then(() => drawerBody.evaluate(element => element.scrollTop));
+    const detailReadsBeforePoll = fixture.calls.filter(call => call.method === 'GET'
+      && call.path.endsWith('/new-projects/board-project')).length;
+    await page.waitForTimeout(6_200);
+    expect(fixture.calls.filter(call => call.method === 'GET'
+      && call.path.endsWith('/new-projects/board-project')).length).toBe(detailReadsBeforePoll);
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toBeFocused();
+    await expect(drawer).toContainText('모바일 광고 시안 보완');
+    await expect(drawer).toContainText('CTA 버튼 간격을 다시 맞춰 주세요.');
+    expect(await drawerBody.evaluate(element => element.scrollTop)).toBe(drawerScrollBeforePoll);
+    await drawer.press('Escape');
+    await expect(page.locator('[data-structured-task-drawer]')).toHaveCount(0);
+    await expect(revisionCard.locator('[data-structured-board-task-open]')).toBeFocused();
+    await page.locator('#personaSelect').focus();
+    const detailReadsAfterClose = fixture.calls.filter(call => call.method === 'GET'
+      && call.path.endsWith('/new-projects/board-project')).length;
+    await expect.poll(() => fixture.calls.filter(call => call.method === 'GET'
+      && call.path.endsWith('/new-projects/board-project')).length, { timeout: 9_000 })
+      .toBeGreaterThan(detailReadsAfterClose);
+
+    await page.locator('[data-structured-board-small-filter]').selectOption('board-project-small-design');
+    await expect(page.locator('[data-structured-task-board] [data-work-item-id]')).toHaveCount(3);
+    await expect(page.locator('[data-work-item-id="board-project-review"]')).toHaveCount(0);
+    await page.locator('[data-structured-board-medium-filter]').selectOption('board-project-medium-operation');
+    await expect(page.locator('[data-structured-board-small-filter]')).toHaveValue('all');
+    await expect(page.locator('[data-structured-board-small-filter] option')).toHaveText(['전체 소분류', '채널 점검']);
+    await expect(page.locator('[data-structured-task-board] [data-work-item-id]')).toHaveCount(2);
+    await expect(page.locator('[data-work-item-id="board-project-review"]')).toBeVisible();
+    await expect(page.locator('[data-work-item-id="board-project-done"]')).toBeVisible();
+    await page.locator('[data-structured-board-assignee-filter]').selectOption('viewer-uid');
+    await expect(page.locator('[data-structured-task-board] [data-work-item-id]')).toHaveCount(1);
+    await expect(page.locator('[data-work-item-id="board-project-done"]')).toBeVisible();
+    await page.locator('[data-structured-board-medium-filter]').selectOption('all');
+    await expect(page.locator('[data-structured-task-board] [data-work-item-id]')).toHaveCount(2);
+    await page.locator('[data-structured-board-assignee-filter]').selectOption('all');
+    await page.locator('[data-structured-board-search]').fill('CTA 버튼 간격');
+    await expect(page.locator('[data-structured-task-board] [data-work-item-id]')).toHaveCount(1);
+    await expect(page.locator('[data-work-item-id="board-project-revision"]')).toBeVisible();
+    await page.locator('[data-structured-board-search]').fill('검색 결과 없음');
+    await expect(page.locator('[data-structured-board-empty]')).toBeVisible();
+    await expect(page.locator('[data-structured-board-column]')).toHaveCount(4);
+    await page.locator('[data-structured-board-search]').fill('');
+
+    for (const viewport of [{ width: 1280, height: 800 }, { width: 1600, height: 900 }]) {
+      await page.setViewportSize(viewport);
+      const dimensions = await page.evaluate(() => ({
+        viewport: window.innerWidth,
+        documentWidth: document.documentElement.scrollWidth,
+      }));
+      expect(dimensions.documentWidth).toBeLessThanOrEqual(dimensions.viewport);
+      const boardBox = await board.boundingBox();
+      expect(boardBox?.x || 0).toBeGreaterThanOrEqual(0);
+      expect((boardBox?.x || 0) + (boardBox?.width || 0)).toBeLessThanOrEqual(viewport.width);
+    }
+    for (const width of [900, 800, 761]) {
+      await page.setViewportSize({ width, height: 900 });
+      const controlLayout = await page.locator('.structured-board-controls').evaluate((container) => {
+        const parent = container.getBoundingClientRect();
+        const items = [...container.querySelectorAll(':scope > label')].map(element => {
+          const rect = element.getBoundingClientRect();
+          return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width };
+        });
+        return {
+          viewport: window.innerWidth,
+          documentWidth: document.documentElement.scrollWidth,
+          parent: { left: parent.left, right: parent.right, width: parent.width },
+          items,
+        };
+      });
+      expect(controlLayout.documentWidth).toBeLessThanOrEqual(controlLayout.viewport);
+      expect(controlLayout.items).toHaveLength(4);
+      expect(controlLayout.parent.left).toBeGreaterThanOrEqual(0);
+      expect(controlLayout.parent.right).toBeLessThanOrEqual(width);
+      expect(controlLayout.items.every(item => (
+        item.left >= controlLayout.parent.left - 1
+        && item.right <= controlLayout.parent.right + 1
+        && item.width > 0
+      ))).toBe(true);
+      const [searchControl, mediumControl, smallControl, assigneeControl] = controlLayout.items;
+      expect(searchControl.top).toBeLessThan(mediumControl.top);
+      expect(Math.abs(mediumControl.top - smallControl.top)).toBeLessThanOrEqual(1);
+      expect(mediumControl.right).toBeLessThanOrEqual(smallControl.left);
+      expect(assigneeControl.top).toBeGreaterThanOrEqual(mediumControl.bottom);
+      expect(Math.abs(searchControl.width - assigneeControl.width)).toBeLessThanOrEqual(1);
+      expect(searchControl.width).toBeGreaterThan(mediumControl.width * 1.8);
+    }
+    expect(fixture.calls.filter(call => call.method === 'GET' && call.path.includes('/new-projects')).length).toBeGreaterThan(readsBeforeToggle);
+    expect(fixture.calls.filter(call => call.method !== 'GET' && call.path.includes('/new-projects'))).toEqual([]);
+
+    await hierarchyToggle.click();
+    await expect(hierarchyToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-work-category-id]')).toHaveCount(2);
+    await expect(page.locator('[data-structured-task-board]')).toHaveCount(0);
+  });
+
+  test('보드 상세 패널에서 수정 요청·재검토·승인을 기존 version API로 처리한다', async ({ page }) => {
+    const project = makeBoardProject();
+    const fixture: NewProjectFixture = {
+      calls: [],
+      projectsByWorkspace: { peak: [project] },
+      capabilities: { viewPortfolio: true, createProject: true },
+    };
+    await setup(page, fixture);
+    await openNewProjects(page);
+    await page.locator('[data-structured-project-open="board-project"]').click();
+    await page.locator('[data-structured-task-view="board"]').click();
+
+    await page.locator('[data-work-item-id="board-project-review"] [data-structured-board-task-open]').click();
+    let drawer = page.locator('[data-structured-task-drawer]');
+    await expect(drawer.locator('[data-work-item-approve="board-project-review"]')).toBeVisible();
+    await expect(drawer.locator('[data-work-item-revision="board-project-review"]')).toBeVisible();
+    await drawer.locator('[data-work-item-revision="board-project-review"]').click();
+    const revisionForm = page.locator('#structuredRevisionForm');
+    await revisionForm.locator('[name="note"]').fill('링크 권한과 UTM을 다시 확인해 주세요.');
+    await revisionForm.getByRole('button', { name: '수정 요청 보내기' }).click();
+
+    const doingLane = page.locator('[data-structured-board-column="doing"]');
+    await expect(doingLane.locator('[data-work-item-id="board-project-review"]')).toBeVisible();
+    await expect(page.locator('[data-structured-board-column="review"] [data-work-item-id="board-project-review"]')).toHaveCount(0);
+    drawer = page.locator('[data-structured-task-drawer]');
+    await expect(drawer).toContainText('링크 권한과 UTM을 다시 확인해 주세요.');
+    await drawer.locator('[data-work-item-submit="board-project-review"]').click();
+
+    await expect(page.locator('[data-structured-board-column="review"] [data-work-item-id="board-project-review"]')).toBeVisible();
+    drawer = page.locator('[data-structured-task-drawer]');
+    await drawer.locator('[data-work-item-approve="board-project-review"]').click();
+    await expect(page.locator('[data-structured-board-column="done"] [data-work-item-id="board-project-review"]')).toBeVisible();
+    await expect(page.locator('[data-structured-task-drawer]')).toContainText('승인 완료');
+
+    const actions = fixture.calls
+      .filter(call => call.path.endsWith('/tasks/board-project-review/review'))
+      .map(call => ({ action: call.body.action, note: call.body.note, version: call.body.expectedVersion }));
+    expect(actions).toEqual([
+      { action: 'revision', note: '링크 권한과 UTM을 다시 확인해 주세요.', version: 3 },
+      { action: 'request', note: '', version: 4 },
+      { action: 'approve', note: '', version: 5 },
+    ]);
+  });
+
   test('운영 DTO에 직급이 없어도 조직도 이름으로 전현우 팀장·김대호 부장을 표시하고 앱 role은 직급으로 쓰지 않는다', async ({ page }) => {
     const project = makeProject({
       id: 'rank-fallback-project', name: '운영 직급 표시 프로젝트', canManage: false, canEditSettings: false,
@@ -887,10 +1181,16 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await setup(page, fixture);
     await openNewProjects(page);
     await expect(page.locator('[data-structured-project-id="private-project"]')).toBeVisible();
+    await page.locator('[data-structured-project-open="private-project"]').click();
+    await page.locator('[data-structured-task-view="board"]').click();
+    await page.locator('[data-work-item-id="private-project-task-1"] [data-structured-board-task-open]').click();
+    await expect(page.locator('[data-structured-task-drawer]')).toContainText('메인 캠페인 시안 제작');
     const readsBefore = fixture.calls.filter(call => call.method === 'GET' && call.path.includes('/new-projects')).length;
 
     await page.locator('#personaSelect').selectOption('박우진');
     await expect(page.locator('[data-structured-private-state]')).toContainText('계정 미리보기에서는 신규 프로젝트가 비공개입니다');
+    await expect(page.locator('[data-structured-task-board]')).toHaveCount(0);
+    await expect(page.locator('[data-structured-task-drawer]')).toHaveCount(0);
     await expect(page.locator('[data-structured-project-id]')).toHaveCount(0);
     await expect(page.locator('[data-work-item-id]')).toHaveCount(0);
     await expect(page.locator('[data-structured-project-create]')).toHaveCount(0);
@@ -930,6 +1230,16 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('[data-work-item-submit]')).toHaveCount(0);
     await expect(page.locator('[data-work-item-approve]')).toHaveCount(0);
     await expect(page.locator('[data-work-item-revision]')).toHaveCount(0);
+
+    await page.locator('[data-structured-task-view="board"]').click();
+    await expect(page.locator('[data-structured-task-board] [data-work-item-id="branch-portfolio-project-task-1"]')).toBeVisible();
+    await page.locator('[data-work-item-id="branch-portfolio-project-task-1"] [data-structured-board-task-open]').click();
+    const readonlyDrawer = page.locator('[data-structured-task-drawer]');
+    await expect(readonlyDrawer).toContainText('현재 계정에서 처리할 수 있는 작업이 없습니다.');
+    await expect(readonlyDrawer.locator('[data-work-item-submit]')).toHaveCount(0);
+    await expect(readonlyDrawer.locator('[data-work-item-approve]')).toHaveCount(0);
+    await expect(readonlyDrawer.locator('[data-work-item-revision]')).toHaveCount(0);
+    await expect(readonlyDrawer.locator('[data-work-item-edit]')).toHaveCount(0);
 
     const structuredCalls = fixture.calls.filter(call => call.path.includes('/new-projects'));
     expect(structuredCalls.length).toBeGreaterThan(0);
@@ -1006,6 +1316,55 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     const box = await checkbox.boundingBox();
     expect(box?.width || 0).toBeGreaterThanOrEqual(40);
     expect(box?.height || 0).toBeGreaterThanOrEqual(40);
+
+    await page.locator('[data-structured-task-view="board"]').click();
+    const board = page.locator('[data-structured-task-board]');
+    await expect(board).toBeVisible();
+    await expect(page.locator('[data-structured-board-column]')).toHaveCount(4);
+    const boardFits = await board.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      return rect.left >= 0 && rect.right <= window.innerWidth;
+    });
+    expect(boardFits).toBe(true);
+    const boardScroller = page.locator('.structured-board-grid');
+    const boardScroll = await boardScroller.evaluate(element => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      overflowX: getComputedStyle(element).overflowX,
+    }));
+    expect(boardScroll.scrollWidth).toBeGreaterThan(boardScroll.clientWidth);
+    expect(['auto', 'scroll']).toContain(boardScroll.overflowX);
+    const boardToggleBox = await page.locator('[data-structured-task-view="board"]').boundingBox();
+    expect(boardToggleBox?.height || 0).toBeGreaterThanOrEqual(44);
+    const boardCardButton = page.locator('[data-structured-board-task-open]').first();
+    const boardCardBox = await boardCardButton.boundingBox();
+    expect(boardCardBox?.height || 0).toBeGreaterThanOrEqual(44);
+    await boardCardButton.click();
+    const mobileDrawer = page.locator('[data-structured-task-drawer]');
+    await expect(mobileDrawer).toBeVisible();
+    await expect.poll(() => mobileDrawer.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      return rect.left >= 0 && rect.right <= window.innerWidth;
+    })).toBe(true);
+    const closeDrawer = mobileDrawer.locator('[data-structured-task-drawer-close]');
+    const closeDrawerBox = await closeDrawer.boundingBox();
+    expect(closeDrawerBox?.width || 0).toBeGreaterThanOrEqual(44);
+    expect(closeDrawerBox?.height || 0).toBeGreaterThanOrEqual(44);
+    const mobileDrawerActions = mobileDrawer.locator('.structured-task-drawer-actions button');
+    if (await mobileDrawerActions.count()) {
+      const actionsMeetTouchTarget = await mobileDrawerActions.evaluateAll(elements => elements.every(element => {
+        const rect = element.getBoundingClientRect();
+        return rect.height >= 44 && rect.left >= 0 && rect.right <= window.innerWidth;
+      }));
+      expect(actionsMeetTouchTarget).toBe(true);
+    }
+    await closeDrawer.click();
+    await expect(page.locator('[data-structured-task-drawer]')).toHaveCount(0);
+    const boardDimensions = await page.evaluate(() => ({
+      viewport: window.innerWidth,
+      documentWidth: document.documentElement.scrollWidth,
+    }));
+    expect(boardDimensions.documentWidth).toBeLessThanOrEqual(boardDimensions.viewport);
     const newProjectCalls = fixture.calls.filter(call => call.path.includes('/new-projects'));
     expect(newProjectCalls.length).toBeGreaterThan(0);
     expect(newProjectCalls.every(call => call.workspace === 'daegu')).toBe(true);
