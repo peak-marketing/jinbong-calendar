@@ -5763,7 +5763,68 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 }
 .structured-board-head > div > strong { color: #163d57; font-size: 14px; }
 .structured-board-head > div > small { grid-column: 1 / -1; color: #778e9e; font-size: 9px; line-height: 1.55; }
-.structured-board-head > b { flex: 0 0 auto; color: #4f6c80; font-size: 10px; }
+.structured-board-head > .structured-board-head-actions { display: flex; grid-template-columns: none; align-items: center; justify-content: flex-end; gap: 10px; flex: 0 0 auto; }
+.structured-board-head-actions > b { color: #4f6c80; font-size: 10px; white-space: nowrap; }
+.structured-board-head-actions > button {
+  min-height: 36px;
+  border: 1px solid #2f8fc6;
+  border-radius: 9px;
+  padding: 0 13px;
+  background: #2f8fc6;
+  color: #fff;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 4px 11px rgba(39, 126, 177, .15);
+}
+.structured-board-head-actions > button:hover { background: #257eaf; }
+.structured-board-head-actions > button:focus-visible { outline: 2px solid #164f71; outline-offset: 2px; }
+.structured-board-assign-location button:disabled,
+.structured-task-form[data-structured-board-assign-form] button:disabled { opacity: .48; cursor: not-allowed; }
+.structured-board-assign-intro {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 15px;
+  border: 1px solid #d5e6ef;
+  border-radius: 10px;
+  padding: 12px 13px;
+  background: #f4fafd;
+}
+.structured-board-assign-intro > span { color: #2583b8; font-size: 8px; font-weight: 950; letter-spacing: .04em; }
+.structured-board-assign-intro > strong { color: #234c65; font-size: 11px; }
+.structured-board-assign-intro > em { width: fit-content; border-radius: 7px; padding: 5px 8px; background: #e7f3f9; color: #315f79; font-size: 9px; font-style: normal; font-weight: 850; }
+.structured-board-assign-intro > em i { color: #8aa2b1; font-style: normal; }
+.structured-board-assign-intro > small { color: #748b9a; font-size: 9px; line-height: 1.55; }
+.structured-board-assign-blocked {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 14px;
+  border: 1px solid #edc8bb;
+  border-radius: 9px;
+  padding: 11px 12px;
+  background: #fff7f3;
+}
+.structured-board-assign-blocked strong { color: #9e503c; font-size: 10px; }
+.structured-board-assign-blocked span { color: #8a695f; font-size: 9px; line-height: 1.5; }
+.structured-board-small-empty {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  border: 1px dashed #c8dce7;
+  border-radius: 9px;
+  padding: 11px 12px;
+  background: #f8fbfd;
+}
+.structured-board-small-empty[hidden] { display: none; }
+.structured-board-small-empty strong { color: #3c6279; font-size: 10px; }
+.structured-board-small-empty span { color: #7c909e; font-size: 9px; line-height: 1.5; }
+.structured-board-assign-empty { display: grid; justify-items: center; gap: 7px; padding: 12px 4px 4px; text-align: center; }
+.structured-board-assign-empty > span { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: #e7f4fb; color: #2b89bd; font-size: 22px; }
+.structured-board-assign-empty > strong { color: #264e67; font-size: 13px; }
+.structured-board-assign-empty > p { max-width: 420px; margin: 0; color: #748a99; font-size: 10px; line-height: 1.6; }
+.structured-board-assign-empty .collaboration-form-actions { justify-content: center; }
+.structured-form-help.warning { display: block; margin-top: 6px; color: #b26149; font-size: 8px; line-height: 1.5; }
 .structured-board-controls {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(135px, .45fr));
@@ -6065,9 +6126,19 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   .structured-task-viewbar > nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
   .structured-task-viewbar button { min-width: 0; min-height: 44px; padding-inline: 8px; }
   .structured-board-view { padding: 10px; }
-  .structured-board-head { align-items: flex-start; }
+  .structured-board-head { align-items: stretch; flex-direction: column; }
   .structured-board-head > div { grid-template-columns: minmax(0, 1fr); }
   .structured-board-head > div > span { width: fit-content; }
+  .structured-board-head > .structured-board-head-actions { display: flex; grid-template-columns: none; flex-direction: row; align-items: center; justify-content: space-between; width: 100%; }
+  .structured-board-head-actions > button { min-height: 44px; padding-inline: 12px; }
+  .structured-board-assign-location .collaboration-form-grid input,
+  .structured-board-assign-location .collaboration-form-grid select,
+  .structured-task-form[data-structured-board-assign-form] .collaboration-form-grid input,
+  .structured-task-form[data-structured-board-assign-form] .collaboration-form-grid select,
+  .structured-task-form[data-structured-board-assign-form] .collaboration-form-grid textarea,
+  .structured-board-assign-location .collaboration-form-actions button,
+  .structured-task-form[data-structured-board-assign-form] .collaboration-form-actions button,
+  .structured-board-assign-empty .collaboration-form-actions button { min-height: 44px; }
   .structured-board-controls { grid-template-columns: minmax(0, 1fr); }
   .structured-board-search,
   .structured-board-controls select { min-height: 44px; height: 44px; }

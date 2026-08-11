@@ -415,7 +415,7 @@ async function installApi(page: Page, fixture: NewProjectFixture) {
       };
       medium.smallCategories ||= [];
       medium.smallCategories.push(small);
-      return send({ small }, 201);
+      return send({ category: small }, 201);
     }
 
     const taskCreateMatch = resourcePath.match(/^\/new-projects\/([^/]+)\/mediums\/([^/]+)\/smalls\/([^/]+)\/tasks$/);
@@ -803,6 +803,157 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('[data-structured-task-board]')).toHaveCount(0);
   });
 
+  test('보드 필터의 중·소분류를 기본값으로 사용해 필수값을 확인하고 담당자에게 체크리스트를 배정한다', async ({ page }) => {
+    const project = makeBoardProject({ id: 'board-quick-assign-project' });
+    project.lead = { uid: 'e2e-test-user', name: '업무지시자 김팀장', rank: '팀장' };
+    project.members[0] = { ...project.lead };
+    const fixture: NewProjectFixture = {
+      user: {
+        uid: 'e2e-test-user', name: '업무지시자 김팀장', email: 'lead@test.local', rank: '팀장', role: 'manager',
+        approved: true, is_active: true, group_id: 'hq-sales', group_name: '본사 영업팀', group_type: 'sales',
+      },
+      calls: [],
+      projectsByWorkspace: { peak: [project] },
+      capabilities: { viewPortfolio: false, createProject: false },
+    };
+    await setup(page, fixture);
+    await openNewProjects(page);
+    await page.locator('[data-structured-project-open="board-quick-assign-project"]').click();
+    await page.locator('[data-structured-task-view="board"]').click();
+
+    const assignButton = page.locator('[data-structured-board-assign]');
+    await expect(assignButton).toBeVisible();
+    await page.locator('[data-structured-board-medium-filter]').selectOption('board-quick-assign-project-medium-content');
+    await page.locator('[data-structured-board-small-filter]').selectOption('board-quick-assign-project-small-design');
+    await assignButton.click();
+
+    const locationForm = page.locator('#structuredBoardAssignLocationForm');
+    await expect(locationForm).toBeVisible();
+    await expect(locationForm.locator('select[name="mediumId"]')).toHaveValue('board-quick-assign-project-medium-content');
+    await expect(locationForm.locator('select[name="smallId"]')).toHaveValue('board-quick-assign-project-small-design');
+    await locationForm.locator('[data-structured-board-assign-next]').click();
+    const form = page.locator('#structuredTaskForm[data-structured-board-assign-form]');
+    await expect(form).toBeVisible();
+    await expect(form.locator('input[name="title"]')).toHaveAttribute('required', '');
+    await expect(form.locator('select[name="assigneeUid"]')).toHaveAttribute('required', '');
+    await expect(form.locator('input[name="dueDate"]')).toHaveAttribute('required', '');
+
+    const submit = form.getByRole('button', { name: '담당자에게 배정', exact: true });
+    const selfOption = form.locator('select[name="assigneeUid"] option[value="e2e-test-user"]');
+    if (await selfOption.isDisabled()) {
+      await expect(selfOption).toBeDisabled();
+    } else {
+      await form.locator('input[name="title"]').fill('검토자가 자기 자신인 잘못된 배정');
+      await form.locator('select[name="assigneeUid"]').selectOption('e2e-test-user');
+      await form.locator('input[name="dueDate"]').fill('2026-08-27');
+      await submit.click();
+      expect(fixture.calls.filter(call => call.method === 'POST' && call.path.endsWith('/tasks'))).toHaveLength(0);
+      await expect(form).toBeVisible();
+      await form.locator('input[name="title"]').fill('');
+      await form.locator('select[name="assigneeUid"]').selectOption('');
+      await form.locator('input[name="dueDate"]').fill('');
+    }
+    await submit.click();
+    expect(fixture.calls.filter(call => call.method === 'POST' && call.path.endsWith('/tasks'))).toHaveLength(0);
+    await form.locator('input[name="title"]').fill('보드에서 신규 체크리스트 배정');
+    await form.locator('select[name="assigneeUid"]').selectOption('worker-uid');
+    await submit.click();
+    expect(fixture.calls.filter(call => call.method === 'POST' && call.path.endsWith('/tasks'))).toHaveLength(0);
+
+    await form.locator('input[name="dueDate"]').fill('2026-08-28');
+    await form.locator('textarea[name="description"]').fill('필터로 선택한 분류에 바로 배정합니다.');
+    await submit.click();
+
+    const createdCard = page.locator('[data-structured-board-column="todo"]')
+      .locator('[data-work-item-id="board-quick-assign-project-task-4"]');
+    await expect(createdCard).toBeVisible();
+    await expect(createdCard).toContainText('보드에서 신규 체크리스트 배정');
+    await expect(createdCard).toContainText('업무담당자 이사원');
+    await expect(page.locator('[data-structured-board-search]')).toHaveValue('');
+    await expect(page.locator('[data-structured-board-medium-filter]')).toHaveValue('board-quick-assign-project-medium-content');
+    await expect(page.locator('[data-structured-board-small-filter]')).toHaveValue('board-quick-assign-project-small-design');
+    await expect(page.locator('[data-structured-board-assignee-filter]')).toHaveValue('worker-uid');
+    const taskCreate = fixture.calls.find(call => call.method === 'POST'
+      && call.path.endsWith('/new-projects/board-quick-assign-project/mediums/board-quick-assign-project-medium-content/smalls/board-quick-assign-project-small-design/tasks'));
+    expect(taskCreate).toMatchObject({ workspace: 'peak', preview: '0' });
+    expect(taskCreate?.body).toEqual({
+      title: '보드에서 신규 체크리스트 배정',
+      description: '필터로 선택한 분류에 바로 배정합니다.',
+      dueDate: '2026-08-28',
+      assigneeUid: 'worker-uid',
+    });
+  });
+
+  test('소분류가 없는 중분류에서 새 소분류를 만든 뒤 같은 흐름으로 업무를 배정한다', async ({ page }) => {
+    const project = makeProject({ id: 'board-empty-small-project', name: '소분류 신규 배정' });
+    project.lead = { uid: 'e2e-test-user', name: '업무지시자 김팀장', rank: '팀장' };
+    project.members[0] = { ...project.lead };
+    project.mediumCategories = [{
+      id: 'board-empty-small-project-medium-1', name: '신규 캠페인', version: 1,
+      manager: { uid: 'e2e-test-user', name: '업무지시자 김팀장' }, smallCategories: [],
+    }];
+    project.taskCount = 0;
+    project.doneTaskCount = 0;
+    project.reviewTaskCount = 0;
+    const fixture: NewProjectFixture = {
+      user: {
+        uid: 'e2e-test-user', name: '업무지시자 김팀장', email: 'lead@test.local', rank: '팀장', role: 'manager',
+        approved: true, is_active: true, group_id: 'hq-sales', group_name: '본사 영업팀', group_type: 'sales',
+      },
+      calls: [],
+      projectsByWorkspace: { peak: [project] },
+      capabilities: { viewPortfolio: false, createProject: false },
+    };
+    await setup(page, fixture);
+    await openNewProjects(page);
+    await page.locator('[data-structured-project-open="board-empty-small-project"]').click();
+    await page.locator('[data-structured-task-view="board"]').click();
+    await page.locator('[data-structured-board-medium-filter]').selectOption('board-empty-small-project-medium-1');
+    await page.locator('[data-structured-board-assign]').click();
+
+    const locationForm = page.locator('#structuredBoardAssignLocationForm');
+    await expect(locationForm.locator('select[name="mediumId"]')).toHaveValue('board-empty-small-project-medium-1');
+    await expect(locationForm.locator('select[name="smallId"]')).toHaveValue('');
+    await locationForm.locator('[data-structured-board-small-start]').click();
+    const categoryForm = page.locator('#structuredCategoryForm');
+    await expect(categoryForm).toBeVisible();
+    await categoryForm.locator('input[name="name"]').fill('랜딩 페이지');
+    await categoryForm.getByRole('button', { name: '추가', exact: true }).click();
+
+    const form = page.locator('#structuredTaskForm[data-structured-board-assign-form]');
+    await expect(form).toBeVisible();
+    await form.locator('input[name="title"]').fill('랜딩 페이지 문구 검수');
+    await form.locator('select[name="assigneeUid"]').selectOption('viewer-uid');
+    await form.locator('input[name="dueDate"]').fill('2026-08-29');
+    await form.getByRole('button', { name: '담당자에게 배정', exact: true }).click();
+
+    const writes = fixture.calls.filter(call => call.method === 'POST'
+      && call.path.includes('/new-projects/board-empty-small-project'));
+    expect(writes.map(call => call.path)).toEqual([
+      '/peakos/collaboration/new-projects/board-empty-small-project/mediums/board-empty-small-project-medium-1/smalls',
+      '/peakos/collaboration/new-projects/board-empty-small-project/mediums/board-empty-small-project-medium-1/smalls/board-empty-small-project-small-1/tasks',
+    ]);
+    expect(writes[0]).toMatchObject({ workspace: 'peak', body: { name: '랜딩 페이지' } });
+    expect(writes[1]).toMatchObject({
+      workspace: 'peak',
+      body: {
+        title: '랜딩 페이지 문구 검수', description: '', dueDate: '2026-08-29', assigneeUid: 'viewer-uid',
+      },
+    });
+    const card = page.locator('[data-structured-board-column="todo"]')
+      .locator('[data-work-item-id="board-empty-small-project-task-1"]');
+    await expect(card).toBeVisible();
+    await expect(card).toContainText('신규 캠페인');
+    await expect(card).toContainText('랜딩 페이지');
+    await expect(card).toContainText('공동구성원 박대리');
+    await expect(page.locator('[data-structured-board-medium-filter]')).toHaveValue('board-empty-small-project-medium-1');
+    await expect(page.locator('[data-structured-board-small-filter]')).toHaveValue('board-empty-small-project-small-1');
+    await expect(page.locator('[data-structured-board-assignee-filter]')).toHaveValue('viewer-uid');
+    expect(findTask(project, 'board-empty-small-project-task-1')?.reviewer).toMatchObject({
+      uid: 'e2e-test-user', name: '업무지시자 김팀장',
+    });
+  });
+
   test('보드 상세 패널에서 수정 요청·재검토·승인을 기존 version API로 처리한다', async ({ page }) => {
     const project = makeBoardProject();
     const fixture: NewProjectFixture = {
@@ -945,6 +1096,9 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('[data-structured-small-create]')).toHaveCount(0);
     await expect(page.locator('[data-structured-task-create]')).toHaveCount(0);
     await expect(page.locator('[data-structured-medium-edit]')).toHaveCount(0);
+    await page.locator('[data-structured-task-view="board"]').click();
+    await expect(page.locator('[data-structured-board-assign]')).toHaveCount(0);
+    await page.locator('[data-structured-task-view="hierarchy"]').click();
     await page.locator('[data-structured-project-lead-edit]').click();
     const editForm = page.locator('#structuredProjectForm');
     await expect(editForm.getByText('프로젝트 팀원', { exact: true })).toBeVisible();
@@ -1183,6 +1337,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('[data-structured-project-id="private-project"]')).toBeVisible();
     await page.locator('[data-structured-project-open="private-project"]').click();
     await page.locator('[data-structured-task-view="board"]').click();
+    await expect(page.locator('[data-structured-board-assign]')).toBeVisible();
     await page.locator('[data-work-item-id="private-project-task-1"] [data-structured-board-task-open]').click();
     await expect(page.locator('[data-structured-task-drawer]')).toContainText('메인 캠페인 시안 제작');
     const readsBefore = fixture.calls.filter(call => call.method === 'GET' && call.path.includes('/new-projects')).length;
@@ -1194,6 +1349,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('[data-structured-project-id]')).toHaveCount(0);
     await expect(page.locator('[data-work-item-id]')).toHaveCount(0);
     await expect(page.locator('[data-structured-project-create]')).toHaveCount(0);
+    await expect(page.locator('[data-structured-board-assign]')).toHaveCount(0);
     expect(fixture.calls.filter(call => call.method === 'GET' && call.path.includes('/new-projects')).length).toBe(readsBefore);
     expect(fixture.calls.filter(call => call.method !== 'GET' && call.path.includes('/new-projects'))).toEqual([]);
   });
@@ -1233,6 +1389,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
 
     await page.locator('[data-structured-task-view="board"]').click();
     await expect(page.locator('[data-structured-task-board] [data-work-item-id="branch-portfolio-project-task-1"]')).toBeVisible();
+    await expect(page.locator('[data-structured-board-assign]')).toHaveCount(0);
     await page.locator('[data-work-item-id="branch-portfolio-project-task-1"] [data-structured-board-task-open]').click();
     const readonlyDrawer = page.locator('[data-structured-task-drawer]');
     await expect(readonlyDrawer).toContainText('현재 계정에서 처리할 수 있는 작업이 없습니다.');
@@ -1244,6 +1401,62 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     const structuredCalls = fixture.calls.filter(call => call.path.includes('/new-projects'));
     expect(structuredCalls.length).toBeGreaterThan(0);
     expect(structuredCalls.every(call => call.method === 'GET' && call.workspace === 'daegu')).toBe(true);
+  });
+
+  test('390px 보드에서 빠른 배정 단계와 폼이 넘치지 않고 44px 터치 영역을 유지한다', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const project = makeBoardProject({ id: 'mobile-board-assign-project' });
+    project.lead = { uid: 'e2e-test-user', name: '업무지시자 김팀장', rank: '팀장' };
+    project.members[0] = { ...project.lead };
+    const fixture: NewProjectFixture = {
+      user: {
+        uid: 'e2e-test-user', name: '업무지시자 김팀장', email: 'lead@test.local', rank: '팀장', role: 'manager',
+        approved: true, is_active: true, group_id: 'hq-sales', group_name: '본사 영업팀', group_type: 'sales',
+      },
+      calls: [],
+      projectsByWorkspace: { peak: [project] },
+      capabilities: { viewPortfolio: false, createProject: false },
+    };
+    await setup(page, fixture);
+    await openNewProjects(page);
+    await page.locator('[data-structured-project-open="mobile-board-assign-project"]').click();
+    await page.locator('[data-structured-task-view="board"]').click();
+
+    const assignButton = page.locator('[data-structured-board-assign]');
+    const assignButtonBox = await assignButton.boundingBox();
+    expect(assignButtonBox?.height || 0).toBeGreaterThanOrEqual(44);
+    await assignButton.click();
+
+    const locationForm = page.locator('#structuredBoardAssignLocationForm');
+    await expect(locationForm).toBeVisible();
+    const locationControlsFit = await locationForm.locator('select, button').evaluateAll(elements => elements.every(element => {
+      const rect = element.getBoundingClientRect();
+      return rect.height >= 44 && rect.left >= 0 && rect.right <= window.innerWidth;
+    }));
+    expect(locationControlsFit).toBe(true);
+    await locationForm.locator('[data-structured-board-assign-next]').click();
+
+    const taskForm = page.locator('#structuredTaskForm[data-structured-board-assign-form]');
+    await expect(taskForm).toBeVisible();
+    const taskControlsFit = await taskForm.locator('input, select, textarea, button').evaluateAll(elements => elements.every(element => {
+      const rect = element.getBoundingClientRect();
+      return rect.height >= 44 && rect.left >= 0 && rect.right <= window.innerWidth;
+    }));
+    expect(taskControlsFit).toBe(true);
+    const mobileDimensions = await page.evaluate(() => ({
+      viewport: window.innerWidth,
+      documentWidth: document.documentElement.scrollWidth,
+      modalRight: document.querySelector('.readonly-modal-card')?.getBoundingClientRect().right || 0,
+    }));
+    expect(mobileDimensions.documentWidth).toBeLessThanOrEqual(mobileDimensions.viewport);
+    expect(mobileDimensions.modalRight).toBeLessThanOrEqual(mobileDimensions.viewport);
+
+    await taskForm.locator('[data-collab-cancel]').click();
+    await page.locator('[data-structured-task-view="hierarchy"]').click();
+    await expect(page.locator('[data-work-category-id]')).toHaveCount(2);
+    await expect(page.locator('[data-structured-task-board]')).toHaveCount(0);
+    await page.locator('[data-structured-task-view="board"]').click();
+    await expect(page.locator('[data-structured-board-assign]')).toBeVisible();
   });
 
   test('지사 workspace header로만 조회하고 모바일에서 계층·체크 버튼이 화면을 넘지 않는다', async ({ page }) => {

@@ -4831,8 +4831,10 @@
     ];
     const selectedRecord = records.find(record => String(record.task?.id) === String(selectedStructuredBoardTaskId));
     if (selectedStructuredBoardTaskId && !selectedRecord) selectedStructuredBoardTaskId = '';
+    const canManage = project?.status === 'active'
+      && structuredProjectCan('manageProject', structuredProjectDetailState);
     return `<section class="structured-board-view" data-structured-task-board>
-      <header class="structured-board-head"><div><span>BOARD TEST VIEW</span><strong>업무 진행 보드</strong><small>카드를 선택하면 오른쪽에서 상세 내용과 검토 이력을 확인할 수 있습니다.</small></div><b>${filtered.length}/${records.length}개 업무</b></header>
+      <header class="structured-board-head"><div><span>BOARD TEST VIEW</span><strong>업무 진행 보드</strong><small>카드를 선택하면 오른쪽에서 상세 내용과 검토 이력을 확인할 수 있습니다.</small></div><div class="structured-board-head-actions"><b>${filtered.length}/${records.length}개 업무</b>${canManage ? '<button type="button" data-structured-board-assign>＋ 체크리스트·담당자 배정</button>' : ''}</div></header>
       <div class="structured-board-controls">
         <label class="structured-board-search"><span aria-hidden="true">⌕</span><input type="search" data-structured-board-search value="${esc(structuredBoardSearch)}" placeholder="업무명, 분류, 담당자 검색" aria-label="보드 업무 검색"></label>
         <label><span>업무 중분류</span><select data-structured-board-medium-filter aria-label="업무 중분류 필터"><option value="all">전체 중분류</option>${mediums.map(medium => `<option value="${esc(medium.id)}" ${String(medium.id) === String(structuredBoardMediumFilter) ? 'selected' : ''}>${esc(medium.name || '이름 없는 중분류')}</option>`).join('')}</select></label>
@@ -4969,6 +4971,7 @@
 
   function wireStructuredDetailActions(project) {
     newProjectsView.querySelector('[data-structured-project-back]')?.addEventListener('click', closeStructuredProject);
+    newProjectsView.querySelector('[data-structured-board-assign]')?.addEventListener('click', () => openStructuredBoardAssignmentEditor(project));
     newProjectsView.querySelectorAll('[data-structured-task-view]').forEach(button => button.addEventListener('click', () => {
       const nextView = button.dataset.structuredTaskView === 'board' ? 'board' : 'hierarchy';
       if (nextView === structuredProjectTaskView) return;
@@ -5154,7 +5157,7 @@
     });
   }
 
-  function openStructuredCategoryEditor(kind, project, mediumId = '', category = null) {
+  function openStructuredCategoryEditor(kind, project, mediumId = '', category = null, { onSaved = null } = {}) {
     if (!structuredProjectCan('manageProject', structuredProjectDetailState)) return showToast('업무 분류를 추가할 권한이 없습니다.');
     const isMedium = kind === 'medium';
     const title = `${isMedium ? '업무 중분류' : '업무 소분류'} ${category ? '수정' : '추가'}`;
@@ -5185,36 +5188,169 @@
       const saved = await runCollaborationMutation(() => collaborationApi(category ? 'PUT' : 'POST', path, record), `${isMedium ? '중분류' : '소분류'}를 ${category ? '수정' : '추가'}했습니다.`);
       if (!saved) return;
       closeDetailModal();
-      await refreshStructuredProjectDetail(project.id, { render: true }).catch(() => {});
+      const refreshedProject = await refreshStructuredProjectDetail(project.id, { render: true }).catch(() => null);
+      if (typeof onSaved === 'function') {
+        const savedCategory = saved?.category || saved?.[isMedium ? 'medium' : 'small'] || saved;
+        onSaved({
+          category: savedCategory && typeof savedCategory === 'object' ? savedCategory : null,
+          project: refreshedProject || structuredProjectDetailState.project || project
+        });
+      }
     });
   }
 
-  function structuredTaskMemberOptions(project, selectedUid = '') {
+  function structuredTaskMemberOptions(project, selectedUid = '', { disabledUid = '' } = {}) {
     const members = structuredProjectDirectory([], project);
-    return members.map(member => `<option value="${esc(member.uid)}" ${String(member.uid) === String(selectedUid) ? 'selected' : ''}>${esc(structuredProjectMemberName(member))}</option>`).join('');
+    return members.map(member => {
+      const disabled = disabledUid && String(member.uid) === String(disabledUid);
+      const selected = !disabled && String(member.uid) === String(selectedUid);
+      return `<option value="${esc(member.uid)}" ${selected ? 'selected' : ''} ${disabled ? 'disabled' : ''}>${esc(structuredProjectMemberName(member))}${disabled ? ' · 본인 배정 불가' : ''}</option>`;
+    }).join('');
   }
 
-  function openStructuredTaskEditor(project, { mediumId = '', smallId = '', task = null } = {}) {
+  function openStructuredBoardAssignmentEditor(project, {
+    preferredMediumId = '', preferredSmallId = ''
+  } = {}) {
+    const canAssign = project?.status === 'active'
+      && structuredProjectCan('manageProject', structuredProjectDetailState);
+    if (!canAssign) return showToast('진행 중인 프로젝트의 담당자만 체크리스트를 배정할 수 있습니다.');
+    const mediums = Array.isArray(project?.mediumCategories) ? project.mediumCategories : [];
+    if (!mediums.length) {
+      openDetailModal('체크리스트·담당자 배정', `<section class="structured-board-assign-empty">
+        <span aria-hidden="true">＋</span><strong>업무 중분류가 먼저 필요합니다.</strong>
+        <p>체크리스트가 속할 중분류와 담당자를 만든 뒤 배정을 이어갈 수 있습니다.</p>
+        <div class="collaboration-form-actions"><button type="button" data-collab-cancel>취소</button><button class="primary" type="button" data-structured-board-medium-start>중분류 만들고 계속</button></div>
+      </section>`, { locked: true });
+      const body = document.getElementById('readonlyModalBody');
+      body.querySelector('[data-collab-cancel]')?.addEventListener('click', () => closeDetailModal());
+      body.querySelector('[data-structured-board-medium-start]')?.addEventListener('click', () => {
+        openStructuredCategoryEditor('medium', project, '', null, {
+          onSaved: ({ category, project: refreshedProject }) => openStructuredBoardAssignmentEditor(refreshedProject, {
+            preferredMediumId: String(category?.id || '')
+          })
+        });
+      });
+      return;
+    }
+
+    const requestedSmallId = String(preferredSmallId
+      || (structuredBoardSmallFilter !== 'all' ? structuredBoardSmallFilter : ''));
+    const mediumForRequestedSmall = requestedSmallId
+      ? mediums.find(medium => (Array.isArray(medium?.smallCategories) ? medium.smallCategories : [])
+        .some(small => String(small.id) === requestedSmallId))
+      : null;
+    const requestedMediumId = String(preferredMediumId
+      || mediumForRequestedSmall?.id
+      || (structuredBoardMediumFilter !== 'all' ? structuredBoardMediumFilter : ''));
+    const initialMedium = mediums.find(medium => String(medium.id) === requestedMediumId) || mediums[0];
+    const initialSmalls = Array.isArray(initialMedium?.smallCategories) ? initialMedium.smallCategories : [];
+    const initialSmall = initialSmalls.find(small => String(small.id) === requestedSmallId) || initialSmalls[0] || null;
+    const mediumOptions = mediums.map(medium => `<option value="${esc(medium.id)}" ${String(medium.id) === String(initialMedium.id) ? 'selected' : ''}>${esc(medium.name || '이름 없는 중분류')}</option>`).join('');
+    const initialSmallOptions = initialSmalls.length
+      ? initialSmalls.map(small => `<option value="${esc(small.id)}" ${String(small.id) === String(initialSmall?.id || '') ? 'selected' : ''}>${esc(small.name || '이름 없는 소분류')}</option>`).join('')
+      : '<option value="">등록된 소분류 없음</option>';
+    openDetailModal('체크리스트·담당자 배정', `<form class="collaboration-form structured-board-assign-location" id="structuredBoardAssignLocationForm">
+      <div class="structured-board-assign-intro"><span>1단계 · 업무 위치</span><strong>체크리스트가 속할 분류를 선택해 주세요.</strong><small>선택한 중분류와 소분류는 보드 카드의 경로로 표시됩니다.</small></div>
+      <div class="collaboration-form-grid">
+        <label><span>업무 중분류</span><select name="mediumId" required>${mediumOptions}</select></label>
+        <label><span>업무 소분류</span><select name="smallId" required ${initialSmalls.length ? '' : 'disabled'}>${initialSmallOptions}</select></label>
+      </div>
+      <div class="structured-board-small-empty" data-structured-board-small-empty ${initialSmalls.length ? 'hidden' : ''}><strong>선택한 중분류에 소분류가 없습니다.</strong><span>소분류를 만든 직후 체크리스트 작성 단계가 자동으로 열립니다.</span></div>
+      <div class="collaboration-form-actions"><button type="button" data-collab-cancel>취소</button><button type="button" data-structured-board-small-start>＋ 새 소분류 만들기</button><button class="primary" type="submit" data-structured-board-assign-next ${initialSmalls.length ? '' : 'disabled'}>다음 · 체크리스트 작성</button></div>
+    </form>`, { locked: true });
+    const form = document.getElementById('structuredBoardAssignLocationForm');
+    const mediumSelect = form.elements.mediumId;
+    const smallSelect = form.elements.smallId;
+    const nextButton = form.querySelector('[data-structured-board-assign-next]');
+    const emptyNotice = form.querySelector('[data-structured-board-small-empty]');
+    const selectedMedium = () => mediums.find(medium => String(medium.id) === String(mediumSelect.value));
+    const renderSmalls = (preferredId = '') => {
+      const smalls = Array.isArray(selectedMedium()?.smallCategories) ? selectedMedium().smallCategories : [];
+      smallSelect.replaceChildren();
+      if (smalls.length) {
+        smalls.forEach(small => smallSelect.add(new Option(small.name || '이름 없는 소분류', String(small.id))));
+        smallSelect.value = smalls.some(small => String(small.id) === String(preferredId)) ? String(preferredId) : String(smalls[0].id);
+      } else {
+        smallSelect.add(new Option('등록된 소분류 없음', ''));
+      }
+      smallSelect.disabled = !smalls.length;
+      nextButton.disabled = !smalls.length;
+      emptyNotice.hidden = Boolean(smalls.length);
+    };
+    mediumSelect.addEventListener('change', () => renderSmalls());
+    form.querySelector('[data-collab-cancel]').addEventListener('click', () => closeDetailModal());
+    form.querySelector('[data-structured-board-small-start]').addEventListener('click', () => {
+      const medium = selectedMedium();
+      if (!medium) return showToast('소분류를 추가할 중분류를 선택해 주세요.');
+      openStructuredCategoryEditor('small', project, medium.id, null, {
+        onSaved: ({ category, project: refreshedProject }) => {
+          const createdSmallId = String(category?.id || '');
+          if (!createdSmallId) {
+            showToast('소분류는 저장됐지만 새 식별자를 확인하지 못했습니다. 다시 선택해 주세요.');
+            return openStructuredBoardAssignmentEditor(refreshedProject, { preferredMediumId: medium.id });
+          }
+          return openStructuredTaskEditor(refreshedProject, {
+            mediumId: medium.id,
+            smallId: createdSmallId,
+            quickAssign: true
+          });
+        }
+      });
+    });
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      const medium = selectedMedium();
+      const smallId = String(smallSelect.value || '');
+      if (!medium || !smallId) return showToast('업무 중분류와 소분류를 선택해 주세요.');
+      openStructuredTaskEditor(project, { mediumId: medium.id, smallId, quickAssign: true });
+    });
+  }
+
+  function openStructuredTaskEditor(project, { mediumId = '', smallId = '', task = null, quickAssign = false } = {}) {
     const editing = Boolean(task);
     const canEdit = editing ? structuredTaskCan(task, 'edit') : structuredProjectCan('manageProject', structuredProjectDetailState);
     const canReassign = editing ? structuredTaskCan(task, 'reassign') : structuredProjectCan('manageProject', structuredProjectDetailState);
     if (!canEdit && !canReassign) return showToast('업무를 등록하거나 재배정할 권한이 없습니다.');
-    const selectedAssignee = String(task?.assignee?.uid || '');
+    if (!editing && project?.status !== 'active') return showToast('진행 중인 프로젝트에만 업무를 배정할 수 있습니다.');
+    const actorUid = String(currentUser?.uid || '');
+    const leadSelfAssignmentBlocked = quickAssign
+      && actorUid
+      && actorUid === String(project?.lead?.uid || '');
+    const projectMembers = structuredProjectDirectory([], project);
+    const assignableMembers = leadSelfAssignmentBlocked
+      ? projectMembers.filter(member => String(member.uid) !== actorUid)
+      : projectMembers;
+    const quickMedium = quickAssign
+      ? (Array.isArray(project?.mediumCategories) ? project.mediumCategories : [])
+        .find(medium => String(medium.id) === String(mediumId))
+      : null;
+    const quickSmall = quickMedium
+      ? (Array.isArray(quickMedium.smallCategories) ? quickMedium.smallCategories : [])
+        .find(small => String(small.id) === String(smallId))
+      : null;
+    const filteredAssigneeUid = structuredBoardAssigneeFilter !== 'all'
+      && structuredBoardAssigneeFilter !== 'unassigned'
+      && projectMembers.some(member => String(member.uid) === String(structuredBoardAssigneeFilter))
+      && (!leadSelfAssignmentBlocked || String(structuredBoardAssigneeFilter) !== actorUid)
+      ? String(structuredBoardAssigneeFilter)
+      : '';
+    const selectedAssignee = String(task?.assignee?.uid || (quickAssign ? filteredAssigneeUid : ''));
     const currentActor = {
-      uid: String(currentUser?.uid || ''),
+      uid: actorUid,
       name: String(userDoc?.name || currentUser?.displayName || '현재 사용자')
     };
     const originalAssigner = task?.assignedBy || currentActor;
     const originalReviewer = task?.reviewer || project?.lead || originalAssigner;
-    openDetailModal(editing ? '체크리스트 업무 수정' : '체크리스트 업무 토스', `<form class="collaboration-form structured-task-form" id="structuredTaskForm">
+    openDetailModal(editing ? '체크리스트 업무 수정' : (quickAssign ? '체크리스트·담당자 배정' : '체크리스트 업무 토스'), `<form class="collaboration-form structured-task-form" id="structuredTaskForm" ${quickAssign ? 'data-structured-board-assign-form' : ''}>
+      ${quickAssign ? `<div class="structured-board-assign-intro"><span>2단계 · 업무 배정</span><strong>완료 기준과 담당자를 정해 체크리스트를 전달해 주세요.</strong><em>${esc(quickMedium?.name || '중분류')} <i aria-hidden="true">›</i> ${esc(quickSmall?.name || '소분류')}</em><small>업무 완료 후 지시자에게 검토 요청이 돌아옵니다.</small></div>${assignableMembers.length ? '' : '<div class="structured-board-assign-blocked"><strong>배정할 프로젝트 팀원이 없습니다.</strong><span>프로젝트 수정에서 담당자 외 팀원을 먼저 추가해 주세요.</span></div>'}` : ''}
       <div class="collaboration-form-grid">
         <label class="wide"><span>할 일</span><input name="title" maxlength="200" required value="${esc(task?.title || '')}" ${canEdit ? '' : 'disabled'} placeholder="업무 완료 기준이 드러나게 적어 주세요."></label>
-        <label><span>업무 담당자</span><select name="assigneeUid" required ${canReassign ? '' : 'disabled'}><option value="">담당자 선택</option>${structuredTaskMemberOptions(project, selectedAssignee)}</select></label>
-        <label><span>업무 마감일</span><input name="dueDate" type="date" value="${esc(task?.dueDate || '')}" ${canEdit ? '' : 'disabled'}></label>
+        <label><span>업무 담당자</span><select name="assigneeUid" required ${canReassign ? '' : 'disabled'}><option value="">담당자 선택</option>${structuredTaskMemberOptions(project, selectedAssignee, { disabledUid: leadSelfAssignmentBlocked ? actorUid : '' })}</select>${leadSelfAssignmentBlocked ? '<small class="structured-form-help warning">프로젝트 담당자는 본인 업무의 검토자가 될 수 없어 다른 팀원에게 배정해야 합니다.</small>' : ''}</label>
+        <label><span>업무 마감일</span><input name="dueDate" type="date" value="${esc(task?.dueDate || '')}" ${quickAssign ? 'required' : ''} ${canEdit ? '' : 'disabled'}></label>
         <label class="wide"><span>상세 내용</span><textarea name="description" rows="5" maxlength="5000" ${canEdit ? '' : 'disabled'} placeholder="필요 자료, 확인 항목, 결과물 형식을 적어 주세요.">${esc(task?.description || '')}</textarea></label>
       </div>
       <div class="structured-assignment-preview"><span><b>업무 지시자</b><em data-structured-assigner-preview>${esc(structuredProjectMemberName(originalAssigner))}</em></span><i>→</i><span><b>업무 담당자</b><em data-structured-assignee-preview>${esc(structuredProjectMemberName(task?.assignee, '선택 필요'))}</em></span><i>→</i><span><b>검토자</b><em data-structured-reviewer-preview>${esc(structuredProjectMemberName(originalReviewer))}</em></span></div>
-      <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">${editing ? '업무 저장' : '업무 토스'}</button></div>
+      <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit" ${quickAssign && !assignableMembers.length ? 'disabled' : ''}>${editing ? '업무 저장' : (quickAssign ? '담당자에게 배정' : '업무 토스')}</button></div>
     </form>`, { locked: true });
     const form = document.getElementById('structuredTaskForm');
     const assigneeSelect = form.elements.assigneeUid;
@@ -5244,14 +5380,26 @@
       };
       if (editing) record.expectedVersion = Number(task?.workflowVersion ?? task?.version ?? 1);
       if (!record.title || !record.assigneeUid) return showToast('할 일과 담당자를 확인해 주세요.');
+      if (quickAssign && !record.dueDate) return showToast('업무 마감일을 선택해 주세요.');
+      if (leadSelfAssignmentBlocked && record.assigneeUid === actorUid) {
+        return showToast('프로젝트 담당자는 본인 대신 다른 팀원에게 업무를 배정해 주세요.');
+      }
       const path = editing
         ? `/new-projects/${encodeURIComponent(project.id)}/tasks/${encodeURIComponent(task.id)}`
         : `/new-projects/${encodeURIComponent(project.id)}/mediums/${encodeURIComponent(mediumId)}/smalls/${encodeURIComponent(smallId)}/tasks`;
       const saved = await runCollaborationMutation(
         () => collaborationApi(editing ? 'PUT' : 'POST', path, record),
-        editing ? '체크리스트 업무를 수정했습니다.' : '담당자에게 체크리스트 업무를 토스했습니다.'
+        editing ? '체크리스트 업무를 수정했습니다.' : (quickAssign ? '담당자에게 체크리스트를 배정했습니다.' : '담당자에게 체크리스트 업무를 토스했습니다.')
       );
       if (!saved) return;
+      if (quickAssign) {
+        // 방금 배정한 카드가 기존 검색 조건에 가려지지 않도록 새 업무의
+        // 실제 위치·담당자에 보드 필터를 맞춘 뒤 canonical 상세를 다시 읽는다.
+        structuredBoardSearch = '';
+        structuredBoardMediumFilter = String(mediumId || 'all');
+        structuredBoardSmallFilter = String(smallId || 'all');
+        structuredBoardAssigneeFilter = String(record.assigneeUid || 'all');
+      }
       closeDetailModal();
       await refreshStructuredProjectDetail(project.id, { render: true }).catch(() => {});
     });
