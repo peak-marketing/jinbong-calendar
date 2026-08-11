@@ -281,6 +281,7 @@ test('branch HQ oversight sees the whole selected portfolio read-only while Peak
     assert.equal(detail.status, 200);
     assert.equal(detail.body.readOnly, true);
     assert.equal(detail.body.capabilities.manageProject, false);
+    assert.equal(detail.body.capabilities.editProjectSettings, false);
 
     const create = await call(branchServer, '/api/new-projects', {
       method: 'POST',
@@ -324,6 +325,8 @@ test('exact-three portfolio viewer cannot edit a project without lead or manager
           workspace_id: 'ws_peak',
           name: '타 프로젝트',
           lead_uid: 'other-lead',
+          created_by_uid: 'exact-kim-uid',
+          created_by_name_snapshot: '김대호',
           is_project_member: false,
           is_assignee: false,
           status: 'active',
@@ -346,6 +349,88 @@ test('exact-three portfolio viewer cannot edit a project without lead or manager
     assert.equal(result.body.code, 'NEW_PROJECT_MUTATION_FORBIDDEN');
     assert.equal(statements.some(sql => /UPDATE peakos_structured_projects/.test(sql)), false);
     assert.equal(statements.includes('ROLLBACK'), true);
+  } finally {
+    await close(server);
+  }
+});
+
+test('Peak exact-three creator who remains an active member may edit settings but cannot manage categories', async () => {
+  const statements = [];
+  const client = {
+    async query(sql, values = []) {
+      statements.push({ sql, values });
+      if (/SELECT p\.\*/.test(sql)) {
+        return { rows: [{
+          id: PROJECT_ID,
+          workspace_id: 'ws_peak',
+          name: '카카오맵 리뷰',
+          description: '',
+          lead_uid: 'lead-uid',
+          lead_name_snapshot: '프로젝트 담당자',
+          created_by_uid: 'exact-kim-uid',
+          created_by_name_snapshot: '김대호',
+          is_project_member: true,
+          is_assignee: false,
+          status: 'active',
+          version: 1,
+        }] };
+      }
+      if (/SELECT user_uid FROM peakos_structured_project_members/.test(sql)) {
+        return { rows: [{ user_uid: 'lead-uid' }, { user_uid: 'exact-kim-uid' }] };
+      }
+      if (/SELECT u\.uid, u\.name/.test(sql)) {
+        const names = new Map([
+          ['lead-uid', '프로젝트 담당자'],
+          ['exact-kim-uid', '김대호'],
+        ]);
+        return { rows: (values[1] || []).map(uid => ({ uid, name: names.get(uid) })) };
+      }
+      if (/UPDATE peakos_structured_projects/.test(sql)) {
+        return { rows: [{
+          id: PROJECT_ID,
+          workspace_id: 'ws_peak',
+          name: '카카오맵 리뷰',
+          description: '설정 수정됨',
+          lead_uid: 'lead-uid',
+          lead_name_snapshot: '프로젝트 담당자',
+          created_by_uid: 'exact-kim-uid',
+          created_by_name_snapshot: '김대호',
+          status: 'active',
+          version: 2,
+        }] };
+      }
+      return { rows: [] };
+    },
+    release() {},
+  };
+  const pool = makePool({
+    query: (...args) => client.query(...args),
+    connect: async () => client,
+  });
+  const actor = req({ uid: 'exact-kim-uid', name: '김대호' });
+  const exactThree = request => request.uid === 'exact-kim-uid';
+  const server = await listen(appWithActor(pool, actor, exactThree));
+  try {
+    const detail = await call(server, `/api/new-projects/${PROJECT_ID}`);
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.capabilities.editProjectSettings, true);
+    assert.equal(detail.body.capabilities.manageProject, false);
+
+    const update = await call(server, `/api/new-projects/${PROJECT_ID}`, {
+      method: 'PUT',
+      body: { description: '설정 수정됨', expectedVersion: 1 },
+    });
+    assert.equal(update.status, 200);
+    assert.equal(update.body.project.version, 2);
+    assert.equal(statements.some(entry => /UPDATE peakos_structured_projects/.test(entry.sql)), true);
+
+    const category = await call(server, `/api/new-projects/${PROJECT_ID}/mediums`, {
+      method: 'POST',
+      body: { name: '권한 없는 중분류', description: '', sortOrder: 0 },
+    });
+    assert.equal(category.status, 403);
+    assert.equal(category.body.code, 'NEW_PROJECT_MUTATION_FORBIDDEN');
+    assert.equal(statements.some(entry => /INSERT INTO peakos_structured_project_medium_categories/.test(entry.sql)), false);
   } finally {
     await close(server);
   }

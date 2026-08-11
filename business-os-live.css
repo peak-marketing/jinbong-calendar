@@ -5098,7 +5098,8 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 .structured-detail-nav button,
 .structured-medium-head > button,
 .structured-small-category > header > button,
-.structured-category-actions > button {
+.structured-category-actions > button,
+.structured-empty-action {
   min-height: 40px;
   border: 1px solid #c9dce9;
   border-radius: 10px;
@@ -5389,6 +5390,62 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 }
 .structured-detail-people b { color: #748a9a; font-size: 9px; }
 .structured-detail-people strong { color: #244861; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.structured-detail-person-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.structured-detail-person-head > button {
+  min-height: 28px;
+  border: 1px solid #bcd9e9;
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #edf8fe;
+  color: #187cb9;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.structured-project-lead-card > strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.structured-project-lead-card > strong > small {
+  border-radius: 99px;
+  padding: 3px 7px;
+  background: #edf5f9;
+  color: #5c7789;
+  font-size: 8px;
+  font-weight: 850;
+}
+.structured-project-team {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.structured-project-team-member {
+  display: inline-grid;
+  gap: 1px;
+  min-width: 92px;
+  border: 1px solid #dce8ef;
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: #f8fbfd;
+  color: #345c75;
+  font-size: 9px;
+  font-weight: 850;
+}
+.structured-project-member-rank {
+  color: #7b909f;
+  font-size: 8px;
+  font-weight: 750;
+}
+.structured-project-team-empty { color: #8296a4; font-size: 9px; font-weight: 700; }
 .structured-detail-progress {
   display: flex;
   flex-direction: column;
@@ -5591,6 +5648,16 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   font-size: 10px;
   text-align: center;
 }
+.structured-category-empty {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+}
+.structured-empty-action {
+  border-color: #9bcce6;
+  background: #ebf7fd;
+  color: #197db9;
+}
 .structured-form-help { margin: 0 0 9px; color: #7c909e; font-size: 9px; line-height: 1.5; }
 .structured-project-form label > span b,
 .structured-revision-target + .collaboration-form-grid label > span b { color: #d85b62; font-size: 9px; }
@@ -5639,11 +5706,15 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   .structured-medium-head { align-items: stretch; flex-direction: column; padding: 14px; }
   .structured-medium-head > button,
   .structured-small-category > header > button,
-  .structured-category-actions > button { min-height: 44px; }
+  .structured-category-actions > button,
+  .structured-empty-action { min-height: 44px; }
   .structured-category-actions { width: 100%; }
   .structured-category-actions > button { flex: 1; }
   .structured-small-list { padding: 9px; }
   .structured-small-category > header { align-items: stretch; flex-direction: column; }
+  .structured-detail-person-head > button { min-width: 76px; min-height: 40px; }
+  .structured-project-team { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .structured-project-team-member { min-width: 0; }
   .structured-task-row { grid-template-columns: 44px minmax(0, 1fr); gap: 10px; padding: 13px 10px; }
   .structured-task-check { width: 44px; height: 44px; }
   .structured-task-actions { grid-column: 2; flex-direction: row; flex-wrap: wrap; width: 100%; min-width: 0; }

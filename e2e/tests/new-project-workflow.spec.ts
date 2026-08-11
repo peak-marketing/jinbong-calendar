@@ -35,6 +35,7 @@ function makeProject({
   id = 'new-project-1',
   name = '브랜드 리뉴얼 프로젝트',
   canManage = true,
+  canEditSettings = canManage,
   taskStatus = 'doing',
 } = {}) {
   const task = {
@@ -57,17 +58,19 @@ function makeProject({
     description: '대분류 설명',
     status: 'active',
     version: 1,
-    lead: { uid: 'lead-uid', name: '업무지시자 김팀장' },
+    lead: { uid: 'lead-uid', name: '업무지시자 김팀장', rank: '팀장' },
+    createdBy: { uid: 'uid-kim-daeho', name: '김대호' },
     members: [
-      { uid: 'lead-uid', name: '업무지시자 김팀장' },
-      { uid: 'worker-uid', name: '업무담당자 이사원' },
-      { uid: 'viewer-uid', name: '공동구성원 박대리' },
+      { uid: 'lead-uid', name: '업무지시자 김팀장', rank: '팀장' },
+      { uid: 'worker-uid', name: '업무담당자 이사원', rank: '사원' },
+      { uid: 'viewer-uid', name: '공동구성원 박대리', rank: '대리' },
     ],
     taskCount: 1,
     doneTaskCount: taskStatus === 'done' ? 1 : 0,
     reviewTaskCount: taskStatus === 'review' ? 1 : 0,
     nearestDueDate: '2026-08-20',
     canManage,
+    canEditSettings,
     mediumCategories: [{
       id: `${id}-medium-1`,
       name: '콘텐츠 제작',
@@ -89,6 +92,7 @@ function projectSummary(project: any) {
     description: project.description,
     status: project.status,
     lead: project.lead,
+    createdBy: project.createdBy,
     members: project.members,
     taskCount: project.taskCount,
     doneTaskCount: project.doneTaskCount,
@@ -200,10 +204,10 @@ async function installApi(page: Page, fixture: NewProjectFixture) {
 
     if (resourcePath === '/users/all-approved' && method === 'GET') {
       return send([
-        { uid: user.uid, name: user.name, email: user.email, group_name: user.group_name },
-        { uid: 'lead-uid', name: '업무지시자 김팀장', email: 'lead@test.local', group_name: '본사 영업팀' },
-        { uid: 'worker-uid', name: '업무담당자 이사원', email: 'worker@test.local', group_name: '본사 영업팀' },
-        { uid: 'viewer-uid', name: '공동구성원 박대리', email: 'viewer@test.local', group_name: '본사 영업팀' },
+        { uid: user.uid, name: user.name, email: user.email, group_name: user.group_name, rank: user.rank || '부장' },
+        { uid: 'lead-uid', name: '업무지시자 김팀장', email: 'lead@test.local', group_name: '본사 영업팀', rank: '팀장' },
+        { uid: 'worker-uid', name: '업무담당자 이사원', email: 'worker@test.local', group_name: '본사 영업팀', rank: '사원' },
+        { uid: 'viewer-uid', name: '공동구성원 박대리', email: 'viewer@test.local', group_name: '본사 영업팀', rank: '대리' },
       ]);
     }
 
@@ -229,7 +233,10 @@ async function installApi(page: Page, fixture: NewProjectFixture) {
       if (!project) return send({ code: 'NEW_PROJECT_NOT_FOUND', error: '찾을 수 없습니다.' }, 404);
       return send({
         readOnly: fixture.readOnly === true,
-        capabilities: fixture.readOnly || !project.canManage ? {} : { manageProject: true },
+        capabilities: fixture.readOnly ? {} : {
+          manageProject: project.canManage === true,
+          editProjectSettings: project.canEditSettings === true,
+        },
         project,
       });
     }
@@ -246,6 +253,72 @@ async function installApi(page: Page, fixture: NewProjectFixture) {
       });
       project.version += 1;
       return send({ project });
+    }
+
+    const mediumCreateMatch = resourcePath.match(/^\/new-projects\/([^/]+)\/mediums$/);
+    if (mediumCreateMatch && method === 'POST') {
+      const project = projects.find(item => String(item.id) === decodeURIComponent(mediumCreateMatch[1]));
+      if (!project) return send({ code: 'NEW_PROJECT_NOT_FOUND', error: '찾을 수 없습니다.' }, 404);
+      const medium = {
+        id: `${project.id}-medium-${(project.mediumCategories || []).length + 1}`,
+        name: String(body?.name || ''),
+        version: 1,
+        smallCategories: [],
+      };
+      project.mediumCategories ||= [];
+      project.mediumCategories.push(medium);
+      return send({ medium }, 201);
+    }
+
+    const smallCreateMatch = resourcePath.match(/^\/new-projects\/([^/]+)\/mediums\/([^/]+)\/smalls$/);
+    if (smallCreateMatch && method === 'POST') {
+      const project = projects.find(item => String(item.id) === decodeURIComponent(smallCreateMatch[1]));
+      const medium = (project?.mediumCategories || [])
+        .find((item: any) => String(item.id) === decodeURIComponent(smallCreateMatch[2]));
+      if (!project || !medium) return send({ code: 'NEW_PROJECT_MEDIUM_NOT_FOUND', error: '중분류를 찾을 수 없습니다.' }, 404);
+      const small = {
+        id: `${project.id}-small-${(medium.smallCategories || []).length + 1}`,
+        name: String(body?.name || ''),
+        version: 1,
+        tasks: [],
+      };
+      medium.smallCategories ||= [];
+      medium.smallCategories.push(small);
+      return send({ small }, 201);
+    }
+
+    const taskCreateMatch = resourcePath.match(/^\/new-projects\/([^/]+)\/mediums\/([^/]+)\/smalls\/([^/]+)\/tasks$/);
+    if (taskCreateMatch && method === 'POST') {
+      const project = projects.find(item => String(item.id) === decodeURIComponent(taskCreateMatch[1]));
+      const medium = (project?.mediumCategories || [])
+        .find((item: any) => String(item.id) === decodeURIComponent(taskCreateMatch[2]));
+      const small = (medium?.smallCategories || [])
+        .find((item: any) => String(item.id) === decodeURIComponent(taskCreateMatch[3]));
+      if (!project || !medium || !small) {
+        return send({ code: 'NEW_PROJECT_SMALL_NOT_FOUND', error: '소분류를 찾을 수 없습니다.' }, 404);
+      }
+      const assignee = (project.members || [])
+        .find((member: any) => String(member.uid) === String(body?.assigneeUid));
+      if (!assignee) return send({ code: 'NEW_PROJECT_ASSIGNEE_NOT_MEMBER', error: '프로젝트 팀원만 배정할 수 있습니다.' }, 400);
+      const assignedBy = { uid: user.uid, name: user.name };
+      const task = {
+        id: `${project.id}-task-${(small.tasks || []).length + 1}`,
+        title: String(body?.title || ''),
+        description: String(body?.description || ''),
+        dueDate: body?.dueDate || null,
+        status: 'todo',
+        workflowVersion: 1,
+        assignedBy,
+        assignee,
+        reviewer: String(assignee.uid) === String(user.uid) ? { ...project.lead } : assignedBy,
+        revisionReason: '',
+        history: [],
+        capabilities: taskCapabilities('todo'),
+      };
+      small.tasks ||= [];
+      small.tasks.push(task);
+      project.taskCount = Number(project.taskCount || 0) + 1;
+      return send({ task }, 201);
     }
 
     const taskUpdateMatch = resourcePath.match(/^\/new-projects\/([^/]+)\/tasks\/([^/]+)$/);
@@ -377,6 +450,12 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
 
     const detail = page.locator('[data-structured-project-detail]');
     await expect(detail).toContainText('프로젝트 대분류');
+    await expect(detail).toContainText('프로젝트 팀원 3명');
+    await expect(detail).not.toContainText('같이 보는 구성원');
+    await expect(page.locator('.structured-project-team-member')).toHaveCount(3);
+    await expect(page.locator('.structured-project-lead-card')).toContainText('업무지시자 김팀장');
+    await expect(page.locator('.structured-project-lead-card')).toContainText('팀장');
+    await expect(page.locator('.structured-project-member-rank')).toHaveText(['팀장', '사원', '대리']);
     await expect(page.locator('[data-work-category-id="new-project-1-medium-1"]')).toContainText('콘텐츠 제작');
     await expect(page.locator('[data-work-subcategory-id="new-project-1-small-1"]')).toContainText('광고 시안');
     const task = page.locator('[data-work-item-id="new-project-1-task-1"]');
@@ -392,6 +471,34 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     expect(fixture.calls.filter(call => call.method !== 'GET' && call.path.includes('/projects'))).toEqual([]);
   });
 
+  test('운영 DTO에 직급이 없어도 조직도 이름으로 전현우 팀장·김대호 부장을 표시하고 앱 role은 직급으로 쓰지 않는다', async ({ page }) => {
+    const project = makeProject({
+      id: 'rank-fallback-project', name: '운영 직급 표시 프로젝트', canManage: false, canEditSettings: false,
+    });
+    project.lead = { uid: 'jeon-hyeonwoo', name: '전현우', role: 'member' };
+    project.members = [
+      { uid: 'jeon-hyeonwoo', name: '전현우', role: 'member' },
+      { uid: 'kim-daeho', name: '김대호', role: 'admin' },
+    ];
+    const fixture: NewProjectFixture = {
+      calls: [],
+      projectsByWorkspace: { peak: [project] },
+      capabilities: { viewPortfolio: true, createProject: true },
+    };
+    await setup(page, fixture);
+    await openNewProjects(page);
+    await page.locator('[data-structured-project-open="rank-fallback-project"]').click();
+
+    const leadCard = page.locator('.structured-project-lead-card');
+    await expect(leadCard).toContainText('전현우');
+    await expect(leadCard).toContainText('팀장');
+    const team = page.locator('.structured-project-team');
+    await expect(page.locator('[data-structured-project-detail]')).toContainText('프로젝트 팀원 2명');
+    await expect(page.locator('.structured-project-member-rank')).toHaveText(['팀장', '부장']);
+    await expect(team).not.toContainText('member');
+    await expect(team).not.toContainText('admin');
+  });
+
   test('exact3 포트폴리오 계정과 일반 구성원의 범위·생성·관리 버튼을 capability로 분리한다', async ({ page }) => {
     const portfolio = makeProject({ id: 'portfolio-project', name: '다른 팀 프로젝트', canManage: false });
     const fixture: NewProjectFixture = {
@@ -404,6 +511,8 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.getByText('전체 포트폴리오', { exact: false }).first()).toBeVisible();
     await expect(page.locator('[data-structured-project-create]')).toBeVisible();
     await page.locator('[data-structured-project-open="portfolio-project"]').click();
+    await expect(page.locator('[data-structured-project-edit]')).toHaveCount(0);
+    await expect(page.locator('[data-structured-project-lead-edit]')).toHaveCount(0);
     await expect(page.locator('[data-structured-medium-create]')).toHaveCount(0);
     await expect(page.locator('[data-structured-task-create]')).toHaveCount(0);
 
@@ -411,8 +520,10 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     expect(newProjectReads.every(call => !call.path.includes('?') && call.body == null)).toBe(true);
   });
 
-  test('프로젝트 생성·설정 폼에 담당자와 공동 구성원을 두고 versioned 설정 저장을 보낸다', async ({ page }) => {
-    const project = makeProject({ id: 'managed-project', name: '관리 프로젝트', canManage: true });
+  test('Peak exact3 생성자는 현재 팀원일 때 담당자·팀원 수정만 하고 업무 구조는 변경하지 못한다', async ({ page }) => {
+    const project = makeProject({
+      id: 'managed-project', name: '관리 프로젝트', canManage: false, canEditSettings: true,
+    });
     const fixture: NewProjectFixture = {
       calls: [],
       projectsByWorkspace: { peak: [project] },
@@ -424,19 +535,88 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await page.locator('[data-structured-project-create]').click();
     const createForm = page.locator('#structuredProjectForm');
     await expect(createForm.getByText('프로젝트 담당자', { exact: true })).toBeVisible();
-    await expect(createForm.getByText('같이 볼 구성원', { exact: true })).toBeVisible();
+    await expect(createForm.getByText('프로젝트 팀원', { exact: true })).toBeVisible();
+    await expect(createForm.getByText('같이 볼 구성원', { exact: true })).toHaveCount(0);
     await expect(createForm.locator('select[name="leadUid"]')).toBeVisible();
     await expect(createForm.locator('input[name="memberUids"]')).toHaveCount(4);
     await createForm.locator('[data-collab-cancel]').click();
 
     await page.locator('[data-structured-project-open="managed-project"]').click();
-    await page.locator('[data-structured-project-edit]').click();
+    await expect(page.locator('[data-structured-project-edit]')).toBeVisible();
+    await expect(page.locator('[data-structured-project-lead-edit]')).toBeVisible();
+    await expect(page.locator('[data-structured-medium-create]')).toHaveCount(0);
+    await expect(page.locator('[data-structured-small-create]')).toHaveCount(0);
+    await expect(page.locator('[data-structured-task-create]')).toHaveCount(0);
+    await page.locator('[data-structured-project-lead-edit]').click();
     const editForm = page.locator('#structuredProjectForm');
+    await expect(editForm.getByText('프로젝트 팀원', { exact: true })).toBeVisible();
     await editForm.locator('textarea[name="description"]').fill('버전 충돌을 막는 설정 변경');
     await editForm.getByRole('button', { name: '변경 저장' }).click();
     await expect(page.locator('[data-structured-project-detail]')).toContainText('버전 충돌을 막는 설정 변경');
     const update = fixture.calls.find(call => call.method === 'PUT' && call.path.endsWith('/new-projects/managed-project'));
     expect(update?.body).toMatchObject({ expectedVersion: 1, description: '버전 충돌을 막는 설정 변경' });
+  });
+
+  test('실제 프로젝트 담당자는 중분류와 소분류를 만든 뒤 팀원에게 체크리스트 업무를 배정한다', async ({ page }) => {
+    const project = makeProject({
+      id: 'lead-project', name: '담당자 업무 배정 프로젝트', canManage: true, canEditSettings: true,
+    });
+    project.mediumCategories = [];
+    project.taskCount = 0;
+    project.doneTaskCount = 0;
+    project.reviewTaskCount = 0;
+    const fixture: NewProjectFixture = {
+      user: {
+        uid: 'lead-uid', name: '업무지시자 김팀장', email: 'lead@test.local', rank: '팀장', role: 'manager',
+        approved: true, is_active: true, group_id: 'hq-sales', group_name: '본사 영업팀', group_type: 'sales',
+      },
+      calls: [],
+      projectsByWorkspace: { peak: [project] },
+      capabilities: { viewPortfolio: false, createProject: false },
+    };
+    await setup(page, fixture);
+    await openNewProjects(page);
+    await page.locator('[data-structured-project-open="lead-project"]').click();
+
+    await expect(page.locator('[data-structured-project-lead-edit]')).toBeVisible();
+    await expect(page.locator('[data-structured-medium-create]')).toHaveCount(2);
+    await page.locator('[data-structured-medium-create]').last().click();
+    let categoryForm = page.locator('#structuredCategoryForm');
+    await categoryForm.locator('input[name="name"]').fill('콘텐츠 제작');
+    await categoryForm.getByRole('button', { name: '추가', exact: true }).click();
+
+    const medium = page.locator('[data-work-category-id="lead-project-medium-1"]');
+    await expect(medium).toContainText('콘텐츠 제작');
+    await medium.locator('[data-structured-small-create]').last().click();
+    categoryForm = page.locator('#structuredCategoryForm');
+    await categoryForm.locator('input[name="name"]').fill('광고 시안');
+    await categoryForm.getByRole('button', { name: '추가', exact: true }).click();
+
+    const small = page.locator('[data-work-subcategory-id="lead-project-small-1"]');
+    await expect(small).toContainText('광고 시안');
+    await small.locator('[data-structured-task-create]').click();
+    const taskForm = page.locator('#structuredTaskForm');
+    await expect(taskForm).toContainText('업무 지시자');
+    await taskForm.locator('input[name="title"]').fill('모바일 광고 시안 제작');
+    await taskForm.locator('select[name="assigneeUid"]').selectOption('worker-uid');
+    await taskForm.locator('input[name="dueDate"]').fill('2026-08-31');
+    await taskForm.locator('textarea[name="description"]').fill('소분류 기준으로 업무를 배정합니다.');
+    await taskForm.getByRole('button', { name: '업무 토스', exact: true }).click();
+
+    const task = page.locator('[data-work-item-id="lead-project-task-1"]');
+    await expect(task).toContainText('모바일 광고 시안 제작');
+    await expect(task.locator('.structured-assignment-flow')).toContainText('업무지시자 김팀장');
+    await expect(task.locator('.structured-assignment-flow')).toContainText('업무담당자 이사원');
+    const writes = fixture.calls.filter(call => call.method === 'POST' && call.path.includes('/new-projects/lead-project'));
+    expect(writes.map(call => call.path)).toEqual([
+      '/peakos/collaboration/new-projects/lead-project/mediums',
+      '/peakos/collaboration/new-projects/lead-project/mediums/lead-project-medium-1/smalls',
+      '/peakos/collaboration/new-projects/lead-project/mediums/lead-project-medium-1/smalls/lead-project-small-1/tasks',
+    ]);
+    expect(writes[2]?.body).toEqual({
+      title: '모바일 광고 시안 제작', description: '소분류 기준으로 업무를 배정합니다.',
+      dueDate: '2026-08-31', assigneeUid: 'worker-uid',
+    });
   });
 
   test('업무 편집은 담당자 유지 시 원 지시·검토 계보를 보존하고 재배정 시 현재 지시자로 갱신한다', async ({ page }) => {
@@ -525,6 +705,8 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.getByText('내 참여 프로젝트', { exact: false }).first()).toBeVisible();
     await expect(page.locator('[data-structured-project-create]')).toHaveCount(0);
     await page.locator('[data-structured-project-open="member-project"]').click();
+    await expect(page.locator('[data-structured-project-edit]')).toHaveCount(0);
+    await expect(page.locator('[data-structured-project-lead-edit]')).toHaveCount(0);
     await expect(page.locator('[data-structured-medium-create]')).toHaveCount(0);
     await page.locator('[data-work-item-id="member-project-task-1"] [data-work-item-submit]').first().click();
     await expect(page.locator('[data-work-item-id="member-project-task-1"]')).toContainText('검토 요청');
@@ -654,12 +836,19 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('[data-work-category-id]')).toBeVisible();
     await expect(page.locator('[data-work-subcategory-id]')).toBeVisible();
     await expect(page.locator('[data-work-item-id]')).toBeVisible();
+    await expect(page.locator('[data-structured-project-detail]')).toContainText('프로젝트 팀원 3명');
+    await expect(page.locator('.structured-project-team-member')).toHaveCount(3);
 
     const dimensions = await page.evaluate(() => ({
       viewport: window.innerWidth,
       documentWidth: document.documentElement.scrollWidth,
     }));
     expect(dimensions.documentWidth).toBeLessThanOrEqual(dimensions.viewport);
+    const teamCardsFit = await page.locator('.structured-project-team-member').evaluateAll(elements => elements.every(element => {
+      const rect = element.getBoundingClientRect();
+      return rect.left >= 0 && rect.right <= window.innerWidth;
+    }));
+    expect(teamCardsFit).toBe(true);
     const checkbox = page.locator('.structured-task-check').first();
     const box = await checkbox.boundingBox();
     expect(box?.width || 0).toBeGreaterThanOrEqual(40);

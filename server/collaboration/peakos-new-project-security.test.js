@@ -102,17 +102,34 @@ test('list and detail reads bind every relation to the authenticated workspace a
   assert.match(access, /\[context\.workspaceId, projectId, context\.uid\]/);
 });
 
-test('exact-three read/create never broadens edit or assignment on another project', () => {
+test('exact-three creator-member may edit settings without broadening category or assignment management', () => {
   const access = between(routesSource, 'async function loadProjectAccess', 'function assertCanManage');
   assert.match(access, /const isLead = String\(project\.lead_uid\) === context\.uid/);
   assert.match(access, /project\.is_project_member === true/);
-  assert.match(access, /canManage: !context\.isPreview && !context\.isOversight && \(isLead \|\| isManagerMember\)/);
+  assert.match(access, /const canManage = !context\.isPreview && !context\.isOversight && \(isLead \|\| isManagerMember\)/);
+  assert.match(access, /context\.isPeakWorkspace/);
+  assert.match(access, /context\.isPortfolioViewer/);
+  assert.match(access, /String\(project\.created_by_uid\) === context\.uid/);
+  assert.match(access, /canEditProjectSettings: canManage/);
 
   const createContextSource = between(routesSource, 'function createContext(req,', 'async function resolveWorkspaceUsers');
   assert.match(createContextSource, /canCreateProject/);
   const create = between(routesSource, 'app.post(NEW_PROJECT_BASE_PATH,', 'app.get(`${NEW_PROJECT_BASE_PATH}/:id`');
   assert.match(create, /if \(!context\.canCreateProject\)/);
   assert.match(create, /resolveWorkspaceUsers\(client, context\.workspaceId/);
+
+  const projectUpdate = between(
+    routesSource,
+    'app.put(`${NEW_PROJECT_BASE_PATH}/:id`',
+    'app.delete(`${NEW_PROJECT_BASE_PATH}/:id`',
+  );
+  assert.match(projectUpdate, /assertCanEditProjectSettings\(access\)/);
+  const categoryCreate = between(
+    routesSource,
+    'async function createCategory',
+    'app.post(`${NEW_PROJECT_BASE_PATH}/:id/mediums`',
+  );
+  assert.match(categoryCreate, /assertCanManage\(access\)/);
 });
 
 test('project hierarchy, assignee membership and task mutations all reject cross-parent IDs', () => {

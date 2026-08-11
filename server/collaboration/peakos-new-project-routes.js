@@ -276,6 +276,7 @@ function createContext(req, { peakWorkspaceId, isPortfolioViewer, isPortfolioCre
     name: actorName(req),
     workspace,
     workspaceId: String(workspace.id || ''),
+    isPeakWorkspace: workspace.id === peakWorkspaceId,
     isPreview: requestIsPreview(req),
     isPortfolioViewer: hasPortfolioAccess,
     isOversight,
@@ -349,17 +350,34 @@ async function loadProjectAccess(db, context, projectId, { lock = false } = {}) 
   }));
   const isManagerMember = context.isNonPeakManager
     && project.is_project_member === true;
+  const canManage = !context.isPreview && !context.isOversight && (isLead || isManagerMember);
+  // Peak's exact-three portfolio capability is deliberately narrower than
+  // project management. A creator who remains an active member may correct
+  // the project's lead/member settings, but does not gain category or task
+  // assignment rights unless they are the current lead. This is UID-backed;
+  // display names and generic users.role values are never consulted.
+  const isPeakCreatorMember = context.isPeakWorkspace
+    && context.isPortfolioViewer
+    && String(project.created_by_uid) === context.uid
+    && project.is_project_member === true;
   return {
     project,
     isLead,
     isManagerMember,
-    canManage: !context.isPreview && !context.isOversight && (isLead || isManagerMember),
+    canManage,
+    canEditProjectSettings: canManage
+      || (!context.isPreview && !context.isOversight && isPeakCreatorMember),
   };
 }
 
 function assertCanManage(access) {
   if (access.canManage) return;
   throw new NewProjectHttpError(403, 'NEW_PROJECT_MUTATION_FORBIDDEN', '프로젝트 담당자 또는 프로젝트에 참여 중인 조직 관리자만 변경할 수 있습니다.');
+}
+
+function assertCanEditProjectSettings(access) {
+  if (access.canEditProjectSettings) return;
+  throw new NewProjectHttpError(403, 'NEW_PROJECT_MUTATION_FORBIDDEN', '프로젝트 설정을 변경할 권한이 없습니다.');
 }
 
 function assertProjectMutable(project) {
@@ -641,7 +659,11 @@ function registerPeakosNewProjectRoutes({
       const project = access.project;
       return res.json({
         readOnly: context.readOnly,
-        capabilities: { viewPortfolio: context.viewPortfolio, manageProject: access.canManage },
+        capabilities: {
+          viewPortfolio: context.viewPortfolio,
+          manageProject: access.canManage,
+          editProjectSettings: access.canEditProjectSettings,
+        },
         project: {
           id: String(project.id),
           name: project.name,
@@ -677,7 +699,7 @@ function registerPeakosNewProjectRoutes({
       await client.query('BEGIN');
       await client.query('SET CONSTRAINTS ALL DEFERRED');
       const access = await loadProjectAccess(client, context, id, { lock: true });
-      assertCanManage(access);
+      assertCanEditProjectSettings(access);
       const current = access.project;
       if (Number(current.version) !== expectedVersion) {
         throw new NewProjectHttpError(409, 'NEW_PROJECT_VERSION_CONFLICT', '다른 사용자가 먼저 프로젝트를 변경했습니다.');
