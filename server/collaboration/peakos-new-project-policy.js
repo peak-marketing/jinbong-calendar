@@ -21,9 +21,9 @@ const NEW_PROJECT_REQUIRED_COLUMNS = Object.freeze({
     'created_at', 'updated_at',
   ]),
   [NEW_PROJECT_TABLES.mediumCategories]: Object.freeze([
-    'workspace_id', 'project_id', 'id', 'name', 'description', 'active',
-    'sort_order', 'version', 'created_by_uid', 'created_by_name_snapshot',
-    'created_at', 'updated_at',
+    'workspace_id', 'project_id', 'id', 'name', 'description', 'manager_uid',
+    'manager_name_snapshot', 'active', 'sort_order', 'version', 'created_by_uid',
+    'created_by_name_snapshot', 'created_at', 'updated_at',
   ]),
   [NEW_PROJECT_TABLES.smallCategories]: Object.freeze([
     'workspace_id', 'project_id', 'medium_category_id', 'id', 'name',
@@ -61,6 +61,7 @@ const NEW_PROJECT_REQUIRED_CONSTRAINTS = Object.freeze({
   [NEW_PROJECT_TABLES.mediumCategories]: Object.freeze([
     'peakos_structured_project_medium_categories_pkey',
     'peakos_structured_project_medium_project_fk',
+    'peakos_structured_project_medium_manager_fk',
   ]),
   [NEW_PROJECT_TABLES.smallCategories]: Object.freeze([
     'peakos_structured_project_small_categories_pkey',
@@ -81,11 +82,13 @@ const NEW_PROJECT_REQUIRED_CONSTRAINTS = Object.freeze({
 const NEW_PROJECT_REQUIRED_TRIGGERS = Object.freeze([
   Object.freeze([NEW_PROJECT_TABLES.projects, 'peakos_structured_projects_active_lead_guard']),
   Object.freeze([NEW_PROJECT_TABLES.members, 'peakos_structured_project_members_active_lead_guard']),
+  Object.freeze([NEW_PROJECT_TABLES.mediumCategories, 'peakos_structured_project_medium_manager_guard']),
+  Object.freeze([NEW_PROJECT_TABLES.members, 'peakos_structured_project_members_medium_manager_guard']),
   Object.freeze([NEW_PROJECT_TABLES.history, 'peakos_structured_project_history_no_mutation']),
 ]);
 
 const NEW_PROJECT_REQUIRED_TABLES = Object.freeze(Object.values(NEW_PROJECT_TABLES));
-const NEW_PROJECT_MIGRATION_FILE = '20260811_peakos_structured_projects.sql';
+const NEW_PROJECT_MIGRATION_FILE = '20260811_peakos_structured_projects_medium_managers.sql';
 
 // Startup code must only check readiness. Applying the operator-run migration
 // from an API process could leave different replicas on different schemas.

@@ -75,6 +75,7 @@ function makeProject({
       id: `${id}-medium-1`,
       name: '콘텐츠 제작',
       version: 1,
+      manager: { uid: 'worker-uid', name: '업무담당자 이사원' },
       smallCategories: [{
         id: `${id}-small-1`,
         name: '광고 시안',
@@ -133,6 +134,11 @@ function findTask(project: any, taskId: string) {
     }
   }
   return null;
+}
+
+function findMedium(project: any, mediumId: string) {
+  return (project?.mediumCategories || [])
+    .find((medium: any) => String(medium.id) === String(mediumId)) || null;
 }
 
 async function installApi(page: Page, fixture: NewProjectFixture) {
@@ -259,15 +265,44 @@ async function installApi(page: Page, fixture: NewProjectFixture) {
     if (mediumCreateMatch && method === 'POST') {
       const project = projects.find(item => String(item.id) === decodeURIComponent(mediumCreateMatch[1]));
       if (!project) return send({ code: 'NEW_PROJECT_NOT_FOUND', error: '찾을 수 없습니다.' }, 404);
+      let manager = null;
+      if (body?.managerUid !== undefined) {
+        const managerUid = typeof body.managerUid === 'string' ? body.managerUid.trim() : '';
+        if (!managerUid) return send({ code: 'NEW_PROJECT_UID_INVALID', error: '중분류 담당자를 확인해 주세요.' }, 400);
+        manager = (project.members || []).find((member: any) => String(member.uid) === managerUid) || null;
+        if (!manager) return send({ code: 'NEW_PROJECT_MEDIUM_MANAGER_NOT_MEMBER', error: '프로젝트 팀원만 중분류 담당자가 될 수 있습니다.' }, 400);
+      }
       const medium = {
         id: `${project.id}-medium-${(project.mediumCategories || []).length + 1}`,
         name: String(body?.name || ''),
         version: 1,
+        manager: manager ? { uid: manager.uid, name: manager.name } : null,
         smallCategories: [],
       };
       project.mediumCategories ||= [];
       project.mediumCategories.push(medium);
       return send({ medium }, 201);
+    }
+
+    const mediumUpdateMatch = resourcePath.match(/^\/new-projects\/([^/]+)\/mediums\/([^/]+)$/);
+    if (mediumUpdateMatch && method === 'PUT') {
+      const project = projects.find(item => String(item.id) === decodeURIComponent(mediumUpdateMatch[1]));
+      const medium = findMedium(project, decodeURIComponent(mediumUpdateMatch[2]));
+      if (!project || !medium) return send({ code: 'NEW_PROJECT_MEDIUM_NOT_FOUND', error: '중분류를 찾을 수 없습니다.' }, 404);
+      if (Number(body?.expectedVersion) !== Number(medium.version)) {
+        return send({ code: 'NEW_PROJECT_CATEGORY_VERSION_CONFLICT', error: '다른 사용자가 먼저 변경했습니다.' }, 409);
+      }
+      let manager = medium.manager || null;
+      if (body?.managerUid !== undefined) {
+        const managerUid = typeof body.managerUid === 'string' ? body.managerUid.trim() : '';
+        if (!managerUid) return send({ code: 'NEW_PROJECT_UID_INVALID', error: '중분류 담당자를 확인해 주세요.' }, 400);
+        manager = (project.members || []).find((member: any) => String(member.uid) === managerUid) || null;
+        if (!manager) return send({ code: 'NEW_PROJECT_MEDIUM_MANAGER_NOT_MEMBER', error: '프로젝트 팀원만 중분류 담당자가 될 수 있습니다.' }, 400);
+      }
+      if (body?.name !== undefined) medium.name = String(body.name || '');
+      medium.manager = manager ? { uid: manager.uid, name: manager.name } : null;
+      medium.version += 1;
+      return send({ medium });
     }
 
     const smallCreateMatch = resourcePath.match(/^\/new-projects\/([^/]+)\/mediums\/([^/]+)\/smalls$/);
@@ -456,7 +491,11 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('.structured-project-lead-card')).toContainText('업무지시자 김팀장');
     await expect(page.locator('.structured-project-lead-card')).toContainText('팀장');
     await expect(page.locator('.structured-project-member-rank')).toHaveText(['팀장', '사원', '대리']);
-    await expect(page.locator('[data-work-category-id="new-project-1-medium-1"]')).toContainText('콘텐츠 제작');
+    const medium = page.locator('[data-work-category-id="new-project-1-medium-1"]');
+    await expect(medium).toContainText('콘텐츠 제작');
+    await expect(medium.locator('[data-structured-medium-manager]')).toContainText('중분류 담당자');
+    await expect(medium.locator('[data-structured-medium-manager]')).toContainText('업무담당자 이사원');
+    await expect(medium.locator('[data-structured-medium-manager]')).toContainText('사원');
     await expect(page.locator('[data-work-subcategory-id="new-project-1-small-1"]')).toContainText('광고 시안');
     const task = page.locator('[data-work-item-id="new-project-1-task-1"]');
     await expect(task).toContainText('메인 캠페인 시안 제작');
@@ -497,6 +536,25 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('.structured-project-member-rank')).toHaveText(['팀장', '부장']);
     await expect(team).not.toContainText('member');
     await expect(team).not.toContainText('admin');
+  });
+
+  test('기존 중분류에 담당자가 없어도 상세를 안전하게 표시한다', async ({ page }) => {
+    const project = makeProject({
+      id: 'legacy-null-manager-project', name: '기존 중분류 호환', canManage: false, canEditSettings: false,
+    });
+    project.mediumCategories[0].manager = null;
+    const fixture: NewProjectFixture = {
+      calls: [],
+      projectsByWorkspace: { peak: [project] },
+      capabilities: { viewPortfolio: false, createProject: false },
+    };
+    await setup(page, fixture);
+    await openNewProjects(page);
+    await page.locator('[data-structured-project-open="legacy-null-manager-project"]').click();
+
+    const manager = page.locator('[data-work-category-id="legacy-null-manager-project-medium-1"] [data-structured-medium-manager]');
+    await expect(manager).toHaveText('중분류 담당자 미지정');
+    await expect(page.locator('[data-structured-medium-edit]')).toHaveCount(0);
   });
 
   test('exact3 포트폴리오 계정과 일반 구성원의 범위·생성·관리 버튼을 capability로 분리한다', async ({ page }) => {
@@ -547,6 +605,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('[data-structured-medium-create]')).toHaveCount(0);
     await expect(page.locator('[data-structured-small-create]')).toHaveCount(0);
     await expect(page.locator('[data-structured-task-create]')).toHaveCount(0);
+    await expect(page.locator('[data-structured-medium-edit]')).toHaveCount(0);
     await page.locator('[data-structured-project-lead-edit]').click();
     const editForm = page.locator('#structuredProjectForm');
     await expect(editForm.getByText('프로젝트 팀원', { exact: true })).toBeVisible();
@@ -582,11 +641,25 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('[data-structured-medium-create]')).toHaveCount(2);
     await page.locator('[data-structured-medium-create]').last().click();
     let categoryForm = page.locator('#structuredCategoryForm');
+    await expect(categoryForm.locator('select[name="managerUid"]')).toHaveValue('lead-uid');
+    const managerOptions = await categoryForm.locator('select[name="managerUid"] option').evaluateAll(options =>
+      options.map(option => (option as HTMLOptionElement).value).filter(Boolean).sort());
+    expect(managerOptions).toEqual(['lead-uid', 'viewer-uid', 'worker-uid']);
     await categoryForm.locator('input[name="name"]').fill('콘텐츠 제작');
+    await categoryForm.locator('select[name="managerUid"]').selectOption('worker-uid');
     await categoryForm.getByRole('button', { name: '추가', exact: true }).click();
 
     const medium = page.locator('[data-work-category-id="lead-project-medium-1"]');
     await expect(medium).toContainText('콘텐츠 제작');
+    await expect(medium.locator('[data-structured-medium-manager]')).toContainText('업무담당자 이사원');
+    await expect(medium.locator('[data-structured-medium-manager]')).toContainText('사원');
+    await medium.locator('[data-structured-medium-edit]').click();
+    categoryForm = page.locator('#structuredCategoryForm');
+    await expect(categoryForm.locator('select[name="managerUid"]')).toHaveValue('worker-uid');
+    await categoryForm.locator('select[name="managerUid"]').selectOption('viewer-uid');
+    await categoryForm.getByRole('button', { name: '변경 저장', exact: true }).click();
+    await expect(medium.locator('[data-structured-medium-manager]')).toContainText('공동구성원 박대리');
+    await expect(medium.locator('[data-structured-medium-manager]')).toContainText('대리');
     await medium.locator('[data-structured-small-create]').last().click();
     categoryForm = page.locator('#structuredCategoryForm');
     await categoryForm.locator('input[name="name"]').fill('광고 시안');
@@ -607,6 +680,10 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(task).toContainText('모바일 광고 시안 제작');
     await expect(task.locator('.structured-assignment-flow')).toContainText('업무지시자 김팀장');
     await expect(task.locator('.structured-assignment-flow')).toContainText('업무담당자 이사원');
+    const categoryCreate = fixture.calls.find(call => call.method === 'POST' && call.path.endsWith('/new-projects/lead-project/mediums'));
+    expect(categoryCreate?.body).toMatchObject({ name: '콘텐츠 제작', managerUid: 'worker-uid' });
+    const categoryUpdate = fixture.calls.find(call => call.method === 'PUT' && call.path.endsWith('/new-projects/lead-project/mediums/lead-project-medium-1'));
+    expect(categoryUpdate?.body).toMatchObject({ name: '콘텐츠 제작', managerUid: 'viewer-uid', expectedVersion: 1 });
     const writes = fixture.calls.filter(call => call.method === 'POST' && call.path.includes('/new-projects/lead-project'));
     expect(writes.map(call => call.path)).toEqual([
       '/peakos/collaboration/new-projects/lead-project/mediums',
@@ -833,6 +910,8 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('[data-structured-project-id="daegu-project"]')).toBeVisible();
     await expect(page.getByText('본사 비공개 프로젝트', { exact: false })).toHaveCount(0);
     await page.locator('[data-structured-project-open="daegu-project"]').click();
+    await expect(page.locator('[data-structured-medium-manager]')).toContainText('업무담당자 이사원');
+    await expect(page.locator('[data-structured-medium-manager]')).toContainText('사원');
     await expect(page.locator('[data-work-category-id]')).toBeVisible();
     await expect(page.locator('[data-work-subcategory-id]')).toBeVisible();
     await expect(page.locator('[data-work-item-id]')).toBeVisible();

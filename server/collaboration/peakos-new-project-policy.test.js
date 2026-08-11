@@ -47,10 +47,15 @@ test('readiness contract names six isolated tables and checks columns, composite
   assert.equal(new Set(NEW_PROJECT_REQUIRED_TABLES).size, 6);
   assert.ok(NEW_PROJECT_REQUIRED_TABLES.every(name => name.startsWith('peakos_structured_')));
   assert.ok(Object.values(NEW_PROJECT_REQUIRED_COLUMNS).every(columns => columns.includes('workspace_id')));
+  assert.ok(NEW_PROJECT_REQUIRED_COLUMNS.peakos_structured_project_medium_categories.includes('manager_uid'));
+  assert.ok(NEW_PROJECT_REQUIRED_COLUMNS.peakos_structured_project_medium_categories.includes('manager_name_snapshot'));
   assert.ok(Object.values(NEW_PROJECT_REQUIRED_CONSTRAINTS).flat().includes('peakos_structured_projects_lead_project_member_fk'));
+  assert.ok(Object.values(NEW_PROJECT_REQUIRED_CONSTRAINTS).flat().includes('peakos_structured_project_medium_manager_fk'));
   assert.deepEqual(NEW_PROJECT_REQUIRED_TRIGGERS.map(([, trigger]) => trigger), [
     'peakos_structured_projects_active_lead_guard',
     'peakos_structured_project_members_active_lead_guard',
+    'peakos_structured_project_medium_manager_guard',
+    'peakos_structured_project_members_medium_manager_guard',
     'peakos_structured_project_history_no_mutation',
   ]);
   assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /^WITH required_columns/i);
@@ -65,7 +70,7 @@ test('readiness contract names six isolated tables and checks columns, composite
   });
   assert.equal(missing.ready, false);
   assert.equal(missing.code, 'NEW_PROJECT_SCHEMA_NOT_READY');
-  assert.match(missing.error, /20260811_peakos_structured_projects\.sql/);
+  assert.match(missing.error, /20260811_peakos_structured_projects_medium_managers\.sql/);
 });
 
 test('portfolio visibility is server-injected and does not expand an ordinary Peak manager', () => {

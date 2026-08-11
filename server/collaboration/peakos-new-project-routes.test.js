@@ -14,6 +14,7 @@ const {
 
 const PROJECT_ID = '11111111-1111-4111-8111-111111111111';
 const TASK_ID = '22222222-2222-4222-8222-222222222222';
+const MEDIUM_ID = '33333333-3333-4333-8333-333333333333';
 
 function req({
   uid = 'ordinary-uid',
@@ -170,7 +171,7 @@ test('startup readiness is SELECT-only and fails closed with the operator migrat
   await assert.rejects(
     ensurePeakosNewProjectInfrastructure(pool),
     error => error.code === 'NEW_PROJECT_SCHEMA_NOT_READY'
-      && /20260811_peakos_structured_projects\.sql/.test(error.message),
+      && /20260811_peakos_structured_projects_medium_managers\.sql/.test(error.message),
   );
   assert.match(sql, /^WITH required_columns/);
   assert.doesNotMatch(sql, /\b(?:CREATE|ALTER|DROP|INSERT|UPDATE|DELETE)\b/i);
@@ -426,11 +427,219 @@ test('Peak exact-three creator who remains an active member may edit settings bu
 
     const category = await call(server, `/api/new-projects/${PROJECT_ID}/mediums`, {
       method: 'POST',
-      body: { name: '권한 없는 중분류', description: '', sortOrder: 0 },
+      body: { name: '권한 없는 중분류', description: '', sortOrder: 0, managerUid: 'exact-kim-uid' },
     });
     assert.equal(category.status, 403);
     assert.equal(category.body.code, 'NEW_PROJECT_MUTATION_FORBIDDEN');
     assert.equal(statements.some(entry => /INSERT INTO peakos_structured_project_medium_categories/.test(entry.sql)), false);
+  } finally {
+    await close(server);
+  }
+});
+
+test('실제 프로젝트 담당자만 팀원을 중분류 담당자로 생성하고 기존 미지정 행은 NULL로 유지한다', async () => {
+  const statements = [];
+  const managerNames = new Map([
+    ['worker-uid', '업무담당자 이사원'],
+    ['outside-uid', '프로젝트 외부 사용자'],
+  ]);
+  const client = {
+    async query(sql, values = []) {
+      statements.push({ sql, values });
+      if (/SELECT p\.\*/.test(sql)) {
+        return { rows: [{
+          id: PROJECT_ID,
+          workspace_id: 'ws_peak',
+          name: '중분류 담당자 프로젝트',
+          lead_uid: 'lead-uid',
+          lead_name_snapshot: '프로젝트 담당자',
+          created_by_uid: 'lead-uid',
+          is_project_member: true,
+          is_assignee: false,
+          status: 'active',
+          version: 1,
+        }] };
+      }
+      if (/SELECT u\.uid, u\.name/.test(sql)) {
+        const uid = String(values[1]?.[0] || '');
+        return { rows: managerNames.has(uid) ? [{ uid, name: managerNames.get(uid) }] : [] };
+      }
+      if (/SELECT 1 FROM peakos_structured_project_members/.test(sql)) {
+        return { rows: values[2] === 'worker-uid' ? [{ '?column?': 1 }] : [] };
+      }
+      return { rows: [] };
+    },
+    release() {},
+  };
+  const pool = makePool({ connect: async () => client });
+  const server = await listen(appWithActor(pool, req({ uid: 'lead-uid', name: '프로젝트 담당자' })));
+  try {
+    const assigned = await call(server, `/api/new-projects/${PROJECT_ID}/mediums`, {
+      method: 'POST',
+      body: { name: '콘텐츠 제작', description: '', sortOrder: 0, managerUid: 'worker-uid' },
+    });
+    assert.equal(assigned.status, 201);
+    assert.deepEqual(assigned.body.category.manager, { uid: 'worker-uid', name: '업무담당자 이사원' });
+    const assignedInsert = statements.find(entry => /INSERT INTO peakos_structured_project_medium_categories/.test(entry.sql));
+    assert.equal(assignedInsert.values[5], 'worker-uid');
+    assert.equal(assignedInsert.values[6], '업무담당자 이사원');
+
+    const insertCount = statements.filter(entry => /INSERT INTO peakos_structured_project_medium_categories/.test(entry.sql)).length;
+    const outsider = await call(server, `/api/new-projects/${PROJECT_ID}/mediums`, {
+      method: 'POST',
+      body: { name: '차단 중분류', description: '', sortOrder: 0, managerUid: 'outside-uid' },
+    });
+    assert.equal(outsider.status, 400);
+    assert.equal(outsider.body.code, 'NEW_PROJECT_MEDIUM_MANAGER_NOT_MEMBER');
+    assert.equal(
+      statements.filter(entry => /INSERT INTO peakos_structured_project_medium_categories/.test(entry.sql)).length,
+      insertCount,
+    );
+
+    const empty = await call(server, `/api/new-projects/${PROJECT_ID}/mediums`, {
+      method: 'POST',
+      body: { name: '빈 담당자', description: '', sortOrder: 0, managerUid: '' },
+    });
+    assert.equal(empty.status, 400);
+    assert.equal(empty.body.code, 'NEW_PROJECT_UID_INVALID');
+
+    const legacyCompatible = await call(server, `/api/new-projects/${PROJECT_ID}/mediums`, {
+      method: 'POST',
+      body: { name: '캐시된 구 UI 중분류', description: '', sortOrder: 0 },
+    });
+    assert.equal(legacyCompatible.status, 201);
+    assert.equal(legacyCompatible.body.category.manager, null);
+    const nullInsert = statements.filter(entry => /INSERT INTO peakos_structured_project_medium_categories/.test(entry.sql)).at(-1);
+    assert.equal(nullInsert.values[5], null);
+    assert.equal(nullInsert.values[6], null);
+  } finally {
+    await close(server);
+  }
+});
+
+test('실제 프로젝트 담당자는 버전을 검증해 중분류 담당자를 수정하고 소분류에는 managerUid를 받지 않는다', async () => {
+  const statements = [];
+  const client = {
+    async query(sql, values = []) {
+      statements.push({ sql, values });
+      if (/SELECT p\.\*/.test(sql)) {
+        return { rows: [{
+          id: PROJECT_ID,
+          workspace_id: 'ws_peak',
+          name: '중분류 수정 프로젝트',
+          lead_uid: 'lead-uid',
+          lead_name_snapshot: '프로젝트 담당자',
+          created_by_uid: 'lead-uid',
+          is_project_member: true,
+          is_assignee: false,
+          status: 'active',
+          version: 1,
+        }] };
+      }
+      if (/SELECT \* FROM peakos_structured_project_medium_categories/.test(sql)) {
+        return { rows: [{
+          id: MEDIUM_ID,
+          workspace_id: 'ws_peak',
+          project_id: PROJECT_ID,
+          name: '콘텐츠 제작',
+          description: '',
+          sort_order: 0,
+          version: 3,
+          manager_uid: 'worker-uid',
+          manager_name_snapshot: '업무담당자 이사원',
+        }] };
+      }
+      if (/SELECT u\.uid, u\.name/.test(sql)) {
+        return { rows: [{ uid: 'viewer-uid', name: '공동구성원 박대리' }] };
+      }
+      if (/SELECT 1 FROM peakos_structured_project_members/.test(sql)) return { rows: [{ '?column?': 1 }] };
+      if (/UPDATE peakos_structured_project_medium_categories/.test(sql)) {
+        return { rows: [{
+          id: MEDIUM_ID,
+          name: '콘텐츠 제작',
+          description: '',
+          sort_order: 0,
+          version: 4,
+          manager_uid: 'viewer-uid',
+          manager_name_snapshot: '공동구성원 박대리',
+        }] };
+      }
+      return { rows: [] };
+    },
+    release() {},
+  };
+  const pool = makePool({ connect: async () => client });
+  const server = await listen(appWithActor(pool, req({ uid: 'lead-uid', name: '프로젝트 담당자' })));
+  try {
+    const updated = await call(server, `/api/new-projects/${PROJECT_ID}/mediums/${MEDIUM_ID}`, {
+      method: 'PUT',
+      body: { name: '콘텐츠 제작', managerUid: 'viewer-uid', expectedVersion: 3 },
+    });
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.category.version, 4);
+    assert.deepEqual(updated.body.category.manager, { uid: 'viewer-uid', name: '공동구성원 박대리' });
+    const update = statements.find(entry => /UPDATE peakos_structured_project_medium_categories/.test(entry.sql));
+    assert.equal(update.values[6], 'viewer-uid');
+    assert.equal(update.values[7], '공동구성원 박대리');
+    assert.equal(update.values.at(-1), 3);
+
+    const small = await call(server, `/api/new-projects/${PROJECT_ID}/mediums/${MEDIUM_ID}/smalls`, {
+      method: 'POST',
+      body: { name: '소분류', description: '', sortOrder: 0, managerUid: 'viewer-uid' },
+    });
+    assert.equal(small.status, 400);
+    assert.equal(small.body.code, 'NEW_PROJECT_BODY_FIELD_INVALID');
+    assert.equal(statements.some(entry => /INSERT INTO peakos_structured_project_small_categories/.test(entry.sql)), false);
+  } finally {
+    await close(server);
+  }
+});
+
+test('활성 중분류 담당자는 담당 해제 전에 프로젝트 팀원에서 제외할 수 없다', async () => {
+  const statements = [];
+  const client = {
+    async query(sql, values = []) {
+      statements.push({ sql, values });
+      if (/SELECT p\.\*/.test(sql)) {
+        return { rows: [{
+          id: PROJECT_ID,
+          workspace_id: 'ws_peak',
+          name: '팀원 제외 보호',
+          description: '',
+          lead_uid: 'lead-uid',
+          lead_name_snapshot: '프로젝트 담당자',
+          created_by_uid: 'lead-uid',
+          created_by_name_snapshot: '프로젝트 담당자',
+          is_project_member: true,
+          is_assignee: false,
+          status: 'active',
+          version: 1,
+        }] };
+      }
+      if (/SELECT user_uid FROM peakos_structured_project_members/.test(sql)) {
+        return { rows: [{ user_uid: 'lead-uid' }, { user_uid: 'worker-uid' }] };
+      }
+      if (/SELECT u\.uid, u\.name/.test(sql)) {
+        return { rows: [{ uid: 'lead-uid', name: '프로젝트 담당자' }] };
+      }
+      if (/SELECT manager_uid FROM peakos_structured_project_medium_categories/.test(sql)) {
+        return { rows: [{ manager_uid: 'worker-uid' }] };
+      }
+      return { rows: [] };
+    },
+    release() {},
+  };
+  const pool = makePool({ connect: async () => client });
+  const server = await listen(appWithActor(pool, req({ uid: 'lead-uid', name: '프로젝트 담당자' })));
+  try {
+    const result = await call(server, `/api/new-projects/${PROJECT_ID}`, {
+      method: 'PUT',
+      body: { leadUid: 'lead-uid', memberUids: ['lead-uid'], expectedVersion: 1 },
+    });
+    assert.equal(result.status, 409);
+    assert.equal(result.body.code, 'NEW_PROJECT_MEMBER_MANAGES_MEDIUM');
+    assert.equal(statements.some(entry => /SET active = FALSE/.test(entry.sql)), false);
+    assert.equal(statements.some(entry => entry.sql === 'ROLLBACK'), true);
   } finally {
     await close(server);
   }

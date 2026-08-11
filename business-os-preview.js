@@ -4688,8 +4688,21 @@
     const smalls = Array.isArray(medium.smallCategories) ? medium.smallCategories : [];
     const taskCount = smalls.reduce((sum, small) => sum + (Array.isArray(small.tasks) ? small.tasks.length : 0), 0);
     const canManage = structuredProjectCan('manageProject', structuredProjectDetailState);
+    const manager = medium?.manager && typeof medium.manager === 'object' ? medium.manager : null;
+    const managerMember = manager?.uid
+      ? [project?.lead, ...(Array.isArray(project?.members) ? project.members : [])]
+        .find(member => String(member?.uid || '') === String(manager.uid))
+      : null;
+    // 중분류 응답은 manager { uid, name }만 보장하므로 프로젝트 팀원 DTO의
+    // 표시용 직급을 보강하되, 권한 판단에는 사용하지 않는다.
+    const managerDisplay = manager ? { ...(managerMember || {}), ...manager } : null;
+    const managerName = managerDisplay ? structuredProjectMemberName(managerDisplay, '') : '';
+    const managerRank = managerName ? structuredProjectMemberRank(managerDisplay) : '';
+    const managerMarkup = managerName
+      ? `<span>중분류 담당자</span><strong class="structured-medium-manager-name">${esc(managerName)}</strong><small>${esc(managerRank || '직급 미지정')}</small>`
+      : '<strong class="structured-medium-manager-empty">중분류 담당자 미지정</strong>';
     return `<section class="structured-medium-category" data-work-category-id="${esc(medium.id)}">
-      <header class="structured-medium-head"><div><span>업무 중분류</span><h2>${esc(medium.name || '이름 없는 중분류')}</h2><small>소분류 ${smalls.length}개 · 체크리스트 ${taskCount}건</small></div>${canManage ? `<div class="structured-category-actions"><button type="button" data-structured-medium-edit="${esc(medium.id)}">이름 수정</button><button type="button" data-structured-small-create="${esc(medium.id)}">＋ 소분류 추가</button></div>` : ''}</header>
+      <header class="structured-medium-head"><div class="structured-medium-overview"><div class="structured-medium-title"><span>업무 중분류</span><h2>${esc(medium.name || '이름 없는 중분류')}</h2><small>소분류 ${smalls.length}개 · 체크리스트 ${taskCount}건</small></div><div class="structured-medium-manager" data-structured-medium-manager>${managerMarkup}</div></div>${canManage ? `<div class="structured-category-actions"><button type="button" data-structured-medium-edit="${esc(medium.id)}">중분류 수정</button><button type="button" data-structured-small-create="${esc(medium.id)}">＋ 소분류 추가</button></div>` : ''}</header>
       <div class="structured-small-list">${smalls.map(small => structuredSmallCategory(small, project, medium)).join('') || `<div class="structured-category-empty"><span>소분류를 추가해 업무를 구체적으로 나눠 주세요.</span>${canManage ? `<button class="structured-empty-action" type="button" data-structured-small-create="${esc(medium.id)}">＋ 업무 소분류 만들기</button>` : ''}</div>`}</div>
     </section>`;
   }
@@ -4902,22 +4915,31 @@
   function openStructuredCategoryEditor(kind, project, mediumId = '', category = null) {
     if (!structuredProjectCan('manageProject', structuredProjectDetailState)) return showToast('업무 분류를 추가할 권한이 없습니다.');
     const isMedium = kind === 'medium';
-    const title = `${isMedium ? '업무 중분류' : '업무 소분류'} ${category ? '이름 수정' : '추가'}`;
+    const title = `${isMedium ? '업무 중분류' : '업무 소분류'} ${category ? '수정' : '추가'}`;
+    const members = isMedium ? structuredProjectDirectory([], project) : [];
+    const selectedManagerUid = isMedium
+      ? String(category?.manager?.uid || (!category ? project?.lead?.uid : '') || '')
+      : '';
+    const managerField = isMedium ? `<label class="wide"><span>중분류 담당자</span><select name="managerUid" required><option value="">담당자 선택</option>${members.map(member => `<option value="${esc(member.uid)}" ${String(member.uid) === selectedManagerUid ? 'selected' : ''}>${esc(structuredProjectMemberLabel(member))}</option>`).join('')}</select><small class="structured-form-help">프로젝트 팀원 중 이 중분류를 관리할 담당자를 선택해 주세요.</small></label>` : '';
     openDetailModal(title, `<form class="collaboration-form" id="structuredCategoryForm">
-      <div class="collaboration-form-grid"><label class="wide"><span>${isMedium ? '중분류명' : '소분류명'}</span><input name="name" maxlength="160" required autofocus value="${esc(category?.name || '')}" placeholder="${isMedium ? '예: 콘텐츠 제작' : '예: 블로그 원고 제작'}"></label></div>
+      <div class="collaboration-form-grid"><label class="wide"><span>${isMedium ? '중분류명' : '소분류명'}</span><input name="name" maxlength="160" required autofocus value="${esc(category?.name || '')}" placeholder="${isMedium ? '예: 콘텐츠 제작' : '예: 블로그 원고 제작'}"></label>${managerField}</div>
       <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">${category ? '변경 저장' : '추가'}</button></div>
     </form>`, { locked: true });
     const form = document.getElementById('structuredCategoryForm');
     form.querySelector('[data-collab-cancel]').addEventListener('click', () => closeDetailModal());
     form.addEventListener('submit', async event => {
       event.preventDefault();
-      const name = String(new FormData(form).get('name') || '').trim();
+      const data = new FormData(form);
+      const name = String(data.get('name') || '').trim();
+      const managerUid = isMedium ? String(data.get('managerUid') || '').trim() : '';
       if (!name) return showToast('업무 분류명을 입력해 주세요.');
+      if (isMedium && !managerUid) return showToast('중분류 담당자를 선택해 주세요.');
       const basePath = isMedium
         ? `/new-projects/${encodeURIComponent(project.id)}/mediums`
         : `/new-projects/${encodeURIComponent(project.id)}/mediums/${encodeURIComponent(mediumId)}/smalls`;
       const path = category ? `${basePath}/${encodeURIComponent(category.id)}` : basePath;
       const record = category ? { name, expectedVersion: Number(category.version || 1) } : { name };
+      if (isMedium) record.managerUid = managerUid;
       const saved = await runCollaborationMutation(() => collaborationApi(category ? 'PUT' : 'POST', path, record), `${isMedium ? '중분류' : '소분류'}를 ${category ? '수정' : '추가'}했습니다.`);
       if (!saved) return;
       closeDetailModal();

@@ -78,10 +78,11 @@ function normalizeUidList(value, field = '구성원') {
   return result;
 }
 
-function normalizeCategoryBody(body, { update = false } = {}) {
+function normalizeCategoryBody(body, { update = false, level = 'small' } = {}) {
   const keys = update
     ? ['name', 'description', 'sortOrder', 'expectedVersion']
     : ['name', 'description', 'sortOrder'];
+  if (level === 'medium') keys.push('managerUid');
   validationValue(normalizeStrictObject(body, keys, '업무 분류'));
   const result = {};
   if (!update || body.name !== undefined) {
@@ -94,6 +95,12 @@ function normalizeCategoryBody(body, { update = false } = {}) {
   }
   if (!update || body.sortOrder !== undefined) {
     result.sortOrder = validationValue(normalizeNewProjectSortOrder(body.sortOrder));
+  }
+  // managerUid stays optional at the API boundary while an older static client
+  // may still be cached during rollout. The current UI requires it for new
+  // mediums; omission preserves an existing NULL/assignment without guessing.
+  if (level === 'medium' && body.managerUid !== undefined) {
+    result.managerUid = validationValue(normalizeNewProjectUid(body.managerUid, '업무 중분류 담당자'));
   }
   if (update) result.expectedVersion = validationValue(normalizeNewProjectExpectedVersion(body.expectedVersion));
   if (update && Object.keys(result).length === 1) {
@@ -155,6 +162,14 @@ function mapMember(row) {
     active: row.active === true,
     sortOrder: Number(row.sort_order || 0),
     version: Number(row.version || 1),
+  };
+}
+
+function mapMediumManager(row) {
+  if (!row?.manager_uid) return null;
+  return {
+    uid: String(row.manager_uid),
+    name: String(row.manager_name_snapshot || ''),
   };
 }
 
@@ -312,6 +327,24 @@ async function resolveWorkspaceUsers(db, workspaceId, uids) {
     throw new NewProjectHttpError(400, 'NEW_PROJECT_WORKSPACE_USER_INVALID', '선택한 담당자·구성원 중 현재 조직에 속하지 않는 계정이 있습니다.');
   }
   return byUid;
+}
+
+async function resolveMediumManager(db, context, projectId, managerUid) {
+  if (managerUid === undefined) return undefined;
+  const users = await resolveWorkspaceUsers(db, context.workspaceId, [managerUid]);
+  const member = await db.query(
+    `SELECT 1 FROM peakos_structured_project_members
+      WHERE workspace_id = $1 AND project_id = $2 AND user_uid = $3 AND active = TRUE`,
+    [context.workspaceId, projectId, managerUid],
+  );
+  if (!member.rows[0]) {
+    throw new NewProjectHttpError(
+      400,
+      'NEW_PROJECT_MEDIUM_MANAGER_NOT_MEMBER',
+      '업무 중분류 담당자는 프로젝트 팀원이어야 합니다.',
+    );
+  }
+  return users.get(managerUid);
 }
 
 async function loadProjectAccess(db, context, projectId, { lock = false } = {}) {
@@ -653,6 +686,7 @@ function registerPeakosNewProjectRoutes({
       }
       const mediumCategories = mediumsResult.rows.map(row => ({
         id: String(row.id), name: row.name, description: row.description || '',
+        manager: mapMediumManager(row),
         sortOrder: Number(row.sort_order || 0), version: Number(row.version || 1),
         smallCategories: smallsByMedium.get(String(row.id)) || [],
       }));
@@ -742,6 +776,21 @@ function registerPeakosNewProjectRoutes({
       }
       const removed = currentMemberUids.filter(uid => !nextMemberUids.includes(uid));
       if (removed.length) {
+        const managedMedium = await client.query(
+          `SELECT manager_uid FROM peakos_structured_project_medium_categories
+            WHERE workspace_id = $1 AND project_id = $2
+              AND active = TRUE
+              AND manager_uid = ANY($3::text[])
+            LIMIT 1`,
+          [context.workspaceId, id, removed],
+        );
+        if (managedMedium.rows[0]) {
+          throw new NewProjectHttpError(
+            409,
+            'NEW_PROJECT_MEMBER_MANAGES_MEDIUM',
+            '진행 중인 업무 중분류를 담당한 팀원은 프로젝트에서 제외할 수 없습니다.',
+          );
+        }
         const openTasks = await client.query(
           `SELECT assignee_uid FROM peakos_structured_project_tasks
             WHERE workspace_id = $1 AND project_id = $2
@@ -875,13 +924,16 @@ function registerPeakosNewProjectRoutes({
       const mediumId = level === 'small'
         ? validationValue(normalizeNewProjectId(req.params.mediumId, '중분류 ID'))
         : null;
-      const body = normalizeCategoryBody(req.body);
+      const body = normalizeCategoryBody(req.body, { level });
       const id = crypto.randomUUID();
       client = await pool.connect();
       await client.query('BEGIN');
       const access = await loadProjectAccess(client, context, projectId, { lock: true });
       assertCanManage(access);
       assertProjectMutable(access.project);
+      const manager = level === 'medium'
+        ? await resolveMediumManager(client, context, projectId, body.managerUid)
+        : undefined;
       if (level === 'small') {
         const medium = await client.query(
           `SELECT 1 FROM peakos_structured_project_medium_categories
@@ -899,22 +951,30 @@ function registerPeakosNewProjectRoutes({
       } else {
         await client.query(
           `INSERT INTO peakos_structured_project_medium_categories
-             (workspace_id, project_id, id, name, description, sort_order,
+             (workspace_id, project_id, id, name, description,
+              manager_uid, manager_name_snapshot, sort_order,
               created_by_uid, created_by_name_snapshot)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [context.workspaceId, projectId, id, body.name, body.description, body.sortOrder, context.uid, context.name],
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [
+            context.workspaceId, projectId, id, body.name, body.description,
+            manager?.uid || null, manager?.name || null, body.sortOrder,
+            context.uid, context.name,
+          ],
         );
       }
       await recordHistory(client, {
         context, projectId, entityType: level === 'small' ? 'small_category' : 'medium_category',
         entityId: id, action: 'created', version: 1,
-        metadata: level === 'small' ? { mediumCategoryId: mediumId } : {},
+        metadata: level === 'small'
+          ? { mediumCategoryId: mediumId }
+          : { managerUid: manager?.uid || null },
       });
       await client.query('COMMIT');
       return res.status(201).json({
         category: {
           id, name: body.name, description: body.description,
           sortOrder: body.sortOrder, version: 1,
+          ...(level === 'medium' ? { manager: manager || null } : {}),
           ...(mediumId ? { mediumCategoryId: mediumId } : {}),
         },
       });
@@ -938,7 +998,7 @@ function registerPeakosNewProjectRoutes({
       const categoryId = level === 'small'
         ? validationValue(normalizeNewProjectId(req.params.smallId, '소분류 ID'))
         : mediumId;
-      const body = normalizeCategoryBody(req.body, { update: true });
+      const body = normalizeCategoryBody(req.body, { update: true, level });
       const table = level === 'small'
         ? 'peakos_structured_project_small_categories'
         : 'peakos_structured_project_medium_categories';
@@ -961,24 +1021,46 @@ function registerPeakosNewProjectRoutes({
       if (Number(current.version) !== body.expectedVersion) {
         throw new NewProjectHttpError(409, 'NEW_PROJECT_VERSION_CONFLICT', '다른 사용자가 먼저 분류를 변경했습니다.');
       }
-      const updated = await client.query(
-        `UPDATE ${table}
-            SET name = $4, description = $5, sort_order = $6,
-                version = version + 1, updated_at = NOW()
-          WHERE workspace_id = $1 AND project_id = $2 AND id = $3 AND version = $7
-          RETURNING *`,
-        [
-          context.workspaceId, projectId, categoryId,
-          body.name ?? current.name,
-          body.description ?? current.description,
-          body.sortOrder ?? current.sort_order,
-          body.expectedVersion,
-        ],
-      );
+      const manager = level === 'medium' && body.managerUid !== undefined
+        ? await resolveMediumManager(client, context, projectId, body.managerUid)
+        : (level === 'medium' ? mapMediumManager(current) : undefined);
+      const updated = level === 'medium'
+        ? await client.query(
+          `UPDATE ${table}
+              SET name = $4, description = $5, sort_order = $6,
+                  manager_uid = $7, manager_name_snapshot = $8,
+                  version = version + 1, updated_at = NOW()
+            WHERE workspace_id = $1 AND project_id = $2 AND id = $3 AND version = $9
+            RETURNING *`,
+          [
+            context.workspaceId, projectId, categoryId,
+            body.name ?? current.name,
+            body.description ?? current.description,
+            body.sortOrder ?? current.sort_order,
+            manager?.uid || null,
+            manager?.name || null,
+            body.expectedVersion,
+          ],
+        )
+        : await client.query(
+          `UPDATE ${table}
+              SET name = $4, description = $5, sort_order = $6,
+                  version = version + 1, updated_at = NOW()
+            WHERE workspace_id = $1 AND project_id = $2 AND id = $3 AND version = $7
+            RETURNING *`,
+          [
+            context.workspaceId, projectId, categoryId,
+            body.name ?? current.name,
+            body.description ?? current.description,
+            body.sortOrder ?? current.sort_order,
+            body.expectedVersion,
+          ],
+        );
       if (!updated.rows[0]) throw new NewProjectHttpError(409, 'NEW_PROJECT_VERSION_CONFLICT', '다른 사용자가 먼저 분류를 변경했습니다.');
       await recordHistory(client, {
         context, projectId, entityType: level === 'small' ? 'small_category' : 'medium_category',
         entityId: categoryId, action: 'updated', version: Number(updated.rows[0].version),
+        metadata: level === 'medium' ? { managerUid: manager?.uid || null } : {},
       });
       await client.query('COMMIT');
       return res.json({
@@ -987,6 +1069,7 @@ function registerPeakosNewProjectRoutes({
           description: updated.rows[0].description || '',
           sortOrder: Number(updated.rows[0].sort_order || 0),
           version: Number(updated.rows[0].version),
+          ...(level === 'medium' ? { manager: mapMediumManager(updated.rows[0]) } : {}),
         },
       });
     } catch (error) {

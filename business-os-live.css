@@ -5494,10 +5494,32 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   border-bottom: 1px solid #d5e4ec;
   background: linear-gradient(90deg, #eef8fd, #f9fcfe);
 }
-.structured-medium-head > div:first-child { display: grid; grid-template-columns: auto auto; align-items: center; gap: 3px 9px; }
-.structured-medium-head span { color: #2b88be; font-size: 9px; font-weight: 900; }
-.structured-medium-head h2 { margin: 0; color: #143d59; font-size: 16px; }
-.structured-medium-head small { grid-column: 2; color: #778e9e; font-size: 9px; }
+.structured-medium-overview { display: flex; flex: 1 1 auto; align-items: center; gap: 20px; min-width: 0; }
+.structured-medium-title { display: grid; flex: 1 1 auto; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 3px 9px; min-width: 0; }
+.structured-medium-title > span { color: #2b88be; font-size: 9px; font-weight: 900; }
+.structured-medium-head h2 { margin: 0; color: #143d59; font-size: 16px; overflow-wrap: anywhere; }
+.structured-medium-title > small { grid-column: 2; color: #778e9e; font-size: 9px; }
+.structured-medium-manager {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 2px 7px;
+  flex: 0 0 auto;
+  min-width: 150px;
+  border-left: 1px solid #d5e4ec;
+  padding-left: 20px;
+}
+.structured-medium-manager > span { grid-column: 1 / -1; color: #70899a; font-size: 8px; font-weight: 850; }
+.structured-medium-manager-name { color: #275674; font-size: 11px; font-weight: 900; }
+.structured-medium-manager > small {
+  border-radius: 99px;
+  padding: 3px 7px;
+  background: #e2f1f8;
+  color: #5c7889;
+  font-size: 8px;
+  font-weight: 800;
+}
+.structured-medium-manager-empty { grid-column: 1 / -1; color: #8195a3; font-size: 10px; font-weight: 800; }
 .structured-small-list { display: grid; gap: 12px; padding: 14px; min-width: 0; }
 .structured-small-category {
   min-width: 0;
@@ -5704,6 +5726,8 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   .structured-detail-progress { grid-column: auto; }
   .structured-hierarchy-guide { justify-content: flex-start; overflow-x: auto; white-space: nowrap; }
   .structured-medium-head { align-items: stretch; flex-direction: column; padding: 14px; }
+  .structured-medium-overview { align-items: stretch; flex-direction: column; gap: 12px; }
+  .structured-medium-manager { min-width: 0; border-top: 1px solid #d5e4ec; border-left: 0; padding-top: 10px; padding-left: 0; }
   .structured-medium-head > button,
   .structured-small-category > header > button,
   .structured-category-actions > button,

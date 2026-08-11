@@ -12,6 +12,10 @@ const migrationSource = fs.readFileSync(
   path.resolve(__dirname, '../migrations/20260811_peakos_structured_projects.sql'),
   'utf8',
 );
+const mediumManagerMigrationSource = fs.readFileSync(
+  path.resolve(__dirname, '../migrations/20260811_peakos_structured_projects_medium_managers.sql'),
+  'utf8',
+);
 const indexSource = fs.readFileSync(path.resolve(__dirname, '../index.js'), 'utf8');
 
 function between(source, start, end) {
@@ -67,6 +71,25 @@ test('six-table migration is isolated from every legacy project table and preser
   assert.match(migrationSource, /peakos_structured_projects_lead_project_member_fk/);
   assert.match(migrationSource, /peakos_structured_projects_active_lead_guard/);
   assert.match(migrationSource, /peakos_structured_project_members_active_lead_guard/);
+});
+
+test('중분류 담당자 마이그레이션은 기존 행을 NULL로 보존하고 활성 프로젝트 팀원만 참조한다', () => {
+  assert.match(mediumManagerMigrationSource, /ADD COLUMN IF NOT EXISTS manager_uid TEXT/);
+  assert.match(mediumManagerMigrationSource, /ADD COLUMN IF NOT EXISTS manager_name_snapshot TEXT/);
+  assert.match(mediumManagerMigrationSource, /FOREIGN KEY \(workspace_id, project_id, manager_uid\)/);
+  assert.match(mediumManagerMigrationSource, /REFERENCES peakos_structured_project_members\(workspace_id, project_id, user_uid\)/);
+  assert.match(mediumManagerMigrationSource, /medium\.active = TRUE/);
+  assert.match(mediumManagerMigrationSource, /member\.active = TRUE/);
+  assert.match(mediumManagerMigrationSource, /peakos_structured_project_medium_manager_guard/);
+  assert.match(mediumManagerMigrationSource, /peakos_structured_project_members_medium_manager_guard/);
+  assert.doesNotMatch(
+    mediumManagerMigrationSource,
+    /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+peakos_structured_project_medium_categories\b/i,
+  );
+  assert.doesNotMatch(
+    mediumManagerMigrationSource,
+    /\b(?:projects|project_tasks|project_members)\b/i,
+  );
 });
 
 test('portfolio capability is derived from immutable UID set and never display name or generic Peak admin role', () => {
@@ -130,6 +153,42 @@ test('exact-three creator-member may edit settings without broadening category o
     'app.post(`${NEW_PROJECT_BASE_PATH}/:id/mediums`',
   );
   assert.match(categoryCreate, /assertCanManage\(access\)/);
+});
+
+test('중분류 managerUid는 실제 담당자의 manageProject 경계와 프로젝트 팀원 검증 안에서만 저장된다', () => {
+  const createCategory = between(
+    routesSource,
+    'async function createCategory',
+    'app.post(`${NEW_PROJECT_BASE_PATH}/:id/mediums`',
+  );
+  assert.match(createCategory, /assertCanManage\(access\)/);
+  assert.match(createCategory, /resolveMediumManager\(client, context, projectId, body\.managerUid\)/);
+  assert.match(createCategory, /manager_uid, manager_name_snapshot/);
+  assert.match(createCategory, /manager: manager \|\| null/);
+
+  const updateCategory = between(
+    routesSource,
+    'async function updateCategory',
+    'app.put(`${NEW_PROJECT_BASE_PATH}/:id/mediums/:mediumId`',
+  );
+  assert.match(updateCategory, /assertCanManage\(access\)/);
+  assert.match(updateCategory, /body\.managerUid !== undefined/);
+  assert.match(updateCategory, /resolveMediumManager\(client, context, projectId, body\.managerUid\)/);
+  assert.match(updateCategory, /manager_uid = \$7, manager_name_snapshot = \$8/);
+  assert.match(updateCategory, /version = \$9/);
+
+  const managerResolution = between(routesSource, 'async function resolveMediumManager', 'async function loadProjectAccess');
+  assert.match(managerResolution, /resolveWorkspaceUsers\(db, context\.workspaceId, \[managerUid\]\)/);
+  assert.match(managerResolution, /workspace_id = \$1 AND project_id = \$2 AND user_uid = \$3 AND active = TRUE/);
+  assert.match(managerResolution, /NEW_PROJECT_MEDIUM_MANAGER_NOT_MEMBER/);
+
+  const projectUpdate = between(
+    routesSource,
+    'app.put(`${NEW_PROJECT_BASE_PATH}/:id`',
+    'app.delete(`${NEW_PROJECT_BASE_PATH}/:id`',
+  );
+  assert.match(projectUpdate, /manager_uid = ANY\(\$3::text\[\]\)/);
+  assert.match(projectUpdate, /NEW_PROJECT_MEMBER_MANAGES_MEDIUM/);
 });
 
 test('project hierarchy, assignee membership and task mutations all reject cross-parent IDs', () => {
