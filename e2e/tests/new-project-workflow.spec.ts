@@ -492,18 +492,48 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('.structured-project-lead-card')).toContainText('업무지시자 김팀장');
     await expect(page.locator('.structured-project-lead-card')).toContainText('팀장');
     await expect(page.locator('.structured-project-member-rank')).toHaveText(['팀장', '사원', '대리']);
-    const [heroBox, titleBox, peopleBox, progressBox] = await Promise.all([
+    const [heroBox, titleBox, peopleBox, progressBox, progressTrackBox] = await Promise.all([
       detail.locator('.structured-detail-hero').boundingBox(),
       detail.locator('.structured-detail-title').boundingBox(),
       detail.locator('.structured-detail-people').boundingBox(),
       detail.locator('.structured-detail-progress').boundingBox(),
+      detail.locator('.structured-detail-progress > i').boundingBox(),
     ]);
-    if (!heroBox || !titleBox || !peopleBox || !progressBox) throw new Error('프로젝트 상단 배치 치수를 확인할 수 없습니다.');
+    if (!heroBox || !titleBox || !peopleBox || !progressBox || !progressTrackBox) throw new Error('프로젝트 상단 배치 치수를 확인할 수 없습니다.');
     expect(peopleBox.x).toBeGreaterThan(titleBox.x);
     expect(peopleBox.x - (titleBox.x + titleBox.width)).toBeLessThanOrEqual(24);
-    expect(peopleBox.width).toBeGreaterThan(titleBox.width);
-    expect(progressBox.y).toBeGreaterThan(Math.max(titleBox.y + titleBox.height, peopleBox.y + peopleBox.height));
-    expect(progressBox.width).toBeGreaterThan(heroBox.width * 0.9);
+    expect(Math.abs(progressBox.x - titleBox.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(progressBox.width - titleBox.width)).toBeLessThanOrEqual(1);
+    expect(progressBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
+    expect(progressBox.width).toBeGreaterThan(heroBox.width * 0.38);
+    expect(Math.abs(peopleBox.y - titleBox.y)).toBeLessThanOrEqual(1);
+    expect(peopleBox.y + peopleBox.height).toBeGreaterThanOrEqual(progressBox.y + progressBox.height - 1);
+    expect(heroBox.height).toBeLessThan(270);
+    expect(progressTrackBox.width).toBeGreaterThanOrEqual(500);
+
+    await page.setViewportSize({ width: 1600, height: 900 });
+    const wideProgressTrack = await detail.locator('.structured-detail-progress > i').boundingBox();
+    expect(wideProgressTrack?.width || 0).toBeGreaterThanOrEqual(500);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1600);
+
+    for (const width of [900, 800]) {
+      await page.setViewportSize({ width, height: 900 });
+      const [nextHero, nextTitle, nextPeople, nextProgress, nextTrack] = await Promise.all([
+        detail.locator('.structured-detail-hero').boundingBox(),
+        detail.locator('.structured-detail-title').boundingBox(),
+        detail.locator('.structured-detail-people').boundingBox(),
+        detail.locator('.structured-detail-progress').boundingBox(),
+        detail.locator('.structured-detail-progress > i').boundingBox(),
+      ]);
+      if (!nextHero || !nextTitle || !nextPeople || !nextProgress || !nextTrack) throw new Error(`프로젝트 상단 ${width}px 배치 치수를 확인할 수 없습니다.`);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+      expect([nextHero, nextTitle, nextPeople, nextProgress, nextTrack].every(box => (
+        box.x >= 0 && box.x + box.width <= width
+      ))).toBe(true);
+      expect(nextPeople.y).toBeGreaterThanOrEqual(nextTitle.y + nextTitle.height);
+      expect(nextProgress.y).toBeGreaterThanOrEqual(nextPeople.y + nextPeople.height);
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
     const medium = page.locator('[data-work-category-id="new-project-1-medium-1"]');
     await expect(medium).toContainText('콘텐츠 제작');
     await expect(medium.locator('[data-structured-medium-manager]')).toContainText('중분류 담당자');
@@ -944,6 +974,14 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
       return rect.left >= 0 && rect.right <= window.innerWidth;
     }));
     expect(mobileElementsFit).toBe(true);
+    const [mobileTitle, mobilePeople, mobileProgress] = await Promise.all([
+      detail.locator('.structured-detail-title').boundingBox(),
+      detail.locator('.structured-detail-people').boundingBox(),
+      detail.locator('.structured-detail-progress').boundingBox(),
+    ]);
+    if (!mobileTitle || !mobilePeople || !mobileProgress) throw new Error('모바일 프로젝트 상단 배치를 확인할 수 없습니다.');
+    expect(mobilePeople.y).toBeGreaterThanOrEqual(mobileTitle.y + mobileTitle.height);
+    expect(mobileProgress.y).toBeGreaterThanOrEqual(mobilePeople.y + mobilePeople.height);
     const progressTrack = await detail.locator('.structured-detail-progress > i').boundingBox();
     expect(progressTrack?.width || 0).toBeGreaterThan(280);
     const mobileActionButtons = detail.locator('.structured-detail-nav button, .structured-task-actions button');
