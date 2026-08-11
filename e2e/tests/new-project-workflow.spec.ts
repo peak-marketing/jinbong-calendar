@@ -492,6 +492,18 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('.structured-project-lead-card')).toContainText('업무지시자 김팀장');
     await expect(page.locator('.structured-project-lead-card')).toContainText('팀장');
     await expect(page.locator('.structured-project-member-rank')).toHaveText(['팀장', '사원', '대리']);
+    const [heroBox, titleBox, peopleBox, progressBox] = await Promise.all([
+      detail.locator('.structured-detail-hero').boundingBox(),
+      detail.locator('.structured-detail-title').boundingBox(),
+      detail.locator('.structured-detail-people').boundingBox(),
+      detail.locator('.structured-detail-progress').boundingBox(),
+    ]);
+    if (!heroBox || !titleBox || !peopleBox || !progressBox) throw new Error('프로젝트 상단 배치 치수를 확인할 수 없습니다.');
+    expect(peopleBox.x).toBeGreaterThan(titleBox.x);
+    expect(peopleBox.x - (titleBox.x + titleBox.width)).toBeLessThanOrEqual(24);
+    expect(peopleBox.width).toBeGreaterThan(titleBox.width);
+    expect(progressBox.y).toBeGreaterThan(Math.max(titleBox.y + titleBox.height, peopleBox.y + peopleBox.height));
+    expect(progressBox.width).toBeGreaterThan(heroBox.width * 0.9);
     const medium = page.locator('[data-work-category-id="new-project-1-medium-1"]');
     await expect(medium).toContainText('콘텐츠 제작');
     await expect(medium.locator('[data-structured-medium-manager]')).toContainText('중분류 담당자');
@@ -920,6 +932,27 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('[data-work-item-id]')).toBeVisible();
     await expect(page.locator('[data-structured-project-detail]')).toContainText('프로젝트 팀원 3명');
     await expect(page.locator('.structured-project-team-member')).toHaveCount(3);
+
+    const detail = page.locator('[data-structured-project-detail]');
+    const mobileElementsFit = await detail.locator([
+      '.structured-detail-hero',
+      '.structured-detail-title',
+      '.structured-detail-people',
+      '.structured-detail-progress',
+    ].join(', ')).evaluateAll(elements => elements.every(element => {
+      const rect = element.getBoundingClientRect();
+      return rect.left >= 0 && rect.right <= window.innerWidth;
+    }));
+    expect(mobileElementsFit).toBe(true);
+    const progressTrack = await detail.locator('.structured-detail-progress > i').boundingBox();
+    expect(progressTrack?.width || 0).toBeGreaterThan(280);
+    const mobileActionButtons = detail.locator('.structured-detail-nav button, .structured-task-actions button');
+    expect(await mobileActionButtons.count()).toBeGreaterThan(0);
+    const mobileButtonsMeetTouchTarget = await mobileActionButtons.evaluateAll(elements => elements.every(element => {
+      const rect = element.getBoundingClientRect();
+      return rect.height >= 44 && rect.left >= 0 && rect.right <= window.innerWidth;
+    }));
+    expect(mobileButtonsMeetTouchTarget).toBe(true);
 
     const dimensions = await page.evaluate(() => ({
       viewport: window.innerWidth,
