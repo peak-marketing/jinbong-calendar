@@ -55,7 +55,7 @@ function makeProject({
   return {
     id,
     name,
-    description: '대분류 설명',
+    description: '프로젝트 설명',
     status: 'active',
     version: 1,
     lead: { uid: 'lead-uid', name: '업무지시자 김팀장', rank: '팀장' },
@@ -469,7 +469,7 @@ async function openNewProjects(page: Page) {
 }
 
 test.describe('신규 프로젝트 계층·검토 workflow', () => {
-  test('기존 프로젝트와 별도 탭에서 대분류 > 중분류 > 소분류 > 체크리스트와 지시 계보를 표시한다', async ({ page }) => {
+  test('기존 프로젝트와 별도 탭에서 프로젝트의 중분류 > 소분류 > 체크리스트와 지시 계보를 표시한다', async ({ page }) => {
     const project = makeProject();
     const fixture: NewProjectFixture = {
       calls: [],
@@ -484,7 +484,8 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await page.locator('[data-structured-project-open="new-project-1"]').click();
 
     const detail = page.locator('[data-structured-project-detail]');
-    await expect(detail).toContainText('프로젝트 대분류');
+    await expect(detail).not.toContainText('프로젝트 대분류');
+    await expect(detail.locator('.structured-hierarchy-guide')).toHaveCount(0);
     await expect(detail).toContainText('프로젝트 팀원 3명');
     await expect(detail).not.toContainText('같이 보는 구성원');
     await expect(page.locator('.structured-project-team-member')).toHaveCount(3);
@@ -592,6 +593,8 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
 
     await page.locator('[data-structured-project-create]').click();
     const createForm = page.locator('#structuredProjectForm');
+    await expect(createForm.getByText('프로젝트명', { exact: true })).toBeVisible();
+    await expect(createForm).not.toContainText('대분류');
     await expect(createForm.getByText('프로젝트 담당자', { exact: true })).toBeVisible();
     await expect(createForm.getByText('프로젝트 팀원', { exact: true })).toBeVisible();
     await expect(createForm.getByText('같이 볼 구성원', { exact: true })).toHaveCount(0);

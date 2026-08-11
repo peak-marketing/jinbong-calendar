@@ -4615,7 +4615,7 @@
     const scopeLabel = state.capabilities.viewPortfolio === true ? '전체 포트폴리오' : '내 참여 프로젝트';
     newProjectsView.innerHTML = `<section class="structured-project-page" data-structured-project-list>
       <header class="structured-page-head">
-        <div><span class="structured-eyebrow">PROJECT WORKFLOW · ${esc(scopeLabel)}</span><h1>신규 프로젝트</h1><p>프로젝트 대분류 아래 중분류·소분류·체크리스트를 나누고, 지시부터 검토까지 한 흐름으로 관리합니다.</p></div>
+        <div><span class="structured-eyebrow">PROJECT WORKFLOW · ${esc(scopeLabel)}</span><h1>신규 프로젝트</h1><p>프로젝트별로 업무 중분류·소분류·체크리스트를 나누고, 지시부터 검토까지 한 흐름으로 관리합니다.</p></div>
         <div class="structured-page-actions">${structuredProjectReadOnlyNotice()}${structuredProjectCan('createProject') ? '<button class="structured-primary-button" type="button" data-structured-project-create>＋ 프로젝트 생성</button>' : ''}</div>
       </header>
       <section class="structured-summary" aria-label="신규 프로젝트 요약">
@@ -4736,14 +4736,13 @@
     newProjectsView.innerHTML = `<section class="structured-project-detail" data-structured-project-detail data-structured-project-id="${esc(project.id)}">
       <header class="structured-detail-nav"><button type="button" data-structured-project-back>← 프로젝트 목록</button><div>${structuredProjectReadOnlyNotice()}${canEditSettings ? '<button type="button" data-structured-project-edit>프로젝트 수정</button>' : ''}${canManage ? '<button class="structured-primary-button" type="button" data-structured-medium-create>＋ 중분류 추가</button>' : ''}</div></header>
       <section class="structured-detail-hero">
-        <div class="structured-detail-title"><span>${structuredProjectStatusBadge(project.status || 'active')}<b>프로젝트 대분류</b></span><h1>${esc(project.name || '프로젝트명 없음')}</h1><p>${esc(project.description || '등록된 프로젝트 설명이 없습니다.')}</p></div>
+        <div class="structured-detail-title"><span>${structuredProjectStatusBadge(project.status || 'active')}</span><h1>${esc(project.name || '프로젝트명 없음')}</h1><p>${esc(project.description || '등록된 프로젝트 설명이 없습니다.')}</p></div>
         <div class="structured-detail-people">
           <span class="structured-project-lead-card"><span class="structured-detail-person-head"><b>프로젝트 담당자</b>${canEditSettings ? '<button type="button" data-structured-project-lead-edit aria-label="프로젝트 담당자 수정">수정</button>' : ''}</span><strong>${esc(lead)}${leadRank ? `<small>${esc(leadRank)}</small>` : ''}</strong></span>
           <span><b>프로젝트 팀원 ${members.length}명</b><strong class="structured-project-team">${members.map(member => `<span class="structured-project-team-member"><span>${esc(structuredProjectMemberName(member))}</span><small class="structured-project-member-rank">${esc(structuredProjectMemberRank(member) || '직급 미지정')}</small></span>`).join('') || '<span class="structured-project-team-empty">팀원 미지정</span>'}</strong></span>
         </div>
         <div class="structured-detail-progress"><span><b>전체 진행률</b><strong>${percent}%</strong></span><i><b style="width:${percent}%"></b></i><small>승인 완료 ${done}/${tasks.length} · 검토 요청 ${review} · 수정 요청 ${revision}</small></div>
       </section>
-      <section class="structured-hierarchy-guide" aria-label="업무 계층 안내"><span><b>1</b>프로젝트 대분류</span><i>›</i><span><b>2</b>업무 중분류</span><i>›</i><span><b>3</b>업무 소분류</span><i>›</i><span><b>✓</b>체크리스트 업무</span></section>
       <section class="structured-medium-list">${mediums.map(medium => structuredMediumCategory(medium, project)).join('') || `<div class="structured-empty"><strong>아직 업무 중분류가 없습니다.</strong><span>${canManage ? '중분류를 추가해 프로젝트 업무를 나눠 주세요.' : '프로젝트 담당자가 업무 구조를 준비하고 있습니다.'}</span>${canManage ? '<button class="structured-empty-action" type="button" data-structured-medium-create>＋ 업무 중분류 만들기</button>' : ''}</div>`}</section>
     </section>`;
     wireStructuredDetailActions(project);
@@ -4857,7 +4856,7 @@
     openDetailModal(project ? '신규 프로젝트 설정' : '신규 프로젝트 생성', `
       <form class="collaboration-form structured-project-form" id="structuredProjectForm">
         <div class="collaboration-form-grid">
-          <label class="wide"><span>프로젝트명 <b>대분류</b></span><input name="name" maxlength="160" required value="${esc(project?.name || '')}" placeholder="예: 2026 하반기 브랜드 캠페인"></label>
+          <label class="wide"><span>프로젝트명</span><input name="name" maxlength="160" required value="${esc(project?.name || '')}" placeholder="예: 2026 하반기 브랜드 캠페인"></label>
           <label><span>프로젝트 담당자</span><select name="leadUid" required>${users.map(user => `<option value="${esc(user.uid)}" ${String(user.uid) === leadUid ? 'selected' : ''}>${esc(structuredProjectMemberName(user))}</option>`).join('')}</select></label>
           ${project ? `<label><span>상태</span><select name="status">${Object.entries(STRUCTURED_PROJECT_STATUS).map(([key, label]) => `<option value="${key}" ${(project.status || 'active') === key ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></label>` : '<input name="status" type="hidden" value="active">'}
           <label class="wide"><span>프로젝트 설명</span><textarea name="description" rows="4" maxlength="5000" placeholder="프로젝트 목표와 완료 기준을 적어 주세요.">${esc(project?.description || '')}</textarea></label>
