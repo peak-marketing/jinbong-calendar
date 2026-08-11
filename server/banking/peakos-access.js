@@ -10,6 +10,9 @@ const POLICY = Object.freeze({
   finalViewers: Object.freeze(['김진봉', '패션TV봉이', '손명아', '김대호', '박종원', '전현우']),
   teamViewers: Object.freeze(['김진봉', '패션TV봉이', '김대호', '박종원']),
   previewViewers: Object.freeze(['패션TV봉이', '박종원', '김대호']),
+  // 신규 구조화 프로젝트와 계정 미리보기는 현재 동일한 세
+  // 계정을 사용하지만 권한 의미와 수명주기는 분리한다.
+  structuredProjectPortfolioViewers: Object.freeze(['패션TV봉이', '박종원', '김대호']),
   masters: Object.freeze(['패션TV봉이']),
   protectedOwners: Object.freeze(['김진봉', '패션TV봉이', '손명아']),
   monthlyOwners: Object.freeze({
@@ -28,6 +31,7 @@ const ACCESS_NAMES = Object.freeze([...new Set([
   ...POLICY.finalViewers,
   ...POLICY.teamViewers,
   ...POLICY.previewViewers,
+  ...POLICY.structuredProjectPortfolioViewers,
   ...POLICY.masters,
   ...Object.values(POLICY.monthlyOwners),
   ...POLICY.finalExecutionViewers,
@@ -47,6 +51,7 @@ function createPeakosAccess({ userPool, environment = process.env, logger = cons
   const finalViewerUids = new Set();
   const teamViewerUids = new Set();
   const previewViewerUids = new Set();
+  const structuredProjectPortfolioViewerUids = new Set();
   const masterUids = new Set();
   const protectedOwnerUids = new Set();
   const monthlyOwnerUids = new Map();
@@ -107,6 +112,7 @@ function createPeakosAccess({ userPool, environment = process.env, logger = cons
     fill(finalViewerUids, POLICY.finalViewers);
     fill(teamViewerUids, POLICY.teamViewers);
     fill(previewViewerUids, POLICY.previewViewers);
+    fill(structuredProjectPortfolioViewerUids, POLICY.structuredProjectPortfolioViewers);
     fill(masterUids, POLICY.masters);
     fill(protectedOwnerUids, POLICY.protectedOwners);
     fill(finalExecutionViewerUids, POLICY.finalExecutionViewers);
@@ -142,6 +148,8 @@ function createPeakosAccess({ userPool, environment = process.env, logger = cons
     // canSeeAll은 회사자료 등 기존 상위 조회 권한에도 쓰이므로 별도로 유지한다.
     canSeeFinalSettlement: req => has(req, financeOperationViewerUids),
     canPreviewAccounts: req => has(req, previewViewerUids),
+    canViewStructuredProjectPortfolio: req => has(req, structuredProjectPortfolioViewerUids),
+    canCreateStructuredProject: req => has(req, structuredProjectPortfolioViewerUids),
     isMaster: req => has(req, masterUids),
     canReadOwnerUid: (req, targetUid) => {
       if (!loaded || !approvedActive(req)) return false;

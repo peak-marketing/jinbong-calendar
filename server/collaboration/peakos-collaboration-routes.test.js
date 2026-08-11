@@ -57,6 +57,10 @@ test('resolves the reviewed collaboration surface to the identical legacy API UR
     ['PUT', '/projects/project-1/tasks/task-1/completion'],
     ['POST', '/projects/project-1/tasks/task-1/review'],
     ['DELETE', '/projects/project-1/comments/comment-1'],
+    ['GET', '/new-projects'],
+    ['POST', '/new-projects'],
+    ['GET', '/new-projects/11111111-1111-4111-8111-111111111111'],
+    ['POST', '/new-projects/11111111-1111-4111-8111-111111111111/tasks/22222222-2222-4222-8222-222222222222/review'],
   ];
 
   for (const [method, suffix] of cases) {
@@ -103,6 +107,16 @@ test('allowlist covers every collaboration handler exposed to PEAK OS', () => {
     ['POST', '/projects/p-1/updates'], ['PUT', '/projects/p-1/updates/u-1'],
     ['DELETE', '/projects/p-1/updates/u-1'], ['POST', '/projects/p-1/comments'],
     ['PUT', '/projects/p-1/comments/c-1'], ['DELETE', '/projects/p-1/comments/c-1'],
+    ['GET', '/new-projects'], ['POST', '/new-projects'],
+    ['GET', '/new-projects/p-1'], ['PUT', '/new-projects/p-1'], ['DELETE', '/new-projects/p-1'],
+    ['POST', '/new-projects/p-1/mediums'],
+    ['PUT', '/new-projects/p-1/mediums/m-1'], ['DELETE', '/new-projects/p-1/mediums/m-1'],
+    ['POST', '/new-projects/p-1/mediums/m-1/smalls'],
+    ['PUT', '/new-projects/p-1/mediums/m-1/smalls/s-1'],
+    ['DELETE', '/new-projects/p-1/mediums/m-1/smalls/s-1'],
+    ['POST', '/new-projects/p-1/mediums/m-1/smalls/s-1/tasks'],
+    ['PUT', '/new-projects/p-1/tasks/t-1'], ['DELETE', '/new-projects/p-1/tasks/t-1'],
+    ['POST', '/new-projects/p-1/tasks/t-1/review'],
   ];
 
   for (const [method, suffix] of cases) {
@@ -138,6 +152,14 @@ test('fails closed for unrelated, unsafe, or wrong-method routes', () => {
       `${method} /projects/my-tasks`,
     );
   }
+  assert.equal(
+    resolvePeakosCollaborationTarget('PATCH', `${PEAKOS_COLLABORATION_PREFIX}/new-projects/p-1`).status,
+    'method_not_allowed',
+  );
+  assert.equal(
+    resolvePeakosCollaborationTarget('GET', `${PEAKOS_COLLABORATION_PREFIX}/new-projects/p-1/tasks/t-1/review`).status,
+    'method_not_allowed',
+  );
   assert.equal(
     resolvePeakosCollaborationTarget('GET', `${PEAKOS_COLLABORATION_PREFIX}/peakos/bank/accounts`).status,
     'not_found',

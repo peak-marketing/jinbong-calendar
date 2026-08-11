@@ -162,6 +162,32 @@ test('계정 미리보기 owner 조회는 패션TV봉이·박종원·김대호 U
   assert.equal(access.canPreviewAccounts(request(configured['박종원'], '박종원', { approved: false })), false);
 });
 
+test('신규 프로젝트 전체 포트폴리오는 정확한 세 UID만 보고 만들 수 있다', async () => {
+  const configured = configuration();
+  const pool = {
+    query: async (_sql, values) => ({ rows: values[0].map(uid => ({ uid })) }),
+  };
+  const access = createPeakosAccess({
+    userPool: pool,
+    environment: { PEAKOS_ACCESS_UIDS_JSON: JSON.stringify(configured) },
+    logger: null,
+  });
+  await access.load();
+
+  for (const name of ['패션TV봉이', '박종원', '김대호']) {
+    assert.equal(access.canViewStructuredProjectPortfolio(request(configured[name], '바뀐 표시이름')), true);
+    assert.equal(access.canCreateStructuredProject(request(configured[name], '바뀐 표시이름')), true);
+  }
+  for (const name of ['손명아', '전현우', '김진봉']) {
+    assert.equal(access.canViewStructuredProjectPortfolio(request(configured[name], '김대호')), false);
+    assert.equal(access.canCreateStructuredProject(request(configured[name], '패션TV봉이')), false);
+  }
+  assert.equal(access.canViewStructuredProjectPortfolio(request('ordinary-admin', '패션TV봉이')), false);
+  assert.equal(access.canCreateStructuredProject(request('ordinary-admin', '박종원')), false);
+  assert.equal(access.canViewStructuredProjectPortfolio(request(configured['김대호'], '김대호', { approved: false })), false);
+  assert.equal(access.canCreateStructuredProject(request(configured['박종원'], '박종원', { is_active: false })), false);
+});
+
 test('누락·추가·중복 UID 설정과 비활성 대상은 시작 전에 fail closed한다', async () => {
   const configured = configuration();
   const pool = { query: async (_sql, values) => ({ rows: values[0].map(uid => ({ uid })) }) };

@@ -60,6 +60,18 @@ const COLLABORATION_ROUTE_RULES = Object.freeze([
   route(['DELETE'], /^\/projects\/[^/]+\/tasks\/[^/]+\/comments\/[^/]+$/),
   route(['PUT', 'DELETE'], /^\/projects\/[^/]+\/updates\/[^/]+$/),
   route(['PUT', 'DELETE'], /^\/projects\/[^/]+\/comments\/[^/]+$/),
+
+  // Isolated structured-project domain; never fall through to legacy
+  // /projects/:id handlers or tables.
+  route(['GET', 'POST'], /^\/new-projects$/),
+  route(['GET', 'PUT', 'DELETE'], /^\/new-projects\/[^/]+$/),
+  route(['POST'], /^\/new-projects\/[^/]+\/mediums$/),
+  route(['PUT', 'DELETE'], /^\/new-projects\/[^/]+\/mediums\/[^/]+$/),
+  route(['POST'], /^\/new-projects\/[^/]+\/mediums\/[^/]+\/smalls$/),
+  route(['PUT', 'DELETE'], /^\/new-projects\/[^/]+\/mediums\/[^/]+\/smalls\/[^/]+$/),
+  route(['POST'], /^\/new-projects\/[^/]+\/mediums\/[^/]+\/smalls\/[^/]+\/tasks$/),
+  route(['PUT', 'DELETE'], /^\/new-projects\/[^/]+\/tasks\/[^/]+$/),
+  route(['POST'], /^\/new-projects\/[^/]+\/tasks\/[^/]+\/review$/),
 ]);
 
 function splitRawUrl(rawUrl) {

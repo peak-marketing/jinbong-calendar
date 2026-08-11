@@ -28,7 +28,8 @@ type CollaborationState = {
   roomMembers: Record<string, any[]>;
   messages: Record<string, any[]>;
   projects: any[];
-  workspaceData?: Record<string, { events: any[]; projects: any[] }>;
+  newProjects: any[];
+  workspaceData?: Record<string, { events: any[]; projects: any[]; newProjects?: any[] }>;
 };
 
 function uuidFromSequence(sequence: number) {
@@ -68,6 +69,7 @@ function createState(overrides: Partial<CollaborationState> = {}): Collaboration
     roomMembers: {},
     messages: {},
     projects: [],
+    newProjects: [],
     ...overrides,
   };
 }
@@ -113,6 +115,7 @@ async function installSharedApi(page: Page, state: CollaborationState) {
     const workspaceFixture = state.workspaceData?.[workspaceSlug];
     const requestEvents = workspaceFixture?.events || state.events;
     const requestProjects = workspaceFixture?.projects || state.projects;
+    const requestNewProjects = workspaceFixture?.newProjects || state.newProjects;
     state.calls.push({
       method,
       path: originalPath,
@@ -342,6 +345,13 @@ async function installSharedApi(page: Page, state: CollaborationState) {
     }
 
     if (resourcePath === '/projects' && method === 'GET') return send({ canManageAll: true, projects: requestProjects });
+    if (resourcePath === '/new-projects' && method === 'GET') {
+      return send({
+        readOnly: false,
+        capabilities: { viewPortfolio: true, createProject: true },
+        projects: requestNewProjects,
+      });
+    }
     if (resourcePath === '/projects/my-tasks' && method === 'GET') {
       const tasks = requestProjects.flatMap(project => (project.tasks || [])
         .filter((task: any) => {

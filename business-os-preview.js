@@ -16,6 +16,7 @@
   const chatView = document.getElementById('chatView');
   const todoView = document.getElementById('todoView');
   const reviewView = document.getElementById('reviewView');
+  const newProjectsView = document.getElementById('newProjectsView');
   const moduleView = document.getElementById('moduleView');
   const permissionsView = document.getElementById('permissionsView');
   const pageCrumb = document.getElementById('pageCrumb');
@@ -81,6 +82,19 @@
   let liveChatRooms = [];
   let liveUnreadCounts = {};
   let liveProjectDetail = null;
+  // 기존 Paragon 프로젝트와 섞지 않는 OS 전용 계층형 프로젝트 상태다.
+  // 탭 첫 진입 전에는 요청하지 않고, 인증·워크스페이스·미리보기 세대가
+  // 달라질 때마다 결과와 선택을 모두 폐기한다.
+  let structuredProjectPortfolio = {
+    status: 'idle', readOnly: true, capabilities: {}, projects: [], error: '', contextKey: ''
+  };
+  let structuredProjectDetailState = {
+    status: 'idle', readOnly: true, capabilities: {}, project: null, error: '', contextKey: '', projectId: ''
+  };
+  let structuredProjectLoadGeneration = 0;
+  let selectedStructuredProjectId = '';
+  let structuredProjectSearch = '';
+  let structuredProjectStatusFilter = 'all';
   let liveChatMessages = [];
   const chatReadAckByRoom = new Map();
   let collaborationDirectory = [];
@@ -370,9 +384,10 @@
   const FINAL_EXECUTION_SETTLEMENT_VIEWERS = ['패션TV봉이', '박종원', '김대호', '손명아'];
   const FINANCE_OPERATION_PREVIEW_PERSONAS = ['패션TV봉이', '김대호', '박종원', '손명아', '전현우'];
 
-  // 운영 파라곤에 이미 있는 화면. 영업자들에게는 여기까지만 보인다.
-  // PEAK OS로 새로 만든 화면은 아직 검토 중이라 지정 인원에게만 연다.
-  const LIVE_PARAGON_VIEWS = ['dashboard', 'calendar', 'chat', 'todo', 'review', 'ideas', 'requests'];
+  // 기본 협업 화면은 일반 구성원에게도 연다. `new-projects`는 OS 전용이지만
+  // 서버가 참여/배정 프로젝트만 잘라 주므로 같은 기본 접근군에 둔다.
+  // 나머지 PEAK OS 운영 화면은 지정 인원에게만 연다.
+  const LIVE_PARAGON_VIEWS = ['dashboard', 'calendar', 'chat', 'todo', 'review', 'ideas', 'requests', 'new-projects'];
   const SALES_OPERATION_VIEWS = ['settlement', 'deposit-check'];
   const SPECIAL_SETTLEMENT_OWNERS = ['김지홍', '박우진', '김대호'];
 
@@ -728,7 +743,7 @@
     const value = String(path || '');
     if (/^\/events(?:\/|\?|$)/.test(value)) return 'calendar';
     if (/^\/chat-rooms(?:\/|\?|$)/.test(value)) return 'chat';
-    if (/^\/projects(?:\/|\?|$)/.test(value)) return 'projects';
+    if (/^\/(?:projects|new-projects)(?:\/|\?|$)/.test(value)) return 'projects';
     if (/^\/users\/all-approved(?:\/|\?|$)/.test(value)) {
       const activeArea = workspaceAreaForView(activeView);
       return ['calendar', 'chat', 'projects'].includes(activeArea) ? activeArea : 'projects';
@@ -770,7 +785,7 @@
   function workspaceAreaForView(view) {
     if (['calendar', 'todo'].includes(view)) return 'calendar';
     if (view === 'chat') return 'chat';
-    if (['review', 'ideas', 'requests'].includes(view)) return 'projects';
+    if (['review', 'new-projects', 'ideas', 'requests'].includes(view)) return 'projects';
     if (['company', 'documents'].includes(view)) return 'documents';
     if ([
       'reports', 'settlement', 'final-settlement', 'final-execution-settlement',
@@ -790,7 +805,7 @@
     if (workspaceIsOversight()) {
       // Oversight is an exact server-issued grant: project, settlement and
       // company-document reads only. All mutations are blocked separately.
-      if (view === 'review') {
+      if (['review', 'new-projects'].includes(view)) {
         return workspaceCanRead('projects')
           && workspaceApiIsScoped('/peakos/collaboration/projects');
       }
@@ -809,7 +824,7 @@
       if (view === 'dashboard') return true;
       if (['calendar', 'todo'].includes(view)) return workspaceCanRead('calendar');
       if (view === 'chat') return workspaceCanRead('chat');
-      if (view === 'review') return workspaceCanRead('projects');
+      if (['review', 'new-projects'].includes(view)) return workspaceCanRead('projects');
       if (['company', 'documents'].includes(view)) {
         return workspaceCanRead('documents')
           && workspaceApiIsScoped('/peakos/company-documents');
@@ -1845,7 +1860,7 @@
   function collaborationPath(path) {
     const value = String(path || '');
     if (!value.startsWith('/') || value.includes('..')) throw new Error('잘못된 협업 경로입니다.');
-    if (!/^\/(events|projects|chat-rooms|users\/all-approved)(?:\/|\?|$)/.test(value)) {
+    if (!/^\/(events|projects|new-projects|chat-rooms|users\/all-approved)(?:\/|\?|$)/.test(value)) {
       throw new Error('허용되지 않은 협업 경로입니다.');
     }
     return COLLABORATION_PREFIX + value;
@@ -2132,6 +2147,10 @@
     if (activeView === 'todo'
       && todoView.contains(document.activeElement)
       && document.activeElement.matches('button, a[href], input, textarea, select, [tabindex]:not([tabindex="-1"])')) return;
+    if (activeView === 'new-projects'
+      && ((newProjectsView.contains(document.activeElement)
+        && document.activeElement.matches('button, a[href], input, textarea, select, [tabindex]:not([tabindex="-1"])'))
+        || document.getElementById('readonlyDetailModal')?.hidden === false)) return;
     if (collaborationRefreshInFlight) return collaborationRefreshInFlight;
     const task = (async () => {
       const access = collaborationAccess();
@@ -2152,6 +2171,12 @@
       } else if (activeView === 'review' && access.projects) {
         if (selectedProjectId || liveProjectDetail?.id) await refreshProjectDetail(selectedProjectId || liveProjectDetail.id);
         else await refreshCollaborationProjects();
+      } else if (activeView === 'new-projects' && access.projects) {
+        if (selectedStructuredProjectId) {
+          await refreshStructuredProjectDetail(selectedStructuredProjectId, { render: true, quiet: true });
+        } else {
+          await refreshStructuredProjects({ render: true, quiet: true });
+        }
       } else if (activeView === 'chat') {
         await refreshCollaborationChatRooms();
       } else if (activeView === 'dashboard' && access.projects) {
@@ -2193,6 +2218,16 @@
     liveProjectDetail = null;
     selectedProjectId = null;
     projectDetailLoadGeneration += 1;
+    structuredProjectPortfolio = {
+      status: 'idle', readOnly: true, capabilities: {}, projects: [], error: '', contextKey: ''
+    };
+    structuredProjectDetailState = {
+      status: 'idle', readOnly: true, capabilities: {}, project: null, error: '', contextKey: '', projectId: ''
+    };
+    selectedStructuredProjectId = '';
+    structuredProjectSearch = '';
+    structuredProjectStatusFilter = 'all';
+    structuredProjectLoadGeneration += 1;
     liveChatRooms = [];
     liveChatMessages = [];
     liveUnreadCounts = {};
@@ -2332,7 +2367,7 @@
     // 본사 oversight는 지사 프로젝트·정산·자료만 볼 수 있고 모든 쓰기는 막는다.
     if (isWorkspaceRoute()) {
       const coreWorkspaceViews = new Set([
-        'calendar', 'todo', 'chat', 'review', 'ideas', 'requests',
+        'calendar', 'todo', 'chat', 'review', 'new-projects', 'ideas', 'requests',
         'settlement', 'final-settlement', 'final-execution-settlement',
         'monthly-guarantee', 'monthly-manage', 'direct-execution',
         'company', 'documents'
@@ -2403,6 +2438,17 @@
     // 진행 중인 조회 결과도 세대 번호로 폐기하고 다른 화면으로 즉시 이동한다.
     if (previewPersona) {
       stopCollaborationPolling();
+      // 미리보기는 인증 UID가 바뀌지 않으므로 실제 계정의 신규 프로젝트를
+      // 재사용하면 안 된다. 전환 프레임에서 즉시 행과 쓰기 capability를 지운다.
+      structuredProjectPortfolio = {
+        status: 'ready', readOnly: true, capabilities: {}, projects: [], error: '', contextKey: structuredProjectContextKey()
+      };
+      structuredProjectDetailState = {
+        status: 'idle', readOnly: true, capabilities: {}, project: null, error: '', contextKey: structuredProjectContextKey(), projectId: ''
+      };
+      selectedStructuredProjectId = '';
+      structuredProjectLoadGeneration += 1;
+      if (activeView === 'new-projects') renderStructuredProjects();
       // 열린 채팅 DOM은 실제 로그인 계정의 민감 데이터다.
       // 미리보기 로드가 끝나기 전에도 남지 않게 즉시 닫는다.
       if (activeView === 'chat') {
@@ -2425,6 +2471,15 @@
           || PURCHASE_TAX_VIEWS.includes(activeView)) {
         activateView('calendar', { revealNav: false });
       }
+    } else {
+      structuredProjectLoadGeneration += 1;
+      structuredProjectPortfolio = {
+        status: 'idle', readOnly: true, capabilities: {}, projects: [], error: '', contextKey: ''
+      };
+      structuredProjectDetailState = {
+        status: 'idle', readOnly: true, capabilities: {}, project: null, error: '', contextKey: '', projectId: ''
+      };
+      selectedStructuredProjectId = '';
     }
     // 미리보기 대상은 실제 인증 UID를 바꾸지 않는다. 따라서 비동기 운영 자료를
     // 다시 불러오는 동안에도 로그인 사용자의 할 일이 남의 업무처럼 보이지 않도록
@@ -4283,6 +4338,660 @@
       reviewView.innerHTML = `<div class="project-detail-loading error"><strong>프로젝트를 불러오지 못했습니다</strong><span>${esc(error.message)}</span><button type="button" data-project-back>목록으로 돌아가기</button></div>`;
       reviewView.querySelector('[data-project-back]').addEventListener('click', () => renderProjects());
     }
+  }
+
+  const STRUCTURED_PROJECT_STATUS = Object.freeze({
+    active: '진행 중', completed: '완료', archived: '보관'
+  });
+  const STRUCTURED_TASK_STATUS = Object.freeze({
+    todo: '대기', doing: '진행 중', review: '검토 요청', revision: '수정 요청', done: '승인 완료'
+  });
+
+  function structuredProjectContextKey() {
+    return [
+      activeWorkspaceSlug || 'legacy',
+      currentUser?.uid || '',
+      osAuthAccessGeneration,
+      previewPersona ? `preview:${previewPersona}` : 'self'
+    ].join('|');
+  }
+
+  function structuredProjectCapabilities(value) {
+    return value && typeof value === 'object' ? value : {};
+  }
+
+  function structuredProjectMemberName(member, fallback = '미지정') {
+    return String(member?.name || member?.displayName || member?.email || fallback).trim() || fallback;
+  }
+
+  function structuredProjectListCounts(project) {
+    const taskCount = Number(project.taskCount ?? project.task_count ?? 0);
+    const doneTaskCount = Number(project.doneTaskCount ?? project.done_task_count ?? 0);
+    const reviewTaskCount = Number(project.reviewTaskCount ?? project.review_task_count ?? 0);
+    return {
+      taskCount: Number.isFinite(taskCount) ? taskCount : 0,
+      doneTaskCount: Number.isFinite(doneTaskCount) ? doneTaskCount : 0,
+      reviewTaskCount: Number.isFinite(reviewTaskCount) ? reviewTaskCount : 0
+    };
+  }
+
+  function structuredProjectDetailTasks(project) {
+    return (Array.isArray(project?.mediumCategories) ? project.mediumCategories : []).flatMap(medium =>
+      (Array.isArray(medium?.smallCategories) ? medium.smallCategories : []).flatMap(small =>
+        Array.isArray(small?.tasks) ? small.tasks : []));
+  }
+
+  function structuredProjectCan(capability, source = structuredProjectPortfolio) {
+    if (previewPersona || source?.readOnly === true || !collaborationWritable('projects')) return false;
+    return structuredProjectCapabilities(source?.capabilities)[capability] === true;
+  }
+
+  function structuredTaskCan(task, capability) {
+    if (previewPersona || structuredProjectDetailState.readOnly === true || !collaborationWritable('projects')) return false;
+    return structuredProjectCapabilities(task?.capabilities)[capability] === true;
+  }
+
+  async function refreshStructuredProjects({ render = true, quiet = false } = {}) {
+    const contextKey = structuredProjectContextKey();
+    if (previewPersona || !collaborationAccess().projects) {
+      structuredProjectPortfolio = {
+        status: 'ready', readOnly: true, capabilities: {}, projects: [], error: '', contextKey
+      };
+      selectedStructuredProjectId = '';
+      structuredProjectDetailState = {
+        status: 'idle', readOnly: true, capabilities: {}, project: null, error: '', contextKey, projectId: ''
+      };
+      if (render && activeView === 'new-projects') renderStructuredProjects();
+      return [];
+    }
+    const generation = ++structuredProjectLoadGeneration;
+    if (!quiet || structuredProjectPortfolio.status === 'idle') {
+      structuredProjectPortfolio = {
+        ...structuredProjectPortfolio, status: 'loading', error: '', contextKey
+      };
+      if (render && activeView === 'new-projects' && !selectedStructuredProjectId) renderStructuredProjects();
+    }
+    try {
+      const payload = await collaborationApi('GET', '/new-projects');
+      if (generation !== structuredProjectLoadGeneration
+          || contextKey !== structuredProjectContextKey()
+          || previewPersona) return structuredProjectPortfolio.projects;
+      structuredProjectPortfolio = {
+        status: 'ready',
+        readOnly: payload?.readOnly === true,
+        capabilities: structuredProjectCapabilities(payload?.capabilities),
+        projects: Array.isArray(payload?.projects) ? payload.projects : [],
+        error: '',
+        contextKey
+      };
+      if (render && activeView === 'new-projects' && !selectedStructuredProjectId) renderStructuredProjects();
+      return structuredProjectPortfolio.projects;
+    } catch (error) {
+      if (generation !== structuredProjectLoadGeneration || contextKey !== structuredProjectContextKey()) return [];
+      structuredProjectPortfolio = {
+        ...structuredProjectPortfolio, status: 'error', error: error.message || '신규 프로젝트를 불러오지 못했습니다.', contextKey
+      };
+      if (render && activeView === 'new-projects' && !selectedStructuredProjectId) renderStructuredProjects();
+      throw error;
+    }
+  }
+
+  async function refreshStructuredProjectDetail(projectId, { render = true, quiet = false } = {}) {
+    const requestedId = String(projectId || '');
+    const contextKey = structuredProjectContextKey();
+    if (!requestedId || previewPersona || !collaborationAccess().projects) return null;
+    const generation = ++structuredProjectLoadGeneration;
+    if (!quiet || structuredProjectDetailState.status === 'idle') {
+      structuredProjectDetailState = {
+        ...structuredProjectDetailState, status: 'loading', error: '', contextKey, projectId: requestedId
+      };
+      if (render && activeView === 'new-projects' && selectedStructuredProjectId === requestedId) renderStructuredProjects();
+    }
+    try {
+      const payload = await collaborationApi('GET', `/new-projects/${encodeURIComponent(requestedId)}`);
+      if (generation !== structuredProjectLoadGeneration
+          || contextKey !== structuredProjectContextKey()
+          || String(selectedStructuredProjectId) !== requestedId
+          || previewPersona) return null;
+      const project = payload?.project && typeof payload.project === 'object' ? payload.project : null;
+      structuredProjectDetailState = {
+        status: project ? 'ready' : 'error',
+        readOnly: payload?.readOnly === true,
+        capabilities: structuredProjectCapabilities(payload?.capabilities),
+        project,
+        error: project ? '' : '프로젝트 상세 데이터가 없습니다.',
+        contextKey,
+        projectId: requestedId
+      };
+      if (render && activeView === 'new-projects') renderStructuredProjects();
+      return project;
+    } catch (error) {
+      if (generation !== structuredProjectLoadGeneration
+          || contextKey !== structuredProjectContextKey()
+          || String(selectedStructuredProjectId) !== requestedId) return null;
+      structuredProjectDetailState = {
+        ...structuredProjectDetailState,
+        status: 'error',
+        project: quiet ? structuredProjectDetailState.project : null,
+        error: error.message || '프로젝트 상세를 불러오지 못했습니다.',
+        contextKey,
+        projectId: requestedId
+      };
+      if (render && activeView === 'new-projects') renderStructuredProjects();
+      if (!quiet) throw error;
+      return null;
+    }
+  }
+
+  function openStructuredProject(projectId) {
+    const requestedId = String(projectId || '');
+    if (!requestedId || previewPersona) return;
+    selectedStructuredProjectId = requestedId;
+    structuredProjectDetailState = {
+      status: 'loading', readOnly: true, capabilities: {}, project: null, error: '',
+      contextKey: structuredProjectContextKey(), projectId: requestedId
+    };
+    renderStructuredProjects();
+    refreshStructuredProjectDetail(requestedId, { render: true }).catch(() => {});
+  }
+
+  function closeStructuredProject() {
+    structuredProjectLoadGeneration += 1;
+    selectedStructuredProjectId = '';
+    structuredProjectDetailState = {
+      status: 'idle', readOnly: true, capabilities: {}, project: null, error: '',
+      contextKey: structuredProjectContextKey(), projectId: ''
+    };
+    renderStructuredProjects();
+    refreshStructuredProjects({ render: true, quiet: true }).catch(() => {});
+  }
+
+  function structuredProjectStatusBadge(status) {
+    const key = STRUCTURED_PROJECT_STATUS[status] ? status : 'active';
+    return `<span class="structured-status ${esc(key)}">${esc(STRUCTURED_PROJECT_STATUS[key])}</span>`;
+  }
+
+  function structuredTaskStatusBadge(status) {
+    const key = STRUCTURED_TASK_STATUS[status] ? status : 'todo';
+    return `<span class="structured-task-status ${esc(key)}">${esc(STRUCTURED_TASK_STATUS[key])}</span>`;
+  }
+
+  function structuredProjectReadOnlyNotice() {
+    if (previewPersona) return '<span class="readonly-badge">계정 미리보기 · 프로젝트 데이터 비공개</span>';
+    const readOnly = selectedStructuredProjectId
+      ? structuredProjectDetailState.readOnly
+      : structuredProjectPortfolio.readOnly;
+    if (readOnly) {
+      return '<span class="readonly-badge">열람 전용</span>';
+    }
+    return '';
+  }
+
+  function structuredProjectPortfolioCard(project) {
+    const counts = structuredProjectListCounts(project);
+    const percent = counts.taskCount ? Math.round(counts.doneTaskCount / counts.taskCount * 100) : 0;
+    const lead = structuredProjectMemberName(project.lead, project.leadName || '담당자 미지정');
+    const members = Array.isArray(project.members) ? project.members : [];
+    const memberNames = members.slice(0, 4).map(member => structuredProjectMemberName(member)).join(', ');
+    const deadline = project.nearestDueDate || project.nearest_due_date || '';
+    return `<article class="structured-project-card" data-structured-project-id="${esc(project.id)}" data-project-status="${esc(project.status || 'active')}">
+      <button class="structured-project-open" type="button" data-structured-project-open="${esc(project.id)}" aria-label="${esc(project.name || '프로젝트')} 상세 열기">
+        <span class="structured-project-card-top">${structuredProjectStatusBadge(project.status || 'active')}${counts.reviewTaskCount ? `<span class="structured-review-count">검토 요청 ${counts.reviewTaskCount}</span>` : '<span></span>'}</span>
+        <strong>${esc(project.name || '프로젝트명 없음')}</strong>
+        <span class="structured-project-description">${esc(project.description || '등록된 설명이 없습니다.')}</span>
+        <span class="structured-project-owner"><b>프로젝트 담당자</b>${esc(lead)}</span>
+        <span class="structured-project-members"><b>구성원 ${members.length}명</b>${esc(memberNames || '구성원 미지정')}${members.length > 4 ? ` 외 ${members.length - 4}명` : ''}</span>
+        <span class="structured-progress-label"><span>체크리스트 ${counts.doneTaskCount}/${counts.taskCount}</span><b>${percent}%</b></span>
+        <span class="structured-progress-track"><i style="width:${percent}%"></i></span>
+        <span class="structured-project-card-foot">${deadline ? projectDeadlineBadge(deadline, project.status === 'completed' ? 'done' : project.status) : '<span class="project-deadline-badge none">마감 업무 없음</span>'}<b>상세보기 →</b></span>
+      </button>
+    </article>`;
+  }
+
+  function renderStructuredProjectPortfolio() {
+    const state = structuredProjectPortfolio;
+    if (previewPersona) {
+      newProjectsView.innerHTML = `<section class="structured-private-state" data-structured-private-state><span aria-hidden="true">▦</span><strong>계정 미리보기에서는 신규 프로젝트가 비공개입니다</strong><p>실제 로그인한 본인의 참여 프로젝트만 조회할 수 있습니다.</p></section>`;
+      return;
+    }
+    if (['idle', 'loading'].includes(state.status) && !state.projects.length) {
+      newProjectsView.innerHTML = '<div class="project-detail-loading"><strong>신규 프로젝트를 불러오는 중입니다</strong><span>내 권한에 맞는 프로젝트 범위를 확인하고 있습니다.</span></div>';
+      return;
+    }
+    if (state.status === 'error' && !state.projects.length) {
+      newProjectsView.innerHTML = `<div class="project-detail-loading error"><strong>신규 프로젝트를 불러오지 못했습니다</strong><span>${esc(state.error)}</span><button type="button" data-structured-retry>다시 불러오기</button></div>`;
+      newProjectsView.querySelector('[data-structured-retry]')?.addEventListener('click', () => refreshStructuredProjects({ render: true }).catch(() => {}));
+      return;
+    }
+    const query = structuredProjectSearch.trim().toLowerCase();
+    const visible = state.projects.filter(project => {
+      const matchesStatus = structuredProjectStatusFilter === 'all' || String(project.status || 'active') === structuredProjectStatusFilter;
+      const text = [project.name, project.description, project.lead?.name, ...(Array.isArray(project.members) ? project.members.map(member => member.name) : [])].join(' ').toLowerCase();
+      return matchesStatus && (!query || text.includes(query));
+    });
+    const totals = state.projects.reduce((sum, project) => {
+      const counts = structuredProjectListCounts(project);
+      sum.tasks += counts.taskCount;
+      sum.done += counts.doneTaskCount;
+      sum.review += counts.reviewTaskCount;
+      return sum;
+    }, { tasks: 0, done: 0, review: 0 });
+    const scopeLabel = state.capabilities.viewPortfolio === true ? '전체 포트폴리오' : '내 참여 프로젝트';
+    newProjectsView.innerHTML = `<section class="structured-project-page" data-structured-project-list>
+      <header class="structured-page-head">
+        <div><span class="structured-eyebrow">PROJECT WORKFLOW · ${esc(scopeLabel)}</span><h1>신규 프로젝트</h1><p>프로젝트 대분류 아래 중분류·소분류·체크리스트를 나누고, 지시부터 검토까지 한 흐름으로 관리합니다.</p></div>
+        <div class="structured-page-actions">${structuredProjectReadOnlyNotice()}${structuredProjectCan('createProject') ? '<button class="structured-primary-button" type="button" data-structured-project-create>＋ 프로젝트 생성</button>' : ''}</div>
+      </header>
+      <section class="structured-summary" aria-label="신규 프로젝트 요약">
+        <article><span>조회 프로젝트</span><strong>${state.projects.length}</strong><small>${esc(scopeLabel)}</small></article>
+        <article><span>전체 체크리스트</span><strong>${totals.tasks}</strong><small>${totals.done}건 승인 완료</small></article>
+        <article class="review"><span>검토 요청</span><strong>${totals.review}</strong><small>승인 또는 수정 요청 필요</small></article>
+      </section>
+      <section class="structured-project-controls">
+        <label class="structured-search"><span aria-hidden="true">⌕</span><input type="search" data-structured-search value="${esc(structuredProjectSearch)}" placeholder="프로젝트명, 담당자, 구성원 검색" aria-label="신규 프로젝트 검색"></label>
+        <nav class="structured-status-filters" aria-label="프로젝트 상태 필터">
+          ${[['all', '전체'], ['active', '진행 중'], ['completed', '완료'], ['archived', '보관']].map(([key, label]) => `<button type="button" class="${structuredProjectStatusFilter === key ? 'active' : ''}" data-structured-status-filter="${key}">${label}</button>`).join('')}
+        </nav>
+        <span class="structured-result-count">${visible.length}개 표시</span>
+      </section>
+      <section class="structured-project-grid" aria-label="신규 프로젝트 목록">
+        ${visible.map(structuredProjectPortfolioCard).join('') || `<div class="structured-empty"><strong>${state.projects.length ? '검색 조건에 맞는 프로젝트가 없습니다.' : '표시할 신규 프로젝트가 없습니다.'}</strong><span>${state.capabilities.viewPortfolio === true ? '새 프로젝트를 만들거나 필터를 변경해 주세요.' : '구성원 또는 업무 담당자로 배정되면 이곳에 표시됩니다.'}</span></div>`}
+      </section>
+    </section>`;
+    wireStructuredPortfolioActions();
+  }
+
+  function structuredTaskRow(task, project) {
+    const status = STRUCTURED_TASK_STATUS[task.status] ? task.status : 'todo';
+    const assignedBy = structuredProjectMemberName(task.assignedBy, '지시자 미지정');
+    const assignee = structuredProjectMemberName(task.assignee, '담당자 미지정');
+    const reviewer = structuredProjectMemberName(task.reviewer, task.assignedBy ? assignedBy : structuredProjectMemberName(project?.lead, '검토자 미지정'));
+    const canSubmit = structuredTaskCan(task, 'submit');
+    const canApprove = status === 'review' && structuredTaskCan(task, 'approve');
+    const canRevision = status === 'review' && structuredTaskCan(task, 'requestRevision');
+    const canEdit = structuredTaskCan(task, 'edit') || structuredTaskCan(task, 'reassign');
+    const checked = status === 'review' || status === 'done';
+    const submitLabel = status === 'revision' ? '수정 완료 · 재검토 요청' : '완료 · 검토 요청';
+    const history = Array.isArray(task.history) ? task.history : [];
+    const historyMarkup = history.length ? `<details class="structured-task-history"><summary>처리 이력 ${history.length}건</summary><div>${history.slice().reverse().map(item => {
+      const actionLabel = { submit: '검토 요청', resubmit: '재검토 요청', approve: '승인', request_revision: '수정 요청', request: '검토 요청', revision: '수정 요청' }[item.action] || item.action || '상태 변경';
+      const actor = structuredProjectMemberName(item.actor, item.actorName || item.actor_name || '처리자');
+      const createdAt = item.createdAt || item.created_at;
+      return `<span><b>${esc(actionLabel)}</b><em>${esc(actor)}${createdAt ? ` · ${esc(formatDate(createdAt, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}` : ''}</em>${item.note ? `<small>${esc(item.note)}</small>` : ''}</span>`;
+    }).join('')}</div></details>` : '';
+    return `<article class="structured-task-row status-${esc(status)}" data-work-item-id="${esc(task.id)}">
+      <button class="structured-task-check ${checked ? 'checked' : ''}" type="button" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" ${canSubmit ? `data-work-item-submit="${esc(task.id)}"` : 'disabled'} aria-label="${esc(task.title || '업무')} ${esc(canSubmit ? submitLabel : STRUCTURED_TASK_STATUS[status])}">${status === 'done' ? '✓' : status === 'review' ? '↗' : status === 'revision' ? '!' : ''}</button>
+      <div class="structured-task-main">
+        <div class="structured-task-meta">${structuredTaskStatusBadge(status)}${projectDeadlineBadge(task.dueDate, status)}<span>v${Number(task.workflowVersion ?? task.version ?? 1)}</span></div>
+        <strong>${esc(task.title || '업무명 없음')}</strong>
+        ${task.description ? `<p>${esc(task.description)}</p>` : ''}
+        <div class="structured-assignment-flow"><span><b>업무 지시</b>${esc(assignedBy)}</span><i aria-hidden="true">→</i><span><b>업무 담당</b>${esc(assignee)}</span><i aria-hidden="true">→</i><span><b>검토</b>${esc(reviewer)}</span></div>
+        ${status === 'revision' && task.revisionReason ? `<div class="structured-revision-reason"><b>수정 요청 사유</b><span>${esc(task.revisionReason)}</span></div>` : ''}
+        ${historyMarkup}
+      </div>
+      <div class="structured-task-actions">
+        ${canSubmit ? `<button class="submit" type="button" data-work-item-submit="${esc(task.id)}">${esc(submitLabel)}</button>` : ''}
+        ${canApprove ? `<button class="approve" type="button" data-work-item-approve="${esc(task.id)}">승인</button>` : ''}
+        ${canRevision ? `<button class="revision" type="button" data-work-item-revision="${esc(task.id)}">수정 요청</button>` : ''}
+        ${canEdit ? `<button class="edit" type="button" data-work-item-edit="${esc(task.id)}">업무 수정</button>` : ''}
+      </div>
+    </article>`;
+  }
+
+  function structuredSmallCategory(small, project, medium) {
+    const tasks = Array.isArray(small.tasks) ? small.tasks : [];
+    const done = tasks.filter(task => task.status === 'done').length;
+    const canManage = structuredProjectCan('manageProject', structuredProjectDetailState);
+    return `<article class="structured-small-category" data-work-subcategory-id="${esc(small.id)}">
+      <header><div><span>업무 소분류</span><strong>${esc(small.name || '이름 없는 소분류')}</strong><small>체크리스트 ${done}/${tasks.length}</small></div>${canManage ? `<div class="structured-category-actions"><button type="button" data-structured-small-edit data-medium-id="${esc(medium.id)}" data-small-id="${esc(small.id)}">이름 수정</button><button type="button" data-structured-task-create data-medium-id="${esc(medium.id)}" data-small-id="${esc(small.id)}">＋ 업무 토스</button></div>` : ''}</header>
+      <div class="structured-task-list">${tasks.map(task => structuredTaskRow(task, project)).join('') || '<div class="structured-task-empty">아직 등록된 체크리스트 업무가 없습니다.</div>'}</div>
+    </article>`;
+  }
+
+  function structuredMediumCategory(medium, project) {
+    const smalls = Array.isArray(medium.smallCategories) ? medium.smallCategories : [];
+    const taskCount = smalls.reduce((sum, small) => sum + (Array.isArray(small.tasks) ? small.tasks.length : 0), 0);
+    const canManage = structuredProjectCan('manageProject', structuredProjectDetailState);
+    return `<section class="structured-medium-category" data-work-category-id="${esc(medium.id)}">
+      <header class="structured-medium-head"><div><span>업무 중분류</span><h2>${esc(medium.name || '이름 없는 중분류')}</h2><small>소분류 ${smalls.length}개 · 체크리스트 ${taskCount}건</small></div>${canManage ? `<div class="structured-category-actions"><button type="button" data-structured-medium-edit="${esc(medium.id)}">이름 수정</button><button type="button" data-structured-small-create="${esc(medium.id)}">＋ 소분류 추가</button></div>` : ''}</header>
+      <div class="structured-small-list">${smalls.map(small => structuredSmallCategory(small, project, medium)).join('') || '<div class="structured-category-empty">소분류를 추가해 업무를 구체적으로 나눠 주세요.</div>'}</div>
+    </section>`;
+  }
+
+  function renderStructuredProjectDetail() {
+    const state = structuredProjectDetailState;
+    if (previewPersona) return renderStructuredProjectPortfolio();
+    if (state.status === 'loading' && !state.project) {
+      newProjectsView.innerHTML = '<div class="project-detail-loading"><strong>프로젝트 구조를 불러오는 중입니다</strong><span>중분류·소분류·체크리스트를 확인하고 있습니다.</span></div>';
+      return;
+    }
+    if (state.status === 'error' && !state.project) {
+      newProjectsView.innerHTML = `<div class="project-detail-loading error"><strong>프로젝트를 불러오지 못했습니다</strong><span>${esc(state.error)}</span><div><button type="button" data-structured-project-back>목록으로</button><button type="button" data-structured-detail-retry>다시 시도</button></div></div>`;
+      newProjectsView.querySelector('[data-structured-project-back]')?.addEventListener('click', closeStructuredProject);
+      newProjectsView.querySelector('[data-structured-detail-retry]')?.addEventListener('click', () => refreshStructuredProjectDetail(selectedStructuredProjectId, { render: true }).catch(() => {}));
+      return;
+    }
+    const project = state.project;
+    if (!project) return renderStructuredProjectPortfolio();
+    const mediums = Array.isArray(project.mediumCategories) ? project.mediumCategories : [];
+    const tasks = structuredProjectDetailTasks(project);
+    const done = tasks.filter(task => task.status === 'done').length;
+    const review = tasks.filter(task => task.status === 'review').length;
+    const revision = tasks.filter(task => task.status === 'revision').length;
+    const percent = tasks.length ? Math.round(done / tasks.length * 100) : 0;
+    const lead = structuredProjectMemberName(project.lead, '담당자 미지정');
+    const members = Array.isArray(project.members) ? project.members : [];
+    const canManage = structuredProjectCan('manageProject', state);
+    newProjectsView.innerHTML = `<section class="structured-project-detail" data-structured-project-detail data-structured-project-id="${esc(project.id)}">
+      <header class="structured-detail-nav"><button type="button" data-structured-project-back>← 프로젝트 목록</button><div>${structuredProjectReadOnlyNotice()}${canManage ? '<button type="button" data-structured-project-edit>프로젝트 설정</button><button class="structured-primary-button" type="button" data-structured-medium-create>＋ 중분류 추가</button>' : ''}</div></header>
+      <section class="structured-detail-hero">
+        <div class="structured-detail-title"><span>${structuredProjectStatusBadge(project.status || 'active')}<b>프로젝트 대분류</b></span><h1>${esc(project.name || '프로젝트명 없음')}</h1><p>${esc(project.description || '등록된 프로젝트 설명이 없습니다.')}</p></div>
+        <div class="structured-detail-people">
+          <span><b>프로젝트 담당자</b><strong>${esc(lead)}</strong></span>
+          <span><b>같이 보는 구성원 ${members.length}명</b><strong>${esc(members.map(member => structuredProjectMemberName(member)).join(', ') || '구성원 미지정')}</strong></span>
+        </div>
+        <div class="structured-detail-progress"><span><b>전체 진행률</b><strong>${percent}%</strong></span><i><b style="width:${percent}%"></b></i><small>승인 완료 ${done}/${tasks.length} · 검토 요청 ${review} · 수정 요청 ${revision}</small></div>
+      </section>
+      <section class="structured-hierarchy-guide" aria-label="업무 계층 안내"><span><b>1</b>프로젝트 대분류</span><i>›</i><span><b>2</b>업무 중분류</span><i>›</i><span><b>3</b>업무 소분류</span><i>›</i><span><b>✓</b>체크리스트 업무</span></section>
+      <section class="structured-medium-list">${mediums.map(medium => structuredMediumCategory(medium, project)).join('') || `<div class="structured-empty"><strong>아직 업무 중분류가 없습니다.</strong><span>${canManage ? '중분류를 추가해 프로젝트 업무를 나눠 주세요.' : '프로젝트 담당자가 업무 구조를 준비하고 있습니다.'}</span></div>`}</section>
+    </section>`;
+    wireStructuredDetailActions(project);
+  }
+
+  function renderStructuredProjects() {
+    if (!newProjectsView) return;
+    if (previewPersona) return renderStructuredProjectPortfolio();
+    if (selectedStructuredProjectId) return renderStructuredProjectDetail();
+    return renderStructuredProjectPortfolio();
+  }
+
+  function wireStructuredPortfolioActions() {
+    const search = newProjectsView.querySelector('[data-structured-search]');
+    let composing = false;
+    search?.addEventListener('compositionstart', () => { composing = true; });
+    search?.addEventListener('compositionend', () => {
+      composing = false;
+      structuredProjectSearch = search.value;
+      renderStructuredProjectPortfolio();
+      const next = newProjectsView.querySelector('[data-structured-search]');
+      next?.focus();
+      next?.setSelectionRange(structuredProjectSearch.length, structuredProjectSearch.length);
+    });
+    search?.addEventListener('input', () => {
+      structuredProjectSearch = search.value;
+      if (composing) return;
+      renderStructuredProjectPortfolio();
+      const next = newProjectsView.querySelector('[data-structured-search]');
+      next?.focus();
+      next?.setSelectionRange(structuredProjectSearch.length, structuredProjectSearch.length);
+    });
+    newProjectsView.querySelectorAll('[data-structured-status-filter]').forEach(button => button.addEventListener('click', () => {
+      structuredProjectStatusFilter = button.dataset.structuredStatusFilter;
+      renderStructuredProjectPortfolio();
+    }));
+    newProjectsView.querySelectorAll('[data-structured-project-open]').forEach(button => button.addEventListener('click', () => openStructuredProject(button.dataset.structuredProjectOpen)));
+    newProjectsView.querySelector('[data-structured-project-create]')?.addEventListener('click', () => openStructuredProjectEditor());
+  }
+
+  function findStructuredTask(project, taskId) {
+    return structuredProjectDetailTasks(project).find(task => String(task.id) === String(taskId));
+  }
+
+  function wireStructuredDetailActions(project) {
+    newProjectsView.querySelector('[data-structured-project-back]')?.addEventListener('click', closeStructuredProject);
+    newProjectsView.querySelector('[data-structured-project-edit]')?.addEventListener('click', () => openStructuredProjectEditor(project));
+    newProjectsView.querySelector('[data-structured-medium-create]')?.addEventListener('click', () => openStructuredCategoryEditor('medium', project));
+    newProjectsView.querySelectorAll('[data-structured-small-create]').forEach(button => button.addEventListener('click', () => openStructuredCategoryEditor('small', project, button.dataset.structuredSmallCreate)));
+    newProjectsView.querySelectorAll('[data-structured-medium-edit]').forEach(button => button.addEventListener('click', () => {
+      const medium = (project.mediumCategories || []).find(item => String(item.id) === String(button.dataset.structuredMediumEdit));
+      if (medium) openStructuredCategoryEditor('medium', project, medium.id, medium);
+    }));
+    newProjectsView.querySelectorAll('[data-structured-small-edit]').forEach(button => button.addEventListener('click', () => {
+      const medium = (project.mediumCategories || []).find(item => String(item.id) === String(button.dataset.mediumId));
+      const small = (medium?.smallCategories || []).find(item => String(item.id) === String(button.dataset.smallId));
+      if (small) openStructuredCategoryEditor('small', project, medium.id, small);
+    }));
+    newProjectsView.querySelectorAll('[data-structured-task-create]').forEach(button => button.addEventListener('click', () => openStructuredTaskEditor(project, {
+      mediumId: button.dataset.mediumId,
+      smallId: button.dataset.smallId
+    })));
+    newProjectsView.querySelectorAll('[data-work-item-edit]').forEach(button => button.addEventListener('click', () => {
+      const task = findStructuredTask(project, button.dataset.workItemEdit);
+      if (task) openStructuredTaskEditor(project, { task });
+    }));
+    // 같은 업무에 체크 버튼과 텍스트 버튼이 함께 있어도 한 요청만 실행한다.
+    const submitButtons = [...newProjectsView.querySelectorAll('[data-work-item-submit]')];
+    submitButtons.forEach(button => button.addEventListener('click', () => reviewStructuredTask(project, button.dataset.workItemSubmit, 'request')));
+    newProjectsView.querySelectorAll('[data-work-item-approve]').forEach(button => button.addEventListener('click', () => reviewStructuredTask(project, button.dataset.workItemApprove, 'approve')));
+    newProjectsView.querySelectorAll('[data-work-item-revision]').forEach(button => button.addEventListener('click', () => openStructuredRevisionDialog(project, button.dataset.workItemRevision)));
+  }
+
+  function structuredProjectDirectory(users, project = null) {
+    const records = new Map();
+    (Array.isArray(users) ? users : []).forEach(user => {
+      if (user?.uid) records.set(String(user.uid), user);
+    });
+    const include = member => {
+      if (!member?.uid || records.has(String(member.uid))) return;
+      records.set(String(member.uid), member);
+    };
+    include(project?.lead);
+    (Array.isArray(project?.members) ? project.members : []).forEach(include);
+    return [...records.values()].sort((a, b) => structuredProjectMemberName(a).localeCompare(structuredProjectMemberName(b), 'ko'));
+  }
+
+  function structuredMemberCheckboxes(users, selectedIds) {
+    return users.map(user => `<label class="collaboration-member-option"><input type="checkbox" name="memberUids" value="${esc(user.uid)}" ${selectedIds.has(String(user.uid)) ? 'checked' : ''}><span><strong>${esc(structuredProjectMemberName(user))}</strong><small>${esc(user.group_name || user.groupName || '')}</small></span></label>`).join('');
+  }
+
+  async function openStructuredProjectEditor(project = null) {
+    const source = project ? structuredProjectDetailState : structuredProjectPortfolio;
+    const capability = project ? 'manageProject' : 'createProject';
+    if (!structuredProjectCan(capability, source)) return showToast('신규 프로젝트를 변경할 권한이 없습니다.');
+    openDetailModal(project ? '신규 프로젝트 설정' : '신규 프로젝트 생성', '<div class="project-detail-loading"><strong>구성원을 불러오는 중입니다</strong></div>', { locked: true });
+    let users;
+    try {
+      users = structuredProjectDirectory(await loadCollaborationDirectory(), project);
+    } catch (error) {
+      document.getElementById('readonlyModalBody').innerHTML = `<p class="collaboration-error">${esc(error.message)}</p>`;
+      return;
+    }
+    const leadUid = String(project?.lead?.uid || currentUser?.uid || users[0]?.uid || '');
+    const selectedIds = new Set((Array.isArray(project?.members) ? project.members : []).map(member => String(member.uid)));
+    if (leadUid) selectedIds.add(leadUid);
+    if (!project && currentUser?.uid) selectedIds.add(String(currentUser.uid));
+    openDetailModal(project ? '신규 프로젝트 설정' : '신규 프로젝트 생성', `
+      <form class="collaboration-form structured-project-form" id="structuredProjectForm">
+        <div class="collaboration-form-grid">
+          <label class="wide"><span>프로젝트명 <b>대분류</b></span><input name="name" maxlength="160" required value="${esc(project?.name || '')}" placeholder="예: 2026 하반기 브랜드 캠페인"></label>
+          <label><span>프로젝트 담당자</span><select name="leadUid" required>${users.map(user => `<option value="${esc(user.uid)}" ${String(user.uid) === leadUid ? 'selected' : ''}>${esc(structuredProjectMemberName(user))}</option>`).join('')}</select></label>
+          ${project ? `<label><span>상태</span><select name="status">${Object.entries(STRUCTURED_PROJECT_STATUS).map(([key, label]) => `<option value="${key}" ${(project.status || 'active') === key ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></label>` : '<input name="status" type="hidden" value="active">'}
+          <label class="wide"><span>프로젝트 설명</span><textarea name="description" rows="4" maxlength="5000" placeholder="프로젝트 목표와 완료 기준을 적어 주세요.">${esc(project?.description || '')}</textarea></label>
+          <fieldset class="wide collaboration-member-field"><legend>같이 볼 구성원</legend><p class="structured-form-help">프로젝트 담당자는 자동으로 구성원에 포함됩니다. 저장 후에도 추가하거나 교체할 수 있습니다.</p><div class="collaboration-member-list">${structuredMemberCheckboxes(users, selectedIds)}</div></fieldset>
+        </div>
+        <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">${project ? '변경 저장' : '프로젝트 생성'}</button></div>
+      </form>`, { locked: true });
+    const form = document.getElementById('structuredProjectForm');
+    const syncLeadMember = () => {
+      const selectedLead = form.elements.leadUid.value;
+      const checkbox = form.querySelector(`input[name="memberUids"][value="${CSS.escape(selectedLead)}"]`);
+      if (checkbox) { checkbox.checked = true; checkbox.disabled = true; }
+      form.querySelectorAll('input[name="memberUids"][disabled]').forEach(input => {
+        if (input.value !== selectedLead) input.disabled = false;
+      });
+    };
+    syncLeadMember();
+    form.elements.leadUid.addEventListener('change', syncLeadMember);
+    form.querySelector('[data-collab-cancel]').addEventListener('click', () => closeDetailModal());
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const data = new FormData(form);
+      const selectedLead = String(data.get('leadUid') || '');
+      const memberUids = data.getAll('memberUids').map(String);
+      if (selectedLead && !memberUids.includes(selectedLead)) memberUids.push(selectedLead);
+      const record = {
+        name: String(data.get('name') || '').trim(),
+        description: String(data.get('description') || '').trim(),
+        leadUid: selectedLead,
+        memberUids
+      };
+      if (project) {
+        record.status = String(data.get('status') || 'active');
+        record.expectedVersion = Number(project.version || 1);
+      }
+      if (!record.name || !record.leadUid) return showToast('프로젝트명과 담당자를 확인해 주세요.');
+      const saved = await runCollaborationMutation(
+        () => collaborationApi(project ? 'PUT' : 'POST', project ? `/new-projects/${encodeURIComponent(project.id)}` : '/new-projects', record),
+        project ? '프로젝트 담당자와 구성원을 저장했습니다.' : '신규 프로젝트를 만들었습니다.'
+      );
+      if (!saved) return;
+      closeDetailModal();
+      const projectId = String(saved?.project?.id || saved?.id || project?.id || '');
+      await refreshStructuredProjects({ render: false, quiet: true }).catch(() => {});
+      if (projectId) {
+        selectedStructuredProjectId = projectId;
+        await refreshStructuredProjectDetail(projectId, { render: true }).catch(() => {});
+      } else {
+        selectedStructuredProjectId = '';
+        renderStructuredProjects();
+      }
+    });
+  }
+
+  function openStructuredCategoryEditor(kind, project, mediumId = '', category = null) {
+    if (!structuredProjectCan('manageProject', structuredProjectDetailState)) return showToast('업무 분류를 추가할 권한이 없습니다.');
+    const isMedium = kind === 'medium';
+    const title = `${isMedium ? '업무 중분류' : '업무 소분류'} ${category ? '이름 수정' : '추가'}`;
+    openDetailModal(title, `<form class="collaboration-form" id="structuredCategoryForm">
+      <div class="collaboration-form-grid"><label class="wide"><span>${isMedium ? '중분류명' : '소분류명'}</span><input name="name" maxlength="160" required autofocus value="${esc(category?.name || '')}" placeholder="${isMedium ? '예: 콘텐츠 제작' : '예: 블로그 원고 제작'}"></label></div>
+      <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">${category ? '변경 저장' : '추가'}</button></div>
+    </form>`, { locked: true });
+    const form = document.getElementById('structuredCategoryForm');
+    form.querySelector('[data-collab-cancel]').addEventListener('click', () => closeDetailModal());
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const name = String(new FormData(form).get('name') || '').trim();
+      if (!name) return showToast('업무 분류명을 입력해 주세요.');
+      const basePath = isMedium
+        ? `/new-projects/${encodeURIComponent(project.id)}/mediums`
+        : `/new-projects/${encodeURIComponent(project.id)}/mediums/${encodeURIComponent(mediumId)}/smalls`;
+      const path = category ? `${basePath}/${encodeURIComponent(category.id)}` : basePath;
+      const record = category ? { name, expectedVersion: Number(category.version || 1) } : { name };
+      const saved = await runCollaborationMutation(() => collaborationApi(category ? 'PUT' : 'POST', path, record), `${isMedium ? '중분류' : '소분류'}를 ${category ? '수정' : '추가'}했습니다.`);
+      if (!saved) return;
+      closeDetailModal();
+      await refreshStructuredProjectDetail(project.id, { render: true }).catch(() => {});
+    });
+  }
+
+  function structuredTaskMemberOptions(project, selectedUid = '') {
+    const members = structuredProjectDirectory([], project);
+    return members.map(member => `<option value="${esc(member.uid)}" ${String(member.uid) === String(selectedUid) ? 'selected' : ''}>${esc(structuredProjectMemberName(member))}</option>`).join('');
+  }
+
+  function openStructuredTaskEditor(project, { mediumId = '', smallId = '', task = null } = {}) {
+    const editing = Boolean(task);
+    const canEdit = editing ? structuredTaskCan(task, 'edit') : structuredProjectCan('manageProject', structuredProjectDetailState);
+    const canReassign = editing ? structuredTaskCan(task, 'reassign') : structuredProjectCan('manageProject', structuredProjectDetailState);
+    if (!canEdit && !canReassign) return showToast('업무를 등록하거나 재배정할 권한이 없습니다.');
+    const selectedAssignee = String(task?.assignee?.uid || '');
+    const currentActor = {
+      uid: String(currentUser?.uid || ''),
+      name: String(userDoc?.name || currentUser?.displayName || '현재 사용자')
+    };
+    const originalAssigner = task?.assignedBy || currentActor;
+    const originalReviewer = task?.reviewer || project?.lead || originalAssigner;
+    openDetailModal(editing ? '체크리스트 업무 수정' : '체크리스트 업무 토스', `<form class="collaboration-form structured-task-form" id="structuredTaskForm">
+      <div class="collaboration-form-grid">
+        <label class="wide"><span>할 일</span><input name="title" maxlength="200" required value="${esc(task?.title || '')}" ${canEdit ? '' : 'disabled'} placeholder="업무 완료 기준이 드러나게 적어 주세요."></label>
+        <label><span>업무 담당자</span><select name="assigneeUid" required ${canReassign ? '' : 'disabled'}><option value="">담당자 선택</option>${structuredTaskMemberOptions(project, selectedAssignee)}</select></label>
+        <label><span>업무 마감일</span><input name="dueDate" type="date" value="${esc(task?.dueDate || '')}" ${canEdit ? '' : 'disabled'}></label>
+        <label class="wide"><span>상세 내용</span><textarea name="description" rows="5" maxlength="5000" ${canEdit ? '' : 'disabled'} placeholder="필요 자료, 확인 항목, 결과물 형식을 적어 주세요.">${esc(task?.description || '')}</textarea></label>
+      </div>
+      <div class="structured-assignment-preview"><span><b>업무 지시자</b><em data-structured-assigner-preview>${esc(structuredProjectMemberName(originalAssigner))}</em></span><i>→</i><span><b>업무 담당자</b><em data-structured-assignee-preview>${esc(structuredProjectMemberName(task?.assignee, '선택 필요'))}</em></span><i>→</i><span><b>검토자</b><em data-structured-reviewer-preview>${esc(structuredProjectMemberName(originalReviewer))}</em></span></div>
+      <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">${editing ? '업무 저장' : '업무 토스'}</button></div>
+    </form>`, { locked: true });
+    const form = document.getElementById('structuredTaskForm');
+    const assigneeSelect = form.elements.assigneeUid;
+    const renderAssignee = () => {
+      const option = assigneeSelect.options[assigneeSelect.selectedIndex];
+      const nextAssigneeUid = String(option?.value || '');
+      const assignmentUnchanged = editing && nextAssigneeUid === selectedAssignee;
+      const nextAssigner = assignmentUnchanged ? originalAssigner : currentActor;
+      const nextReviewer = assignmentUnchanged
+        ? originalReviewer
+        : (nextAssigneeUid && nextAssigneeUid === currentActor.uid ? (project?.lead || currentActor) : currentActor);
+      form.querySelector('[data-structured-assignee-preview]').textContent = option?.value ? option.textContent : '선택 필요';
+      form.querySelector('[data-structured-assigner-preview]').textContent = structuredProjectMemberName(nextAssigner);
+      form.querySelector('[data-structured-reviewer-preview]').textContent = structuredProjectMemberName(nextReviewer);
+    };
+    assigneeSelect.addEventListener('change', renderAssignee);
+    renderAssignee();
+    form.querySelector('[data-collab-cancel]').addEventListener('click', () => closeDetailModal());
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const data = new FormData(form);
+      const record = {
+        title: canEdit ? String(data.get('title') || '').trim() : String(task?.title || ''),
+        description: canEdit ? String(data.get('description') || '').trim() : String(task?.description || ''),
+        dueDate: canEdit ? String(data.get('dueDate') || '') : String(task?.dueDate || ''),
+        assigneeUid: canReassign ? String(data.get('assigneeUid') || '') : String(task?.assignee?.uid || '')
+      };
+      if (editing) record.expectedVersion = Number(task?.workflowVersion ?? task?.version ?? 1);
+      if (!record.title || !record.assigneeUid) return showToast('할 일과 담당자를 확인해 주세요.');
+      const path = editing
+        ? `/new-projects/${encodeURIComponent(project.id)}/tasks/${encodeURIComponent(task.id)}`
+        : `/new-projects/${encodeURIComponent(project.id)}/mediums/${encodeURIComponent(mediumId)}/smalls/${encodeURIComponent(smallId)}/tasks`;
+      const saved = await runCollaborationMutation(
+        () => collaborationApi(editing ? 'PUT' : 'POST', path, record),
+        editing ? '체크리스트 업무를 수정했습니다.' : '담당자에게 체크리스트 업무를 토스했습니다.'
+      );
+      if (!saved) return;
+      closeDetailModal();
+      await refreshStructuredProjectDetail(project.id, { render: true }).catch(() => {});
+    });
+  }
+
+  async function reviewStructuredTask(project, taskId, action, note = '') {
+    const task = findStructuredTask(project, taskId);
+    if (!task) return;
+    const capability = action === 'request' ? 'submit' : action === 'approve' ? 'approve' : 'requestRevision';
+    if (!structuredTaskCan(task, capability)) return showToast('현재 상태에서 이 업무를 처리할 권한이 없습니다.');
+    if (action === 'revision' && !String(note || '').trim()) return showToast('수정 요청 사유를 입력해 주세요.');
+    const saved = await runCollaborationMutation(
+      () => collaborationApi('POST', `/new-projects/${encodeURIComponent(project.id)}/tasks/${encodeURIComponent(task.id)}/review`, {
+        action,
+        note: String(note || '').trim(),
+        expectedVersion: Number(task.workflowVersion ?? task.version ?? 1)
+      }),
+      action === 'request' ? '업무 지시자에게 검토를 요청했습니다.' : action === 'approve' ? '업무를 승인 완료했습니다.' : '사유와 함께 수정을 요청했습니다.'
+    );
+    if (!saved) {
+      await refreshStructuredProjectDetail(project.id, { render: true, quiet: true }).catch(() => {});
+      return;
+    }
+    await refreshStructuredProjectDetail(project.id, { render: true }).catch(() => {});
+  }
+
+  function openStructuredRevisionDialog(project, taskId) {
+    const task = findStructuredTask(project, taskId);
+    if (!task || !structuredTaskCan(task, 'requestRevision')) return showToast('이 업무에 수정 요청을 보낼 권한이 없습니다.');
+    openDetailModal('업무 수정 요청', `<form class="collaboration-form" id="structuredRevisionForm">
+      <div class="structured-revision-target"><span>수정할 업무</span><strong>${esc(task.title || '업무명 없음')}</strong><small>${esc(structuredProjectMemberName(task.assignedBy, '지시자'))} → ${esc(structuredProjectMemberName(task.assignee, '담당자'))}</small></div>
+      <div class="collaboration-form-grid"><label class="wide"><span>수정 요청 사유 <b>필수</b></span><textarea name="note" rows="6" maxlength="2000" required placeholder="무엇을 어떻게 고쳐야 하는지 구체적으로 적어 주세요."></textarea></label></div>
+      <div class="collaboration-form-actions"><span>사유는 담당자 화면에 그대로 표시됩니다.</span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">수정 요청 보내기</button></div>
+    </form>`, { locked: true });
+    const form = document.getElementById('structuredRevisionForm');
+    form.querySelector('[data-collab-cancel]').addEventListener('click', () => closeDetailModal());
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const note = String(new FormData(form).get('note') || '').trim();
+      if (!note) return showToast('수정 요청 사유를 입력해 주세요.');
+      const beforeVersion = Number(task.workflowVersion ?? task.version ?? 1);
+      await reviewStructuredTask(project, task.id, 'revision', note);
+      const latest = findStructuredTask(structuredProjectDetailState.project, task.id);
+      if (latest && Number(latest.workflowVersion ?? latest.version ?? 0) > beforeVersion) closeDetailModal();
+    });
   }
 
   function roomPreview(room) {
@@ -12652,14 +13361,28 @@
     if (view === 'todo') renderTodo();
     if (view === 'chat') renderChat();
     if (view === 'review') renderProjects();
+    if (view === 'new-projects') {
+      renderStructuredProjects();
+      const contextKey = structuredProjectContextKey();
+      if (!previewPersona && collaborationScope.projects
+          && (structuredProjectPortfolio.status === 'idle'
+            || structuredProjectPortfolio.contextKey !== contextKey)) {
+        Promise.resolve().then(() => refreshStructuredProjects({ render: true })).catch(error => {
+          if (!['AUTH_CONTEXT_CHANGED', 'WORKSPACE_CONTEXT_CHANGED'].includes(error.code)) {
+            console.warn('신규 프로젝트 조회 실패:', error.message);
+          }
+        });
+      }
+    }
     dashboardView.hidden = view !== 'dashboard';
     calendarView.hidden = view !== 'calendar';
     chatView.hidden = view !== 'chat';
     todoView.hidden = view !== 'todo';
     reviewView.hidden = view !== 'review';
+    newProjectsView.hidden = view !== 'new-projects';
     moduleView.hidden = !isPlannedModule;
     permissionsView.hidden = view !== 'permissions';
-    const labels = { dashboard: '피크마케팅', calendar: '캘린더', chat: '채팅', todo: '할 일', review: '프로젝트', permissions: '조직 및 권한', ...PLANNED_MODULES };
+    const labels = { dashboard: '피크마케팅', calendar: '캘린더', chat: '채팅', todo: '할 일', review: '프로젝트', 'new-projects': '신규 프로젝트', permissions: '조직 및 권한', ...PLANNED_MODULES };
     pageCrumb.textContent = labels[view] || '피크마케팅';
     document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === view));
     const activeNav = document.querySelector(`.app-sidebar .nav-item[data-view="${view}"]`);

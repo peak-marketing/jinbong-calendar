@@ -67,6 +67,10 @@ const {
   taskAssignmentPatchChanges,
 } = require('./collaboration/project-workflow-policy');
 const {
+  ensurePeakosNewProjectInfrastructure,
+  registerPeakosNewProjectRoutes,
+} = require('./collaboration/peakos-new-project-routes');
+const {
   PEAK_WORKSPACE_ID,
   createPeakosWorkspaceService,
   ensurePeakosWorkspaceInfrastructure,
@@ -302,7 +306,7 @@ function collaborationAreaForPath(pathname) {
   const value = String(pathname || '');
   if (/^\/api\/(?:events|event-types|todo-cats)(?:\/|$)/.test(value)) return 'calendar';
   if (/^\/api\/(?:chat|chat-rooms|chat-room-groups)(?:\/|$)/.test(value)) return 'chat';
-  if (/^\/api\/projects(?:\/|$)/.test(value) || value === '/api/users/all-approved') return 'projects';
+  if (/^\/api\/(?:projects|new-projects)(?:\/|$)/.test(value) || value === '/api/users/all-approved') return 'projects';
   return null;
 }
 
@@ -1449,7 +1453,7 @@ app.use(createPeakosCollaborationGateway({
   getRequireWorkspace: ({ req, target }) => {
     const suffix = String(target?.suffix || '');
     const area = suffix.startsWith('/chat-') ? 'chat'
-      : suffix.startsWith('/projects') ? 'projects'
+      : (suffix.startsWith('/projects') || suffix.startsWith('/new-projects')) ? 'projects'
         : suffix.startsWith('/users/') ? 'projects'
           : 'calendar';
     const action = ['GET', 'HEAD', 'OPTIONS'].includes(String(req.method || '').toUpperCase())
@@ -7276,6 +7280,12 @@ const peakosCanSeeTeamFinance = req => (
   peakosCanSeeFinanceOperations(req) && peakosCanSeeTeam(req)
 );
 const peakosCanPreviewAccounts = req => peakosAccess.canPreviewAccounts(req);
+const peakosCanViewStructuredProjectPortfolio = req => (
+  peakosAccess.canViewStructuredProjectPortfolio(req)
+);
+const peakosCanCreateStructuredProject = req => (
+  peakosAccess.canCreateStructuredProject(req)
+);
 function peakosOwnedMonthlyViews(req) {
   return Object.keys(PEAKOS_MONTHLY_OWNERS).filter(view => peakosCanManageMonthly(req, view));
 }
@@ -7284,6 +7294,28 @@ const peakosBankCanRead = req => peakosAccess.canReadBank(req);
 const peakosBankCanViewBalances = req => peakosAccess.canViewBankBalances(req);
 const peakosCanReviewFinance = req => peakosAccess.canReviewFinance(req);
 const peakosCanSeeTaxPurchase = req => peakosAccess.canSeeTaxPurchase(req);
+
+// Both the canonical and protected-alias URLs are OS-only. Rechecking the
+// email session and explicit workspace here keeps `/api/new-projects` from
+// becoming a Firebase-only second-factor bypass.
+registerPeakosNewProjectRoutes({
+  app,
+  pool,
+  readMiddlewares: [
+    authMiddleware,
+    peakosOsEmailAuth.requireOsSession,
+    peakosWorkspaceService.requireWorkspace({ area: 'projects', action: 'read', requireHeader: true }),
+  ],
+  writeMiddlewares: [
+    authMiddleware,
+    peakosOsEmailAuth.requireOsSession,
+    peakosWorkspaceService.requireWorkspace({ area: 'projects', action: 'write', requireHeader: true }),
+  ],
+  peakWorkspaceId: PEAK_WORKSPACE_ID,
+  isPortfolioViewer: peakosCanViewStructuredProjectPortfolio,
+  isPortfolioCreator: peakosCanCreateStructuredProject,
+  notifyUser: sendPushToUser,
+});
 
 app.use(
   '/api/peakos/company-documents',
@@ -7676,6 +7708,7 @@ async function startServer() {
     // workspace migration has not been applied. This is a SELECT-only
     // readiness check; application startup never attempts owner DDL here.
     await ensurePeakosWorkspaceInfrastructure(pool);
+    await ensurePeakosNewProjectInfrastructure(pool);
     await ensureReminderInfrastructure();
     await ensureChatPerformanceIndexes();
     await ensureChatRoomGroupInfrastructure();
