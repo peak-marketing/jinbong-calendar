@@ -225,6 +225,8 @@ test('canonical workspace route sends a non-overridable workspace header and kee
   await expectNavLocked(page, 'organization', true);
   await expectNavLocked(page, 'services', true);
   await expect(page.locator('[data-isolated-workspace-home]')).toContainText('등록된 운영 데이터가 없습니다');
+  await expect(page.locator('[data-dashboard-finance-chart]')).toHaveCount(0);
+  await expect(page.locator('#dashboardView')).not.toContainText('일별 매출 · 영업이익 추이');
   await expect(page.locator('#dashboardView')).not.toContainText('본사 비공개');
 
   await page.locator('.app-sidebar .nav-item[data-view="review"]')

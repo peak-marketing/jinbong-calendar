@@ -147,6 +147,8 @@
   // 전체 조회가 실패했을 때 내 원장만 전체처럼 보이는 오해를 막기 위해 상태도 따로 둔다.
   let finalIntakeRows = [];
   let finalIntakeLoadState = { status: 'idle', error: '' };
+  // 계정·미리보기 전환 중 늦게 도착한 정산 응답이 새 화면을 덮지 못하게 한다.
+  let intakeLoadGeneration = 0;
   let bankMatchReviewRows = [];
   let intakeForm = {
     editId: '', a: '', b: '', c: '', unit: '', qty: '', sell: '', client: '',
@@ -1210,6 +1212,7 @@
     signedInLoadPromise = null;
     signedInLoadUid = '';
     previewPersona = '';
+    intakeLoadGeneration += 1;
     stopCollaborationPolling();
     resetCollaborationState();
     resetRestrictedPeakosData();
@@ -2433,6 +2436,7 @@
     const realName = String(realUserDoc?.name || '').trim();
     // 내 조직도 행을 강제로 선택해도 별도 미리보기 계정으로 만들지 않는다.
     previewPersona = requestedName && requestedName !== realName ? requestedName : '';
+    intakeLoadGeneration += 1;
     if (!previewPersona) {
       userDoc = realUserDoc;
     } else {
@@ -2446,6 +2450,14 @@
         group_type: row && /영업|지사/.test(String(row.teamName || row.divisionName || '')) ? 'sales' : 'support'
       };
     }
+    // 계정 미리보기 전환과 복귀 사이의 비동기 조회 구간에는 직전 계정의
+    // 정산 행을 한 프레임도 재사용하지 않는다. 대시보드도 즉시 빈 범위로
+    // 다시 그린 뒤 아래 loadPeakosData 성공 결과만 새 계정 값으로 표시한다.
+    intakeDraft = [];
+    finalIntakeRows = [];
+    finalIntakeLoadState = { status: 'idle', error: '' };
+    bankMatchReviewRows = [];
+    if (activeView === 'dashboard' && (!isWorkspaceRoute() || activeWorkspaceSlug === 'peak')) renderDashboard();
     // 계정이 바뀌면 이전 사용자가 펼쳐 둔 메뉴 상태를 이어받지 않는다.
     // 모든 대분류를 접고 사용자가 필요한 묶음만 직접 펼치게 한다.
     resetNavClustersToDefault();
@@ -2535,6 +2547,7 @@
   }
 
   function resetRestrictedPeakosData() {
+    intakeLoadGeneration += 1;
     intakeDraft = [];
     finalIntakeRows = [];
     finalIntakeLoadState = { status: 'idle', error: '' };
@@ -2580,11 +2593,15 @@
       // finance requests, credits, funds and Peak singleton boards stay at
       // zero requests for every non-Peak workspace.
       resetRestrictedPeakosData();
+      const generation = intakeLoadGeneration;
+      const persona = previewPersona;
       const intakeLoad = workspaceIsOversight()
         // Oversight has no personal ledger in the branch. One scoped all-read
         // supplies both the personal-ledger layout and final-settlement view.
         ? loadFinalIntakeRows().then(() => {
+          if (!intakeContextIsCurrent(generation, persona)) return false;
           intakeDraft = finalIntakeLoadState.status === 'ready' ? [...finalIntakeRows] : [];
+          return true;
         })
         : Promise.all([
           loadIntakeDraft(),
@@ -2765,63 +2782,319 @@
     return project?.canManage === true;
   }
 
+  function dashboardMonthDateKeys(today, throughDate = '') {
+    const prefix = String(today || '').slice(0, 7);
+    const endDate = String(throughDate || today);
+    const lastDay = endDate.startsWith(prefix) ? Number(endDate.slice(8, 10)) : Number(String(today || '').slice(8, 10));
+    if (!/^\d{4}-\d{2}$/.test(prefix) || !Number.isInteger(lastDay) || lastDay < 1) return [];
+    return Array.from({ length: lastDay }, (_, index) => `${prefix}-${String(index + 1).padStart(2, '0')}`);
+  }
+
+  function dashboardMoney(value) {
+    const amount = Math.round(Number(value) || 0);
+    const sign = amount < 0 ? '-' : '';
+    const absolute = Math.abs(amount);
+    if (absolute >= 100000000) return `${sign}${(absolute / 100000000).toFixed(1)}억원`;
+    if (absolute >= 10000) return `${sign}${Math.round(absolute / 10000).toLocaleString('ko-KR')}만원`;
+    return `${amount.toLocaleString('ko-KR')}원`;
+  }
+
+  function comparePersonalTodoEvents(a, b) {
+    return Number(Boolean(a.done)) - Number(Boolean(b.done))
+      || Number(a.sortOrder || 0) - Number(b.sortOrder || 0)
+      || String(a.time || '99:99').localeCompare(String(b.time || '99:99'))
+      || String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
+      || String(a.title || '').localeCompare(String(b.title || ''), 'ko');
+  }
+
+  function dashboardFinanceSeries(rows, today, includeCompanyProfit) {
+    const latestRowDate = rows.reduce((latest, row) => {
+      const date = String(row?.date || '').slice(0, 10);
+      return date <= today && date > latest ? date : latest;
+    }, '');
+    if (!latestRowDate) return [];
+    const keys = dashboardMonthDateKeys(today, latestRowDate);
+    const buckets = new Map(keys.map(key => [key, {
+      key, sales: 0, companyProfit: null,
+      count: 0, missingCost: 0
+    }]));
+    rows.forEach(row => {
+      const date = String(row?.date || '').slice(0, 10);
+      const bucket = buckets.get(date);
+      if (!bucket || kindOf(row) === 'reserve') return;
+      const rawQty = Number(row.qty) || 0;
+      // 이관된 음수 조정 수량은 이미 부호가 확정돼 있다. 양수 환불행에만
+      // refund 부호를 한 번 적용해 음수 수량을 다시 양수로 뒤집지 않는다.
+      const qty = rawQty < 0 ? rawQty : rawQty * signOf(row);
+      const sales = (Number(row.sell) || 0) * qty;
+      bucket.sales += sales;
+      bucket.count += 1;
+      if (!includeCompanyProfit) return;
+      if (row.cost === null || row.cost === undefined || !Number.isFinite(Number(row.cost))) {
+        bucket.missingCost += 1;
+        bucket.companyProfit = null;
+        return;
+      }
+      // 한 날짜에 원가 누락이 하나라도 있으면 그날의 회사 이익은 부분값이다.
+      // 이미 null이 된 날짜는 알려진 행만 다시 더해 완전한 값처럼 만들지 않는다.
+      if (bucket.missingCost === 0) {
+        bucket.companyProfit = Number(bucket.companyProfit || 0) + sales - (Number(row.cost) * qty);
+      }
+    });
+    return [...buckets.values()];
+  }
+
+  function dashboardChartMarkup(series, { showCompanyProfit = false, revenueLabel = '내 매출' } = {}) {
+    const width = 980;
+    const height = 310;
+    const margin = { top: 24, right: 22, bottom: 42, left: 70 };
+    const plotWidth = width - margin.left - margin.right;
+    const plotHeight = height - margin.top - margin.bottom;
+    const values = series.flatMap(item => [item.sales].concat(
+      showCompanyProfit && item.companyProfit !== null ? [item.companyProfit] : []
+    ));
+    const rawMin = Math.min(0, ...values);
+    const rawMax = Math.max(0, ...values);
+    const range = Math.max(1, rawMax - rawMin);
+    const domainMin = rawMin < 0 ? rawMin - (range * .1) : 0;
+    const domainMax = rawMax > 0 ? rawMax + (range * .1) : 1;
+    const domainRange = Math.max(1, domainMax - domainMin);
+    const xAt = index => margin.left + (series.length <= 1
+      ? plotWidth / 2
+      : (index / (series.length - 1)) * plotWidth);
+    const yAt = value => margin.top + ((domainMax - Number(value || 0)) / domainRange) * plotHeight;
+    const zeroY = yAt(0);
+    const points = series.map((item, index) => ({ ...item, x: xAt(index), salesY: yAt(item.sales) }));
+    const revenuePath = points.map((item, index) => `${index ? 'L' : 'M'} ${item.x.toFixed(1)} ${item.salesY.toFixed(1)}`).join(' ');
+    const areaPath = points.length
+      ? `M ${points[0].x.toFixed(1)} ${zeroY.toFixed(1)} ${points.map(item => `L ${item.x.toFixed(1)} ${item.salesY.toFixed(1)}`).join(' ')} L ${points[points.length - 1].x.toFixed(1)} ${zeroY.toFixed(1)} Z`
+      : '';
+    const profitSegments = [];
+    let segment = [];
+    points.forEach(item => {
+      // 실제 접수가 없는 날과 원가 누락일은 같은 선으로 잇지 않는다.
+      // 특히 전부 원가 누락인 경우 0원짜리 빨간선이 생기면 안 된다.
+      if (!showCompanyProfit || item.count === 0 || item.companyProfit === null) {
+        if (segment.length) profitSegments.push(segment);
+        segment = [];
+        return;
+      }
+      segment.push({ ...item, profitY: yAt(item.companyProfit) });
+    });
+    if (segment.length) profitSegments.push(segment);
+    const grid = Array.from({ length: 5 }, (_, index) => {
+      const ratio = index / 4;
+      const value = domainMax - (domainRange * ratio);
+      const y = margin.top + (plotHeight * ratio);
+      return `<g class="executive-chart-grid"><line x1="${margin.left}" y1="${y.toFixed(1)}" x2="${width - margin.right}" y2="${y.toFixed(1)}"></line><text x="${margin.left - 12}" y="${(y + 4).toFixed(1)}">${esc(dashboardMoney(value))}</text></g>`;
+    }).join('');
+    const labelEvery = series.length <= 10 ? 1 : (series.length <= 20 ? 2 : 5);
+    const xLabels = points.map((item, index) => {
+      if (index % labelEvery !== 0 && index !== points.length - 1) return '';
+      return `<text class="executive-chart-x" x="${item.x.toFixed(1)}" y="${height - 12}" text-anchor="middle">${Number(item.key.slice(8))}일</text>`;
+    }).join('');
+    const revenuePoints = points.filter(item => item.count > 0).map(item => `<circle class="executive-chart-point revenue" cx="${item.x.toFixed(1)}" cy="${item.salesY.toFixed(1)}" r="3.5"><title>${esc(`${item.key} ${revenueLabel} ${formatWon(item.sales)}`)}</title></circle>`).join('');
+    const profitPoints = showCompanyProfit ? points.filter(item => item.count > 0 && item.companyProfit !== null).map(item => `<circle class="executive-chart-point profit" cx="${item.x.toFixed(1)}" cy="${yAt(item.companyProfit).toFixed(1)}" r="3.5"><title>${esc(`${item.key} 회사 영업이익 ${formatWon(item.companyProfit)}`)}</title></circle>`).join('') : '';
+    const hasRevenue = series.some(item => item.count > 0);
+    const accessibleSeries = points.filter(item => item.count > 0).map(item => {
+      const profit = showCompanyProfit
+        ? (item.companyProfit === null ? '회사 영업이익 확인 불가' : `회사 영업이익 ${formatWon(item.companyProfit)}`)
+        : '회사 영업이익 권한 제한';
+      return `${item.key}: ${revenueLabel} ${formatWon(item.sales)}, ${profit}`;
+    }).join(' / ') || '이번 달 등록된 정산 접수가 없습니다.';
+
+    return `<div class="executive-chart-canvas">
+      <svg class="executive-chart" data-dashboard-chart-svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(showCompanyProfit ? `${revenueLabel}과 회사 영업이익의 일별 추이` : `${revenueLabel} 일별 추이 · 회사 영업이익 권한 제한`)}">
+        <desc>${esc(accessibleSeries)}</desc>
+        <defs>
+          <linearGradient id="dashboardRevenueArea" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stop-color="#2f88d0" stop-opacity=".22"></stop>
+            <stop offset="1" stop-color="#2f88d0" stop-opacity="0"></stop>
+          </linearGradient>
+          <filter id="dashboardLineGlow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#2f88d0" flood-opacity=".16"></feDropShadow>
+          </filter>
+        </defs>
+        ${grid}
+        <line class="executive-chart-zero" x1="${margin.left}" y1="${zeroY.toFixed(1)}" x2="${width - margin.right}" y2="${zeroY.toFixed(1)}"></line>
+        ${areaPath ? `<path class="executive-chart-area" d="${areaPath}"></path>` : ''}
+        ${revenuePath ? `<path class="executive-chart-line revenue" d="${revenuePath}" filter="url(#dashboardLineGlow)"></path>` : ''}
+        ${profitSegments.map(items => `<path class="executive-chart-line profit" d="${items.map((item, index) => `${index ? 'L' : 'M'} ${item.x.toFixed(1)} ${item.profitY.toFixed(1)}`).join(' ')}"></path>`).join('')}
+        ${revenuePoints}${profitPoints}${xLabels}
+      </svg>
+      ${hasRevenue ? '' : '<div class="executive-chart-empty"><span>↗</span><strong>이번 달 매출 데이터가 없습니다</strong><small>정산서에 실제 접수가 등록되면 일별 추이가 표시됩니다.</small></div>'}
+    </div>`;
+  }
+
   function renderDashboard() {
+    if (isWorkspaceRoute() && activeWorkspaceSlug !== 'peak') {
+      dashboardView.innerHTML = `
+        <section class="panel" data-isolated-workspace-home>
+          <div class="panel-head">
+            <div><div class="panel-title">${esc(workspaceContext?.workspace?.name || '워크스페이스')} OS</div><div class="panel-subtitle">본사와 분리된 독립 워크스페이스</div></div>
+            <span class="module-chip live">격리됨</span>
+          </div>
+          <div class="live-list-empty">등록된 운영 데이터가 없습니다. 허용된 캘린더·채팅·프로젝트에서 새로 시작할 수 있습니다.</div>
+        </section>`;
+      return;
+    }
     const content = dashboardView.querySelector('.dashboard-grid .content-stack');
+    if (!content) return;
     const today = koreaDateKey(new Date());
     const monthPrefix = today.slice(0, 7);
-    const todayTodos = liveEvents.filter(event => event.type === 'todo' && event.date === today);
-    const monthEvents = liveEvents.filter(event => event.date.startsWith(monthPrefix));
-    const activeProjects = liveProjects.filter(project => ['active', 'planning', 'review'].includes(project.status));
-    const unreadTotal = Object.values(liveUnreadCounts).reduce((sum, value) => sum + Number(value || 0), 0);
+    // 계정 미리보기는 인증 사용자의 협업 저장소를 대신 조회하지 않는다.
+    // 전환 직후부터 할 일·프로젝트·채팅 지표를 모두 0으로 닫아 실제 계정의
+    // 제목이나 미확인 건수가 한 프레임도 섞이지 않게 한다.
+    const dashboardEvents = previewPersona ? [] : liveEvents;
+    const dashboardProjects = previewPersona ? [] : liveProjects;
+    const dashboardUnreadCounts = previewPersona ? {} : liveUnreadCounts;
+    const todayTodos = dashboardEvents.filter(event => event.type === 'todo'
+      && event.date === today
+      && event.scope !== 'team'
+      && String(event.ownerId || '') === String(currentUser?.uid || '')
+    ).sort(comparePersonalTodoEvents);
+    const activeProjects = dashboardProjects.filter(project => ['active', 'planning', 'review'].includes(project.status));
+    const reviewProjectCount = dashboardProjects.filter(project => project.status === 'review').length;
+    const unreadTotal = Object.values(dashboardUnreadCounts).reduce((sum, value) => sum + Number(value || 0), 0);
     const name = userDoc.name || currentUser.displayName || '사용자';
+    // 회사 원가와 전체 정산 원장이 모두 허용된 경우에만 회사 영업이익을 계산한다.
+    // 일반 사용자와 계정 미리보기에는 인증 사용자의 민감한 전체 원장을 절대 재사용하지 않는다.
+    const companyFinanceAllowed = !previewPersona && canSeeCompanyCost();
+    const companyFinanceReady = companyFinanceAllowed && finalIntakeLoadState.status === 'ready';
+    const companyFinancePending = companyFinanceAllowed && ['idle', 'loading'].includes(finalIntakeLoadState.status);
+    const financeRows = companyFinanceReady ? finalSettlementRows() : personalRows();
+    const monthFinanceRows = financeRows.filter(row => {
+      const date = String(row?.date || '').slice(0, 10);
+      return date.startsWith(monthPrefix) && date <= today && kindOf(row) !== 'reserve';
+    });
+    const financeSeries = dashboardFinanceSeries(monthFinanceRows, today, companyFinanceReady);
+    const hasFinanceRows = monthFinanceRows.length > 0;
+    const monthSales = financeSeries.reduce((sum, item) => sum + item.sales, 0);
+    const missingCompanyCost = companyFinanceReady
+      ? financeSeries.reduce((sum, item) => sum + item.missingCost, 0)
+      : 0;
+    const companyProfitComplete = companyFinanceReady && hasFinanceRows && missingCompanyCost === 0;
+    const monthCompanyProfit = companyProfitComplete
+      ? financeSeries.reduce((sum, item) => sum + Number(item.companyProfit || 0), 0)
+      : null;
+    const revenueLabel = companyFinanceReady
+      ? '본사 전체 매출'
+      : (previewPersona ? `${previewPersona} 매출` : '내 매출');
+    const financeScopeCopy = previewPersona
+      ? '미리보기 대상에게 허용된 본인 정산 범위'
+      : (companyFinanceReady ? '권한 범위 전체 정산 원장' : '현재 계정의 본인 정산 범위');
+    const profitStateCopy = companyFinanceReady
+      ? (!hasFinanceRows
+        ? '이번 달 정산 접수 없음'
+        : (missingCompanyCost
+        ? `회사 원가 미입력 ${missingCompanyCost.toLocaleString('ko-KR')}건 · 해당 날짜는 선을 끊어 표시`
+        : '판매가액에서 회사 공급가를 차감한 실제 값'))
+      : (companyFinancePending
+        ? '전체 정산 자료를 확인하는 중'
+        : (companyFinanceAllowed && finalIntakeLoadState.status === 'error'
+        ? '전체 정산 자료 조회 실패 · 회사 영업이익 미표시'
+        : '지정된 재무 권한 계정에만 표시'));
+    const currentMonthLabel = `${Number(monthPrefix.slice(5, 7))}월`;
+    const latestFinanceDate = monthFinanceRows.reduce((latest, row) => {
+      const date = String(row?.date || '').slice(0, 10);
+      return date > latest ? date : latest;
+    }, '');
+    const financeFreshness = latestFinanceDate
+      ? `${Number(latestFinanceDate.slice(5, 7))}/${Number(latestFinanceDate.slice(8, 10))}까지 집계`
+      : '이번 달 정산 접수 없음';
+    const financeState = companyFinanceReady
+      ? (!hasFinanceRows ? 'empty' : (missingCompanyCost ? 'partial' : 'complete'))
+      : 'restricted';
+    const profitStatus = companyFinanceReady
+      ? (!hasFinanceRows ? 'empty' : (missingCompanyCost ? 'partial' : 'verified'))
+      : 'locked';
     const todayRows = todayTodos.slice(0, 5).map(event => `
-      <div class="live-dashboard-row">
-        <span><strong>${esc(event.title)}</strong><small>${esc(event.ownerName || name)} · ${esc(formatTime(event.time))}</small></span>
-        <span>${event.done ? '완료' : '진행 중'}</span>
+      <div class="executive-list-row ${event.done ? 'done' : ''}">
+        <span class="executive-list-mark ${event.done ? 'done' : 'todo'}">${event.done ? '✓' : ''}</span>
+        <span class="executive-list-copy"><strong>${esc(event.title)}</strong><small>${esc(event.ownerName || name)} · ${esc(formatTime(event.time))}</small></span>
+        <span class="executive-list-state">${event.done ? '완료' : '진행 중'}</span>
       </div>`).join('');
     const projectRows = activeProjects.slice(0, 5).map(project => {
       const progress = projectProgress(project);
-      return `<button class="live-dashboard-row" type="button" data-project-detail="${esc(project.id)}" style="width:100%;border-left:0;border-right:0;border-top:0;background:transparent;text-align:left">
-        <span><strong>${esc(project.name)}</strong><small>${esc(project.owner_name || '담당 미지정')} · 업무 ${progress.done}/${progress.total}</small></span>
-        <span>${progress.percent}%</span>
+      return `<button class="executive-project-row" type="button" data-project-detail="${esc(project.id)}">
+        <span class="executive-project-copy"><strong>${esc(project.name)}</strong><small>${esc(project.owner_name || '담당 미지정')} · 업무 ${progress.done}/${progress.total}</small></span>
+        <span class="executive-project-progress"><span><i style="width:${Math.max(0, Math.min(100, progress.percent))}%"></i></span><strong>${progress.percent}%</strong></span>
       </button>`;
     }).join('');
 
     content.innerHTML = `
-      <section class="sales-context" aria-label="현재 계정 조회 범위">
-        <div class="sales-context-user">
-          <span class="sales-context-avatar">${esc(roleLabel(userDoc.role))}</span>
-          <span class="sales-context-copy">
-            <strong>${esc(userDoc.group_name || '소속 미지정')} · ${esc(name)}님</strong>
-            <small>${isWorkspaceRoute() && activeWorkspaceSlug !== 'peak' ? '현재 워크스페이스의 분리된 운영 데이터를 사용합니다' : '기존 파라곤과 같은 운영 데이터를 사용합니다'}</small>
-          </span>
+      <div class="executive-dashboard"
+        data-dashboard-finance-state="${financeState}"
+        data-dashboard-finance-scope="${previewPersona ? 'preview' : (companyFinanceReady ? 'company' : 'self')}"
+        data-dashboard-latest-date="${esc(latestFinanceDate)}">
+      <section class="executive-dashboard-hero" aria-label="대시보드 안내">
+        <div class="executive-dashboard-heading">
+          <span class="executive-dashboard-eyebrow"><i></i> LIVE BUSINESS OVERVIEW</span>
+          <h1>${esc(name)}님, 오늘의 흐름을 한눈에 확인하세요</h1>
+          <p>${esc(userDoc.group_name || '소속 미지정')} 운영 현황과 실제 정산 자료를 기준으로 정리했습니다.</p>
         </div>
-        ${previewPersona ? '<span class="readonly-badge" data-collab-readonly>계정 미리보기 · 읽기 전용</span>' : `<span class="collaboration-live-note">${isWorkspaceRoute() && activeWorkspaceSlug !== 'peak' ? '현재 워크스페이스 · 저장 가능' : '파라곤과 실시간 연동 · 저장 가능'}</span>`}
-      </section>
-
-      <section class="metric-grid" aria-label="운영 현황">
-        <article class="metric-card"><div class="metric-label"><span>오늘 할 일</span><span class="metric-icon">✓</span></div><div class="metric-value">${todayTodos.length}건</div><div class="metric-change">${todayTodos.filter(event => event.done).length}건 완료</div></article>
-        <article class="metric-card"><div class="metric-label"><span>이번 달 일정</span><span class="metric-icon">◫</span></div><div class="metric-value">${monthEvents.length}건</div><div class="metric-change">${monthEvents.filter(event => event.scope === 'team').length}건 팀 일정</div></article>
-        <article class="metric-card"><div class="metric-label"><span>진행 프로젝트</span><span class="metric-icon">▣</span></div><div class="metric-value">${activeProjects.length}개</div><div class="metric-change">${liveProjects.filter(project => project.status === 'review').length}개 확인 대기</div></article>
-        <article class="metric-card"><div class="metric-label"><span>읽지 않은 채팅</span><span class="metric-icon">◌</span></div><div class="metric-value">${unreadTotal}건</div><div class="metric-change neutral">참여 채팅방 ${liveChatRooms.length}개</div></article>
-      </section>
-
-      <section class="panel">
-        <div class="panel-head"><div><div class="panel-title">매출 · 정산 · 급여 · 세금</div><div class="panel-subtitle">재무 데이터 연결 상태</div></div><span class="readonly-badge">미연결</span></div>
-        <div class="section-body">
-          <div class="data-unavailable"><span class="data-unavailable-icon">₩</span><div><strong>아직 전달받은 실제 데이터가 없습니다</strong><p>예시 금액은 제거했습니다. 자료 구조와 권한 범위가 확정되면 해당 계정에 허용된 실제 값만 이 자리에 연결할 수 있습니다.</p></div></div>
+        <div class="executive-dashboard-scope">
+          <span class="executive-dashboard-date">${esc(formatDate(today, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' }))}</span>
+          ${previewPersona
+            ? '<span class="executive-dashboard-mode readonly" data-collab-readonly>계정 미리보기 · 읽기 전용</span>'
+            : '<span class="executive-dashboard-mode"><i></i> 운영 데이터 연결됨</span>'}
         </div>
       </section>
 
-      <div class="split-grid">
-        <section class="panel">
-          <div class="panel-head"><div><div class="panel-title">오늘 할 일</div><div class="panel-subtitle">${formatDate(today, { year: 'numeric', month: 'long', day: 'numeric' })}</div></div><button class="live-panel-link" type="button" data-go-view="todo">전체보기</button></div>
-          <div class="live-dashboard-list">${todayRows || '<div class="live-list-empty">오늘 등록된 할 일이 없습니다.</div>'}</div>
+      <section class="executive-metric-grid" aria-label="핵심 운영 지표">
+        <article class="executive-metric-card revenue">
+          <div class="executive-metric-top"><span>${esc(currentMonthLabel)} ${esc(revenueLabel)}</span><i>↗</i></div>
+          <strong>${hasFinanceRows ? esc(dashboardMoney(monthSales)) : '자료 없음'}</strong>
+          <small>실제 정산 접수 ${monthFinanceRows.length.toLocaleString('ko-KR')}건</small>
+        </article>
+        <article class="executive-metric-card profit ${companyProfitComplete ? '' : 'restricted'}">
+          <div class="executive-metric-top"><span>${esc(currentMonthLabel)} 회사 영업이익</span><i>${companyProfitComplete ? '⌁' : '⌑'}</i></div>
+          <strong>${companyProfitComplete ? esc(dashboardMoney(monthCompanyProfit)) : (companyFinanceReady ? (hasFinanceRows ? '확인 필요' : '자료 없음') : (companyFinancePending ? '불러오는 중' : '권한 제한'))}</strong>
+          <small>${esc(profitStateCopy)}</small>
+        </article>
+        <article class="executive-metric-card tasks">
+          <div class="executive-metric-top"><span>오늘 할 일</span><i>✓</i></div>
+          <strong>${todayTodos.length.toLocaleString('ko-KR')}건</strong>
+          <small>${todayTodos.filter(event => event.done).length.toLocaleString('ko-KR')}건 완료 · ${Math.max(0, todayTodos.length - todayTodos.filter(event => event.done).length).toLocaleString('ko-KR')}건 남음</small>
+        </article>
+        <article class="executive-metric-card projects">
+          <div class="executive-metric-top"><span>진행 프로젝트</span><i>◇</i></div>
+          <strong>${activeProjects.length.toLocaleString('ko-KR')}개</strong>
+          <small>확인 대기 ${reviewProjectCount.toLocaleString('ko-KR')}개 · 읽지 않은 채팅 ${unreadTotal.toLocaleString('ko-KR')}건</small>
+        </article>
+      </section>
+
+      <section class="executive-chart-card" data-dashboard-finance-chart>
+        <header class="executive-card-head">
+          <div data-dashboard-period="month">
+            <span class="executive-card-kicker">${esc(currentMonthLabel)} DAILY TREND</span>
+            <h2>일별 매출 · 영업이익 추이</h2>
+            <p data-dashboard-freshness data-latest-date="${esc(latestFinanceDate)}">${esc(financeScopeCopy)} · ${esc(financeFreshness)} · 정산 접수 원장 기준</p>
+          </div>
+          <div class="executive-chart-legend" aria-label="그래프 범례">
+            <span class="revenue" data-dashboard-series="revenue"><i></i>일별 매출 추이 <small>(${esc(revenueLabel)})</small></span>
+            <span class="profit ${companyFinanceReady ? '' : 'locked'}" data-dashboard-series="company-profit"><i></i>일별 영업이익 추이${companyFinanceReady ? '' : ' · 잠금'}</span>
+          </div>
+        </header>
+        <div class="executive-chart-body">
+          ${dashboardChartMarkup(financeSeries, { showCompanyProfit: companyFinanceReady, revenueLabel })}
+          <div class="executive-chart-note ${profitStatus === 'partial' ? 'warning' : profitStatus}" data-dashboard-profit-status="${profitStatus}">
+            <span>${profitStatus === 'partial' ? '!' : (profitStatus === 'verified' ? '✓' : '⌑')}</span>
+            <p><strong>${profitStatus === 'partial' ? '회사 영업이익 일부 확인 필요' : (profitStatus === 'verified' ? '회사 이익 산식 확인됨' : (profitStatus === 'empty' ? '이번 달 정산 접수 없음' : '회사 영업이익 비공개'))}</strong><small>${esc(profitStateCopy)}</small></p>
+          </div>
+        </div>
+      </section>
+
+      <div class="executive-bottom-grid">
+        <section class="executive-compact-card">
+          <header class="executive-card-head compact"><div><span class="executive-card-kicker">TODAY</span><h2>오늘 할 일</h2><p>${esc(formatDate(today, { month: 'long', day: 'numeric', weekday: 'short' }))}</p></div><button type="button" data-go-view="todo">전체보기 <span>→</span></button></header>
+          <div class="executive-list">${todayRows || '<div class="executive-empty"><span>✓</span><strong>오늘 등록된 할 일이 없습니다</strong><small>할 일 탭에서 오늘의 우선순위를 정해 보세요.</small></div>'}</div>
         </section>
-        <section class="panel">
-          <div class="panel-head"><div><div class="panel-title">진행 중인 프로젝트</div><div class="panel-subtitle">내 권한으로 조회 가능한 프로젝트</div></div><button class="live-panel-link" type="button" data-go-view="review">전체보기</button></div>
-          <div class="live-dashboard-list">${projectRows || '<div class="live-list-empty">진행 중인 프로젝트가 없습니다.</div>'}</div>
+        <section class="executive-compact-card">
+          <header class="executive-card-head compact"><div><span class="executive-card-kicker">PROJECT FLOW</span><h2>진행 중인 프로젝트</h2><p>내 권한으로 조회 가능한 업무</p></div><button type="button" data-go-view="review">전체보기 <span>→</span></button></header>
+          <div class="executive-project-list">${projectRows || '<div class="executive-empty"><span>◇</span><strong>진행 중인 프로젝트가 없습니다</strong><small>프로젝트를 만들면 진행률이 여기에 표시됩니다.</small></div>'}</div>
         </section>
+      </div>
       </div>`;
 
     content.querySelectorAll('[data-go-view]').forEach(button => button.addEventListener('click', () => activateView(button.dataset.goView)));
@@ -3260,11 +3533,7 @@
       && String(event.ownerId || '') === String(currentUser?.uid || '')
     );
     if (previewPersona) items = [];
-    const byPriority = (a, b) => Number(Boolean(a.done)) - Number(Boolean(b.done))
-      || Number(a.sortOrder || 0) - Number(b.sortOrder || 0)
-      || String(a.time || '99:99').localeCompare(String(b.time || '99:99'))
-      || String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
-      || String(a.title || '').localeCompare(String(b.title || ''), 'ko');
+    const byPriority = comparePersonalTodoEvents;
     items = [...items].sort(byPriority);
     const openItems = items.filter(event => !event.done);
     const done = items.length - openItems.length;
@@ -7240,11 +7509,14 @@
   // ── 시트접수 ────────────────────────────────────────────────
 
   async function loadIntakeDraft() {
+    const generation = intakeLoadGeneration;
+    const persona = previewPersona;
     if (previewPersona) {
       // 대표 계정이면 그 사람의 실제 접수를 서버에서 가져와 보여 준다.
       if (canPreviewRealData()) {
         try {
           const rows = await readOnlyApi(`/peakos/intake?owner=${encodeURIComponent(previewPersona)}`);
+          if (generation !== intakeLoadGeneration || persona !== previewPersona) return false;
           intakeDraft = Array.isArray(rows) ? rows : [];
           return;
         } catch (error) {
@@ -7252,13 +7524,15 @@
         }
       }
       // 볼 수 없는 사람이면 화면만 흉내내고 데이터는 비운다.
-      intakeDraft = [];
+      if (generation === intakeLoadGeneration && persona === previewPersona) intakeDraft = [];
       return;
     }
     try {
       const rows = await readOnlyApi('/peakos/intake');
+      if (generation !== intakeLoadGeneration || persona !== previewPersona) return false;
       intakeDraft = Array.isArray(rows) ? rows : [];
     } catch (error) {
+      if (generation !== intakeLoadGeneration || persona !== previewPersona) return false;
       console.error('접수 불러오기 실패:', error.message);
       intakeDraft = [];
       showToast('접수를 불러오지 못했습니다. 새로고침해 주세요.');
@@ -7266,6 +7540,8 @@
   }
 
   async function loadFinalIntakeRows() {
+    const generation = intakeLoadGeneration;
+    const persona = previewPersona;
     if (previewPersona || !canSeeFinalSettlement()) {
       finalIntakeRows = [];
       finalIntakeLoadState = { status: 'idle', error: '' };
@@ -7274,10 +7550,12 @@
     finalIntakeLoadState = { status: 'loading', error: '' };
     try {
       const rows = await readOnlyApi('/peakos/intake?scope=all');
+      if (generation !== intakeLoadGeneration || persona !== previewPersona) return false;
       if (!Array.isArray(rows)) throw new Error('전체 정산 응답 형식이 올바르지 않습니다.');
       finalIntakeRows = rows;
       finalIntakeLoadState = { status: 'ready', error: '' };
     } catch (error) {
+      if (generation !== intakeLoadGeneration || persona !== previewPersona) return false;
       console.error('최종정산 전체 접수 불러오기 실패:', error.message);
       finalIntakeRows = [];
       finalIntakeLoadState = { status: 'error', error: error.message || '전체 접수를 불러오지 못했습니다.' };
@@ -7289,10 +7567,14 @@
       bankMatchReviewRows = [];
       return;
     }
+    const generation = intakeLoadGeneration;
+    const persona = previewPersona;
     const [rowsResult, bankStatusResult] = await Promise.allSettled([
       readOnlyApi('/peakos/intake?scope=all'),
       readOnlyApi('/peakos/bank/accounts'),
     ]);
+    if (generation !== intakeLoadGeneration || persona !== previewPersona
+        || previewPersona || !canReviewCreditRequests()) return false;
     bankMatchReviewRows = rowsResult.status === 'fulfilled' && Array.isArray(rowsResult.value)
       ? rowsResult.value
       : [];
@@ -7304,26 +7586,32 @@
   // 실패한 낙관적 변경이 입금체크·세금 탭으로 번지는 일을 막는다.
   async function reloadIntakeAfterWriteFailure() {
     if (previewPersona) return false;
+    const generation = intakeLoadGeneration;
+    const persona = previewPersona;
     const ownRequest = readOnlyApi('/peakos/intake');
     const needsAllSnapshot = canSeeFinalSettlement() || canReviewFinanceRequests();
     const finalRequest = needsAllSnapshot
       ? readOnlyApi('/peakos/intake?scope=all')
       : Promise.resolve(null);
     const [ownResult, finalResult] = await Promise.allSettled([ownRequest, finalRequest]);
+    if (generation !== intakeLoadGeneration || persona !== previewPersona || previewPersona) return false;
     if (ownResult.status === 'fulfilled' && Array.isArray(ownResult.value)) {
       intakeDraft = ownResult.value;
     } else if (ownResult.status === 'rejected') {
       console.error('접수 원본 재조회 실패:', ownResult.reason?.message || ownResult.reason);
     }
-    if (needsAllSnapshot && finalResult.status === 'fulfilled' && Array.isArray(finalResult.value)) {
-      if (canSeeFinalSettlement()) {
+    const canSeeAllNow = canSeeFinalSettlement();
+    const canReviewNow = canReviewFinanceRequests();
+    if (needsAllSnapshot && (canSeeAllNow || canReviewNow)
+        && finalResult.status === 'fulfilled' && Array.isArray(finalResult.value)) {
+      if (canSeeAllNow) {
         finalIntakeRows = finalResult.value;
         finalIntakeLoadState = { status: 'ready', error: '' };
       }
-      if (canReviewFinanceRequests()) bankMatchReviewRows = finalResult.value;
+      if (canReviewNow) bankMatchReviewRows = finalResult.value;
     } else {
-      if (canReviewFinanceRequests()) bankMatchReviewRows = [];
-      if (canSeeFinalSettlement()) {
+      if (canReviewNow) bankMatchReviewRows = [];
+      if (canSeeAllNow) {
         finalIntakeRows = [];
         finalIntakeLoadState = {
           status: 'error',
@@ -7406,9 +7694,15 @@
     if (canReviewFinanceRequests()) bankMatchReviewRows = updateSnapshot(bankMatchReviewRows);
   }
 
+  function intakeContextIsCurrent(generation, persona) {
+    return generation === intakeLoadGeneration && persona === previewPersona;
+  }
+
   // 화면에서 바꾼 건을 서버에 반영한다. 호출부는 true를 받은 뒤에만
   // 메모리·화면·성공 토스트를 갱신해야 한다.
   async function saveIntakeRows(rows, { action = 'business', create = false } = {}) {
+    const generation = intakeLoadGeneration;
+    const persona = previewPersona;
     if (previewPersona) {
       showToast(`${previewPersona} 계정 미리보기 중에는 저장되지 않습니다.`);
       return false;
@@ -7450,17 +7744,25 @@
       const canonical = [];
       if (creates.length) {
         const created = await callApi('POST', '/peakos/intake', { rows: creates.map(intakeCreatePayload) });
+        if (!intakeContextIsCurrent(generation, persona) || previewPersona || !intakeMutableFields(action).length) return false;
         canonical.push(...confirmedVersionedRows(created, creates.length, '접수 등록'));
       }
       if (updates.length) {
+        if (!intakeContextIsCurrent(generation, persona) || previewPersona || !intakeMutableFields(action).length) return false;
         const updated = await callApi('PATCH', '/peakos/intake', { action, rows: updates });
+        if (!intakeContextIsCurrent(generation, persona) || previewPersona || !intakeMutableFields(action).length) return false;
         canonical.push(...confirmedVersionedRows(updated, updates.length, '접수 수정'));
       }
+      if (!intakeContextIsCurrent(generation, persona) || previewPersona || !intakeMutableFields(action).length) return false;
       if (canonical.length) applyCanonicalIntakeRows(canonical);
       return true;
     } catch (error) {
+      // 다른 계정·미리보기로 넘어간 뒤 도착한 성공/실패 응답은 현재 화면의
+      // 원장이나 토스트에 반영하지 않는다.
+      if (!intakeContextIsCurrent(generation, persona) || previewPersona) return false;
       console.error('접수 저장 실패:', error.message);
       const restored = await reloadIntakeAfterWriteFailure();
+      if (!intakeContextIsCurrent(generation, persona) || previewPersona) return false;
       const conflict = error.status === 409 && error.code === 'INTAKE_VERSION_CONFLICT'
         ? '다른 작업자가 먼저 수정했습니다. 최신 서버 데이터로 다시 불러왔습니다.'
         : error.status === 409
@@ -7474,6 +7776,8 @@
   }
 
   async function removeIntakeRow(id) {
+    const generation = intakeLoadGeneration;
+    const persona = previewPersona;
     if (previewPersona) {
       showToast(`${previewPersona} 계정 미리보기 중에는 지울 수 없습니다.`);
       return false;
@@ -7486,10 +7790,13 @@
       await callApi('DELETE', `/peakos/intake/${encodeURIComponent(id)}`, {
         expectedRowVersion: Number(row.rowVersion)
       });
+      if (!intakeContextIsCurrent(generation, persona) || previewPersona) return false;
       return true;
     } catch (error) {
+      if (!intakeContextIsCurrent(generation, persona) || previewPersona) return false;
       console.error('접수 삭제 실패:', error.message);
       const restored = await reloadIntakeAfterWriteFailure();
+      if (!intakeContextIsCurrent(generation, persona) || previewPersona) return false;
       const conflict = error.status === 409 && error.code === 'INTAKE_FINANCE_CONFIRMED'
         ? '입금·공급처 지급이 확정된 행은 삭제할 수 없습니다. 재무 역분개 후 처리하세요.'
         : error.status === 409 && error.code === 'INTAKE_RELATION_PARENT'
@@ -12937,6 +13244,9 @@
       renderPlannedModule('deposit-check');
     }));
     moduleView.querySelectorAll('[data-bank-match-eligibility]').forEach(button => button.addEventListener('click', async () => {
+      const generation = intakeLoadGeneration;
+      const persona = previewPersona;
+      if (previewPersona || !canReviewCreditRequests()) return;
       const eligible = button.dataset.bankMatchNext === 'true';
       const original = reviewedIntakeRows().find(row => String(row.id || '') === String(button.dataset.bankMatchEligibility || ''));
       if (!original || !Number.isInteger(original.rowVersion) || original.rowVersion < 1) {
@@ -12959,6 +13269,7 @@
               : '재무 담당자 자동 입금확인 대상 검토 해제'
           },
         );
+        if (!intakeContextIsCurrent(generation, persona) || previewPersona || !canReviewCreditRequests()) return;
         if (String(result?.id || '') !== String(original.id || '')
           || !Number.isInteger(result?.rowVersion)
           || result.rowVersion < 1) {
@@ -12975,9 +13286,11 @@
         renderPlannedModule('deposit-check');
         showToast(eligible ? '자동 입금확인 대상으로 확정했습니다.' : '자동 입금확인 대상에서 해제했습니다.');
       } catch (error) {
+        if (!intakeContextIsCurrent(generation, persona) || previewPersona || !canReviewCreditRequests()) return;
         button.disabled = false;
         if (error.status === 409 || error.status === 404 || error.code === 'ROW_VERSION_REQUIRED') {
           await reloadIntakeAfterWriteFailure();
+          if (!intakeContextIsCurrent(generation, persona) || previewPersona || !canReviewCreditRequests()) return;
         }
         showToast(error.status === 409
           ? '다른 작업자가 먼저 수정했습니다. 최신 서버 데이터로 다시 불러왔습니다.'
@@ -13835,7 +14148,7 @@
     newProjectsView.hidden = view !== 'new-projects';
     moduleView.hidden = !isPlannedModule;
     permissionsView.hidden = view !== 'permissions';
-    const labels = { dashboard: '피크마케팅', calendar: '캘린더', chat: '채팅', todo: '할 일', review: '프로젝트', 'new-projects': '신규 프로젝트', permissions: '조직 및 권한', ...PLANNED_MODULES };
+    const labels = { dashboard: '대시보드', calendar: '캘린더', chat: '채팅', todo: '할 일', review: '프로젝트', 'new-projects': '신규 프로젝트', permissions: '조직 및 권한', ...PLANNED_MODULES };
     pageCrumb.textContent = labels[view] || '피크마케팅';
     document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === view));
     const activeNav = document.querySelector(`.app-sidebar .nav-item[data-view="${view}"]`);

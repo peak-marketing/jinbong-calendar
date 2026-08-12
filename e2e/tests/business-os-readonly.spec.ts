@@ -223,7 +223,8 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('#sidebarTabSearch').fill('');
     await expect(page.locator('[data-nav-cluster="tax-banking"]')).toHaveClass(/closed/);
     await expect(page.locator('#dashboardView')).toContainText('오늘 운영 업무');
-    await expect(page.locator('#dashboardView')).toContainText('아직 전달받은 실제 데이터가 없습니다');
+    await expect(page.locator('#dashboardView [data-dashboard-finance-state="empty"]')).toHaveCount(1);
+    await expect(page.locator('#dashboardView')).toContainText('이번 달 매출 데이터가 없습니다');
     await expect(page.locator('#dashboardView')).not.toContainText('₩ 4,820만');
 
     await page.locator('[data-nav-cluster="main"] > .nav-cluster-toggle').click();
