@@ -415,6 +415,377 @@
   .executive-project-progress { grid-template-columns: minmax(0, 1fr) 32px; }
 }
 
+/* ── Compact matte dashboard v2 ──────────────────────────────────────────
+   큰 환영 영역과 독립 카드 나열을 없애고, 평면적인 운영 콘솔처럼 정보를
+   조밀하게 배치한다. 차트의 파랑/빨강만 의미색으로 유지한다. */
+.executive-dashboard {
+  --dashboard-blue: #507693;
+  --dashboard-blue-deep: #3f607b;
+  --dashboard-red: #ad6266;
+  --dashboard-ink: #273138;
+  --dashboard-muted: #697176;
+  gap: 12px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.executive-dashboard-hero {
+  min-height: 76px;
+  gap: 20px;
+  padding: 13px 17px;
+  border-color: #d9ddda;
+  border-radius: 8px;
+  background: #f4f3ef;
+}
+
+.executive-dashboard-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 13px;
+  row-gap: 2px;
+}
+
+.executive-dashboard-eyebrow {
+  grid-row: 1 / span 2;
+  min-height: 36px;
+  padding: 0 11px;
+  border-right: 1px solid #d4d8d5;
+  color: #6b7276;
+  font-size: 8px;
+  letter-spacing: .1em;
+}
+
+.executive-dashboard-eyebrow i { background: #728578; }
+
+.executive-dashboard-heading h1 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
+  letter-spacing: -.035em;
+}
+
+.executive-dashboard-heading p {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.3;
+}
+
+.executive-dashboard-scope {
+  display: flex;
+  align-items: center;
+  justify-items: initial;
+  gap: 9px;
+}
+
+.executive-dashboard-date {
+  font-size: 9px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.executive-dashboard-mode {
+  min-height: 28px;
+  padding: 0 10px;
+  border-color: #d0d5d2;
+  border-radius: 6px;
+  background: #faf9f5;
+  font-size: 8px;
+}
+
+.executive-metric-grid.executive-metric-strip {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid #d9ddda;
+  border-radius: 8px;
+  background: #faf9f6;
+}
+
+.executive-metric-strip .executive-metric-card {
+  min-height: 94px;
+  padding: 13px 16px 12px;
+  border: 0;
+  border-left: 1px solid #e0e2df;
+  border-radius: 0;
+  background: transparent;
+}
+
+.executive-metric-strip .executive-metric-card:first-child { border-left: 0; }
+
+.executive-metric-strip .executive-metric-top {
+  justify-content: flex-start;
+  gap: 8px;
+  font-size: 9px;
+}
+
+.executive-metric-strip .executive-metric-top > i {
+  order: -1;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 5px;
+  background: #e9edef;
+  font-size: 10px;
+}
+
+.executive-metric-strip .executive-metric-card.profit .executive-metric-top > i { border: 0; background: #efe7e6; }
+.executive-metric-strip .executive-metric-card.tasks .executive-metric-top > i { border: 0; background: #e8ece8; }
+.executive-metric-strip .executive-metric-card.projects .executive-metric-top > i { border: 0; background: #eceaed; }
+
+.executive-metric-strip .executive-metric-card > strong {
+  margin-top: 7px;
+  font-size: clamp(18px, 1.65vw, 23px);
+}
+
+.executive-metric-strip .executive-metric-card.restricted > strong { font-size: 17px; }
+
+.executive-metric-strip .executive-metric-card > small {
+  min-height: 0;
+  margin-top: 3px;
+  overflow: hidden;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.executive-main-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 29%);
+  gap: 12px;
+  min-width: 0;
+  align-items: stretch;
+}
+
+.executive-chart-card,
+.executive-compact-card {
+  border-color: #d9ddda;
+  border-radius: 8px;
+  background: #faf9f6;
+}
+
+.executive-chart-card {
+  display: grid;
+  min-height: 488px;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.executive-card-head {
+  gap: 18px;
+  padding: 15px 17px 12px;
+  border-bottom-color: #e1e3e0;
+}
+
+.executive-card-kicker {
+  margin-bottom: 4px;
+  color: #657580;
+  font-size: 7px;
+  letter-spacing: .1em;
+}
+
+.executive-card-head h2 { font-size: 14px; }
+.executive-card-head p { margin-top: 4px; font-size: 8px; }
+
+.executive-chart-legend {
+  gap: 12px;
+  padding-top: 3px;
+  font-size: 8px;
+}
+
+.executive-chart-legend small { font-size: 7px; }
+.executive-chart-legend i { width: 15px; height: 2px; }
+
+.executive-chart-body {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto;
+  padding: 8px 14px 13px;
+}
+
+.executive-chart-canvas { min-height: 335px; }
+.executive-chart { min-width: 680px; }
+.executive-chart-grid line { stroke: #e4e5e2; }
+.executive-chart-area { fill: rgba(79, 113, 144, .065); }
+.executive-chart-line { stroke-width: 2.5; }
+.executive-chart-point { stroke: #faf9f6; }
+
+.executive-chart-note {
+  min-height: 42px;
+  margin-top: 3px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #eff1ed;
+}
+
+.executive-chart-note > span {
+  width: 23px;
+  height: 23px;
+  border: 0;
+  border-radius: 5px;
+  background: #f9f8f4;
+  font-size: 9px;
+}
+
+.executive-chart-note strong { font-size: 9px; }
+.executive-chart-note small { font-size: 7px; }
+
+.executive-operations-rail {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.executive-operations-rail .executive-compact-card {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.executive-card-head.compact {
+  padding: 13px 14px 10px;
+}
+
+.executive-card-head.compact h2 { font-size: 12px; }
+.executive-card-head.compact > button {
+  min-height: 28px;
+  padding: 0 8px;
+  border-color: #d1d7d8;
+  border-radius: 5px;
+  background: #f4f4f0;
+  font-size: 8px;
+}
+
+.executive-list,
+.executive-project-list { padding: 2px 13px 7px; }
+
+.executive-list-row {
+  min-height: 47px;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.executive-list-mark {
+  width: 19px;
+  height: 19px;
+  border-radius: 5px;
+  font-size: 8px;
+}
+
+.executive-list-copy strong,
+.executive-project-copy strong { font-size: 9px; }
+.executive-list-copy small,
+.executive-project-copy small { margin-top: 3px; font-size: 7px; }
+.executive-list-state { padding: 3px 5px; border-radius: 4px; font-size: 7px; }
+
+.executive-project-row {
+  min-height: 47px;
+  grid-template-columns: minmax(0, 1fr) minmax(82px, 35%);
+  gap: 10px;
+}
+
+.executive-project-progress { grid-template-columns: minmax(0, 1fr) 25px; gap: 5px; }
+.executive-project-progress > span { height: 4px; }
+.executive-project-progress strong { font-size: 8px; }
+
+.executive-empty {
+  min-height: 154px;
+  padding: 18px 10px;
+}
+
+.executive-empty > span {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: #eceeeb;
+  font-size: 12px;
+}
+
+.executive-empty strong { margin-top: 8px; font-size: 9px; }
+.executive-empty small { margin-top: 4px; font-size: 7px; }
+
+@media (max-width: 1280px) {
+  .executive-main-grid { grid-template-columns: minmax(0, 1fr); }
+  .executive-chart-card { min-height: 470px; }
+  .executive-operations-rail { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: minmax(220px, auto); }
+}
+
+@media (max-width: 900px) {
+  .executive-dashboard-hero {
+    min-height: 0;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .executive-dashboard-scope { width: 100%; justify-content: flex-end; }
+  .executive-metric-grid.executive-metric-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .executive-metric-strip .executive-metric-card:nth-child(3) { border-left: 0; }
+  .executive-metric-strip .executive-metric-card:nth-child(n + 3) { border-top: 1px solid #e0e2df; }
+}
+
+@media (max-width: 760px) {
+  .executive-dashboard-hero {
+    min-height: 0;
+    align-items: stretch;
+    gap: 10px;
+    padding: 13px 14px;
+    border-radius: 7px;
+  }
+
+  .executive-dashboard-heading {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 3px;
+  }
+
+  .executive-dashboard-eyebrow {
+    grid-row: auto;
+    min-height: 0;
+    padding: 0;
+    border-right: 0;
+  }
+
+  .executive-dashboard-heading h1 { font-size: 17px; }
+  .executive-dashboard-heading p { font-size: 8px; }
+  .executive-dashboard-scope { width: 100%; justify-content: space-between; }
+  .executive-dashboard-mode { min-height: 28px; }
+
+  .executive-metric-strip .executive-metric-card {
+    min-height: 88px;
+    padding: 11px 12px 10px;
+    border-radius: 0;
+  }
+
+  .executive-metric-strip .executive-metric-top { font-size: 8px; }
+  .executive-metric-strip .executive-metric-top > i { width: 20px; height: 20px; }
+  .executive-metric-strip .executive-metric-card > strong { margin-top: 6px; font-size: 17px; }
+  .executive-metric-strip .executive-metric-card.restricted > strong { font-size: 14px; }
+  .executive-metric-strip .executive-metric-card > small { font-size: 7px; }
+
+  .executive-chart-card { min-height: 420px; border-radius: 7px; }
+  .executive-card-head { gap: 10px; padding: 13px 12px 10px; }
+  .executive-card-head h2 { font-size: 13px; }
+  .executive-chart-legend { gap: 9px; }
+  .executive-chart-body { padding: 7px 8px 10px; }
+  .executive-chart-canvas { min-height: 265px; }
+  .executive-chart { min-width: 620px; }
+  .executive-chart-note { margin-top: 6px; }
+
+  .executive-operations-rail {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(2, minmax(190px, auto));
+    gap: 10px;
+  }
+
+  .executive-compact-card { border-radius: 7px; }
+  .executive-card-head.compact { padding: 12px 12px 9px; }
+  .executive-card-head.compact > button { min-width: 44px; min-height: 44px; }
+  .executive-list-row { min-height: 54px; grid-template-columns: 28px minmax(0, 1fr) auto; }
+  .executive-list-mark { width: 25px; height: 25px; }
+  .executive-project-row { min-height: 56px; padding-block: 6px; }
+}
+
 .auth-gate[hidden] { display: none; }
 
 .auth-card {

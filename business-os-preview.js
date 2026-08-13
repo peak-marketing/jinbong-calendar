@@ -3008,13 +3008,13 @@
     const profitStatus = companyFinanceReady
       ? (!hasFinanceRows ? 'empty' : (missingCompanyCost ? 'partial' : 'verified'))
       : 'locked';
-    const todayRows = todayTodos.slice(0, 5).map(event => `
+    const todayRows = todayTodos.slice(0, 3).map(event => `
       <div class="executive-list-row ${event.done ? 'done' : ''}">
         <span class="executive-list-mark ${event.done ? 'done' : 'todo'}">${event.done ? '✓' : ''}</span>
         <span class="executive-list-copy"><strong>${esc(event.title)}</strong><small>${esc(event.ownerName || name)} · ${esc(formatTime(event.time))}</small></span>
         <span class="executive-list-state">${event.done ? '완료' : '진행 중'}</span>
       </div>`).join('');
-    const projectRows = activeProjects.slice(0, 5).map(project => {
+    const projectRows = activeProjects.slice(0, 3).map(project => {
       const progress = projectProgress(project);
       return `<button class="executive-project-row" type="button" data-project-detail="${esc(project.id)}">
         <span class="executive-project-copy"><strong>${esc(project.name)}</strong><small>${esc(project.owner_name || '담당 미지정')} · 업무 ${progress.done}/${progress.total}</small></span>
@@ -3027,11 +3027,11 @@
         data-dashboard-finance-state="${financeState}"
         data-dashboard-finance-scope="${previewPersona ? 'preview' : (companyFinanceReady ? 'company' : 'self')}"
         data-dashboard-latest-date="${esc(latestFinanceDate)}">
-      <section class="executive-dashboard-hero" aria-label="대시보드 안내">
+      <section class="executive-dashboard-hero" aria-label="대시보드 현황">
         <div class="executive-dashboard-heading">
-          <span class="executive-dashboard-eyebrow"><i></i> LIVE BUSINESS OVERVIEW</span>
-          <h1>${esc(name)}님, 오늘의 흐름을 한눈에 확인하세요</h1>
-          <p>${esc(userDoc.group_name || '소속 미지정')} 운영 현황과 실제 정산 자료를 기준으로 정리했습니다.</p>
+          <span class="executive-dashboard-eyebrow"><i></i> PEAK OS / DASHBOARD</span>
+          <h1>운영 대시보드</h1>
+          <p>${esc(userDoc.group_name || '소속 미지정')} · ${esc(name)}</p>
         </div>
         <div class="executive-dashboard-scope">
           <span class="executive-dashboard-date">${esc(formatDate(today, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' }))}</span>
@@ -3041,7 +3041,7 @@
         </div>
       </section>
 
-      <section class="executive-metric-grid" aria-label="핵심 운영 지표">
+      <section class="executive-metric-grid executive-metric-strip" aria-label="핵심 운영 지표">
         <article class="executive-metric-card revenue">
           <div class="executive-metric-top"><span>${esc(currentMonthLabel)} ${esc(revenueLabel)}</span><i>↗</i></div>
           <strong>${hasFinanceRows ? esc(dashboardMoney(monthSales)) : '자료 없음'}</strong>
@@ -3064,36 +3064,38 @@
         </article>
       </section>
 
-      <section class="executive-chart-card" data-dashboard-finance-chart>
-        <header class="executive-card-head">
-          <div data-dashboard-period="month">
-            <span class="executive-card-kicker">${esc(currentMonthLabel)} DAILY TREND</span>
-            <h2>일별 매출 · 영업이익 추이</h2>
-            <p data-dashboard-freshness data-latest-date="${esc(latestFinanceDate)}">${esc(financeScopeCopy)} · ${esc(financeFreshness)} · 정산 접수 원장 기준</p>
+      <div class="executive-main-grid">
+        <section class="executive-chart-card" data-dashboard-finance-chart>
+          <header class="executive-card-head">
+            <div data-dashboard-period="month">
+              <span class="executive-card-kicker">${esc(currentMonthLabel)} DAILY TREND</span>
+              <h2>일별 매출 · 영업이익 추이</h2>
+              <p data-dashboard-freshness data-latest-date="${esc(latestFinanceDate)}">${esc(financeScopeCopy)} · ${esc(financeFreshness)} · 정산 접수 원장 기준</p>
+            </div>
+            <div class="executive-chart-legend" aria-label="그래프 범례">
+              <span class="revenue" data-dashboard-series="revenue"><i></i>일별 매출 추이 <small>(${esc(revenueLabel)})</small></span>
+              <span class="profit ${companyFinanceReady ? '' : 'locked'}" data-dashboard-series="company-profit"><i></i>일별 영업이익 추이${companyFinanceReady ? '' : ' · 잠금'}</span>
+            </div>
+          </header>
+          <div class="executive-chart-body">
+            ${dashboardChartMarkup(financeSeries, { showCompanyProfit: companyFinanceReady, revenueLabel })}
+            <div class="executive-chart-note ${profitStatus === 'partial' ? 'warning' : profitStatus}" data-dashboard-profit-status="${profitStatus}">
+              <span>${profitStatus === 'partial' ? '!' : (profitStatus === 'verified' ? '✓' : '⌑')}</span>
+              <p><strong>${profitStatus === 'partial' ? '회사 영업이익 일부 확인 필요' : (profitStatus === 'verified' ? '회사 이익 산식 확인됨' : (profitStatus === 'empty' ? '이번 달 정산 접수 없음' : '회사 영업이익 비공개'))}</strong><small>${esc(profitStateCopy)}</small></p>
+            </div>
           </div>
-          <div class="executive-chart-legend" aria-label="그래프 범례">
-            <span class="revenue" data-dashboard-series="revenue"><i></i>일별 매출 추이 <small>(${esc(revenueLabel)})</small></span>
-            <span class="profit ${companyFinanceReady ? '' : 'locked'}" data-dashboard-series="company-profit"><i></i>일별 영업이익 추이${companyFinanceReady ? '' : ' · 잠금'}</span>
-          </div>
-        </header>
-        <div class="executive-chart-body">
-          ${dashboardChartMarkup(financeSeries, { showCompanyProfit: companyFinanceReady, revenueLabel })}
-          <div class="executive-chart-note ${profitStatus === 'partial' ? 'warning' : profitStatus}" data-dashboard-profit-status="${profitStatus}">
-            <span>${profitStatus === 'partial' ? '!' : (profitStatus === 'verified' ? '✓' : '⌑')}</span>
-            <p><strong>${profitStatus === 'partial' ? '회사 영업이익 일부 확인 필요' : (profitStatus === 'verified' ? '회사 이익 산식 확인됨' : (profitStatus === 'empty' ? '이번 달 정산 접수 없음' : '회사 영업이익 비공개'))}</strong><small>${esc(profitStateCopy)}</small></p>
-          </div>
-        </div>
-      </section>
+        </section>
 
-      <div class="executive-bottom-grid">
-        <section class="executive-compact-card">
-          <header class="executive-card-head compact"><div><span class="executive-card-kicker">TODAY</span><h2>오늘 할 일</h2><p>${esc(formatDate(today, { month: 'long', day: 'numeric', weekday: 'short' }))}</p></div><button type="button" data-go-view="todo">전체보기 <span>→</span></button></header>
-          <div class="executive-list">${todayRows || '<div class="executive-empty"><span>✓</span><strong>오늘 등록된 할 일이 없습니다</strong><small>할 일 탭에서 오늘의 우선순위를 정해 보세요.</small></div>'}</div>
-        </section>
-        <section class="executive-compact-card">
-          <header class="executive-card-head compact"><div><span class="executive-card-kicker">PROJECT FLOW</span><h2>진행 중인 프로젝트</h2><p>내 권한으로 조회 가능한 업무</p></div><button type="button" data-go-view="review">전체보기 <span>→</span></button></header>
-          <div class="executive-project-list">${projectRows || '<div class="executive-empty"><span>◇</span><strong>진행 중인 프로젝트가 없습니다</strong><small>프로젝트를 만들면 진행률이 여기에 표시됩니다.</small></div>'}</div>
-        </section>
+        <aside class="executive-operations-rail" aria-label="오늘의 운영 요약">
+          <section class="executive-compact-card">
+            <header class="executive-card-head compact"><div><span class="executive-card-kicker">TODAY</span><h2>오늘 할 일</h2><p>${esc(formatDate(today, { month: 'long', day: 'numeric', weekday: 'short' }))}</p></div><button type="button" data-go-view="todo">전체 <span>→</span></button></header>
+            <div class="executive-list">${todayRows || '<div class="executive-empty"><span>✓</span><strong>오늘 등록된 할 일이 없습니다</strong><small>할 일에서 오늘의 우선순위를 정해 보세요.</small></div>'}</div>
+          </section>
+          <section class="executive-compact-card">
+            <header class="executive-card-head compact"><div><span class="executive-card-kicker">PROJECTS</span><h2>진행 프로젝트</h2><p>내 권한으로 조회 가능한 업무</p></div><button type="button" data-go-view="review">전체 <span>→</span></button></header>
+            <div class="executive-project-list">${projectRows || '<div class="executive-empty"><span>◇</span><strong>진행 중인 프로젝트가 없습니다</strong><small>프로젝트를 만들면 진행률이 표시됩니다.</small></div>'}</div>
+          </section>
+        </aside>
       </div>
       </div>`;
 
