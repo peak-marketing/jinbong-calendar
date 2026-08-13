@@ -7954,3 +7954,313 @@ body #reviewView .project-detail-task.project-workflow-task.deadline-today {
   border-color: #dcc39e;
   box-shadow: inset 3px 0 #b77a39;
 }
+
+/* Bright matte-blue palette: same components, clearer light and colour. */
+html body {
+  --blue: #5b8ead;
+  --blue-dark: #315f7d;
+  --blue-soft: #e2f0f6;
+  --blue-pale: #f1f8fb;
+  --ink: #163246;
+  --text: #385264;
+  --muted: #526c7c;
+  --muted-2: #587181;
+  --line: #cbdde6;
+  --line-strong: #b8cfdb;
+  --paper: #ffffff;
+  --canvas: #edf5f8;
+  background: #edf5f8;
+  color: #385264;
+}
+
+body .app,
+body .main-shell,
+body .page {
+  background: #edf5f8;
+}
+
+body .app-sidebar {
+  border-right-color: #7394a8;
+  background: #466d84;
+  color: #f0f7fa;
+  scrollbar-color: #8fabbc transparent;
+}
+
+body .app-sidebar .workspace-logo,
+body .app-sidebar .member-avatar {
+  border-color: rgba(255, 255, 255, .24);
+  background: #6c96ae;
+}
+
+body .app-sidebar .workspace-copy strong,
+body .app-sidebar .member-copy strong { color: #fff; }
+body .app-sidebar .workspace-copy small,
+body .app-sidebar .member-copy small,
+body .app-sidebar .nav-cluster-toggle,
+body .app-sidebar .nav-subcluster-toggle,
+body .app-sidebar .tree-trigger,
+body .app-sidebar .nav-label { color: #e1edf2; }
+
+body .app-sidebar .workspace-switcher,
+body .app-sidebar .sidebar-tab-search,
+body .app-sidebar .sidebar-search {
+  border-color: #86a4b5;
+  background: #567c92;
+}
+
+body .app-sidebar .workspace-switcher select option { background: #466d84; }
+body .app-sidebar .workspace-switcher::after,
+body .app-sidebar .sidebar-search-icon,
+body .app-sidebar .sidebar-tab-search-submit,
+body .app-sidebar .nav-cluster-caret,
+body .app-sidebar .nav-subcluster-caret,
+body .app-sidebar .caret,
+body .app-sidebar .nav-icon,
+body .app-sidebar .tree-icon { color: #d2e2e9; }
+
+body .app-sidebar .sidebar-tab-search-submit {
+  border-color: #9bb5c4;
+  background: #638aa1;
+}
+
+body .app-sidebar .nav-cluster,
+body .app-sidebar .nav-section,
+body .app-sidebar .nav-subcluster,
+body .app-sidebar .sidebar-member,
+body .app-sidebar .sidebar-footer { border-color: rgba(231, 241, 246, .24); }
+
+body .app-sidebar .nav-item,
+body .app-sidebar .tree-item { color: #e1edf2; }
+
+body .app-sidebar .nav-cluster-toggle:hover,
+body .app-sidebar .nav-subcluster-toggle:hover,
+body .app-sidebar .tree-trigger:hover,
+body .app-sidebar .nav-item:hover,
+body .app-sidebar .tree-item:hover {
+  background: #557b92;
+  color: #fff;
+}
+
+body .app-sidebar .nav-item.active,
+body .app-sidebar .tree-item.active {
+  border-color: rgba(255, 255, 255, .25);
+  background: #315f7d;
+  color: #fff;
+}
+
+body .app-sidebar .nav-badge,
+body .app-sidebar .side-count {
+  background: #5b8198;
+  color: #edf6fa;
+}
+
+body .app-sidebar .sidebar-member,
+body .app-sidebar .sidebar-footer { background: #41677e; }
+
+body .topbar {
+  border-bottom-color: #cadde7;
+  background: rgba(250, 253, 254, .97);
+}
+
+body .breadcrumbs { color: #607989; }
+body .breadcrumbs strong { color: #163246; }
+
+body .icon-button,
+body .soft-pill,
+body .account-preview-select,
+body .top-actions select {
+  border-color: #c2d7e2;
+  background: #fff;
+  color: #38566a;
+}
+
+body .primary-button,
+body .module-action.primary,
+body .collaboration-form-actions button[type="submit"],
+body .structured-primary-button,
+body .todo-add-button,
+body .review-create-button,
+body .project-detail-actions button.primary,
+body .structured-board-head-actions > button,
+body .service-add-button,
+body #newProjectsView .structured-primary-button,
+body .auth-gate .auth-google,
+body .auth-gate .os-auth-primary,
+body .auth-gate .os-auth-step.active .os-auth-step-icon {
+  border-color: #477996 !important;
+  background: #477996 !important;
+  color: #fff !important;
+}
+
+body .panel,
+body .module-card,
+body .module-section,
+body .module-statusbar,
+body .content-card,
+body .summary-card,
+body .stat-card,
+body .empty-state,
+body .calendar-card,
+body .todo-board,
+body .chat-list-panel,
+body .chat-room-pane,
+body .project-command-card,
+body .project-detail-shell,
+body .structured-project-card,
+body .structured-detail-hero,
+body .structured-medium-category,
+body .structured-small-category,
+body .structured-board-view,
+body .structured-task-drawer,
+body .readonly-modal-card,
+body #moduleView .module-hero,
+body #moduleView .module-toolbar,
+body #moduleView .module-filterbar,
+body #moduleView .module-filter,
+body #moduleView .settlement-summary,
+body #moduleView .settlement-card,
+body #moduleView .settlement-sheet,
+body #moduleView .report-card,
+body #moduleView .bank-summary,
+body #moduleView .bank-card,
+body #moduleView .invoice-card,
+body #moduleView .request-card,
+body #moduleView .org-card,
+body #moduleView .org-node,
+body #moduleView .document-card,
+body #moduleView .service-card,
+body #moduleView .idea-card,
+body #moduleView .request-row {
+  border-color: #cbdde6;
+  background-color: #fff;
+}
+
+body .panel-head,
+body .module-card-head,
+body .module-section-head,
+body .calendar-panel-head,
+body .todo-board-head,
+body .chat-thread-head,
+body .project-detail-head,
+body .structured-medium-head,
+body .structured-small-category > header,
+body .structured-task-drawer-head,
+body #moduleView .module-hero,
+body #moduleView .module-toolbar,
+body #moduleView .module-filterbar,
+body #moduleView .settlement-head,
+body #moduleView .report-head,
+body #moduleView .bank-head,
+body #moduleView .org-head,
+body #moduleView .document-head {
+  border-color: #d2e2ea;
+  background-color: #edf5f8;
+}
+
+body .view-tabs,
+body .review-filter-tabs,
+body .todo-scope-tabs,
+body .chat-filter-tabs,
+body .structured-status-filters,
+body .structured-task-viewbar > nav,
+body .module-tabs,
+body .finance-period-filter {
+  border-color: #c4d9e4;
+  background: #e6f1f6;
+}
+
+body .tab-button.active,
+body .review-filter-tabs button.active,
+body .todo-scope-button.active,
+body .chat-filter.active,
+body .structured-status-filters button.active,
+body .structured-task-viewbar button.active,
+body .module-tabs button.active {
+  border-color: #a7c4d3;
+  background: #fff;
+  color: #315f7d;
+}
+
+body .app input:not([type="checkbox"]):not([type="radio"]),
+body .app select,
+body .app textarea,
+body .readonly-modal input:not([type="checkbox"]):not([type="radio"]),
+body .readonly-modal select,
+body .readonly-modal textarea {
+  border-color: #bdd4df;
+  background-color: #fff;
+  color: #29485c;
+}
+
+body #calendarView .home-calendar-panel,
+body #calendarView .calendar-agenda,
+body #calendarView .home-calendar-main,
+body #calendarView .home-calendar-cell,
+body #todoView .todo-page-toolbar,
+body #todoView .todo-summary-card,
+body #todoView .todo-split-panel,
+body #todoView .daily-plan-step,
+body #todoView .personal-plan-toggle,
+body #todoView .todo-task,
+body #todoView .daily-thought-row,
+body #todoView .daily-timeline-row,
+body #chatView .chat-room-row,
+body #chatView .chat-message-bubble,
+body #reviewView .project-list-controls,
+body #reviewView .project-command-card,
+body #reviewView .project-detail-task,
+body #reviewView .project-workflow-lane,
+body #reviewView .project-comment-card,
+body #reviewView .project-update-card,
+body #newProjectsView .structured-projects-shell,
+body #newProjectsView .structured-project-controls,
+body #newProjectsView .structured-task-viewbar,
+body #newProjectsView .structured-summary article,
+body #newProjectsView .structured-board-controls,
+body #newProjectsView .structured-board-column,
+body #newProjectsView .structured-board-card {
+  border-color: #cbdde6;
+  background-color: #fff;
+}
+
+body #calendarView .calendar-weekdays,
+body #todoView .todo-summary-card.primary,
+body #todoView .todo-split-panel-head,
+body #todoView .daily-plan-step-head,
+body #chatView .chat-page-toolbar,
+body #chatView .chat-bulk-toolbar,
+body #chatView .chat-composer,
+body #reviewView .project-detail-hero,
+body #reviewView .project-workflow-toolbar,
+body #reviewView .project-workflow-lane > header,
+body #newProjectsView .structured-detail-hero,
+body #newProjectsView .structured-medium-head,
+body #newProjectsView .structured-board-head,
+body #newProjectsView .structured-board-column > header {
+  border-color: #c9dde7;
+  background-color: #eaf4f8;
+}
+
+body #chatView .chat-thread-messages { background: #eef6f9; }
+body #chatView .chat-message.mine .chat-message-bubble {
+  border-color: #b4d0de;
+  background: #e1f0f6;
+  color: #28536d;
+}
+
+body .readonly-modal-card,
+body .collaboration-modal-card,
+body .detail-modal-card,
+body .auth-gate .auth-card,
+body .auth-gate .os-auth-card {
+  border-color: #b7d0dc;
+  background: #fbfdfe;
+}
+
+body .auth-gate.os-auth-mode { background: #e9f3f7; }
+
+@media (max-width: 760px) {
+  body .topbar { background: #f8fcfd; }
+  body .app-sidebar { background: #466d84; }
+  body .page { background: #edf5f8; }
+}
