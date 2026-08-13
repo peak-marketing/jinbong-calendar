@@ -156,6 +156,23 @@ test.describe('modern finance dashboard', () => {
     );
     await expect(page.locator('[data-dashboard-series="revenue"]')).toContainText('일별 매출 추이');
     await expect(page.locator('[data-dashboard-series="company-profit"]')).toContainText('일별 영업이익 추이');
+    const lineStyles = await page.locator('[data-dashboard-chart-svg]').evaluate(svg => {
+      const style = (selector: string) => getComputedStyle(svg.querySelector(selector) as SVGPathElement);
+      const revenue = style('.executive-chart-line.revenue');
+      const profit = style('.executive-chart-line.profit');
+      return {
+        revenueStroke: revenue.stroke,
+        revenueDash: revenue.strokeDasharray,
+        profitStroke: profit.stroke,
+        profitDash: profit.strokeDasharray,
+      };
+    });
+    expect(lineStyles).toMatchObject({
+      revenueStroke: 'rgb(80, 118, 147)',
+      revenueDash: 'none',
+      profitStroke: 'rgb(173, 98, 102)',
+      profitDash: '8px, 5px',
+    });
   });
 
   test('marks partial cost coverage without fabricating profit for the missing day', async ({ page }) => {
@@ -347,6 +364,18 @@ test.describe('modern finance dashboard', () => {
       await expect(page.locator('[data-dashboard-series="company-profit"]')).toBeVisible();
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       expect(overflow, `document overflow at ${width}px`).toBeLessThanOrEqual(1);
+      if (width === 390) {
+        const chartScroll = await page.locator('.executive-chart-canvas').evaluate(element => ({
+          clientWidth: element.clientWidth,
+          scrollWidth: element.scrollWidth,
+        }));
+        expect(chartScroll.scrollWidth).toBeGreaterThan(chartScroll.clientWidth);
+        const dashboardButtons = await page.locator('.executive-card-head.compact > button').all();
+        expect(dashboardButtons).toHaveLength(2);
+        for (const button of dashboardButtons) {
+          expect((await button.boundingBox())?.height || 0, '390px dashboard touch target').toBeGreaterThanOrEqual(44);
+        }
+      }
     }
   });
 });
