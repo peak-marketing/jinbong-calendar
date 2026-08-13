@@ -9207,58 +9207,95 @@
     const month = intakeTotals(shown);
 
     if (!groups.length) {
-      return `<section class="module-section">
-        <div class="module-section-head">
-          <span><strong>내 개인정산서</strong><small>접수한 건이 일자별로 쌓입니다</small></span>
-          <span class="intake-head-right">
-            <button class="module-action" type="button" data-estimate-new>＋ 새 정산서</button>
+      return `<section class="module-section settlement-ledger-premium">
+        <div class="module-section-head settlement-command-bar">
+          <span class="settlement-command-copy">
+            <span class="settlement-command-kicker"><i aria-hidden="true"></i> PERSONAL LEDGER</span>
+            <strong>내 개인정산서</strong>
+            <small>접수부터 입금 확인까지 한 화면에서 관리합니다</small>
+          </span>
+          <span class="settlement-command-side">
+            <span class="settlement-record-count"><small>조회 건수</small><strong>0</strong></span>
+            <span class="intake-head-right">
+              <button class="module-action" type="button" data-estimate-new>＋ 새 정산서</button>
+            </span>
           </span>
         </div>
         <div class="module-section-body">
-          ${renderFinancePeriodFilter('settlement', '접수일 기준')}
-          ${personalRows().length ? renderIntakeFilter() : ''}
-          <p class="sales-state">${personalRows().length
-            ? '조회 조건에 맞는 접수가 없습니다.'
-            : '아직 접수한 건이 없습니다. 위에서 상품을 접수해 보세요.'}</p>
+          <div class="settlement-control-deck">
+            <div class="settlement-control-heading"><span>01</span><div><strong>조회 범위</strong><small>기간과 상세 조건을 조합해 원장을 빠르게 찾습니다</small></div></div>
+            ${renderFinancePeriodFilter('settlement', '접수일 기준')}
+            ${personalRows().length ? renderIntakeFilter() : ''}
+          </div>
+          <div class="settlement-empty-state">
+            <span class="settlement-empty-icon" aria-hidden="true">↗</span>
+            <strong>${personalRows().length ? '조회 조건에 맞는 접수가 없습니다' : '첫 정산 업무를 시작해 보세요'}</strong>
+            <p>${personalRows().length
+              ? '기간이나 상세 조건을 바꾸면 전체 원장을 다시 확인할 수 있습니다.'
+              : '새 정산서를 만들거나 아래 상품 접수에서 업무를 등록하면 이곳에 일자별 원장이 생성됩니다.'}</p>
+            <button class="module-action primary" type="button" data-estimate-new>＋ 새 정산서 만들기</button>
+          </div>
         </div>
       </section>`;
     }
 
     const weekday = ['일', '월', '화', '수', '목', '금', '토'];
 
-    return `<section class="module-section">
-      <div class="module-section-head">
-        <span><strong>내 개인정산서</strong><small>${esc(userDoc?.name || '')} · ${intakeQueryActive()
+    return `<section class="module-section settlement-ledger-premium">
+      <div class="module-section-head settlement-command-bar">
+        <span class="settlement-command-copy">
+          <span class="settlement-command-kicker"><i aria-hidden="true"></i> PERSONAL LEDGER</span>
+          <strong>내 개인정산서</strong><small>${esc(userDoc?.name || '')} · ${intakeQueryActive()
           ? `조회 ${shown.length}건 / 전체 ${personalRows().length}건`
-          : `접수 ${personalRows().length}건`}</small></span>
-        <span class="intake-head-right">
-          <button class="module-action" type="button" data-estimate-new>＋ 새 정산서</button>
-          <button class="module-action primary" type="button" data-estimate-open>정산서 발행</button>
+          : `접수 ${personalRows().length}건`}</small>
+        </span>
+        <span class="settlement-command-side">
+          <span class="settlement-record-count"><small>조회 건수</small><strong>${esc(String(shown.length))}</strong></span>
+          <span class="intake-head-right">
+            <button class="module-action" type="button" data-estimate-new>＋ 새 정산서</button>
+            <button class="module-action primary" type="button" data-estimate-open>정산서 발행</button>
+          </span>
         </span>
       </div>
       <div class="module-section-body">
-        ${renderFinancePeriodFilter('settlement', '접수일 기준')}
-        ${renderIntakeFilter()}
-        <div class="ledger-total ledger-total-top">
-          <span>합계</span>
-          <span>매출 <strong>${esc(month.sales.toLocaleString('ko-KR'))}</strong></span>
-          ${showCost ? `<span>회사원가 <strong>${esc(month.cost.toLocaleString('ko-KR'))}</strong></span>` : ''}
-          <span>영업이익 <strong class="profit">${esc(month.profit.toLocaleString('ko-KR'))}</strong></span>
-          <span>입금예정 <strong>${esc(month.expected.toLocaleString('ko-KR'))}</strong></span>
-          <span>입금 <strong>${esc(month.paid.toLocaleString('ko-KR'))}</strong></span>
-          <span>미입금 <strong class="unpaid">${esc(Math.max(0, month.expected - month.paid).toLocaleString('ko-KR'))}</strong></span>
-          ${month.reserve ? `<span>예약금 잔여 <strong class="reserve">${esc(month.reserve.toLocaleString('ko-KR'))}</strong></span>` : ''}
+        <div class="settlement-control-deck">
+          <div class="settlement-control-heading"><span>01</span><div><strong>조회 범위</strong><small>기간과 상세 조건을 조합해 원장을 빠르게 찾습니다</small></div></div>
+          ${renderFinancePeriodFilter('settlement', '접수일 기준')}
+          ${renderIntakeFilter()}
+        </div>
+        <div class="settlement-summary-block">
+          <div class="settlement-block-heading">
+            <span><i aria-hidden="true"></i><strong>정산 요약</strong><small>${esc(financePeriodLabel())}</small></span>
+            <em>LIVE TOTAL</em>
+          </div>
+          <div class="ledger-total ledger-total-top settlement-kpi-grid">
+            <span class="settlement-kpi-label"><small>PERIOD</small><strong>합계</strong></span>
+            <span class="settlement-kpi-card sales">매출 <strong>${esc(month.sales.toLocaleString('ko-KR'))}</strong><small>총 판매 금액</small></span>
+            ${showCost ? `<span class="settlement-kpi-card cost">회사원가 <strong>${esc(month.cost.toLocaleString('ko-KR'))}</strong><small>총 실행 원가</small></span>` : ''}
+            <span class="settlement-kpi-card profit">영업이익 <strong class="profit">${esc(month.profit.toLocaleString('ko-KR'))}</strong><small>매출 − 영업자 단가</small></span>
+            <span class="settlement-kpi-card expected">입금예정 <strong>${esc(month.expected.toLocaleString('ko-KR'))}</strong><small>받아야 할 금액</small></span>
+            <span class="settlement-kpi-card paid">입금 <strong>${esc(month.paid.toLocaleString('ko-KR'))}</strong><small>확인 완료 금액</small></span>
+            <span class="settlement-kpi-card unpaid">미입금 <strong class="unpaid">${esc(Math.max(0, month.expected - month.paid).toLocaleString('ko-KR'))}</strong><small>확인 대기 금액</small></span>
+            ${month.reserve ? `<span class="settlement-kpi-card reserve">예약금 잔여 <strong class="reserve">${esc(month.reserve.toLocaleString('ko-KR'))}</strong><small>미사용 예약금</small></span>` : ''}
+          </div>
         </div>
         <div class="pick-bar-slot">${pickBarMarkup()}</div>
-        ${groups.map(([date, rows]) => {
+        <div class="settlement-day-stack">
+        ${groups.map(([date, rows], dayIndex) => {
           const day = intakeTotals(rows);
           const dow = weekday[new Date(`${date}T00:00:00`).getDay()] || '';
-          return `<div class="ledger-day">
+          return `<article class="ledger-day settlement-day-card">
             <div class="ledger-day-head">
-              <strong>${esc(date.slice(5).replace('-', '/'))} (${esc(dow)})</strong>
-              <span>매출 ${esc(day.sales.toLocaleString('ko-KR'))} · 영업이익 <em>${esc(day.profit.toLocaleString('ko-KR'))}</em></span>
+              <span class="settlement-day-identity">
+                <i>${esc(String(dayIndex + 1).padStart(2, '0'))}</i>
+                <span><small>${esc(date.slice(0, 4))} YEAR</small><strong>${esc(date.slice(5).replace('-', '/'))} (${esc(dow)})</strong></span>
+              </span>
+              <span class="settlement-day-metrics">
+                <span><small>DAILY SALES</small>매출 <strong>${esc(day.sales.toLocaleString('ko-KR'))}</strong></span>
+                <span><small>DAILY PROFIT</small>영업이익 <em>${esc(day.profit.toLocaleString('ko-KR'))}</em></span>
+              </span>
             </div>
-            <div class="sales-table-scroll">
+            <div class="sales-table-scroll settlement-table-shell">
               <table class="sales-table ledger-table">
                 <thead>
                   <tr>
@@ -9303,8 +9340,9 @@
                 </tbody>
               </table>
             </div>
-          </div>`;
+          </article>`;
         }).join('')}
+        </div>
 
       </div>
     </section>`;
@@ -10364,18 +10402,37 @@
     }
 
     intakeContext = 'settlement';
+    const settlementDetail = canSeeTeamSettlement()
+      ? '시트접수와 하위 계정 정산서를 관리합니다.'
+      : '로그인한 영업자의 개인정산 범위만 표시합니다.';
     moduleView.innerHTML = `
-      ${moduleStatusbar('개인 정산서', canSeeTeamSettlement() ? '시트접수와 하위 계정 정산서를 관리합니다.' : '로그인한 영업자의 개인정산 범위만 표시합니다.', '서버 저장 · 기간 조회')}
-      ${renderIntakeForm()}
-      ${renderIntakeLedger()}
-      ${teamSection}
-      <div class="module-security"><span>▣</span><span><strong>현재 적용 권한: ${esc(currentOrgRank())}</strong><br>${canSeeCompanyCost()
+      <div class="personal-settlement-experience">
+        <header class="module-statusbar personal-settlement-hero">
+          <span class="personal-settlement-hero-main">
+            <span class="personal-settlement-mark" aria-hidden="true"><i>₩</i></span>
+            <span class="personal-settlement-hero-copy">
+              <small>PEAK FINANCE · PERSONAL WORKSPACE</small>
+              <strong>개인 정산서</strong>
+              <span>${esc(settlementDetail)}</span>
+            </span>
+          </span>
+          <span class="personal-settlement-hero-state">
+            <span><i aria-hidden="true"></i><small>DATA SOURCE</small><strong>운영 서버 기준</strong></span>
+            <span><small>ACCESS</small><strong>${esc(currentOrgRank())}</strong></span>
+            <span class="module-plan-badge">서버 저장 · 기간 조회</span>
+          </span>
+        </header>
+        ${renderIntakeLedger()}
+        ${renderIntakeForm()}
+        ${teamSection}
+        <div class="module-security personal-settlement-security"><span>▣</span><span><strong>현재 적용 권한: ${esc(currentOrgRank())}</strong><br>${canSeeCompanyCost()
         ? '개인정산서는 영업자 단가 기준으로만 표시합니다. 회사 원가는 최종정산서에서만 봅니다.'
         : '영업자 단가 기준으로만 표시되며 회사 원가는 감춥니다. 지금 구글 정산서와 같은 기준입니다.'}${canSeeFinalSettlement()
         ? ' 최종정산서는 지정된 인원에게만 열립니다.'
         : ' 최종정산서는 지정된 인원만 볼 수 있어 표시하지 않습니다.'}${canSeeTeamSettlement()
         ? ' 하위 계정 정산서도 열 수 있습니다.'
-        : ''}</span></div>`;
+        : ''}</span></div>
+      </div>`;
   }
 
   // 김지홍 월보장, 박우진 월관리, 김대호 직접실행은 표준 정산서로 안 담긴다.
@@ -13698,7 +13755,9 @@
       renderPlannedModule(view);
     }));
     // 접수 없이 받을 돈이 생기기도 해서 빈 정산서로도 시작한다.
-    moduleView.querySelector('[data-estimate-new]')?.addEventListener('click', () => openEstimateDialog('', []));
+    moduleView.querySelectorAll('[data-estimate-new]').forEach(button => {
+      button.addEventListener('click', () => openEstimateDialog('', []));
+    });
     moduleView.querySelector('[data-estimate-open]')?.addEventListener('click', () => {
       // 거래처를 골라 뒀으면 그 업체로, 아니면 첫 업체로 연다.
       const clients = [...new Set(filteredIntake().map(row => row.client).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));

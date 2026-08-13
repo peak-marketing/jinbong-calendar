@@ -36,13 +36,16 @@ test.describe('Business OS read-only operating data', () => {
     const salesSummaryQueries: string[] = [];
     const pageErrors: string[] = [];
     page.on('pageerror', error => pageErrors.push(error.message));
-    const today = new Date();
-    const year = today.getFullYear();
-    const date = [
-      year,
-      String(today.getMonth() + 1).padStart(2, '0'),
-      String(today.getDate()).padStart(2, '0'),
-    ].join('-');
+    const koreaToday = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(new Date()).reduce<Record<string, string>>((result, part) => {
+      if (part.type !== 'literal') result[part.type] = part.value;
+      return result;
+    }, {});
+    const year = Number(koreaToday.year);
+    const month = Number(koreaToday.month);
+    const day = Number(koreaToday.day);
+    const date = `${koreaToday.year}-${koreaToday.month}-${koreaToday.day}`;
 
     const project = {
       id: 'project-live-1',
@@ -235,8 +238,8 @@ test.describe('Business OS read-only operating data', () => {
 
     await page.locator('.nav-item[data-view="calendar"]').click();
     await expect(page.locator('#calendarView')).toContainText('오늘 운영 업무');
-    await expect(page.locator('#calendarMonthLabel')).toHaveText(`${year}년 ${today.getMonth() + 1}월`);
-    await expect(page.locator('#homeCalendarAgenda .agenda-date span')).toContainText(`${year}년 ${today.getMonth() + 1}월 ${today.getDate()}일`);
+    await expect(page.locator('#calendarMonthLabel')).toHaveText(`${year}년 ${month}월`);
+    await expect(page.locator('#homeCalendarAgenda .agenda-date span')).toContainText(`${year}년 ${month}월 ${day}일`);
     await expect(page.locator('#homeCalendarAgenda .agenda-day-stats')).toContainText('내 일정');
     await expect(page.locator('#homeCalendarAgenda .agenda-day-stats')).toContainText('팀 일정');
     await expect(page.locator('#homeCalendarAgenda .agenda-report-section')).toContainText('일일 보고서 작성');
@@ -244,7 +247,7 @@ test.describe('Business OS read-only operating data', () => {
     await page.locator('#homeCalendarAgenda [data-agenda-scope="team"]').click();
     await expect(page.locator('#homeCalendarAgenda')).toContainText('팀 운영 회의');
     await page.locator('#homeCalendarAgenda [data-agenda-scope="all"]').click();
-    const nextMonth = new Date(year, today.getMonth() + 1, 1);
+    const nextMonth = new Date(year, month, 1);
     await page.locator('#calendarNext').click();
     await expect(page.locator('#calendarMonthLabel')).toHaveText(`${nextMonth.getFullYear()}년 ${nextMonth.getMonth() + 1}월`);
     await expect(page.locator('#homeCalendarAgenda .agenda-date span')).toContainText(`${nextMonth.getFullYear()}년 ${nextMonth.getMonth() + 1}월 1일`);
