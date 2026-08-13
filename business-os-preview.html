@@ -12,8 +12,20 @@
       document.getElementById('peakOsAssetBase').setAttribute('href', '/os/');
     }
   </script>
+  <script>
+    // Apply the saved colour mode before styles paint so dark mode never flashes light.
+    (() => {
+      const key = 'peakos-color-theme-v1';
+      let theme = 'light';
+      try {
+        if (window.localStorage.getItem(key) === 'dark') theme = 'dark';
+      } catch (_) {}
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.style.colorScheme = theme;
+    })();
+  </script>
   <title>PEAK OS · Business OS Preview</title>
-  <link rel="stylesheet" href="./business-os-live.css?v=20260813-matte-os2">
+  <link rel="stylesheet" href="./business-os-live.css?v=20260813-theme-toggle1">
   <style>
     :root {
       color-scheme: light;
@@ -2218,6 +2230,10 @@
           <span>PEAK OS</span><span class="slash">/</span><strong id="pageCrumb">PEAKMARKETING</strong>
         </div>
         <div class="top-actions">
+          <button class="icon-button theme-toggle" id="themeToggle" type="button" aria-label="다크 모드" aria-pressed="false" title="다크 모드로 변경">
+            <span class="theme-toggle-icon" aria-hidden="true">☾</span>
+            <span class="theme-toggle-label">다크</span>
+          </button>
           <div class="account-preview-slot" id="accountPreviewSlot" hidden></div>
         </div>
       </header>
@@ -3720,6 +3736,6 @@
   </script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-  <script src="./business-os-preview.js?v=20260813-dashboard-layout3"></script>
+  <script src="./business-os-preview.js?v=20260813-theme-toggle1"></script>
 </body>
 </html>

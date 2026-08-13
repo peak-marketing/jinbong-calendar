@@ -179,7 +179,8 @@ test.describe('직무별 하위 메뉴', () => {
     await expect(page.locator('.app-sidebar > .member .member-copy small')).toHaveText('부장 · 본사');
     await expect(page.locator('.prototype-bar')).toHaveCount(0);
     await expect(page.locator('.topbar #accountPreviewSlot')).toBeVisible();
-    await expect(page.locator('.topbar .top-actions > button')).toHaveCount(0);
+    await expect(page.locator('.topbar .top-actions > button:not(#themeToggle)')).toHaveCount(0);
+    await expect(page.locator('#themeToggle')).toBeVisible();
     await expect(page.locator('#accountPreviewSlot')).not.toContainText('운영 데이터');
     await expect(page.locator('#accountPreviewSlot')).not.toContainText('계정 권한으로 조회 중');
     await expect(page.locator('.persona-preview-warning')).toHaveCount(0);
@@ -289,7 +290,8 @@ test.describe('직무별 하위 메뉴', () => {
         await expect(slot).toBeHidden();
         await expect(page.locator('#personaSelect')).toHaveCount(0);
       }
-      await expect(page.locator('.topbar .top-actions > button')).toHaveCount(0);
+      await expect(page.locator('.topbar .top-actions > button:not(#themeToggle)')).toHaveCount(0);
+      await expect(page.locator('#themeToggle')).toBeVisible();
     });
   }
 

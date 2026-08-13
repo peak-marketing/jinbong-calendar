@@ -21,7 +21,9 @@
   const permissionsView = document.getElementById('permissionsView');
   const pageCrumb = document.getElementById('pageCrumb');
   const accountPreviewSlot = document.getElementById('accountPreviewSlot');
+  const themeToggle = document.getElementById('themeToggle');
   const toast = document.querySelector('.toast');
+  const OS_THEME_STORAGE_KEY = 'peakos-color-theme-v1';
   const OS_AUTH_SYNC_CHANNEL_NAME = 'peakos-os-auth-sync-v1';
   const OS_AUTH_SYNC_STORAGE_KEY = 'peakos-os-auth-sync-event-v1';
   const OS_AUTH_SYNC_MIN_INTERVAL_MS = 1500;
@@ -46,6 +48,33 @@
   let workspaceAccessGeneration = 0;
   let workspaceSwitching = false;
   let toastTimer = 0;
+
+  function updateThemeToggle() {
+    if (!themeToggle) return;
+    const dark = document.documentElement.dataset.theme === 'dark';
+    themeToggle.setAttribute('aria-pressed', String(dark));
+    themeToggle.setAttribute('title', dark ? '라이트 모드로 변경' : '다크 모드로 변경');
+    themeToggle.querySelector('.theme-toggle-icon').textContent = dark ? '☀' : '☾';
+    themeToggle.querySelector('.theme-toggle-label').textContent = dark ? '라이트' : '다크';
+  }
+
+  function applyColorTheme(theme, persist = true) {
+    const nextTheme = theme === 'dark' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = nextTheme;
+    document.documentElement.style.colorScheme = nextTheme;
+    if (persist) {
+      try { window.localStorage.setItem(OS_THEME_STORAGE_KEY, nextTheme); } catch (_) {}
+    }
+    updateThemeToggle();
+  }
+
+  themeToggle?.addEventListener('click', () => {
+    applyColorTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+  });
+  window.addEventListener('storage', event => {
+    if (event.key === OS_THEME_STORAGE_KEY) applyColorTheme(event.newValue, false);
+  });
+  updateThemeToggle();
 
   let auth;
   let currentUser = null;

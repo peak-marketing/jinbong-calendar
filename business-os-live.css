@@ -8297,3 +8297,1051 @@ body .auth-gate.os-auth-mode { background: #e9f3f7; }
   body .app-sidebar { background: #466d84; }
   body .page { background: #edf5f8; }
 }
+
+/* ========================================================================== */
+/* Optional dark matte mode                                                    */
+/* ========================================================================== */
+
+body .theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 76px;
+  border-color: #b8cfdb;
+  background: #fff;
+  color: #315f7d;
+  box-shadow: none;
+}
+
+body .theme-toggle-icon { font-size: 14px; line-height: 1; }
+body .theme-toggle-label { font-size: 10px; font-weight: 850; }
+
+html[data-theme="dark"] body {
+  color-scheme: dark;
+  --blue: #82abc4;
+  --blue-dark: #b7d6e8;
+  --blue-soft: #263f50;
+  --blue-pale: #1d3342;
+  --ink: #eef5f7;
+  --text: #d1dfe5;
+  --muted: #aebfc8;
+  --muted-2: #93aab6;
+  --line: #3e5867;
+  --line-strong: #516c7b;
+  --paper: #1d303c;
+  --canvas: #13242f;
+  --shadow: none;
+  --shadow-soft: none;
+  background: #13242f;
+  color: #d1dfe5;
+}
+
+html[data-theme="dark"] body .app,
+html[data-theme="dark"] body .main-shell,
+html[data-theme="dark"] body .page {
+  background: #13242f;
+  color: #d1dfe5;
+}
+
+html[data-theme="dark"] body .app-sidebar {
+  border-right-color: #456172;
+  background: #1a3140;
+  color: #e5eef2;
+}
+
+html[data-theme="dark"] body .app-sidebar .workspace-logo,
+html[data-theme="dark"] body .app-sidebar .member-avatar {
+  border-color: #627e8e;
+  background: #496f86;
+}
+
+html[data-theme="dark"] body .app-sidebar .workspace-copy strong,
+html[data-theme="dark"] body .app-sidebar .member-copy strong { color: #f4f8fa; }
+
+html[data-theme="dark"] body .app-sidebar .workspace-copy small,
+html[data-theme="dark"] body .app-sidebar .member-copy small,
+html[data-theme="dark"] body .app-sidebar .nav-cluster-toggle,
+html[data-theme="dark"] body .app-sidebar .nav-subcluster-toggle,
+html[data-theme="dark"] body .app-sidebar .tree-trigger,
+html[data-theme="dark"] body .app-sidebar .nav-label { color: #bacbd3; }
+
+html[data-theme="dark"] body .app-sidebar .workspace-switcher,
+html[data-theme="dark"] body .app-sidebar .sidebar-tab-search,
+html[data-theme="dark"] body .app-sidebar .sidebar-search {
+  border-color: #526f80;
+  background: #223d4d;
+}
+
+html[data-theme="dark"] body .app-sidebar .workspace-switcher select option { background: #1a3140; color: #eef5f7; }
+html[data-theme="dark"] body .app-sidebar .nav-cluster,
+html[data-theme="dark"] body .app-sidebar .nav-section,
+html[data-theme="dark"] body .app-sidebar .nav-subcluster,
+html[data-theme="dark"] body .app-sidebar .sidebar-member,
+html[data-theme="dark"] body .app-sidebar .sidebar-footer { border-color: rgba(190, 211, 221, .2); }
+
+html[data-theme="dark"] body .app-sidebar .nav-item,
+html[data-theme="dark"] body .app-sidebar .tree-item { color: #c7d6dd; }
+
+html[data-theme="dark"] body .app-sidebar .nav-cluster-toggle:hover,
+html[data-theme="dark"] body .app-sidebar .nav-subcluster-toggle:hover,
+html[data-theme="dark"] body .app-sidebar .tree-trigger:hover,
+html[data-theme="dark"] body .app-sidebar .nav-item:hover,
+html[data-theme="dark"] body .app-sidebar .tree-item:hover { background: #294757; color: #fff; }
+
+html[data-theme="dark"] body .app-sidebar .nav-item.active,
+html[data-theme="dark"] body .app-sidebar .tree-item.active {
+  border-color: #607e8f;
+  background: #385d72;
+  color: #fff;
+}
+
+html[data-theme="dark"] body .app-sidebar .nav-badge,
+html[data-theme="dark"] body .app-sidebar .side-count { background: #36586b; color: #eaf2f5; }
+html[data-theme="dark"] body .app-sidebar .sidebar-member,
+html[data-theme="dark"] body .app-sidebar .sidebar-footer { background: #1d3544; }
+
+html[data-theme="dark"] body .app-sidebar .search-button {
+  border-color: #526f80;
+  background: #223d4d;
+  color: #c7d7de;
+}
+html[data-theme="dark"] body .app-sidebar .search-button input { background: transparent; color: #eef5f7; }
+html[data-theme="dark"] body .app-sidebar .search-button input::placeholder { color: #aebfc8; }
+html[data-theme="dark"] body .app-sidebar .search-button > label .sidebar-search-icon { color: #b9cbd4; }
+html[data-theme="dark"] body .app-sidebar .sidebar-tab-search-submit {
+  border-color: #7293a5;
+  background: #496f86;
+  color: #fff;
+}
+html[data-theme="dark"] body .app-sidebar .workspace-switcher select:not(:disabled) {
+  border-color: #597788;
+  background: #223d4d;
+  color: #eef5f7;
+}
+
+html[data-theme="dark"] body .topbar {
+  border-bottom-color: #395361;
+  background: rgba(24, 43, 55, .97);
+  color: #d1dfe5;
+}
+html[data-theme="dark"] body .breadcrumbs { color: #9fb4bf; }
+html[data-theme="dark"] body .breadcrumbs strong { color: #eef5f7; }
+html[data-theme="dark"] body .icon-button,
+html[data-theme="dark"] body .soft-pill,
+html[data-theme="dark"] body .account-preview-select,
+html[data-theme="dark"] body .top-actions select,
+html[data-theme="dark"] body .theme-toggle {
+  border-color: #506c7b;
+  background: #223946;
+  color: #dce8ed;
+}
+
+html[data-theme="dark"] body .primary-button,
+html[data-theme="dark"] body .module-action.primary,
+html[data-theme="dark"] body .collaboration-form-actions button[type="submit"],
+html[data-theme="dark"] body .structured-primary-button,
+html[data-theme="dark"] body .todo-add-button,
+html[data-theme="dark"] body .review-create-button,
+html[data-theme="dark"] body .project-detail-actions button.primary,
+html[data-theme="dark"] body .structured-board-head-actions > button,
+html[data-theme="dark"] body .service-add-button,
+html[data-theme="dark"] body #newProjectsView .structured-primary-button,
+html[data-theme="dark"] body .auth-gate .auth-google,
+html[data-theme="dark"] body .auth-gate .os-auth-primary,
+html[data-theme="dark"] body .auth-gate .os-auth-step.active .os-auth-step-icon {
+  border-color: #608ba5 !important;
+  background: #486f87 !important;
+  color: #fff !important;
+}
+
+html[data-theme="dark"] body .panel,
+html[data-theme="dark"] body .module-card,
+html[data-theme="dark"] body .module-section,
+html[data-theme="dark"] body .module-statusbar,
+html[data-theme="dark"] body .content-card,
+html[data-theme="dark"] body .summary-card,
+html[data-theme="dark"] body .stat-card,
+html[data-theme="dark"] body .empty-state,
+html[data-theme="dark"] body .calendar-card,
+html[data-theme="dark"] body .todo-board,
+html[data-theme="dark"] body .chat-list-panel,
+html[data-theme="dark"] body .chat-room-pane,
+html[data-theme="dark"] body .project-command-card,
+html[data-theme="dark"] body .project-detail-shell,
+html[data-theme="dark"] body .structured-project-card,
+html[data-theme="dark"] body .structured-detail-hero,
+html[data-theme="dark"] body .structured-medium-category,
+html[data-theme="dark"] body .structured-small-category,
+html[data-theme="dark"] body .structured-board-view,
+html[data-theme="dark"] body .structured-task-drawer,
+html[data-theme="dark"] body .readonly-modal-card,
+html[data-theme="dark"] body #moduleView .module-hero,
+html[data-theme="dark"] body #moduleView .module-toolbar,
+html[data-theme="dark"] body #moduleView .module-filterbar,
+html[data-theme="dark"] body #moduleView .module-filter,
+html[data-theme="dark"] body #moduleView .settlement-summary,
+html[data-theme="dark"] body #moduleView .settlement-card,
+html[data-theme="dark"] body #moduleView .settlement-sheet,
+html[data-theme="dark"] body #moduleView .report-card,
+html[data-theme="dark"] body #moduleView .bank-summary,
+html[data-theme="dark"] body #moduleView .bank-card,
+html[data-theme="dark"] body #moduleView .invoice-card,
+html[data-theme="dark"] body #moduleView .request-card,
+html[data-theme="dark"] body #moduleView .org-card,
+html[data-theme="dark"] body #moduleView .org-node,
+html[data-theme="dark"] body #moduleView .document-card,
+html[data-theme="dark"] body #moduleView .service-card,
+html[data-theme="dark"] body #moduleView .idea-card,
+html[data-theme="dark"] body #moduleView .request-row {
+  border-color: #3b5665;
+  background-color: #1d303c;
+  color: #d1dfe5;
+  box-shadow: none;
+}
+
+html[data-theme="dark"] body .panel-head,
+html[data-theme="dark"] body .module-card-head,
+html[data-theme="dark"] body .module-section-head,
+html[data-theme="dark"] body .calendar-panel-head,
+html[data-theme="dark"] body .todo-board-head,
+html[data-theme="dark"] body .chat-thread-head,
+html[data-theme="dark"] body .project-detail-head,
+html[data-theme="dark"] body .structured-medium-head,
+html[data-theme="dark"] body .structured-small-category > header,
+html[data-theme="dark"] body .structured-task-drawer-head,
+html[data-theme="dark"] body #moduleView .module-hero,
+html[data-theme="dark"] body #moduleView .module-toolbar,
+html[data-theme="dark"] body #moduleView .module-filterbar,
+html[data-theme="dark"] body #moduleView .settlement-head,
+html[data-theme="dark"] body #moduleView .report-head,
+html[data-theme="dark"] body #moduleView .bank-head,
+html[data-theme="dark"] body #moduleView .org-head,
+html[data-theme="dark"] body #moduleView .document-head {
+  border-color: #3b5665;
+  background-color: #243b49;
+}
+
+html[data-theme="dark"] body .view-tabs,
+html[data-theme="dark"] body .review-filter-tabs,
+html[data-theme="dark"] body .todo-scope-tabs,
+html[data-theme="dark"] body .chat-filter-tabs,
+html[data-theme="dark"] body .structured-status-filters,
+html[data-theme="dark"] body .structured-task-viewbar > nav,
+html[data-theme="dark"] body .module-tabs,
+html[data-theme="dark"] body .finance-period-filter {
+  border-color: #3f5a69;
+  background: #203743;
+}
+
+html[data-theme="dark"] body .tab-button,
+html[data-theme="dark"] body .review-filter-tabs button,
+html[data-theme="dark"] body .todo-scope-button,
+html[data-theme="dark"] body .chat-filter,
+html[data-theme="dark"] body .structured-status-filters button,
+html[data-theme="dark"] body .structured-task-viewbar button,
+html[data-theme="dark"] body .module-tabs button { color: #aebfc8; }
+
+html[data-theme="dark"] body .tab-button.active,
+html[data-theme="dark"] body .review-filter-tabs button.active,
+html[data-theme="dark"] body .todo-scope-button.active,
+html[data-theme="dark"] body .chat-filter.active,
+html[data-theme="dark"] body .structured-status-filters button.active,
+html[data-theme="dark"] body .structured-task-viewbar button.active,
+html[data-theme="dark"] body .module-tabs button.active {
+  border-color: #678494;
+  background: #304d5d;
+  color: #f0f6f8;
+}
+
+html[data-theme="dark"] body .app input:not([type="checkbox"]):not([type="radio"]),
+html[data-theme="dark"] body .app select,
+html[data-theme="dark"] body .app textarea,
+html[data-theme="dark"] body .readonly-modal input:not([type="checkbox"]):not([type="radio"]),
+html[data-theme="dark"] body .readonly-modal select,
+html[data-theme="dark"] body .readonly-modal textarea {
+  border-color: #496574;
+  background-color: #172a35;
+  color: #e0eaee;
+}
+html[data-theme="dark"] body .app input::placeholder,
+html[data-theme="dark"] body .app textarea::placeholder,
+html[data-theme="dark"] body .readonly-modal input::placeholder,
+html[data-theme="dark"] body .readonly-modal textarea::placeholder { color: #91a8b4; }
+
+html[data-theme="dark"] body .module-table,
+html[data-theme="dark"] body .data-table,
+html[data-theme="dark"] body .settlement-table,
+html[data-theme="dark"] body .report-table,
+html[data-theme="dark"] body .bank-table,
+html[data-theme="dark"] body table { border-color: #405b6a; background: #1b2f3a; color: #d5e2e7; }
+html[data-theme="dark"] body .module-table thead,
+html[data-theme="dark"] body .data-table thead,
+html[data-theme="dark"] body .settlement-table thead,
+html[data-theme="dark"] body .report-table thead,
+html[data-theme="dark"] body .bank-table thead,
+html[data-theme="dark"] body table thead { background: #294350; color: #dbe7eb; }
+html[data-theme="dark"] body table th,
+html[data-theme="dark"] body table td { border-color: #385361; }
+html[data-theme="dark"] body table tbody tr:hover { background: #243d4a; }
+
+html[data-theme="dark"] body .module-action,
+html[data-theme="dark"] body .secondary-button,
+html[data-theme="dark"] body .ghost-button,
+html[data-theme="dark"] body .collaboration-form-actions button,
+html[data-theme="dark"] body .structured-category-actions button,
+html[data-theme="dark"] body .structured-detail-person-head > button,
+html[data-theme="dark"] body .structured-detail-nav > button,
+html[data-theme="dark"] body .structured-task-actions button:not(.submit):not(.approve):not(.revision) {
+  border-color: #4b6675;
+  background: #223946;
+  color: #c7d7de;
+}
+
+html[data-theme="dark"] body #calendarView .home-calendar-panel,
+html[data-theme="dark"] body #calendarView .calendar-agenda,
+html[data-theme="dark"] body #calendarView .home-calendar-main,
+html[data-theme="dark"] body #calendarView .home-calendar-cell,
+html[data-theme="dark"] body #todoView .todo-page-toolbar,
+html[data-theme="dark"] body #todoView .todo-summary-card,
+html[data-theme="dark"] body #todoView .todo-split-panel,
+html[data-theme="dark"] body #todoView .daily-plan-step,
+html[data-theme="dark"] body #todoView .personal-plan-toggle,
+html[data-theme="dark"] body #todoView .todo-task,
+html[data-theme="dark"] body #todoView .daily-thought-row,
+html[data-theme="dark"] body #todoView .daily-timeline-row,
+html[data-theme="dark"] body #chatView .chat-room-row,
+html[data-theme="dark"] body #chatView .chat-message-bubble,
+html[data-theme="dark"] body #reviewView .project-list-controls,
+html[data-theme="dark"] body #reviewView .project-command-card,
+html[data-theme="dark"] body #reviewView .project-detail-task,
+html[data-theme="dark"] body #reviewView .project-workflow-lane,
+html[data-theme="dark"] body #reviewView .project-comment-card,
+html[data-theme="dark"] body #reviewView .project-update-card,
+html[data-theme="dark"] body #newProjectsView .structured-projects-shell,
+html[data-theme="dark"] body #newProjectsView .structured-project-controls,
+html[data-theme="dark"] body #newProjectsView .structured-task-viewbar,
+html[data-theme="dark"] body #newProjectsView .structured-summary article,
+html[data-theme="dark"] body #newProjectsView .structured-board-controls,
+html[data-theme="dark"] body #newProjectsView .structured-board-column,
+html[data-theme="dark"] body #newProjectsView .structured-board-card {
+  border-color: #3d5867;
+  background-color: #1d303c;
+}
+
+html[data-theme="dark"] body #calendarView .calendar-weekdays,
+html[data-theme="dark"] body #todoView .todo-summary-card.primary,
+html[data-theme="dark"] body #todoView .todo-split-panel-head,
+html[data-theme="dark"] body #todoView .daily-plan-step-head,
+html[data-theme="dark"] body #chatView .chat-page-toolbar,
+html[data-theme="dark"] body #chatView .chat-bulk-toolbar,
+html[data-theme="dark"] body #chatView .chat-composer,
+html[data-theme="dark"] body #reviewView .project-detail-hero,
+html[data-theme="dark"] body #reviewView .project-workflow-toolbar,
+html[data-theme="dark"] body #reviewView .project-workflow-lane > header,
+html[data-theme="dark"] body #newProjectsView .structured-detail-hero,
+html[data-theme="dark"] body #newProjectsView .structured-medium-head,
+html[data-theme="dark"] body #newProjectsView .structured-board-head,
+html[data-theme="dark"] body #newProjectsView .structured-board-column > header {
+  border-color: #3d5968;
+  background-color: #243d4a;
+}
+
+html[data-theme="dark"] body #calendarView .home-calendar-cell:hover,
+html[data-theme="dark"] body #todoView .todo-group-head:hover,
+html[data-theme="dark"] body #todoView .todo-task:hover,
+html[data-theme="dark"] body #chatView .chat-room-row:hover,
+html[data-theme="dark"] body #chatView .chat-room-row.selected,
+html[data-theme="dark"] body #reviewView .project-command-card:hover,
+html[data-theme="dark"] body #newProjectsView .structured-project-card:hover,
+html[data-theme="dark"] body #newProjectsView .structured-board-card > button:hover { background: #243e4c; }
+
+html[data-theme="dark"] body #calendarView .home-calendar-cell.outside { background: #182a34; }
+html[data-theme="dark"] body #calendarView .home-calendar-cell.today { background: #294756; box-shadow: inset 0 0 0 1px #7595a7; }
+html[data-theme="dark"] body #chatView .chat-thread-messages { background: #152832; }
+html[data-theme="dark"] body #chatView .chat-message.mine .chat-message-bubble {
+  border-color: #547387;
+  background: #294656;
+  color: #e0ebef;
+}
+
+html[data-theme="dark"] body #newProjectsView .structured-detail-progress > i,
+html[data-theme="dark"] body #newProjectsView .structured-progress-track { background: #304b59; }
+html[data-theme="dark"] body #newProjectsView .structured-detail-progress > i > b,
+html[data-theme="dark"] body #newProjectsView .structured-progress-track i { background: #6f9bb5; }
+
+html[data-theme="dark"] body #newProjectsView .structured-summary article.review,
+html[data-theme="dark"] body #newProjectsView .structured-board-card.status-revision,
+html[data-theme="dark"] body #newProjectsView .structured-task-drawer-revision,
+html[data-theme="dark"] body #reviewView .project-detail-task.project-workflow-task.deadline-overdue {
+  border-color: #925e64;
+  background: #432d32;
+}
+html[data-theme="dark"] body #reviewView .project-workflow-lane.review,
+html[data-theme="dark"] body #reviewView .project-detail-task.project-workflow-task.deadline-today {
+  border-color: #8c744f;
+  background: #3b3428;
+}
+html[data-theme="dark"] body #reviewView .project-workflow-lane.done { border-color: #537966; background: #243a32; }
+
+html[data-theme="dark"] body #moduleView .bank-account-card,
+html[data-theme="dark"] body #moduleView .metric-card,
+html[data-theme="dark"] body #moduleView .settlement-metric,
+html[data-theme="dark"] body #moduleView .report-metric,
+html[data-theme="dark"] body #moduleView .bank-metric,
+html[data-theme="dark"] body #moduleView .bank-kpi {
+  border-color: #3e5968;
+  background: #1d303c;
+}
+
+html[data-theme="dark"] body [data-company-folder][aria-pressed="true"] {
+  border-color: #7698aa !important;
+  background: #294554;
+  box-shadow: inset 3px 0 #7ba3ba !important;
+}
+
+html[data-theme="dark"] body .readonly-modal,
+html[data-theme="dark"] body .collaboration-modal,
+html[data-theme="dark"] body .detail-modal { background: rgba(5, 14, 20, .7); }
+html[data-theme="dark"] body .readonly-modal-card,
+html[data-theme="dark"] body .collaboration-modal-card,
+html[data-theme="dark"] body .detail-modal-card,
+html[data-theme="dark"] body .auth-gate .auth-card,
+html[data-theme="dark"] body .auth-gate .os-auth-card {
+  border-color: #496574;
+  background: #1b2f3a;
+  color: #d7e3e8;
+  box-shadow: none;
+}
+html[data-theme="dark"] body .readonly-modal-head,
+html[data-theme="dark"] body .collaboration-modal-head,
+html[data-theme="dark"] body .detail-modal-head,
+html[data-theme="dark"] body .readonly-modal-actions,
+html[data-theme="dark"] body .collaboration-modal-actions,
+html[data-theme="dark"] body .detail-modal-actions { border-color: #3e5967; background: #233b48; }
+html[data-theme="dark"] body .auth-gate.os-auth-mode { background: #13242f; }
+
+html[data-theme="dark"] body .auth-gate {
+  background: rgba(12, 27, 36, .96);
+  color: #d7e3e8;
+}
+
+html[data-theme="dark"] body .auth-card h1,
+html[data-theme="dark"] body .auth-card h2,
+html[data-theme="dark"] body .auth-card h3,
+html[data-theme="dark"] body .os-auth-card h1,
+html[data-theme="dark"] body .os-auth-card h2,
+html[data-theme="dark"] body .os-auth-card h3,
+html[data-theme="dark"] body .os-auth-step-copy strong,
+html[data-theme="dark"] body .os-auth-identity-copy strong,
+html[data-theme="dark"] body .os-auth-field-label,
+html[data-theme="dark"] body .os-auth-email-guide strong { color: #eef5f7; }
+
+html[data-theme="dark"] body .auth-card p,
+html[data-theme="dark"] body .auth-card .auth-status,
+html[data-theme="dark"] body .os-auth-card p,
+html[data-theme="dark"] body .os-auth-step-copy small,
+html[data-theme="dark"] body .os-auth-identity-copy small,
+html[data-theme="dark"] body .os-auth-field-label small,
+html[data-theme="dark"] body .os-auth-email-guide span,
+html[data-theme="dark"] body .os-auth-code-meta,
+html[data-theme="dark"] body .os-auth-message,
+html[data-theme="dark"] body .os-auth-text-button,
+html[data-theme="dark"] body .os-auth-secondary { color: #aebfc8; }
+
+html[data-theme="dark"] body .os-auth-step:not(:last-child)::after { background: #415d6b; }
+html[data-theme="dark"] body .os-auth-step-icon,
+html[data-theme="dark"] body .os-auth-identity,
+html[data-theme="dark"] body .os-auth-email-guide,
+html[data-theme="dark"] body .os-auth-otp {
+  border-color: #496574;
+  background: #203744;
+  background-image: none;
+  color: #e4edf1;
+  box-shadow: none;
+}
+html[data-theme="dark"] body .os-auth-avatar,
+html[data-theme="dark"] body .os-auth-shield {
+  border-color: #527080;
+  background: #294554;
+  background-image: none;
+  color: #b9d7e7;
+  box-shadow: none;
+}
+html[data-theme="dark"] body .os-auth-step-status,
+html[data-theme="dark"] body .os-auth-identity-copy div > span {
+  background: #294554;
+  color: #b7ced9;
+}
+
+@media (max-width: 760px) {
+  body .top-actions .theme-toggle {
+    display: inline-flex;
+    min-width: 44px;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+  body .theme-toggle-label { display: none; }
+  html[data-theme="dark"] body .topbar { background: #182b37; }
+  html[data-theme="dark"] body .app-sidebar { background: #1a3140; }
+  html[data-theme="dark"] body .page { background: #13242f; }
+}
+
+/* Dark mode surface completion ------------------------------------------------
+   The legacy views below use fixed light colours instead of shared tokens.
+   Keep the semantic status colours, but make every reading surface genuinely
+   dark so the mode never alternates between white cards and navy canvas. */
+
+html[data-theme="dark"] body #dashboardView .executive-dashboard-hero,
+html[data-theme="dark"] body #dashboardView .executive-metric-grid,
+html[data-theme="dark"] body #dashboardView .executive-chart-card,
+html[data-theme="dark"] body #dashboardView .executive-compact-card {
+  border-color: #3d5867;
+  background: #1b2f3a;
+  color: #d3e0e6;
+}
+
+html[data-theme="dark"] body #dashboardView .executive-dashboard-eyebrow {
+  border-color: #405a68;
+  color: #aebfc8;
+}
+html[data-theme="dark"] body #dashboardView .executive-dashboard-heading h1,
+html[data-theme="dark"] body #dashboardView .executive-card-head h2,
+html[data-theme="dark"] body #dashboardView .executive-list-copy strong,
+html[data-theme="dark"] body #dashboardView .executive-project-copy strong,
+html[data-theme="dark"] body #dashboardView .executive-empty strong { color: #eef5f7; }
+html[data-theme="dark"] body #dashboardView .executive-dashboard-heading p,
+html[data-theme="dark"] body #dashboardView .executive-dashboard-date,
+html[data-theme="dark"] body #dashboardView .executive-card-head p,
+html[data-theme="dark"] body #dashboardView .executive-card-kicker,
+html[data-theme="dark"] body #dashboardView .executive-chart-legend small,
+html[data-theme="dark"] body #dashboardView .executive-list-copy small,
+html[data-theme="dark"] body #dashboardView .executive-project-copy small,
+html[data-theme="dark"] body #dashboardView .executive-empty small { color: #a9bbc4; }
+html[data-theme="dark"] body #dashboardView .executive-dashboard-mode,
+html[data-theme="dark"] body #dashboardView .executive-card-head.compact > button,
+html[data-theme="dark"] body #dashboardView .executive-list-state {
+  border-color: #4a6574;
+  background: #243c49;
+  color: #c9dce5;
+}
+html[data-theme="dark"] body #dashboardView .executive-metric-strip .executive-metric-card {
+  border-color: #3d5664;
+  background: transparent;
+}
+html[data-theme="dark"] body #dashboardView .executive-metric-top { color: #b7c8d0; }
+html[data-theme="dark"] body #dashboardView .executive-metric-card > strong { color: #eef5f7; }
+html[data-theme="dark"] body #dashboardView .executive-metric-card.revenue > strong { color: #9bc3db; }
+html[data-theme="dark"] body #dashboardView .executive-metric-card.profit > strong { color: #dda1a5; }
+html[data-theme="dark"] body #dashboardView .executive-metric-card > small { color: #a2b5bf; }
+html[data-theme="dark"] body #dashboardView .executive-metric-top > i {
+  border-color: #405c6a;
+  background: #263f4c;
+  color: #b8d3e2;
+}
+html[data-theme="dark"] body #dashboardView .executive-metric-card.profit .executive-metric-top > i {
+  background: #493238;
+  color: #e0a2a6;
+}
+html[data-theme="dark"] body #dashboardView .executive-metric-card.tasks .executive-metric-top > i {
+  background: #263d35;
+  color: #95c6aa;
+}
+html[data-theme="dark"] body #dashboardView .executive-metric-card.projects .executive-metric-top > i {
+  background: #303849;
+  color: #b8c5df;
+}
+html[data-theme="dark"] body #dashboardView .executive-card-head,
+html[data-theme="dark"] body #dashboardView .executive-list-row,
+html[data-theme="dark"] body #dashboardView .executive-project-row { border-color: #38515e; }
+html[data-theme="dark"] body #dashboardView .executive-project-row { color: #d8e5ea; }
+html[data-theme="dark"] body #dashboardView .executive-project-row:hover { background: #223b47; }
+html[data-theme="dark"] body #dashboardView .executive-project-progress > span { background: #304a57; }
+html[data-theme="dark"] body #dashboardView .executive-project-progress i { background: #7ca6bd; }
+html[data-theme="dark"] body #dashboardView .executive-project-progress strong { color: #b9ced8; }
+html[data-theme="dark"] body #dashboardView .executive-chart-grid line { stroke: #354d59; }
+html[data-theme="dark"] body #dashboardView .executive-chart-grid text,
+html[data-theme="dark"] body #dashboardView .executive-chart-x { fill: #9eb2bc; }
+html[data-theme="dark"] body #dashboardView .executive-chart-zero { stroke: #58717e; }
+html[data-theme="dark"] body #dashboardView .executive-chart-area { fill: rgba(126, 170, 195, .11); }
+html[data-theme="dark"] body #dashboardView .executive-chart-line.revenue { stroke: #83afc8; }
+html[data-theme="dark"] body #dashboardView .executive-chart-line.profit { stroke: #d4878c; }
+html[data-theme="dark"] body #dashboardView .executive-chart-point { stroke: #1b2f3a; }
+html[data-theme="dark"] body #dashboardView .executive-chart-point.revenue { fill: #83afc8; }
+html[data-theme="dark"] body #dashboardView .executive-chart-point.profit { fill: #d4878c; }
+html[data-theme="dark"] body #dashboardView .executive-chart-note,
+html[data-theme="dark"] body #dashboardView .executive-chart-empty > span,
+html[data-theme="dark"] body #dashboardView .executive-empty > span {
+  border-color: #405b69;
+  background: #223a46;
+  color: #b9d3df;
+}
+html[data-theme="dark"] body #dashboardView .executive-chart-note > span { background: #2a4451; }
+html[data-theme="dark"] body #dashboardView .executive-chart-note.warning {
+  border-color: #79683f;
+  background: #393325;
+  color: #e1ca8f;
+}
+html[data-theme="dark"] body #dashboardView .executive-chart-note small { color: #b1c1c8; }
+
+html[data-theme="dark"] body #calendarView .permission-stat,
+html[data-theme="dark"] body #calendarView .agenda-day-summary,
+html[data-theme="dark"] body #calendarView .agenda-day-stats > span,
+html[data-theme="dark"] body #calendarView .agenda-work-group,
+html[data-theme="dark"] body #calendarView .agenda-scope-tabs button,
+html[data-theme="dark"] body #calendarView .agenda-filter-row button:not(.active) {
+  border-color: #3d5867;
+  background: #1d303c;
+  color: #d0dee4;
+  box-shadow: none;
+}
+html[data-theme="dark"] body #calendarView .permission-stat-top,
+html[data-theme="dark"] body #calendarView .permission-stat > small,
+html[data-theme="dark"] body #calendarView .agenda-date span,
+html[data-theme="dark"] body #calendarView .agenda-day-summary > p,
+html[data-theme="dark"] body #calendarView .agenda-day-stats small,
+html[data-theme="dark"] body #calendarView .agenda-report-section > header span,
+html[data-theme="dark"] body #calendarView .agenda-work-section > header span,
+html[data-theme="dark"] body #calendarView .agenda-work-group-head small,
+html[data-theme="dark"] body #calendarView .agenda-work-copy small,
+html[data-theme="dark"] body #calendarView .agenda-work-copy em,
+html[data-theme="dark"] body #calendarView .agenda-work-checklist { color: #9fb3bd; }
+html[data-theme="dark"] body #calendarView .permission-stat > strong,
+html[data-theme="dark"] body #calendarView .agenda-date strong,
+html[data-theme="dark"] body #calendarView .agenda-report-section > header strong,
+html[data-theme="dark"] body #calendarView .agenda-work-section > header strong,
+html[data-theme="dark"] body #calendarView .agenda-work-copy strong { color: #edf5f7; }
+html[data-theme="dark"] body #calendarView .agenda-work-group-head,
+html[data-theme="dark"] body #calendarView .agenda-report-section > div button {
+  background: #243c49;
+  color: #c7d7de;
+}
+html[data-theme="dark"] body #calendarView .agenda-report-section,
+html[data-theme="dark"] body #calendarView .agenda-work-section,
+html[data-theme="dark"] body #calendarView .agenda-work-item { border-color: #3a5361; }
+
+html[data-theme="dark"] body #todoView .todo-page-toolbar h1,
+html[data-theme="dark"] body #todoView .todo-split-panel-head strong,
+html[data-theme="dark"] body #todoView .daily-plan-step-head strong,
+html[data-theme="dark"] body #todoView .daily-plan-task-open strong,
+html[data-theme="dark"] body #todoView .personal-plan-toggle strong { color: #edf5f7; }
+html[data-theme="dark"] body #todoView .todo-page-toolbar p,
+html[data-theme="dark"] body #todoView .todo-split-panel-head small,
+html[data-theme="dark"] body #todoView .daily-plan-step-head small,
+html[data-theme="dark"] body #todoView .daily-plan-task-open small,
+html[data-theme="dark"] body #todoView .personal-plan-toggle small,
+html[data-theme="dark"] body #todoView .todo-split-empty,
+html[data-theme="dark"] body #todoView .daily-plan-empty { color: #9fb3bd; }
+html[data-theme="dark"] body #todoView .todo-split-capture,
+html[data-theme="dark"] body #todoView .personal-plan-panel {
+  border-color: #3b5664;
+  background: #192d38;
+}
+html[data-theme="dark"] body #todoView .todo-split-progress > span,
+html[data-theme="dark"] body #todoView .daily-plan-progress > span { background: #304b58; }
+html[data-theme="dark"] body #todoView .todo-split-row,
+html[data-theme="dark"] body #todoView .daily-priority-row,
+html[data-theme="dark"] body #todoView .daily-thought-row,
+html[data-theme="dark"] body #todoView .daily-timeline-row { border-color: #385260; }
+html[data-theme="dark"] body #todoView .todo-split-project-guide,
+html[data-theme="dark"] body #todoView .todo-split-empty.private,
+html[data-theme="dark"] body #todoView .daily-priority-rank,
+html[data-theme="dark"] body #todoView .daily-priority-actions button {
+  border-color: #496575;
+  background: #223a47;
+  color: #b9d5e3;
+}
+html[data-theme="dark"] body #todoView .todo-task-check {
+  border-color: #668393;
+  background: #1a2e39;
+  color: #a9cbdc;
+}
+html[data-theme="dark"] body #todoView .todo-task-check.checked {
+  border-color: #63967b;
+  background: #294438;
+  color: #b7dfc9;
+}
+
+html[data-theme="dark"] body #newProjectsView .structured-detail-title h1,
+html[data-theme="dark"] body #newProjectsView .structured-detail-people strong,
+html[data-theme="dark"] body #newProjectsView .structured-medium-head h2,
+html[data-theme="dark"] body #newProjectsView .structured-small-category > header strong,
+html[data-theme="dark"] body #newProjectsView .structured-task-main > strong,
+html[data-theme="dark"] body #newProjectsView .structured-task-viewbar > div > strong,
+html[data-theme="dark"] body #newProjectsView .structured-board-head > div > strong,
+html[data-theme="dark"] body #newProjectsView .structured-board-card strong,
+html[data-theme="dark"] body #newProjectsView .structured-task-drawer h2,
+html[data-theme="dark"] body #newProjectsView .structured-task-drawer strong { color: #eef5f7; }
+html[data-theme="dark"] body #newProjectsView .structured-detail-title p,
+html[data-theme="dark"] body #newProjectsView .structured-detail-people b,
+html[data-theme="dark"] body #newProjectsView .structured-project-member-rank,
+html[data-theme="dark"] body #newProjectsView .structured-detail-progress > small,
+html[data-theme="dark"] body #newProjectsView .structured-medium-title > small,
+html[data-theme="dark"] body #newProjectsView .structured-medium-manager > span,
+html[data-theme="dark"] body #newProjectsView .structured-small-category > header small,
+html[data-theme="dark"] body #newProjectsView .structured-task-main > p,
+html[data-theme="dark"] body #newProjectsView .structured-task-viewbar > div > small,
+html[data-theme="dark"] body #newProjectsView .structured-board-head > div > small,
+html[data-theme="dark"] body #newProjectsView .structured-task-meta > span:last-child { color: #9fb3bd; }
+html[data-theme="dark"] body #newProjectsView .structured-detail-people > span,
+html[data-theme="dark"] body #newProjectsView .structured-project-team-member,
+html[data-theme="dark"] body #newProjectsView .structured-project-lead-card > strong > small,
+html[data-theme="dark"] body #newProjectsView .structured-assignment-flow > span,
+html[data-theme="dark"] body #newProjectsView .structured-assignment-preview > span,
+html[data-theme="dark"] body #newProjectsView .structured-revision-target,
+html[data-theme="dark"] body #newProjectsView .structured-board-assign-intro {
+  border-color: #405c6a;
+  background: #223946;
+  color: #cbdbe2;
+}
+html[data-theme="dark"] body #newProjectsView .structured-medium-category { background: #192d38; }
+html[data-theme="dark"] body #newProjectsView .structured-small-list { background: #192d38; }
+html[data-theme="dark"] body #newProjectsView .structured-task-row {
+  border-color: #385260;
+  background: #1d303c;
+}
+html[data-theme="dark"] body #newProjectsView .structured-task-row.status-review {
+  border-left-color: #c18d58;
+  background: #3a3227;
+}
+html[data-theme="dark"] body #newProjectsView .structured-task-row.status-revision {
+  border-left-color: #c7747a;
+  background: #412d32;
+}
+html[data-theme="dark"] body #newProjectsView .structured-task-row.status-done {
+  border-left-color: #699b80;
+  background: #243a32;
+}
+html[data-theme="dark"] body #newProjectsView .structured-task-check {
+  border-color: #607d8d;
+  background: #172a35;
+  color: #acd0e1;
+}
+html[data-theme="dark"] body #newProjectsView .structured-task-actions button {
+  border-color: #4a6574;
+  background: #223946;
+  color: #cbdbe2;
+}
+html[data-theme="dark"] body #newProjectsView .structured-task-actions .submit { border-color: #547b91; background: #294554; color: #bcd9e8; }
+html[data-theme="dark"] body #newProjectsView .structured-task-actions .approve { border-color: #527a65; background: #263e34; color: #b6ddc7; }
+html[data-theme="dark"] body #newProjectsView .structured-task-actions .revision { border-color: #86565c; background: #402e33; color: #e0a9ad; }
+
+html[data-theme="dark"] body #moduleView .module-section-body,
+html[data-theme="dark"] body #moduleView .finance-period-modes,
+html[data-theme="dark"] body #moduleView .ledger-filter,
+html[data-theme="dark"] body #moduleView .intake-target,
+html[data-theme="dark"] body #moduleView .intake-calc,
+html[data-theme="dark"] body #moduleView .intake-calc article,
+html[data-theme="dark"] body #moduleView .ledger-total,
+html[data-theme="dark"] body #moduleView .final-total,
+html[data-theme="dark"] body #moduleView .paid-summary,
+html[data-theme="dark"] body #moduleView .finance-request-check,
+html[data-theme="dark"] body #moduleView .finance-request-card,
+html[data-theme="dark"] body #moduleView .team-member,
+html[data-theme="dark"] body #moduleView .bank-account-card,
+html[data-theme="dark"] body #moduleView .bank-account-balance,
+html[data-theme="dark"] body #moduleView .bank-transaction-card,
+html[data-theme="dark"] body #moduleView .bank-sync-card {
+  border-color: #3d5867;
+  background: #1d303c;
+  color: #d1dfe5;
+  box-shadow: none;
+}
+html[data-theme="dark"] body #moduleView .finance-period-mode,
+html[data-theme="dark"] body #moduleView .finance-period-control,
+html[data-theme="dark"] body #moduleView .finance-period-result small,
+html[data-theme="dark"] body #moduleView .ledger-filter-field > span,
+html[data-theme="dark"] body #moduleView .intake-field > span,
+html[data-theme="dark"] body #moduleView .intake-field small,
+html[data-theme="dark"] body #moduleView .intake-calc span,
+html[data-theme="dark"] body #moduleView .ledger-day-head span,
+html[data-theme="dark"] body #moduleView .finance-request-check small,
+html[data-theme="dark"] body #moduleView .finance-request-head small,
+html[data-theme="dark"] body #moduleView .finance-request-meta dt { color: #a3b6c0; }
+html[data-theme="dark"] body #moduleView .finance-period-mode.active {
+  background: #486f87;
+  color: #fff;
+}
+html[data-theme="dark"] body #moduleView .finance-period-result strong,
+html[data-theme="dark"] body #moduleView .intake-calc .profit strong,
+html[data-theme="dark"] body #moduleView .ledger-total strong.profit,
+html[data-theme="dark"] body #moduleView .final-total strong.profit,
+html[data-theme="dark"] body #moduleView .finance-request-amount { color: #9ec7dd; }
+html[data-theme="dark"] body #moduleView .intake-calc strong,
+html[data-theme="dark"] body #moduleView .ledger-day-head strong,
+html[data-theme="dark"] body #moduleView .ledger-total > span:first-child,
+html[data-theme="dark"] body #moduleView .ledger-total strong,
+html[data-theme="dark"] body #moduleView .final-total > span:first-child,
+html[data-theme="dark"] body #moduleView .final-total strong,
+html[data-theme="dark"] body #moduleView .finance-request-check strong,
+html[data-theme="dark"] body #moduleView .finance-request-head strong,
+html[data-theme="dark"] body #moduleView .finance-request-meta dd,
+html[data-theme="dark"] body #moduleView .team-member-name,
+html[data-theme="dark"] body #moduleView .bank-account-head strong,
+html[data-theme="dark"] body #moduleView .bank-transaction-copy strong,
+html[data-theme="dark"] body #moduleView .bank-mobile-party strong,
+html[data-theme="dark"] body #moduleView .bank-mobile-meta dd { color: #eef5f7; }
+html[data-theme="dark"] body #moduleView .intake-field.auto input { border-color: #405a68; background: #223a46; color: #bdcdd5; }
+html[data-theme="dark"] body #moduleView .intake-field.need input { border-color: #8c7149; background: #3a3225; color: #f0dfb2; }
+html[data-theme="dark"] body #moduleView .intake-calc .masked { background: #402e33; }
+html[data-theme="dark"] body #moduleView .ledger-table tr.kind-reserve { background: #292d40; }
+html[data-theme="dark"] body #moduleView .bank-kpi.warn { border-color: #79643e; background: #393225; }
+
+html[data-theme="dark"] body #reviewView .project-detail-shell h1,
+html[data-theme="dark"] body #reviewView .project-detail-shell h2,
+html[data-theme="dark"] body #reviewView .project-detail-shell h3,
+html[data-theme="dark"] body #reviewView .project-command-card strong,
+html[data-theme="dark"] body #reviewView .project-detail-task strong,
+html[data-theme="dark"] body #chatView .chat-room-row strong,
+html[data-theme="dark"] body #chatView .chat-thread-head strong { color: #eef5f7; }
+html[data-theme="dark"] body #reviewView .project-command-card small,
+html[data-theme="dark"] body #reviewView .project-detail-task small,
+html[data-theme="dark"] body #chatView .chat-room-row small,
+html[data-theme="dark"] body #chatView .chat-message-meta { color: #9fb3bd; }
+
+html[data-theme="dark"] body #moduleView .module-statusbar strong,
+html[data-theme="dark"] body #moduleView .module-section-head strong,
+html[data-theme="dark"] body #moduleView .module-card h2,
+html[data-theme="dark"] body #moduleView .sales-pane h2,
+html[data-theme="dark"] body #moduleView .sales-pane h3 { color: #eef5f7; }
+html[data-theme="dark"] body #moduleView .module-statusbar,
+html[data-theme="dark"] body #moduleView .module-statusbar small,
+html[data-theme="dark"] body #moduleView .module-section-head small,
+html[data-theme="dark"] body #moduleView .module-card p,
+html[data-theme="dark"] body #moduleView .module-card-footer span,
+html[data-theme="dark"] body #moduleView .sales-state { color: #a8bac3; }
+html[data-theme="dark"] body #moduleView .module-card-icon,
+html[data-theme="dark"] body #moduleView .module-chip,
+html[data-theme="dark"] body #moduleView .module-plan-badge {
+  border-color: #456170;
+  background: #263f4c;
+  color: #b9d3df;
+}
+html[data-theme="dark"] body #moduleView .module-card-icon.green,
+html[data-theme="dark"] body #moduleView .module-chip.visible {
+  background: #263e34;
+  color: #b3dbc4;
+}
+html[data-theme="dark"] body #moduleView .module-card-icon.orange {
+  background: #403525;
+  color: #e6c58e;
+}
+html[data-theme="dark"] body #moduleView .module-card-icon.violet {
+  background: #343247;
+  color: #cbc4eb;
+}
+html[data-theme="dark"] body #moduleView .module-chip.restricted {
+  background: #412f34;
+  color: #e0a8ad;
+}
+html[data-theme="dark"] body #moduleView .module-chip.live {
+  background: #294554;
+  color: #bdd9e7;
+}
+html[data-theme="dark"] body #newProjectsView .structured-detail-nav > div button:not(.structured-primary-button) {
+  border-color: #4b6675;
+  background: #223946;
+  color: #cbdbe2;
+}
+html[data-theme="dark"] body .collaboration-modal-card h2,
+html[data-theme="dark"] body .collaboration-modal-card h3,
+html[data-theme="dark"] body .detail-modal-card h2,
+html[data-theme="dark"] body .detail-modal-card h3,
+html[data-theme="dark"] body .readonly-modal-card h2,
+html[data-theme="dark"] body .readonly-modal-card h3,
+html[data-theme="dark"] body .collaboration-form-grid label > span,
+html[data-theme="dark"] body .detail-modal-card label > span { color: #eef5f7; }
+html[data-theme="dark"] body .collaboration-form-help,
+html[data-theme="dark"] body .collaboration-modal-card p,
+html[data-theme="dark"] body .detail-modal-card p,
+html[data-theme="dark"] body .readonly-modal-card p { color: #a8bac3; }
+
+html[data-theme="dark"] body #reviewView .review-summary-card,
+html[data-theme="dark"] body #reviewView .review-empty {
+  border-color: #3d5867;
+  background: #1d303c;
+  color: #a8bac3;
+}
+html[data-theme="dark"] body #reviewView .review-summary-card span { color: #a8bac3; }
+html[data-theme="dark"] body #reviewView .review-summary-card strong { color: #eef5f7; }
+html[data-theme="dark"] body #reviewView .review-summary-card.primary {
+  border-color: #79663e;
+  background: #393225;
+}
+html[data-theme="dark"] body #reviewView .review-summary-card.primary strong { color: #e5c68d; }
+html[data-theme="dark"] body #reviewView .review-summary-card.urgent {
+  border-color: #85575d;
+  background: #402d32;
+}
+html[data-theme="dark"] body #reviewView .review-summary-card.urgent strong { color: #e4a5aa; }
+
+html[data-theme="dark"] body #newProjectsView .structured-search {
+  border-color: #456170;
+  background: #172a35;
+  color: #9fb3bd;
+}
+html[data-theme="dark"] body #newProjectsView .structured-empty,
+html[data-theme="dark"] body #newProjectsView .structured-private-state {
+  border-color: #496574;
+  background: #192d38;
+  color: #a4b7c0;
+}
+html[data-theme="dark"] body #newProjectsView .structured-empty strong,
+html[data-theme="dark"] body #newProjectsView .structured-private-state strong { color: #eef5f7; }
+
+html[data-theme="dark"] body #moduleView .integration-node,
+html[data-theme="dark"] body #moduleView .integration-node.primary,
+html[data-theme="dark"] body #moduleView .module-security,
+html[data-theme="dark"] body #moduleView .sales-state {
+  border-color: #3d5867;
+  background: #1d303c;
+  color: #a8bac3;
+}
+html[data-theme="dark"] body #moduleView .integration-node strong,
+html[data-theme="dark"] body #moduleView .module-security strong { color: #eef5f7; }
+html[data-theme="dark"] body #moduleView .integration-node small { color: #a8bac3; }
+html[data-theme="dark"] body #moduleView .sales-state-error {
+  border-color: #85575d;
+  background: #402d32;
+  color: #e4a5aa;
+}
+
+html[data-theme="dark"] body #moduleView .org-node,
+html[data-theme="dark"] body #moduleView .org-node.roster,
+html[data-theme="dark"] body #moduleView .org-node.lead,
+html[data-theme="dark"] body #moduleView .org-node.lead.master,
+html[data-theme="dark"] body #moduleView .org-node.team,
+html[data-theme="dark"] body #moduleView .org-node.team.support,
+html[data-theme="dark"] body #moduleView .org-node.team.sales,
+html[data-theme="dark"] body #moduleView .org-node.current {
+  border-color: #3f5b69;
+  background: #1d303c;
+  background-image: none;
+  box-shadow: none;
+}
+html[data-theme="dark"] body #moduleView .org-node strong,
+html[data-theme="dark"] body #moduleView .org-person strong,
+html[data-theme="dark"] body #moduleView .org-chart .org-node-copy strong { color: #eef5f7; }
+html[data-theme="dark"] body #moduleView .org-node small,
+html[data-theme="dark"] body #moduleView .org-node-copy small,
+html[data-theme="dark"] body #moduleView .org-member-rank-static { color: #a8bac3; }
+html[data-theme="dark"] body #moduleView .org-node.person small,
+html[data-theme="dark"] body #moduleView .org-person small,
+html[data-theme="dark"] body #moduleView .team-member-rank { color: #9ec7dd; }
+html[data-theme="dark"] body #moduleView .team-member-team { color: #a8bac3; }
+
+html[data-theme="dark"] body #moduleView .ledger-edit,
+html[data-theme="dark"] body #moduleView .ledger-remove {
+  border-color: #496574;
+  background: #223946;
+  color: #c7d7de;
+}
+html[data-theme="dark"] body #moduleView .module-table th,
+html[data-theme="dark"] body #moduleView .data-table th,
+html[data-theme="dark"] body #moduleView .settlement-table th,
+html[data-theme="dark"] body #moduleView .ledger-table th,
+html[data-theme="dark"] body #moduleView .final-day-table th,
+html[data-theme="dark"] body #moduleView .empty-table th {
+  border-color: #3d5867;
+  background: #294350;
+  color: #dbe7eb;
+}
+
+html[data-theme="dark"] body #calendarView .calendar-nav,
+html[data-theme="dark"] body #calendarView .agenda-scope-tabs button:not(.active),
+html[data-theme="dark"] body #calendarView .calendar-head-actions button:not(.primary-button) {
+  border-color: #496574;
+  background: #223946;
+  color: #c9dbe3;
+}
+html[data-theme="dark"] body #calendarView .home-calendar-weekday { color: #a9bbc4; }
+html[data-theme="dark"] body #calendarView .home-calendar-weekday:first-child { color: #e08c92; }
+html[data-theme="dark"] body #calendarView .agenda-day-stats strong { color: #9ec7dd; }
+
+html[data-theme="dark"] body #todoView .todo-split-empty strong,
+html[data-theme="dark"] body #todoView .todo-split-project-guide strong { color: #c0d9e6; }
+html[data-theme="dark"] body #todoView .todo-split-project-guide span,
+html[data-theme="dark"] body #todoView .todo-split-project-guide small { color: #a4b7c0; }
+html[data-theme="dark"] body #todoView .todo-split-empty button {
+  border-color: #4c6877;
+  background: #223946;
+  color: #bdd8e6;
+}
+
+html[data-theme="dark"] body #dashboardView .executive-chart-legend,
+html[data-theme="dark"] body #dashboardView .executive-chart-legend .locked,
+html[data-theme="dark"] body #dashboardView .executive-chart-empty strong { color: #c9d9e1; }
+html[data-theme="dark"] body #dashboardView .executive-chart-empty small { color: #a8bac3; }
+
+html[data-theme="dark"] body .member-signout {
+  border-color: #587482;
+  background: #294554;
+  color: #e5eef2;
+}
+html[data-theme="dark"] body .persona-switch-label { color: #b4c6ce; }
+html[data-theme="dark"] body .collaboration-live-note {
+  border-color: #4b6877;
+  background: #223a47;
+  color: #c3d8e2;
+}
+html[data-theme="dark"] body .toast {
+  border-color: #567281;
+  background: #243d4a;
+  color: #eef5f7;
+}
+html[data-theme="dark"] body #todoView .personal-plan-toggle { color: #cbdbe2; }
+html[data-theme="dark"] body #todoView .todo-split-progress strong { color: #b0c3cc; }
+html[data-theme="dark"] body #calendarView .calendar-date { color: #d9e5ea; }
+html[data-theme="dark"] body #calendarView .home-calendar-cell.outside .calendar-date { color: #8298a3; }
+html[data-theme="dark"] body #newProjectsView .structured-eyebrow { color: #a9bbc4; }
+html[data-theme="dark"] body #newProjectsView .structured-summary article > span,
+html[data-theme="dark"] body #newProjectsView .structured-summary article > small { color: #a8bac3; }
+html[data-theme="dark"] body #newProjectsView .structured-summary article > strong { color: #eef5f7; }
+html[data-theme="dark"] body #calendarView [data-collab-add-event] {
+  border-color: #4b6877;
+  background: #223a47;
+  color: #c9dbe3;
+}
+html[data-theme="dark"] body #calendarView [data-collab-add-todo] {
+  border-color: #608ba5;
+  background: #486f87;
+  color: #fff;
+}
+html[data-theme="dark"] body #calendarView .agenda-filter-row button.active {
+  border-color: #816d44;
+  background: #3d3424;
+  color: #efd698;
+}
+html[data-theme="dark"] body #todoView .todo-split-panel-head em {
+  background: #294554;
+  color: #c1dce9;
+}
+html[data-theme="dark"] body #todoView .todo-split-panel.project .todo-split-panel-head em {
+  background: #303c50;
+  color: #c8d5ef;
+}
+html[data-theme="dark"] body #todoView .todo-split-panel-head > div > span { color: #8fc0d9; }
+html[data-theme="dark"] body #todoView .todo-split-capture button[type="submit"] {
+  background: #486f87;
+  color: #fff;
+}
+html[data-theme="dark"] body #newProjectsView .structured-page-head p { color: #a8bac3; }
+html[data-theme="dark"] body #newProjectsView .structured-result-count { color: #b2c3cb; }
+html[data-theme="dark"] body #moduleView .sales-basis { color: #a8bac3; }
+html[data-theme="dark"] body #moduleView .org-master-chip {
+  background: #486f87;
+  color: #fff;
+}
+html[data-theme="dark"] body #moduleView .org-branch-empty {
+  border-color: #496574;
+  background: #192d38;
+  color: #a8bac3;
+}
+html[data-theme="dark"] body .readonly-modal-head strong,
+html[data-theme="dark"] body #readonlyModalTitle { color: #eef5f7; }
+html[data-theme="dark"] body .auth-gate .os-auth-footer {
+  border-color: #3e5967;
+  background: #172a35;
+  color: #a8bac3;
+}
