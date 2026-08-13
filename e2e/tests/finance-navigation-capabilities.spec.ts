@@ -96,17 +96,17 @@ for (const account of [
     expect(store.prices.every((row: { cost: number | null }) => row.cost === null)).toBe(true);
 
     await finance.locator('[data-view="credit"]').evaluate(element => (element as HTMLElement).click());
-    await expect(page.locator('#pageCrumb')).toHaveText('피크마케팅');
+    await expect(page.locator('#pageCrumb')).toHaveText('대시보드');
     await expect(page.locator('#moduleView [data-credit-request-form]')).toHaveCount(0);
 
     await finance.locator('[data-view="final-settlement"]')
       .evaluate(element => (element as HTMLElement).click());
-    await expect(page.locator('#pageCrumb')).toHaveText('피크마케팅');
+    await expect(page.locator('#pageCrumb')).toHaveText('대시보드');
     await expect(page.locator('.final-settlement')).toHaveCount(0);
 
     await finance.locator('[data-view="closing"]')
       .evaluate(element => (element as HTMLElement).click());
-    await expect(page.locator('#pageCrumb')).toHaveText('피크마케팅');
+    await expect(page.locator('#pageCrumb')).toHaveText('대시보드');
     await expect(page.locator('[data-finance-period-filter="closing"]')).toHaveCount(0);
     expect(allIntakeRequests).toHaveLength(0);
   });
@@ -134,7 +134,7 @@ test('일반 직원은 세금 및 입금을 유지하고 세금계산서 매입�
 
   await taxBanking.locator('[data-view="purchase-fixed"]')
     .evaluate(element => (element as HTMLElement).click());
-  await expect(page.locator('#pageCrumb')).toHaveText('피크마케팅');
+  await expect(page.locator('#pageCrumb')).toHaveText('대시보드');
   await expect(page.locator('[data-purchase-ledger]')).toHaveCount(0);
 });
 

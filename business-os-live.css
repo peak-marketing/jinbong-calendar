@@ -9,6 +9,740 @@
   backdrop-filter: blur(14px);
 }
 
+/* ========================================================================== */
+/* PEAK OS global matte-blue system                                            */
+/* Keep structure and semantic status colours intact; unify every OS surface. */
+/* ========================================================================== */
+
+html body {
+  --blue: #587d98;
+  --blue-dark: #34566f;
+  --blue-soft: #dce7ed;
+  --blue-pale: #eef3f6;
+  --ink: #1d303c;
+  --text: #3b4d59;
+  --muted: #657985;
+  --muted-2: #84959f;
+  --line: #ccd8df;
+  --line-strong: #b8c8d2;
+  --paper: #f8fafb;
+  --canvas: #e9eff2;
+  --shadow: 0 1px 2px rgba(26, 48, 63, .08);
+  --shadow-soft: 0 1px 2px rgba(26, 48, 63, .055);
+  background: #e9eff2;
+  color: #3b4d59;
+}
+
+body .app {
+  background: #e9eff2;
+}
+
+body .main-shell {
+  background: #e9eff2;
+}
+
+body .main-shell::before {
+  opacity: .018;
+  filter: grayscale(1) saturate(.25);
+}
+
+/* Shell and navigation */
+body .app-sidebar {
+  border-right-color: #314b5b;
+  background: #233a49;
+  color: #dce6eb;
+  box-shadow: none;
+  backdrop-filter: none;
+  scrollbar-color: #557082 transparent;
+}
+
+body .app-sidebar .workspace-logo,
+body .app-sidebar .member-avatar {
+  border: 1px solid rgba(220, 232, 238, .16);
+  background: #4f748e;
+  color: #f7fafb;
+  box-shadow: none;
+}
+
+body .app-sidebar .workspace-copy strong,
+body .app-sidebar .member-copy strong {
+  color: #f3f7f9;
+}
+
+body .app-sidebar .workspace-copy small,
+body .app-sidebar .member-copy small {
+  color: #aebfc9;
+}
+
+body .app-sidebar .workspace-switcher,
+body .app-sidebar .sidebar-tab-search,
+body .app-sidebar .sidebar-search {
+  border-color: #496171;
+  background: #2b4454;
+  box-shadow: none;
+}
+
+body .app-sidebar .workspace-switcher select,
+body .app-sidebar .sidebar-tab-search input,
+body .app-sidebar .sidebar-search input {
+  background: transparent;
+  color: #eef4f7;
+}
+
+body .app-sidebar .workspace-switcher select option {
+  background: #233a49;
+  color: #f3f7f9;
+}
+
+body .app-sidebar .workspace-switcher::after,
+body .app-sidebar .sidebar-search-icon,
+body .app-sidebar .sidebar-tab-search-submit {
+  color: #afc1cb;
+}
+
+body .app-sidebar .sidebar-tab-search-submit {
+  border-color: #5f7d8f;
+  background: #355367;
+  box-shadow: none;
+}
+
+body .app-sidebar .nav-cluster,
+body .app-sidebar .nav-section,
+body .app-sidebar .nav-subcluster {
+  border-color: rgba(177, 199, 211, .15);
+}
+
+body .app-sidebar .nav-cluster-toggle,
+body .app-sidebar .nav-subcluster-toggle,
+body .app-sidebar .tree-trigger {
+  color: #aebfc9;
+}
+
+body .app-sidebar .nav-cluster-toggle:hover,
+body .app-sidebar .nav-subcluster-toggle:hover,
+body .app-sidebar .tree-trigger:hover {
+  background: #2d4758;
+  color: #f5f8fa;
+}
+
+body .app-sidebar .nav-cluster-caret,
+body .app-sidebar .nav-subcluster-caret,
+body .app-sidebar .caret,
+body .app-sidebar .nav-icon,
+body .app-sidebar .tree-icon {
+  color: #8fa6b3;
+}
+
+body .app-sidebar .nav-item,
+body .app-sidebar .tree-item {
+  color: #c3d0d7;
+}
+
+body .app-sidebar .nav-item:hover,
+body .app-sidebar .tree-item:hover {
+  background: #2e4859;
+  color: #f6f9fa;
+}
+
+body .app-sidebar .nav-item.active,
+body .app-sidebar .tree-item.active {
+  border-color: rgba(198, 218, 228, .14);
+  background: #3b5b6f;
+  color: #fff;
+  box-shadow: none;
+}
+
+body .app-sidebar .nav-item.active .nav-icon,
+body .app-sidebar .tree-item.active .tree-icon {
+  color: #dcebf2;
+}
+
+body .app-sidebar .nav-badge,
+body .app-sidebar .side-count {
+  background: #314c5e;
+  color: #c9d7de;
+}
+
+body .app-sidebar .nav-item.active .nav-badge {
+  background: #dbe6ec;
+  color: #29485d;
+}
+
+body .app-sidebar .sidebar-member,
+body .app-sidebar .sidebar-footer {
+  border-color: rgba(185, 205, 215, .16);
+  background: #263f4f;
+}
+
+body .topbar {
+  border-bottom-color: #cad6dd;
+  background: rgba(244, 247, 248, .96);
+  box-shadow: none;
+  backdrop-filter: blur(10px);
+}
+
+body .breadcrumbs { color: #687b87; }
+body .breadcrumbs strong { color: #203642; }
+body .page { color: #3b4d59; }
+
+body .icon-button,
+body .soft-pill,
+body .account-preview-select,
+body .top-actions select {
+  border-color: #c2cfd7;
+  background: #f8fafb;
+  color: #425966;
+  box-shadow: none;
+}
+
+body .primary-button,
+body .module-action.primary,
+body .collaboration-form-actions button[type="submit"],
+body .structured-primary-button {
+  border-color: #4e7189;
+  background: #4e7189;
+  color: #fff;
+  box-shadow: none;
+}
+
+body .primary-button:hover,
+body .module-action.primary:hover,
+body .collaboration-form-actions button[type="submit"]:hover,
+body .structured-primary-button:hover {
+  border-color: #3d6078;
+  background: #3d6078;
+}
+
+body button:focus-visible,
+body a:focus-visible,
+body input:focus-visible,
+body select:focus-visible,
+body textarea:focus-visible,
+body [tabindex]:not([tabindex="-1"]):focus-visible {
+  outline: 2px solid #496f89;
+  outline-offset: 2px;
+}
+
+body button:disabled,
+body input:disabled,
+body select:disabled,
+body textarea:disabled {
+  cursor: not-allowed;
+  opacity: .58;
+}
+
+/* Shared surfaces, controls and data tables */
+body .panel,
+body .module-card,
+body .module-section,
+body .module-statusbar,
+body .content-card,
+body .summary-card,
+body .stat-card,
+body .empty-state,
+body .calendar-card,
+body .todo-board,
+body .chat-list-panel,
+body .chat-room-pane,
+body .project-command-card,
+body .project-detail-shell,
+body .structured-project-card,
+body .structured-detail-hero,
+body .structured-medium-category,
+body .structured-small-category,
+body .structured-board-view,
+body .structured-task-drawer,
+body .readonly-modal-card {
+  border-color: #cad6dd;
+  background-color: #f8fafb;
+  box-shadow: none;
+}
+
+body .panel-head,
+body .module-card-head,
+body .module-section-head,
+body .calendar-panel-head,
+body .todo-board-head,
+body .chat-thread-head,
+body .project-detail-head,
+body .structured-medium-head,
+body .structured-small-category > header,
+body .structured-task-drawer-head {
+  border-color: #d5dfe4;
+  background-color: #f1f5f7;
+}
+
+body .view-tabs,
+body .review-filter-tabs,
+body .todo-scope-tabs,
+body .chat-filter-tabs,
+body .structured-status-filters,
+body .structured-task-viewbar > nav,
+body .module-tabs {
+  border-color: #cbd7de;
+  background: #e2e9ed;
+  box-shadow: none;
+}
+
+body .tab-button,
+body .review-filter-tabs button,
+body .todo-scope-button,
+body .chat-filter,
+body .structured-status-filters button,
+body .structured-task-viewbar button,
+body .module-tabs button {
+  border-color: transparent;
+  background: transparent;
+  color: #5d727f;
+  box-shadow: none;
+}
+
+body .tab-button.active,
+body .review-filter-tabs button.active,
+body .todo-scope-button.active,
+body .chat-filter.active,
+body .structured-status-filters button.active,
+body .structured-task-viewbar button.active,
+body .module-tabs button.active {
+  border-color: #9fb4c1;
+  background: #f8fafb;
+  color: #2f5269;
+  box-shadow: none;
+}
+
+body .app input:not([type="checkbox"]):not([type="radio"]),
+body .app select,
+body .app textarea,
+body .readonly-modal input:not([type="checkbox"]):not([type="radio"]),
+body .readonly-modal select,
+body .readonly-modal textarea {
+  border-color: #bdcbd4;
+  background-color: #f9fbfb;
+  color: #2f4552;
+  box-shadow: none;
+}
+
+body .app input::placeholder,
+body .app textarea::placeholder,
+body .readonly-modal input::placeholder,
+body .readonly-modal textarea::placeholder {
+  color: #8798a2;
+}
+
+body .app input:not([type="checkbox"]):not([type="radio"]):focus,
+body .app select:focus,
+body .app textarea:focus,
+body .readonly-modal input:focus,
+body .readonly-modal select:focus,
+body .readonly-modal textarea:focus {
+  border-color: #66889f;
+  box-shadow: 0 0 0 3px rgba(80, 112, 134, .12);
+}
+
+body .module-table,
+body .data-table,
+body .settlement-table,
+body .report-table,
+body .bank-table,
+body table {
+  border-color: #ccd7de;
+  background: #f8fafb;
+}
+
+body .module-table thead,
+body .data-table thead,
+body .settlement-table thead,
+body .report-table thead,
+body .bank-table thead,
+body table thead {
+  background: #dfe7eb;
+  color: #435a67;
+}
+
+body .module-table th,
+body .module-table td,
+body .data-table th,
+body .data-table td,
+body .settlement-table th,
+body .settlement-table td,
+body .report-table th,
+body .report-table td,
+body .bank-table th,
+body .bank-table td,
+body table th,
+body table td {
+  border-color: #d6e0e5;
+}
+
+body table tbody tr:hover {
+  background: #edf3f6;
+}
+
+body .module-action,
+body .secondary-button,
+body .ghost-button,
+body .collaboration-form-actions button,
+body .structured-category-actions button,
+body .structured-detail-person-head > button,
+body .structured-detail-nav > button,
+body .structured-task-actions button:not(.submit):not(.approve):not(.revision) {
+  border-color: #b7c7d0;
+  background: #f6f9fa;
+  color: #405c6d;
+  box-shadow: none;
+}
+
+body .module-action:hover,
+body .secondary-button:hover,
+body .ghost-button:hover,
+body .structured-category-actions button:hover {
+  border-color: #8da5b3;
+  background: #e6edf1;
+}
+
+/* Calendar */
+body #calendarView .home-calendar-panel,
+body #calendarView .calendar-agenda,
+body #calendarView .home-calendar-main {
+  border-color: #cad6dd;
+  background: #f8fafb;
+  box-shadow: none;
+}
+
+body #calendarView .calendar-weekdays {
+  border-color: #d4dfe4;
+  background: #e2e9ed;
+  color: #5c717e;
+}
+
+body #calendarView .home-calendar-cell {
+  border-color: #d5dfe5;
+  background: #f8fafb;
+}
+
+body #calendarView .home-calendar-cell:hover {
+  background: #eef3f5;
+}
+
+body #calendarView .home-calendar-cell.outside {
+  background: #f0f3f4;
+}
+
+body #calendarView .home-calendar-cell.today {
+  background: #e5edf1;
+  box-shadow: inset 0 0 0 1px #8ca5b4;
+}
+
+body #calendarView .home-calendar-cell.today .calendar-date {
+  background: #4d7189;
+  box-shadow: none;
+}
+
+body #calendarView .calendar-scope,
+body #calendarView .calendar-nav {
+  border-color: #c2d0d8;
+  background: #edf2f4;
+  box-shadow: none;
+}
+
+body #calendarView .calendar-scope-button.active {
+  border-color: #9bb1be;
+  background: #dce7ed;
+  color: #31536a;
+}
+
+/* Personal work and checklist */
+body #todoView .todo-page-toolbar,
+body #todoView .todo-summary-card,
+body #todoView .todo-split-panel,
+body #todoView .daily-plan-step,
+body #todoView .personal-plan-toggle,
+body #todoView .todo-task,
+body #todoView .daily-thought-row,
+body #todoView .daily-timeline-row {
+  border-color: #cad6dd;
+  background: #f8fafb;
+  box-shadow: none;
+}
+
+body #todoView .todo-summary-card.primary,
+body #todoView .todo-split-panel-head,
+body #todoView .daily-plan-step-head {
+  border-color: #c2d1da;
+  background: #e4ebef;
+  background-image: none;
+}
+
+body #todoView .todo-group-head:hover,
+body #todoView .todo-task:hover,
+body #todoView .daily-thought-row:hover,
+body #todoView .daily-timeline-row:hover {
+  background: #edf3f6;
+}
+
+body #todoView .todo-task-check.checked,
+body #todoView .daily-priority-rank.active {
+  border-color: #53778f;
+  background: #53778f;
+  color: #fff;
+}
+
+/* Chat */
+body #chatView .chat-page-toolbar,
+body #chatView .chat-bulk-toolbar,
+body #chatView .chat-composer {
+  border-color: #cad6dd;
+  background: #eef3f5;
+}
+
+body #chatView .chat-room-row {
+  border-color: #d6e0e5;
+  background: #f8fafb;
+}
+
+body #chatView .chat-room-row:hover,
+body #chatView .chat-room-row.selected {
+  background: #e5edf1;
+  outline-color: #aebfc9;
+}
+
+body #chatView .chat-thread-messages {
+  background: #edf2f4;
+}
+
+body #chatView .chat-message-bubble {
+  border-color: #cbd7de;
+  background: #f8fafb;
+  box-shadow: none;
+}
+
+body #chatView .chat-message.mine .chat-message-bubble {
+  border-color: #afc2cd;
+  background: #dce7ed;
+  color: #2e5067;
+}
+
+body #chatView .chat-action-button.primary,
+body #chatView .chat-send-button {
+  border-color: #4e7189;
+  background: #4e7189;
+  box-shadow: none;
+}
+
+/* Legacy project workflow */
+body #reviewView .project-list-controls,
+body #reviewView .project-command-card,
+body #reviewView .project-detail-hero,
+body #reviewView .project-detail-task,
+body #reviewView .project-workflow-lane,
+body #reviewView .project-comment-card,
+body #reviewView .project-update-card {
+  border-color: #c9d5dc;
+  background: #f8fafb;
+  background-image: none;
+  box-shadow: none;
+}
+
+body #reviewView .project-command-card:hover,
+body #reviewView .project-detail-task:hover {
+  background: #edf3f6;
+}
+
+body #reviewView .project-detail-hero,
+body #reviewView .project-workflow-toolbar,
+body #reviewView .project-workflow-lane > header {
+  border-color: #c8d5dc;
+  background: #e7edf0;
+  background-image: none;
+}
+
+/* Structured projects and board */
+body #newProjectsView .structured-projects-shell,
+body #newProjectsView .structured-project-controls,
+body #newProjectsView .structured-task-viewbar,
+body #newProjectsView .structured-summary article,
+body #newProjectsView .structured-board-controls,
+body #newProjectsView .structured-board-column,
+body #newProjectsView .structured-board-card {
+  border-color: #c8d5dc;
+  background: #f8fafb;
+  background-image: none;
+  box-shadow: none;
+}
+
+body #newProjectsView .structured-detail-hero,
+body #newProjectsView .structured-medium-head,
+body #newProjectsView .structured-board-head,
+body #newProjectsView .structured-board-column > header {
+  border-color: #c6d3db;
+  background: #e5ecef;
+  background-image: none;
+}
+
+body #newProjectsView .structured-project-card:hover,
+body #newProjectsView .structured-board-card > button:hover,
+body #newProjectsView .structured-task-row:hover {
+  background: #edf3f6;
+}
+
+body #newProjectsView .structured-detail-progress > i,
+body #newProjectsView .structured-progress-track {
+  background: #d3dfe5;
+}
+
+body #newProjectsView .structured-detail-progress > i > b,
+body #newProjectsView .structured-progress-track i {
+  background: #557b94;
+  background-image: none;
+}
+
+body #newProjectsView .structured-task-drawer,
+body .structured-task-drawer {
+  border-color: #aebfc9;
+  background: #f8fafb;
+  box-shadow: -8px 0 22px rgba(27, 50, 64, .12);
+}
+
+body #newProjectsView .structured-task-drawer-flow > span,
+body #newProjectsView .structured-board-assign-intro,
+body #newProjectsView .structured-board-small-empty,
+body #newProjectsView .structured-empty,
+body #newProjectsView .structured-category-empty {
+  border-color: #cbd7de;
+  background: #eef3f5;
+}
+
+/* Generic tool modules: finance, settlement, reports, bank, tax, org and docs */
+body #moduleView,
+body #permissionsView {
+  color: #3b4d59;
+}
+
+body #moduleView .module-hero,
+body #moduleView .module-toolbar,
+body #moduleView .module-filterbar,
+body #moduleView .module-filter,
+body #moduleView .settlement-summary,
+body #moduleView .settlement-card,
+body #moduleView .settlement-sheet,
+body #moduleView .report-card,
+body #moduleView .bank-summary,
+body #moduleView .bank-card,
+body #moduleView .invoice-card,
+body #moduleView .request-card,
+body #moduleView .org-card,
+body #moduleView .org-node,
+body #moduleView .document-card,
+body #moduleView .service-card,
+body #moduleView .idea-card,
+body #moduleView .request-row {
+  border-color: #cad6dd;
+  background: #f8fafb;
+  background-image: none;
+  box-shadow: none;
+}
+
+body #moduleView .module-hero,
+body #moduleView .module-toolbar,
+body #moduleView .module-filterbar,
+body #moduleView .settlement-head,
+body #moduleView .report-head,
+body #moduleView .bank-head,
+body #moduleView .org-head,
+body #moduleView .document-head {
+  border-color: #c9d5dc;
+  background: #e4ebef;
+  background-image: none;
+}
+
+body #moduleView .metric-card,
+body #moduleView .settlement-metric,
+body #moduleView .report-metric,
+body #moduleView .bank-metric {
+  border-color: #c8d5dc;
+  background: #edf2f4;
+  box-shadow: none;
+}
+
+body #moduleView .org-avatar,
+body #moduleView .document-icon,
+body #moduleView .service-icon,
+body #moduleView .idea-icon,
+body #moduleView .page-icon {
+  background: #5a7e96;
+  color: #fff;
+  box-shadow: none;
+}
+
+body #moduleView .sales-bar,
+body #moduleView .progress-bar > i,
+body #moduleView .metric-progress > i {
+  background-color: #5a7e96;
+  background-image: none;
+}
+
+/* Dialogs and authentication */
+body .readonly-modal,
+body .collaboration-modal,
+body .detail-modal {
+  background: rgba(22, 39, 50, .48);
+  backdrop-filter: blur(3px);
+}
+
+body .readonly-modal-card,
+body .collaboration-modal-card,
+body .detail-modal-card {
+  border-color: #adbec8;
+  background: #f5f8f9;
+  box-shadow: 0 12px 36px rgba(24, 45, 58, .18);
+}
+
+body .readonly-modal-head,
+body .collaboration-modal-head,
+body .detail-modal-head,
+body .readonly-modal-actions,
+body .collaboration-modal-actions,
+body .detail-modal-actions {
+  border-color: #cad6dd;
+  background: #e7edf0;
+}
+
+body .auth-gate.os-auth-mode {
+  background: #dfe7eb;
+  background-image: none;
+}
+
+body .auth-gate .auth-card,
+body .auth-gate.os-auth-mode .auth-card {
+  border-color: #afc0ca;
+  background: #f5f8f9;
+  box-shadow: 0 12px 34px rgba(25, 48, 62, .14);
+}
+
+body .auth-gate .os-auth-avatar,
+body .auth-gate .auth-logo {
+  background: #4e7189;
+  background-image: none;
+  box-shadow: none;
+}
+
+@media (max-width: 760px) {
+  body .topbar { background: #f1f5f7; }
+  body .app-sidebar { background: #233a49; }
+  body .page { background: #e9eff2; }
+  body .service-form-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+  }
+  body .service-form-actions .module-action,
+  body .service-form-actions .service-add-button {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+  }
+}
+
 /* ── Matte operation dashboard ───────────────────────────────────────────
    밝은 슬레이트와 오프화이트 면을 사용한 매트 대시보드. 다른 워크스페이스와
    기존 모듈에는 영향을 주지 않도록 executive-dashboard 아래로 한정한다. */
@@ -7035,4 +7769,188 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   .project-detail-task { grid-template-columns: 22px minmax(0, 1fr); }
   .collaboration-task-actions { grid-column: 2; }
   .collaboration-inline-form { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Final matte cleanup for highly specific legacy module rules. */
+body .finance-period-filter {
+  border-color: #c7d4dc;
+  background: #e5ecef;
+  background-image: none;
+  box-shadow: none;
+}
+
+body .finance-period-modes {
+  border-color: #bccbd4;
+  background: #d9e3e8;
+  box-shadow: none;
+}
+
+body .finance-period-mode.active {
+  background: #4e7189;
+  color: #fff;
+  box-shadow: none;
+}
+
+body .todo-add-button,
+body .review-create-button,
+body .project-detail-actions button.primary,
+body .structured-board-head-actions > button,
+body .service-add-button {
+  border-color: #4e7189;
+  background: #4e7189;
+  color: #fff;
+  box-shadow: none;
+}
+
+body .todo-add-button:hover,
+body .review-create-button:hover,
+body .project-detail-actions button.primary:hover,
+body .structured-board-head-actions > button:hover,
+body .service-add-button:hover {
+  border-color: #3d6078;
+  background: #3d6078;
+}
+
+body .project-detail-hero,
+body .project-detail-panel,
+body .project-conversation,
+body .project-command-card,
+body .review-project-card,
+body .module-card,
+body .module-section,
+body .bank-kpi {
+  box-shadow: none;
+}
+
+body .project-detail-hero {
+  background: #e6edf0;
+  background-image: none;
+}
+
+body .project-detail-hero.deadline-overdue {
+  background: #fbf3f1;
+  background-image: none;
+  box-shadow: inset 4px 0 #b8665d;
+}
+
+body .project-detail-hero.deadline-today {
+  background: #faf5ec;
+  background-image: none;
+  box-shadow: inset 4px 0 #b98345;
+}
+
+body [data-company-folder][aria-pressed="true"] {
+  border-color: #6e8da1 !important;
+  background: #e4edf2;
+  box-shadow: inset 3px 0 #5a7e96 !important;
+}
+
+body .main-shell::before {
+  background-image: none;
+  opacity: 0;
+}
+
+body #moduleView .sales-bar-fill {
+  background: #587d98;
+  background-image: none;
+}
+
+body #moduleView .bank-account-card {
+  border-color: #cad6dd;
+  background: #f8fafb;
+  background-image: none;
+  box-shadow: none;
+}
+
+body #newProjectsView .structured-primary-button {
+  border-color: #4e7189 !important;
+  background: #4e7189 !important;
+  color: #fff !important;
+  box-shadow: none;
+}
+
+body #newProjectsView .structured-primary-button:hover {
+  border-color: #3d6078 !important;
+  background: #3d6078 !important;
+}
+
+body #newProjectsView .structured-summary article.review {
+  border-color: #ddc4b8;
+  background: #f8f1ed;
+}
+
+body #newProjectsView .structured-board-column.lane-doing { border-top-color: #789164; }
+body #newProjectsView .structured-board-column.lane-todo { border-top-color: #5e849d; }
+body #newProjectsView .structured-board-column.lane-review { border-top-color: #b9865f; }
+body #newProjectsView .structured-board-column.lane-done { border-top-color: #65799d; }
+body #newProjectsView .structured-board-card.status-todo { border-left-color: #5e849d; }
+body #newProjectsView .structured-board-card.status-doing { border-left-color: #789164; }
+body #newProjectsView .structured-board-card.status-review { border-left-color: #b9865f; }
+body #newProjectsView .structured-board-card.status-done { border-left-color: #65799d; }
+body #newProjectsView .structured-board-card.status-revision {
+  border-color: #d8b6b9;
+  border-left: 4px solid #ae6066;
+  background: #faf3f3;
+}
+
+body .app .intake-field.auto input {
+  border-color: #cbd6dc;
+  background: #e7edef;
+  color: #415866;
+}
+
+body .app .intake-field.need input {
+  border-color: #c9a46c;
+  background: #faf5ea;
+}
+
+body #moduleView .org-chart::before {
+  background-image: none;
+  opacity: 0;
+  filter: none;
+  transform: none;
+}
+
+body .auth-gate .os-auth-card::before {
+  background: none;
+}
+
+body .auth-gate .os-auth-card,
+body .auth-gate .os-auth-step-icon {
+  box-shadow: none;
+}
+
+body .auth-gate .auth-google,
+body .auth-gate .os-auth-primary,
+body .auth-gate .os-auth-step.active .os-auth-step-icon {
+  border-color: #4e7189;
+  background: #4e7189;
+  color: #fff;
+  box-shadow: none;
+}
+
+body .auth-gate .auth-google:hover,
+body .auth-gate .os-auth-primary:not(:disabled):hover {
+  background: #3d6078;
+  transform: none;
+}
+
+body #reviewView .project-workflow-lane.review {
+  border-color: #d9c6a2;
+  background: #faf7ef;
+}
+
+body #reviewView .project-workflow-lane.done {
+  border-color: #bdd3c6;
+  background: #f1f6f3;
+}
+
+body #reviewView .project-detail-task.project-workflow-task.deadline-overdue {
+  border-color: #d9b4af;
+  box-shadow: inset 3px 0 #ad5d55;
+}
+
+body #reviewView .project-detail-task.project-workflow-task.deadline-today {
+  border-color: #dcc39e;
+  box-shadow: inset 3px 0 #b77a39;
 }
