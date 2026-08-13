@@ -8192,6 +8192,39 @@ body .readonly-modal textarea {
   color: #29485c;
 }
 
+body .app input::placeholder,
+body .app textarea::placeholder,
+body .readonly-modal input::placeholder,
+body .readonly-modal textarea::placeholder {
+  color: #587181;
+  opacity: 1;
+}
+
+body .app-sidebar .search-button {
+  border-color: #b8cfdb;
+  background: #f8fcfd;
+  color: #315f7d;
+}
+
+body .app-sidebar .search-button input {
+  background: transparent;
+  color: #163246;
+}
+
+body .app-sidebar .search-button input::placeholder { color: #526c7c; }
+body .app-sidebar .search-button > label .sidebar-search-icon { color: #315f7d; }
+body .app-sidebar .sidebar-tab-search-submit {
+  border-color: #315f7d;
+  background: #315f7d;
+  color: #fff;
+}
+
+body .app-sidebar .workspace-switcher select:not(:disabled) {
+  border-color: #b8cfdb;
+  background: #fff;
+  color: #163246;
+}
+
 body #calendarView .home-calendar-panel,
 body #calendarView .calendar-agenda,
 body #calendarView .home-calendar-main,
