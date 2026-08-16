@@ -44,6 +44,8 @@ test('resolves the reviewed collaboration surface to the identical legacy API UR
   const cases = [
     ['GET', '/events?from=2026-08-01&to=2026-08-31'],
     ['POST', '/events'],
+    ['POST', '/events/event-1/os-hide'],
+    ['DELETE', '/events/event-1/os-hide'],
     ['POST', '/events/reorder'],
     ['PUT', '/events/event-1/checklist/item-1'],
     ['DELETE', '/events/event-1/comments/comment-1'],
@@ -75,6 +77,7 @@ test('allowlist covers every collaboration handler exposed to PEAK OS', () => {
     ['GET', '/users/all-approved'],
     ['GET', '/events'], ['POST', '/events'], ['POST', '/events/reorder'],
     ['GET', '/events/checklist-summary'], ['PUT', '/events/e-1'],
+    ['POST', '/events/e-1/os-hide'], ['DELETE', '/events/e-1/os-hide'],
     ['POST', '/events/e-1/delete-repeat-future'], ['POST', '/events/e-1/delete-repeat-all'],
     ['GET', '/events/e-1/shares'], ['GET', '/events/e-1/checklist'],
     ['POST', '/events/e-1/checklist'], ['PUT', '/events/e-1/checklist/c-1'],
@@ -137,6 +140,13 @@ test('fails closed for unrelated, unsafe, or wrong-method routes', () => {
     resolvePeakosCollaborationTarget('PUT', `${PEAKOS_COLLABORATION_PREFIX}/events/reorder`).status,
     'method_not_allowed',
   );
+  for (const method of ['GET', 'PUT', 'PATCH']) {
+    assert.equal(
+      resolvePeakosCollaborationTarget(method, `${PEAKOS_COLLABORATION_PREFIX}/events/e-1/os-hide`).status,
+      'method_not_allowed',
+      `${method} /events/e-1/os-hide`,
+    );
+  }
   assert.equal(
     resolvePeakosCollaborationTarget('DELETE', `${PEAKOS_COLLABORATION_PREFIX}/chat-rooms/unread`).status,
     'method_not_allowed',

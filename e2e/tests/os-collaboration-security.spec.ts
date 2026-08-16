@@ -29,6 +29,9 @@ type CollaborationState = {
   messages: Record<string, any[]>;
   projects: any[];
   newProjects: any[];
+  osHiddenEventIds: Record<string, string[]>;
+  workspaceRole?: 'admin' | 'manager' | 'member' | 'oversight';
+  calendarPermission?: 'none' | 'read' | 'write';
   workspaceData?: Record<string, { events: any[]; projects: any[]; newProjects?: any[] }>;
 };
 
@@ -70,6 +73,7 @@ function createState(overrides: Partial<CollaborationState> = {}): Collaboration
     messages: {},
     projects: [],
     newProjects: [],
+    osHiddenEventIds: {},
     ...overrides,
   };
 }
@@ -146,10 +150,10 @@ async function installSharedApi(page: Page, state: CollaborationState) {
     if (originalPath === '/os/workspaces') return send({
       default_slug: 'peak',
       workspaces: [
-        { id: 'workspace-peak', slug: 'peak', name: '피크마케팅', kind: 'headquarters', role: 'admin' },
+        { id: 'workspace-peak', slug: 'peak', name: '피크마케팅', kind: 'headquarters', role: state.workspaceRole || 'admin' },
         ...Object.keys(state.workspaceData || {}).filter(slug => slug !== 'peak').map(slug => ({
           id: `workspace-${slug}`, slug, name: slug === 'daegu' ? '피크마케팅 대구지사' : slug,
-          kind: 'branch', role: 'admin',
+          kind: 'branch', role: state.workspaceRole || 'admin',
         })),
       ],
     });
@@ -163,10 +167,11 @@ async function installSharedApi(page: Page, state: CollaborationState) {
           name: slug === 'peak' ? '피크마케팅' : slug === 'daegu' ? '피크마케팅 대구지사' : slug,
           kind: slug === 'peak' ? 'headquarters' : 'branch',
         },
-        membership: { role: 'admin' },
+        membership: { role: state.workspaceRole || 'admin' },
         permissions: {
-          calendar: 'write', chat: 'write', projects: 'write', settlements: 'write', documents: 'write',
-          headquartersOversight: false,
+          calendar: state.calendarPermission || (state.workspaceRole === 'oversight' ? 'read' : 'write'),
+          chat: 'write', projects: 'write', settlements: 'write', documents: 'write',
+          headquartersOversight: state.workspaceRole === 'oversight',
         },
       });
     }
@@ -211,7 +216,10 @@ async function installSharedApi(page: Page, state: CollaborationState) {
       ]));
       return send(summary);
     }
-    if (resourcePath === '/events' && method === 'GET') return send(requestEvents.filter(event => !event.deleted));
+    if (resourcePath === '/events' && method === 'GET') {
+      const hidden = new Set(state.osHiddenEventIds[workspaceSlug] || []);
+      return send(requestEvents.filter(event => !event.deleted && (!protectedRequest || !hidden.has(String(event.id)))));
+    }
     if (resourcePath === '/events' && method === 'POST') {
       const category = String(body?.todoCat || '');
       const categoryRows = state.events.filter(event =>
@@ -239,6 +247,26 @@ async function installSharedApi(page: Page, state: CollaborationState) {
         if (event) event.sort_order = item.sortOrder;
       }
       return send({ ok: true, updated: body?.items?.length || 0 });
+    }
+    const eventHideMatch = resourcePath.match(/^\/events\/([^/]+)\/os-hide$/);
+    if (eventHideMatch && protectedRequest && method === 'POST') {
+      const eventId = decodeURIComponent(eventHideMatch[1]);
+      const event = requestEvents.find(item => String(item.id) === eventId && !item.deleted);
+      if (!event) return send({ error: 'Not found' }, 404);
+      const hidden = state.osHiddenEventIds[workspaceSlug] || (state.osHiddenEventIds[workspaceSlug] = []);
+      if (!hidden.includes(eventId)) hidden.push(eventId);
+      return send({
+        ok: true,
+        eventId,
+        workspaceId: `workspace-${workspaceSlug}`,
+        hiddenAt: new Date().toISOString(),
+      });
+    }
+    if (eventHideMatch && protectedRequest && method === 'DELETE') {
+      const eventId = decodeURIComponent(eventHideMatch[1]);
+      state.osHiddenEventIds[workspaceSlug] = (state.osHiddenEventIds[workspaceSlug] || [])
+        .filter(id => id !== eventId);
+      return send({ ok: true, eventId, workspaceId: `workspace-${workspaceSlug}` });
     }
     const eventMatch = resourcePath.match(/^\/events\/([^/]+)$/);
     if (eventMatch && method === 'PUT') {
@@ -511,6 +539,14 @@ async function addTodo(page: Page, title: string) {
   await form.locator('[name="title"]').fill(title);
   await form.getByRole('button', { name: '등록', exact: true }).click();
   await expect(page.locator('#todoView')).toContainText(title);
+}
+
+async function openCalendarEventEditor(page: Page, eventId: string) {
+  await page.locator(`#homeCalendarAgenda [data-event-detail="${eventId}"]`).first().click();
+  await expect(page.locator('#readonlyModalBody')).toBeVisible();
+  await page.locator('#readonlyModalBody [data-collab-event-edit]').click();
+  await expect(page.locator('#collaborationEventForm')).toBeVisible();
+  return page.locator('#collaborationEventForm');
 }
 
 test.describe('PEAK OS collaboration security and shared-data contract', () => {
@@ -888,6 +924,137 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     // The OS five-second collaboration poll must pull legacy changes without a reload.
     await expect(page.locator('#todoView')).toContainText('기존 파라곤에서 등록', { timeout: 7_500 });
   });
+
+  for (const viewport of [
+    { label: 'desktop', width: 1280, height: 800 },
+    { label: 'mobile', width: 390, height: 844 },
+  ]) {
+    test(`${viewport.label} workspace writer hides one event only from OS without deleting the legacy row`, async ({ page }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      const date = todayKey();
+      const event = {
+        id: `os-hide-${viewport.label}`, type: 'event', title: `${viewport.label} OS 숨김 계약`, date,
+        time: '10:30', scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호',
+        done: false, deleted: false,
+      };
+      const state = createState({ events: [event] });
+      await setup(page, state);
+      if (viewport.label === 'mobile') {
+        await page.locator('.nav-item[data-view="calendar"]').click();
+      }
+
+      await expect(page.locator('#calendarView')).toContainText(event.title);
+      await expect(page.locator('#calendarView > .permission-stats[aria-label="월간 일정 요약"]')).toHaveCount(0);
+      await expect(page.locator('#calendarView > section').first()).toHaveAttribute('id', 'companyCalendar');
+      await expect(page.locator('#permissionsView .permission-stats[aria-label="권한 구성 요약"]')).toHaveCount(1);
+
+      const form = await openCalendarEventEditor(page, event.id);
+      await expect(form.locator('[data-collab-event-hide]')).toHaveText('OS에서 숨기기');
+      await expect(form.locator('[data-collab-event-delete]')).toHaveCount(0);
+      if (viewport.label === 'mobile') {
+        const hideBox = await form.locator('[data-collab-event-hide]').boundingBox();
+        expect(hideBox?.height || 0).toBeGreaterThanOrEqual(44);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      }
+
+      let confirmation = '';
+      page.once('dialog', async dialog => {
+        confirmation = dialog.message();
+        await dialog.accept();
+      });
+      await form.locator('[data-collab-event-hide]').click();
+
+      expect(confirmation).toBe('이 일정을 OS의 모든 구성원에게서 숨길까요? 기존 파라곤 일정은 삭제되지 않습니다.');
+      await expect(page.locator('.toast')).toHaveText('OS에서 숨겼습니다. 기존 파라곤 일정은 유지됩니다.');
+      await expect(page.locator('#calendarView')).not.toContainText(event.title);
+
+      const hideCall = state.calls.find(call => call.method === 'POST'
+        && call.path === `/peakos/collaboration/events/${event.id}/os-hide`);
+      expect(hideCall).toMatchObject({ workspace: 'peak', preview: '0', body: null });
+      expect(state.osHiddenEventIds.peak).toEqual([event.id]);
+      expect(event.deleted).toBe(false);
+      expect(state.calls.some(call => call.method === 'PUT'
+        && call.path.endsWith(`/events/${event.id}`)
+        && call.body?.deleted === true)).toBe(false);
+
+      const legacyRows = await page.evaluate(async () => {
+        const response = await fetch('/api/events', { headers: { Authorization: 'Bearer e2e-token' } });
+        return response.json();
+      });
+      expect(legacyRows).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: event.id, deleted: false }),
+      ]));
+    });
+  }
+
+  test('calendar polling removes an event hidden by another OS user without a reload', async ({ page }) => {
+    const date = todayKey();
+    const event = {
+      id: 'poll-hidden-event', type: 'event', title: '다른 구성원이 숨긴 일정', date,
+      scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', done: false, deleted: false,
+    };
+    const state = createState({ events: [event] });
+    await setup(page, state);
+    await expect(page.locator('#calendarView')).toContainText(event.title);
+    const readsBefore = state.calls.filter(call => call.method === 'GET'
+      && call.path === '/peakos/collaboration/events').length;
+
+    state.osHiddenEventIds.peak = [event.id];
+
+    await expect(page.locator('#calendarView')).not.toContainText(event.title, { timeout: 7_500 });
+    expect(state.calls.filter(call => call.method === 'GET'
+      && call.path === '/peakos/collaboration/events').length).toBeGreaterThan(readsBefore);
+    expect(event.deleted).toBe(false);
+  });
+
+  test('legacy event deletion keeps its original PUT deleted semantics and never creates an OS hide', async ({ page }) => {
+    const date = todayKey();
+    const event = {
+      id: 'legacy-delete-event', type: 'event', title: '기존 파라곤 삭제 계약', date,
+      scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', done: false, deleted: false,
+    };
+    const state = createState({ events: [event] });
+    await setup(page, state, '/business-os-preview.html');
+    await expect(page.locator('#calendarView')).toContainText(event.title);
+
+    const form = await openCalendarEventEditor(page, event.id);
+    await expect(form.locator('[data-collab-event-delete]')).toHaveText('삭제');
+    await expect(form.locator('[data-collab-event-hide]')).toHaveCount(0);
+    page.once('dialog', dialog => dialog.accept());
+    await form.locator('[data-collab-event-delete]').click();
+
+    await expect(page.locator('#calendarView')).not.toContainText(event.title);
+    expect(event.deleted).toBe(true);
+    expect(state.osHiddenEventIds).toEqual({});
+    expect(state.calls).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        method: 'PUT', path: `/peakos/collaboration/events/${event.id}`, body: { deleted: true }, workspace: '',
+      }),
+    ]));
+    expect(state.calls.some(call => call.path.endsWith(`/events/${event.id}/os-hide`))).toBe(false);
+  });
+
+  for (const workspaceRole of ['member', 'oversight'] as const) {
+    test(`${workspaceRole} read-only workspace never exposes or issues OS hide mutations`, async ({ page }) => {
+      const date = todayKey();
+      const event = {
+        id: `readonly-${workspaceRole}`, type: 'event', title: `${workspaceRole} 열람 일정`, date,
+        scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', done: false, deleted: false,
+      };
+      const state = createState({
+        events: [event],
+        workspaceRole,
+        calendarPermission: 'read',
+        user: {
+          ...createState().user,
+          role: workspaceRole === 'oversight' ? 'admin' : 'member',
+        },
+      });
+      await setup(page, state, workspaceRole === 'oversight' ? '/os/w/peak' : '/os/');
+      await expect(page.locator('[data-collab-event-hide]')).toHaveCount(0);
+      expect(state.calls.some(call => call.method === 'POST' && call.path.endsWith('/os-hide'))).toBe(false);
+    });
+  }
 
   test('team event shares selected employees through the protected event payload', async ({ page }) => {
     const state = createState();

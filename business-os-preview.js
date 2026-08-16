@@ -3157,6 +3157,12 @@
     return userDoc?.role === 'admin' || String(event?.ownerId || '') === String(currentUser?.uid || '');
   }
 
+  function canHideCollaborationEventInOs(event) {
+    return isWorkspaceRoute()
+      && collaborationWritable('calendar')
+      && canEditCollaborationEvent(event);
+  }
+
   function eventShareOptionsMarkup(users = [], shareIds = new Set()) {
     const shareableUsers = users.filter(user => String(user.uid || '') !== String(currentUser?.uid || ''));
     return shareableUsers.length
@@ -3190,7 +3196,9 @@
           ${editing ? '' : '<label class="wide"><span>초기 체크리스트</span><textarea name="checklist" rows="3" placeholder="한 줄에 한 항목씩 입력"></textarea></label>'}
         </div>
         <div class="collaboration-form-actions">
-          ${editing ? '<button class="danger" type="button" data-collab-event-delete>삭제</button>' : ''}
+          ${editing ? (isWorkspaceRoute()
+            ? (canHideCollaborationEventInOs(event) ? '<button class="danger" type="button" data-collab-event-hide>OS에서 숨기기</button>' : '')
+            : '<button class="danger" type="button" data-collab-event-delete>삭제</button>') : ''}
           <span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">${editing ? '수정 저장' : '등록'}</button>
         </div>
       </form>`;
@@ -3281,6 +3289,20 @@
       calendarSelected = record.date;
       calendarYear = Number(record.date.slice(0, 4)) || calendarYear;
       calendarMonth = Number(record.date.slice(5, 7)) || calendarMonth;
+      await refreshCollaborationEvents({ year: calendarYear });
+    });
+    form.querySelector('[data-collab-event-hide]')?.addEventListener('click', async () => {
+      if (!canHideCollaborationEventInOs(event)) {
+        showToast('이 일정을 OS에서 숨길 권한이 없습니다.');
+        return;
+      }
+      if (!confirm('이 일정을 OS의 모든 구성원에게서 숨길까요? 기존 파라곤 일정은 삭제되지 않습니다.')) return;
+      const hidden = await runCollaborationMutation(
+        () => collaborationApi('POST', `/events/${encodeURIComponent(event.id)}/os-hide`),
+        'OS에서 숨겼습니다. 기존 파라곤 일정은 유지됩니다.'
+      );
+      if (!hidden) return;
+      closeDetailModal();
       await refreshCollaborationEvents({ year: calendarYear });
     });
     form.querySelector('[data-collab-event-delete]')?.addEventListener('click', async () => {
@@ -3439,6 +3461,7 @@
 
   function updateCalendarSummary() {
     const cards = calendarView.querySelectorAll('.permission-stat');
+    if (!cards.length) return;
     const monthPrefix = `${calendarYear}-${String(calendarMonth).padStart(2, '0')}`;
     const monthEvents = calendarEventsForScope().filter(event => event.date.startsWith(monthPrefix));
     const unfinished = monthEvents.filter(event => event.type === 'todo' && !event.done);

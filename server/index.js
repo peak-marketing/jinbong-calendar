@@ -55,6 +55,12 @@ const {
   isPeakosCollaborationAuthenticated,
 } = require('./collaboration/peakos-collaboration-routes');
 const {
+  createPeakosEventVisibilityGuard,
+  ensurePeakosEventVisibilityInfrastructure,
+  eventHiddenPredicate,
+  registerPeakosEventVisibilityRoutes,
+} = require('./collaboration/peakos-event-visibility');
+const {
   authorizeEventReorder,
   normalizeChatMessageId,
   normalizeEventReorderItems,
@@ -1427,7 +1433,8 @@ async function canAccessEvent(req, eventId, { requireOwner = false } = {}) {
      FROM events e
      LEFT JOIN users owner_user ON owner_user.uid = e.owner_id
      WHERE e.id = $1 AND e.deleted = false
-       AND (e.workspace_id = $3 OR (e.workspace_id IS NULL AND $3 = $4))`,
+       AND (e.workspace_id = $3 OR (e.workspace_id IS NULL AND $3 = $4))
+       ${eventHiddenPredicate(req, { eventAlias: 'e', workspaceParameter: 3 })}`,
     [eventId, req.uid, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
   );
   const event = result.rows[0];
@@ -1462,6 +1469,21 @@ app.use(createPeakosCollaborationGateway({
     return peakosWorkspaceService.requireWorkspace({ area, action, requireHeader: true });
   },
 }));
+
+// OS-only calendar visibility is evaluated after the protected gateway has
+// authenticated and marked the rewritten request. Canonical Paragon requests
+// never carry that marker, so they never consult or mutate the OS hide table.
+app.use(createPeakosEventVisibilityGuard({
+  pool,
+  workspaceIdForRequest: requestWorkspaceId,
+}));
+registerPeakosEventVisibilityRoutes({
+  app,
+  authMiddleware,
+  pool,
+  workspaceIdForRequest: requestWorkspaceId,
+  peakWorkspaceId: PEAK_WORKSPACE_ID,
+});
 
 // ── Users ──────────────────────────────────────────────────
 app.post('/api/users/register', authMiddleware, async (req, res) => {
@@ -1670,6 +1692,7 @@ app.get('/api/events', authMiddleware, async (req, res) => {
 	         AND (e.workspace_id = $2 OR (e.workspace_id IS NULL AND $2 = $3))
 	         AND (e.project_id IS NULL OR (COALESCE(epd.deleted, false) = false AND ep.status IS DISTINCT FROM 'archived'))
 	         AND ${scopeWhere}${dateWhere}${externalRuleWhere}${sharedDoneWhere}
+	         ${eventHiddenPredicate(req, { eventAlias: 'e', workspaceParameter: 2 })}
 	       GROUP BY e.id
 	       ORDER BY e.created_at DESC`,
       params
@@ -4556,6 +4579,7 @@ app.get('/api/projects/:id', authMiddleware, async (req, res) => {
     `SELECT * FROM events
       WHERE project_id = $1 AND deleted = false
         AND (workspace_id = $2 OR (workspace_id IS NULL AND $2 = $3))
+        ${eventHiddenPredicate(req, { eventAlias: 'events', workspaceParameter: 2 })}
       ORDER BY date`,
     [req.params.id, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
   );
@@ -6041,6 +6065,7 @@ app.post('/api/events/reorder', authMiddleware, async (req, res) => {
        FROM events e
        WHERE e.id = ANY($1::text[]) AND e.deleted = false
          AND (e.workspace_id = $2 OR (e.workspace_id IS NULL AND $2 = $3))
+         ${eventHiddenPredicate(req, { eventAlias: 'e', workspaceParameter: 2 })}
        FOR UPDATE`,
       [ids, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
     );
@@ -6226,6 +6251,7 @@ app.get('/api/events/checklist-summary', authMiddleware, async (req, res) => {
        WHERE e.deleted = false AND (e.owner_id = $1 OR es.user_id = $1)
          AND (e.workspace_id = $2 OR (e.workspace_id IS NULL AND $2 = $3))
          AND NOT ${INTERNAL_CALENDAR_RULE_EVENT_SQL}
+         ${eventHiddenPredicate(req, { eventAlias: 'e', workspaceParameter: 2 })}
        GROUP BY ec.event_id`,
       [req.uid, requestWorkspaceId(req), PEAK_WORKSPACE_ID]
     )
@@ -6233,7 +6259,8 @@ app.get('/api/events/checklist-summary', authMiddleware, async (req, res) => {
       `SELECT ec.event_id, COUNT(*) as total, COUNT(*) FILTER (WHERE ec.done=true) as completed
        FROM event_checklist ec
        JOIN events e ON e.id = ec.event_id
-       WHERE e.workspace_id = $1 OR (e.workspace_id IS NULL AND $1 = $2)
+       WHERE (e.workspace_id = $1 OR (e.workspace_id IS NULL AND $1 = $2))
+         ${eventHiddenPredicate(req, { eventAlias: 'e', workspaceParameter: 1 })}
        GROUP BY ec.event_id`,
       [requestWorkspaceId(req), PEAK_WORKSPACE_ID]
     );
@@ -7708,6 +7735,7 @@ async function startServer() {
     // workspace migration has not been applied. This is a SELECT-only
     // readiness check; application startup never attempts owner DDL here.
     await ensurePeakosWorkspaceInfrastructure(pool);
+    await ensurePeakosEventVisibilityInfrastructure(pool);
     await ensurePeakosNewProjectInfrastructure(pool);
     await ensureReminderInfrastructure();
     await ensureChatPerformanceIndexes();

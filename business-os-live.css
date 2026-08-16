@@ -7766,6 +7766,7 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   .collaboration-form-actions { flex-wrap: wrap; }
   .collaboration-form-actions > span { display: none; }
   .collaboration-form-actions button { flex: 1; }
+  .collaboration-form-actions [data-collab-event-hide] { min-height: 44px; }
   .project-detail-task { grid-template-columns: 22px minmax(0, 1fr); }
   .collaboration-task-actions { grid-column: 2; }
   .collaboration-inline-form { grid-template-columns: minmax(0, 1fr); }

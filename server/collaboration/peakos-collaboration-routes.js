@@ -19,6 +19,7 @@ const COLLABORATION_ROUTE_RULES = Object.freeze([
   route(['POST'], /^\/events\/reorder$/),
   route(['GET'], /^\/events\/checklist-summary$/),
   route(['PUT'], /^\/events\/(?!reorder$|checklist-summary$)[^/]+$/),
+  route(['POST', 'DELETE'], /^\/events\/[^/]+\/os-hide$/),
   route(['POST'], /^\/events\/[^/]+\/delete-repeat-(?:future|all)$/),
   route(['GET'], /^\/events\/[^/]+\/shares$/),
   route(['GET', 'POST'], /^\/events\/[^/]+\/checklist$/),
