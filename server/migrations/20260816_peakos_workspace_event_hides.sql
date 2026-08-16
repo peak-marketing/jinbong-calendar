@@ -127,6 +127,14 @@ BEGIN
     RAISE EXCEPTION 'PEAK OS application role % does not exist', application_role;
   END IF;
 
+  -- An operator may have ALTER DEFAULT PRIVILEGES granting broad table rights
+  -- to the runtime role. Reset this new table's explicit ACL before granting
+  -- the three operations used by the API, so rerunning the migration also
+  -- repairs an already-created table without touching any existing table.
+  EXECUTE format(
+    'REVOKE ALL PRIVILEGES ON TABLE peakos_workspace_event_hides FROM %I',
+    application_role
+  );
   EXECUTE format(
     'GRANT SELECT, INSERT, DELETE ON TABLE peakos_workspace_event_hides TO %I',
     application_role
