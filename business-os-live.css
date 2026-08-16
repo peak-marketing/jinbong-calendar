@@ -11437,7 +11437,24 @@ body .app-sidebar .workspace-switcher select:disabled {
   padding-inline: 10px 30px;
 }
 
-body .app-sidebar .workspace-switcher::after { right: 11px; }
+/* Draw the workspace affordance as a crisp CSS chevron. The previous text
+   glyph varied by browser/font and could render like a boxed letter "v". */
+body .app-sidebar .workspace-switcher::after {
+  top: 50%;
+  right: 12px;
+  width: 6px;
+  height: 6px;
+  border: 0;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: "";
+  font-size: 0;
+  line-height: 0;
+  opacity: .88;
+  pointer-events: none;
+  transform: translateY(-68%) rotate(45deg);
+  transform-origin: 50% 50%;
+}
 
 body .app-sidebar .search-button {
   height: 40px;
