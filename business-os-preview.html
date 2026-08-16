@@ -25,7 +25,7 @@
     })();
   </script>
   <title>PEAK OS · Business OS Preview</title>
-  <link rel="stylesheet" href="./business-os-live.css?v=20260816-compact-todo1">
+  <link rel="stylesheet" href="./business-os-live.css?v=20260816-todo-dashboard1">
   <style>
     :root {
       color-scheme: light;
@@ -2556,179 +2556,7 @@
           </section>
         </section>
 
-        <section class="todo-view" id="todoView" hidden>
-          <header class="todo-page-toolbar">
-            <div class="todo-date-copy">
-              <strong>2026년 7월 27일 월요일</strong>
-              <span>오늘 해야 할 업무를 한곳에서 확인하고 완료 상태를 관리합니다</span>
-            </div>
-            <button class="todo-add-button todo-preview-add" type="button">＋ 할 일 추가</button>
-          </header>
-
-          <nav class="todo-scope-tabs" aria-label="오늘 할 일 범위">
-            <button class="todo-scope-button" type="button" data-todo-scope="personal">내 일정</button>
-            <button class="todo-scope-button" type="button" data-todo-scope="team">팀</button>
-            <button class="todo-scope-button active" type="button" data-todo-scope="all">전체</button>
-          </nav>
-
-          <section class="todo-summary" aria-label="오늘 업무 요약">
-            <article class="todo-summary-card primary"><span>오늘 할 일</span><strong id="todoTotalCount">8건</strong></article>
-            <article class="todo-summary-card"><span>완료</span><strong id="todoDoneCount">2건</strong></article>
-            <article class="todo-summary-card"><span>남은 업무</span><strong id="todoRemainingCount">6건</strong></article>
-            <article class="todo-summary-card"><span>검토 요청</span><strong id="todoReviewCount">2건</strong></article>
-          </section>
-
-          <section class="todo-board" aria-label="오늘의 업무 목록">
-            <header class="todo-board-head">
-              <div><strong>오늘의 업무</strong><span>마감 시간과 체크리스트 진행률을 함께 확인할 수 있습니다</span></div>
-              <div class="todo-board-progress" id="todoBoardProgress">25% 완료</div>
-            </header>
-
-            <article class="todo-group" data-scope="team">
-              <button class="todo-group-head" type="button">
-                <span class="todo-group-caret">▼</span><i class="todo-group-dot yellow"></i>
-                <span class="todo-group-title">마감 임박</span><span class="todo-group-count">0/1</span>
-              </button>
-              <div class="todo-group-body">
-                <div class="todo-task" data-review="true">
-                  <button class="todo-task-check" type="button" aria-label="주간 보고서 제출 완료">✓</button>
-                  <div class="todo-task-main">
-                    <div class="todo-task-title">주간 보고서 제출 및 최종 확인</div>
-                    <div class="todo-task-meta">담당 경영지원팀 · 오늘 오후 6:00 마감</div>
-                    <div class="todo-task-note">▣ 이번 주 실적과 다음 주 계획을 확인해 주세요</div>
-                  </div>
-                  <div class="todo-task-side">
-                    <span class="todo-progress-pill review">검토 요청</span>
-                    <div class="todo-task-progress"><i style="width:75%"></i></div>
-                    <span class="todo-checklist-count">체크리스트 3/4</span>
-                  </div>
-                </div>
-                <button class="todo-add-row todo-preview-add" type="button">＋ 할 일 추가</button>
-              </div>
-            </article>
-
-            <article class="todo-group" data-scope="personal">
-              <button class="todo-group-head" type="button">
-                <span class="todo-group-caret">▼</span><i class="todo-group-dot red"></i>
-                <span class="todo-group-title">보고서</span><span class="todo-group-count">0/1</span>
-              </button>
-              <div class="todo-group-body">
-                <div class="todo-task">
-                  <button class="todo-task-check" type="button" aria-label="운영 보고서 작성 완료">✓</button>
-                  <div class="todo-task-main">
-                    <div class="todo-task-title">7월 4주차 운영 보고서 작성</div>
-                    <div class="todo-task-meta">담당 김대호 · 오후 4:00까지</div>
-                    <div class="todo-task-note">▣ 팀별 매출과 접수 현황을 포함해 주세요</div>
-                  </div>
-                  <div class="todo-task-side">
-                    <span class="todo-progress-pill">작성 중</span>
-                    <div class="todo-task-progress"><i style="width:50%"></i></div>
-                    <span class="todo-checklist-count">체크리스트 2/4</span>
-                  </div>
-                </div>
-                <button class="todo-add-row todo-preview-add" type="button">＋ 할 일 추가</button>
-              </div>
-            </article>
-
-            <article class="todo-group" data-scope="personal">
-              <button class="todo-group-head" type="button">
-                <span class="todo-group-caret">▼</span><i class="todo-group-dot red"></i>
-                <span class="todo-group-title">김대호 개인 업무</span><span class="todo-group-count">1/2</span>
-              </button>
-              <div class="todo-group-body">
-                <div class="todo-task done">
-                  <button class="todo-task-check checked" type="button" aria-label="영업 실적 취합 완료" aria-pressed="true">✓</button>
-                  <div class="todo-task-main">
-                    <div class="todo-task-title">영업팀 금주 실적 취합</div>
-                    <div class="todo-task-meta">담당 김대호 · 오전 11:30 완료</div>
-                  </div>
-                  <div class="todo-task-side"><span class="todo-progress-pill" data-previous-label="진행 중">완료</span></div>
-                </div>
-                <div class="todo-task">
-                  <button class="todo-task-check" type="button" aria-label="운영 이슈 정리 완료">✓</button>
-                  <div class="todo-task-main">
-                    <div class="todo-task-title">플랫폼 운영 이슈 및 요청사항 정리</div>
-                    <div class="todo-task-meta">담당 김대호 · 오늘 오후 5:00</div>
-                    <div class="todo-task-note">▣ 채팅방에서 수집된 요청 3건을 반영해 주세요</div>
-                  </div>
-                  <div class="todo-task-side">
-                    <span class="todo-progress-pill">진행 중</span>
-                    <div class="todo-task-progress"><i style="width:40%"></i></div>
-                    <span class="todo-checklist-count">체크리스트 2/5</span>
-                  </div>
-                </div>
-                <button class="todo-add-row todo-preview-add" type="button">＋ 할 일 추가</button>
-              </div>
-            </article>
-
-            <article class="todo-group" data-scope="team">
-              <button class="todo-group-head" type="button">
-                <span class="todo-group-caret">▼</span><i class="todo-group-dot pink"></i>
-                <span class="todo-group-title">크몽 상품 등록</span><span class="todo-group-count">0/1</span>
-              </button>
-              <div class="todo-group-body">
-                <div class="todo-task" data-review="true">
-                  <button class="todo-task-check" type="button" aria-label="크몽 상품 등록 완료">✓</button>
-                  <div class="todo-task-main">
-                    <div class="todo-task-title">신규 크몽 상품 등록 및 검수</div>
-                    <div class="todo-task-meta">담당 플랫폼운영팀 · 오늘 오후 3:00</div>
-                    <div class="todo-task-note">▣ 이번 주까지 등록을 완료해야 합니다</div>
-                  </div>
-                  <div class="todo-task-side">
-                    <span class="todo-progress-pill review">검토 요청</span>
-                    <div class="todo-task-progress"><i style="width:71%"></i></div>
-                    <span class="todo-checklist-count">체크리스트 5/7</span>
-                  </div>
-                </div>
-                <button class="todo-add-row todo-preview-add" type="button">＋ 할 일 추가</button>
-              </div>
-            </article>
-
-            <article class="todo-group" data-scope="team">
-              <button class="todo-group-head" type="button">
-                <span class="todo-group-caret">▼</span><i class="todo-group-dot teal"></i>
-                <span class="todo-group-title">브랜드블로그</span><span class="todo-group-count">1/3</span>
-              </button>
-              <div class="todo-group-body">
-                <div class="todo-task done">
-                  <button class="todo-task-check checked" type="button" aria-label="나스정형외과 업무 완료" aria-pressed="true">✓</button>
-                  <div class="todo-task-main">
-                    <div class="todo-task-title">박우진 · 나스정형외과 콘텐츠 확인</div>
-                    <div class="todo-task-meta">담당 박우진 · 게시 완료</div>
-                  </div>
-                  <div class="todo-task-side"><span class="todo-progress-pill" data-previous-label="게시 완료">완료</span><span class="todo-checklist-count">체크리스트 8/8</span></div>
-                </div>
-                <div class="todo-task">
-                  <button class="todo-task-check" type="button" aria-label="HS신경외과의원 업무 완료">✓</button>
-                  <div class="todo-task-main">
-                    <div class="todo-task-title">박우진 · HS신경외과의원 2회차 원고</div>
-                    <div class="todo-task-meta">담당 박우진 · 오늘 오후 2:00</div>
-                    <div class="todo-task-note">▣ 2회차 발행 전 검토가 필요합니다</div>
-                  </div>
-                  <div class="todo-task-side">
-                    <span class="todo-progress-pill">진행 중</span>
-                    <div class="todo-task-progress"><i style="width:84%"></i></div>
-                    <span class="todo-checklist-count">체크리스트 27/32</span>
-                  </div>
-                </div>
-                <div class="todo-task">
-                  <button class="todo-task-check" type="button" aria-label="메이퓨어의원 업무 완료">✓</button>
-                  <div class="todo-task-main">
-                    <div class="todo-task-title">김대호 · 메이퓨어의원 3회차 발행</div>
-                    <div class="todo-task-meta">담당 김대호 · 오늘 오후 5:30</div>
-                    <div class="todo-task-note">▣ 예약 발행과 링크 확인이 필요합니다</div>
-                  </div>
-                  <div class="todo-task-side">
-                    <span class="todo-progress-pill">대기</span>
-                    <div class="todo-task-progress"><i style="width:13%"></i></div>
-                    <span class="todo-checklist-count">체크리스트 1/8</span>
-                  </div>
-                </div>
-                <button class="todo-add-row todo-preview-add" type="button">＋ 할 일 추가</button>
-              </div>
-            </article>
-          </section>
-        </section>
+        <section class="todo-view" id="todoView" hidden></section>
 
         <section class="review-view" id="reviewView" hidden>
           <header class="review-page-toolbar">
@@ -3476,46 +3304,6 @@
       messages.scrollTop = messages.scrollHeight;
     }
 
-    let todoScope = 'all';
-
-    function visibleTodoGroups() {
-      return Array.from(todoView.querySelectorAll('.todo-group')).filter((group) => !group.hidden);
-    }
-
-    function updateTodoUi() {
-      todoView.querySelectorAll('.todo-group').forEach((group) => {
-        const tasks = Array.from(group.querySelectorAll('.todo-task'));
-        const done = tasks.filter((task) => task.classList.contains('done')).length;
-        group.querySelector('.todo-group-count').textContent = done + '/' + tasks.length;
-      });
-
-      const visibleTasks = visibleTodoGroups().flatMap((group) => Array.from(group.querySelectorAll('.todo-task')));
-      const completed = visibleTasks.filter((task) => task.classList.contains('done')).length;
-      const remaining = visibleTasks.length - completed;
-      const reviews = visibleTasks.filter((task) => task.dataset.review === 'true' && !task.classList.contains('done')).length;
-      const progress = visibleTasks.length ? Math.round((completed / visibleTasks.length) * 100) : 0;
-      document.getElementById('todoTotalCount').textContent = visibleTasks.length + '건';
-      document.getElementById('todoDoneCount').textContent = completed + '건';
-      document.getElementById('todoRemainingCount').textContent = remaining + '건';
-      document.getElementById('todoReviewCount').textContent = reviews + '건';
-      document.getElementById('todoBoardProgress').textContent = progress + '% 완료';
-
-      const allTasks = Array.from(todoView.querySelectorAll('.todo-task'));
-      const allRemaining = allTasks.filter((task) => !task.classList.contains('done')).length;
-      document.querySelector('[data-view="todo"] .nav-badge').textContent = allRemaining;
-    }
-
-    function setTodoScope(scope) {
-      todoScope = scope;
-      todoView.querySelectorAll('.todo-group').forEach((group) => {
-        group.hidden = todoScope !== 'all' && group.dataset.scope !== todoScope;
-      });
-      todoView.querySelectorAll('.todo-scope-button').forEach((button) => {
-        button.classList.toggle('active', button.dataset.todoScope === todoScope);
-      });
-      updateTodoUi();
-    }
-
     let reviewProjectFilter = 'review';
 
     function renderReviewProjects() {
@@ -3587,38 +3375,6 @@
     // 채팅은 인증 후 business-os-preview.js에서 파라곤 실데이터와 연결한다.
     // 예전 프리뷰 이벤트를 여기에 등록하면 실제 전송기가 입력을 읽기 전에
     // 문자열을 비워 메시지가 저장되지 않으므로 정적 프리뷰 핸들러는 두지 않는다.
-
-    document.querySelectorAll('.todo-scope-button').forEach((button) => {
-      button.addEventListener('click', () => setTodoScope(button.dataset.todoScope));
-    });
-    document.querySelectorAll('.todo-group-head').forEach((button) => {
-      button.addEventListener('click', () => button.closest('.todo-group').classList.toggle('collapsed'));
-    });
-    document.querySelectorAll('.todo-task-check').forEach((button) => {
-      button.addEventListener('click', () => {
-        const task = button.closest('.todo-task');
-        const side = task.querySelector('.todo-task-side');
-        const pill = side?.querySelector('.todo-progress-pill');
-        const completed = !task.classList.contains('done');
-        task.classList.toggle('done', completed);
-        button.classList.toggle('checked', completed);
-        button.setAttribute('aria-pressed', completed ? 'true' : 'false');
-        if (pill) {
-          if (!pill.dataset.previousLabel) {
-            pill.dataset.previousLabel = pill.textContent;
-            pill.dataset.previousReview = pill.classList.contains('review') ? 'true' : 'false';
-          }
-          pill.textContent = completed ? '완료' : pill.dataset.previousLabel;
-          pill.classList.toggle('review', !completed && pill.dataset.previousReview === 'true');
-        }
-        updateTodoUi();
-        showToast(completed ? '할 일을 완료로 표시했습니다.' : '할 일을 진행 중으로 되돌렸습니다.');
-      });
-    });
-    document.querySelectorAll('.todo-preview-add').forEach((button) => {
-      button.addEventListener('click', () => showToast('할 일 등록 화면은 다음 단계에서 실제 업무 데이터와 연결됩니다.'));
-    });
-    setTodoScope('all');
 
     document.getElementById('reviewSearchInput').addEventListener('input', renderReviewProjects);
     document.querySelectorAll('.review-filter').forEach((button) => {
@@ -3716,6 +3472,6 @@
   </script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-  <script src="./business-os-preview.js?v=20260816-todo-collapsed1"></script>
+  <script src="./business-os-preview.js?v=20260816-todo-dashboard1"></script>
 </body>
 </html>

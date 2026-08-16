@@ -12301,3 +12301,496 @@ html[data-theme="dark"] body #todoView .todo-worklist-project-head:hover { backg
 /* Completion is expressed by the check, strike-through and status pill.
    Keep text fully opaque so compact metadata remains readable in both themes. */
 body #todoView .todo-worklist-row.done { opacity: 1; }
+
+/* Personal Todo dashboard: one quick-capture surface and one planning surface. */
+body #todoView .todo-dashboard {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+body #todoView .todo-dashboard-toolbar,
+body #todoView .todo-dashboard-overview,
+body #todoView .todo-dashboard-panel {
+  border: 1px solid #d7e5ed;
+  background: rgba(255, 255, 255, .94);
+  box-shadow: 0 10px 32px rgba(30, 64, 88, .055);
+}
+
+body #todoView .todo-dashboard-toolbar {
+  display: flex;
+  min-height: 62px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 10px 14px 10px 18px;
+  border-radius: 15px;
+}
+
+body #todoView .todo-dashboard-toolbar > strong {
+  color: #1d3342;
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: -.035em;
+}
+
+body #todoView .todo-dashboard-toolbar-actions,
+body #todoView .todo-dashboard-date-nav {
+  display: flex;
+  align-items: center;
+}
+
+body #todoView .todo-dashboard-toolbar-actions { gap: 9px; }
+body #todoView .todo-dashboard-date-nav { gap: 7px; }
+
+body #todoView .todo-dashboard-date-nav button {
+  display: grid;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid #c9dce8;
+  border-radius: 9px;
+  background: #f7fbfd;
+  color: #426a82;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+body #todoView .todo-dashboard-date-nav button.today {
+  width: auto;
+  min-width: 48px;
+  padding-inline: 11px;
+  font-size: 10px;
+}
+
+body #todoView .todo-dashboard-date-nav button:disabled {
+  border-color: #dce6eb;
+  background: #eef3f6;
+  color: #9aaab4;
+  cursor: default;
+}
+
+body #todoView .todo-dashboard-date-nav button:not(:disabled):hover {
+  border-color: #7eb9d8;
+  background: #edf7fb;
+  color: #176f9b;
+}
+
+body #todoView .todo-dashboard-date-nav button:focus-visible,
+body #todoView .todo-dashboard-capture-form :is(textarea, button):focus-visible,
+body #todoView .todo-dashboard-task-row :is(button, input):focus-visible,
+body #todoView .todo-dashboard-inbox-row button:focus-visible {
+  outline: 3px solid rgba(45, 154, 190, .22);
+  outline-offset: 2px;
+}
+
+body #todoView .todo-dashboard-date-nav time {
+  min-width: 166px;
+  color: #263f50;
+  font-size: 12px;
+  font-weight: 850;
+  text-align: center;
+  white-space: nowrap;
+}
+
+body #todoView .todo-dashboard-overview {
+  display: grid;
+  grid-template-columns: minmax(235px, .72fr) minmax(0, 1.55fr);
+  gap: 10px;
+  padding: 10px;
+  border-radius: 17px;
+}
+
+body #todoView .todo-dashboard-progress {
+  display: grid;
+  align-content: center;
+  gap: 12px;
+  min-height: 94px;
+  padding: 16px 18px;
+  overflow: hidden;
+  border: 1px solid #bcdce8;
+  border-radius: 13px;
+  background: linear-gradient(135deg, #e8f6fa 0%, #f4fafc 100%);
+}
+
+body #todoView .todo-dashboard-progress > div {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+body #todoView .todo-dashboard-progress span,
+body #todoView .todo-dashboard-progress strong { display: block; }
+body #todoView .todo-dashboard-progress > div span { color: #527487; font-size: 11px; font-weight: 800; }
+body #todoView .todo-dashboard-progress > div strong { color: #177da5; font-size: 28px; font-weight: 900; letter-spacing: -.055em; }
+
+body #todoView .todo-dashboard-progress-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(80, 129, 150, .15);
+}
+
+body #todoView .todo-dashboard-progress-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2c91bc, #40b2bd);
+  transition: width .25s ease;
+}
+
+body #todoView .todo-dashboard-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+body #todoView .todo-dashboard-stats article {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+  min-height: 94px;
+  padding: 13px 14px;
+  border: 1px solid #e0e9ee;
+  border-radius: 12px;
+  background: #fbfdfe;
+}
+
+body #todoView .todo-dashboard-stats span,
+body #todoView .todo-dashboard-stats strong,
+body #todoView .todo-dashboard-stats small { display: block; }
+body #todoView .todo-dashboard-stats span { overflow: hidden; color: #526c78; font-size: 10px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+body #todoView .todo-dashboard-stats strong { margin-top: 7px; color: #233c4c; font-size: 20px; font-weight: 900; }
+body #todoView .todo-dashboard-stats small { margin-top: 4px; overflow: hidden; color: #587181; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+
+body #todoView .todo-dashboard-panels {
+  display: grid;
+  grid-template-columns: minmax(320px, .78fr) minmax(560px, 1.42fr);
+  gap: 14px;
+  align-items: stretch;
+  min-width: 0;
+}
+
+body #todoView .todo-dashboard-panel {
+  min-width: 0;
+  min-height: 520px;
+  overflow: hidden;
+  border-radius: 17px;
+}
+
+body #todoView .todo-dashboard-panel > header {
+  display: flex;
+  min-height: 70px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 17px;
+  border-bottom: 1px solid #e0e9ee;
+  background: #f5fafc;
+}
+
+body #todoView .todo-dashboard-panel.list > header { background: #f3f8fb; }
+body #todoView .todo-dashboard-panel > header span,
+body #todoView .todo-dashboard-panel > header strong { display: block; }
+body #todoView .todo-dashboard-panel > header span { color: #176e96; font-size: 10px; font-weight: 900; letter-spacing: .12em; }
+body #todoView .todo-dashboard-panel > header strong { margin-top: 5px; color: #213a49; font-size: 15px; font-weight: 900; letter-spacing: -.025em; }
+body #todoView .todo-dashboard-panel > header em {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #e5f2f7;
+  color: #26789b;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+body #todoView .todo-dashboard-capture-form {
+  display: grid;
+  gap: 9px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #e6edf1;
+  background: #fbfdfe;
+}
+
+body #todoView .todo-dashboard-capture-form textarea {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+  box-sizing: border-box;
+  padding: 12px 13px;
+  border: 1px solid #ccdce5;
+  border-radius: 11px;
+  background: #fff;
+  color: #273e4d;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+body #todoView .todo-dashboard-capture-form textarea::placeholder { color: #587181; opacity: 1; }
+body #todoView .todo-dashboard-capture-form > div { display: flex; justify-content: flex-end; gap: 7px; }
+body #todoView .todo-dashboard-capture-form button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid #cadbe5;
+  border-radius: 9px;
+  background: #fff;
+  color: #587181;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+body #todoView .todo-dashboard-capture-form button.primary {
+  border-color: #176e96;
+  background: #176e96;
+  color: #fff;
+}
+
+body #todoView .todo-dashboard-inbox-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px 8px;
+}
+
+body #todoView .todo-dashboard-inbox-head strong { color: #405866; font-size: 10px; }
+body #todoView .todo-dashboard-inbox-head span { color: #587181; font-size: 10px; text-align: right; }
+
+body #todoView .todo-dashboard-inbox,
+body #todoView .todo-dashboard-list {
+  max-height: min(55vh, 610px);
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #c7d9e3 transparent;
+}
+
+body #todoView .todo-dashboard-inbox { padding: 0 14px 14px; }
+body #todoView .todo-dashboard-inbox-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  min-height: 54px;
+  border-bottom: 1px solid #e9eff2;
+}
+
+body #todoView .todo-dashboard-inbox-row:last-child { border-bottom: 0; }
+body #todoView .todo-dashboard-inbox-dot {
+  width: 7px;
+  height: 7px;
+  justify-self: center;
+  border-radius: 50%;
+  background: #4ba5b8;
+  box-shadow: 0 0 0 5px #e8f4f7;
+}
+body #todoView .todo-dashboard-inbox-row .daily-plan-task-open strong { font-size: 11px; }
+body #todoView .todo-dashboard-inbox-row .daily-plan-task-open small { color: #587181; font-size: 10px; }
+body #todoView .todo-dashboard-rank { color: #176e96; font-size: 10px; font-weight: 850; white-space: nowrap; }
+
+body #todoView .todo-dashboard-list-guide {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 70px 236px;
+  gap: 10px;
+  padding: 9px 16px 8px 62px;
+  border-bottom: 1px solid #e5edf1;
+  background: #fbfcfd;
+  color: #526c78;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+body #todoView .todo-dashboard-list-guide span:nth-child(n + 2) { text-align: center; }
+body #todoView .todo-dashboard-list { padding: 0 14px 8px; }
+body #todoView .todo-dashboard-task-row {
+  display: grid;
+  grid-template-columns: 34px minmax(150px, 1fr) 70px minmax(222px, 248px);
+  gap: 10px;
+  align-items: center;
+  min-height: 68px;
+  padding: 8px 2px;
+  border-bottom: 1px solid #e7eef2;
+}
+
+body #todoView .todo-dashboard-task-row:last-child { border-bottom: 0; }
+body #todoView .todo-dashboard-task-row:hover { background: #fbfdfe; }
+body #todoView .todo-dashboard-task-row > .todo-task-check { width: 31px; height: 31px; margin: 0; }
+body #todoView .todo-dashboard-task-row.done { opacity: 1; }
+body #todoView .todo-dashboard-task-row.done .daily-plan-task-open strong { color: #526c78; text-decoration: line-through; }
+body #todoView .todo-dashboard-task-copy { display: flex; min-width: 0; align-items: center; gap: 8px; }
+body #todoView .todo-dashboard-task-copy .daily-plan-task-open { flex: 1; min-width: 0; }
+body #todoView .todo-dashboard-task-copy .daily-plan-task-open strong { font-size: 11px; }
+body #todoView .todo-dashboard-task-copy .daily-plan-task-open small { color: #587181; font-size: 10px; }
+body #todoView .todo-dashboard-task-state {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #e8f4f8;
+  color: #247699;
+  font-size: 10px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+body #todoView .todo-dashboard-task-state.complete { background: #e9f5ef; color: #2c775b; }
+body #todoView .todo-dashboard-priority-actions { display: flex; justify-content: center; gap: 4px; }
+body #todoView .todo-dashboard-priority-actions button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid #cad9e2;
+  border-radius: 8px;
+  background: #fff;
+  color: #287ca2;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+body #todoView .todo-dashboard-priority-actions button:disabled { color: #bdc7cd; cursor: default; }
+body #todoView .todo-dashboard-priority-actions > span { color: #a7b2b9; font-size: 10px; }
+body #todoView .todo-dashboard-time-range { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) 44px; }
+body #todoView .todo-dashboard-time-range input,
+body #todoView .todo-dashboard-time-range .daily-timeline-save { min-height: 34px; font-size: 10.5px; }
+
+body #todoView .todo-dashboard-empty {
+  display: grid;
+  min-height: 180px;
+  place-content: center;
+  justify-items: center;
+  padding: 24px 16px;
+  color: #526c78;
+  text-align: center;
+}
+
+body #todoView .todo-dashboard-empty strong { color: #405966; font-size: 11px; }
+body #todoView .todo-dashboard-empty small { max-width: 330px; margin-top: 6px; color: #526c78; font-size: 10px; line-height: 1.6; }
+body #todoView .todo-dashboard-empty.private { margin: 10px; border-radius: 11px; background: #f5f8fa; }
+
+html[data-theme="dark"] body #todoView .todo-dashboard-toolbar,
+html[data-theme="dark"] body #todoView .todo-dashboard-overview,
+html[data-theme="dark"] body #todoView .todo-dashboard-panel {
+  border-color: var(--lux-line, #38515e);
+  background: var(--lux-panel, #10232d);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .16);
+}
+
+html[data-theme="dark"] body #todoView .todo-dashboard-toolbar > strong,
+html[data-theme="dark"] body #todoView .todo-dashboard-date-nav time,
+html[data-theme="dark"] body #todoView .todo-dashboard-progress > div strong,
+html[data-theme="dark"] body #todoView .todo-dashboard-stats strong,
+html[data-theme="dark"] body #todoView .todo-dashboard-panel > header strong,
+html[data-theme="dark"] body #todoView .todo-dashboard-inbox-head strong,
+html[data-theme="dark"] body #todoView .todo-dashboard-empty strong { color: #edf5f7; }
+
+html[data-theme="dark"] body #todoView .todo-dashboard-date-nav button {
+  border-color: #456271;
+  background: #17303b;
+  color: #a9d5df;
+}
+
+html[data-theme="dark"] body #todoView .todo-dashboard-date-nav button:disabled { border-color: #344b57; background: #152a34; color: #67818c; }
+html[data-theme="dark"] body #todoView .todo-dashboard-progress { border-color: #31616e; background: linear-gradient(135deg, #153844, #172f39); }
+html[data-theme="dark"] body #todoView .todo-dashboard-progress > div span { color: #a8c1ca; }
+html[data-theme="dark"] body #todoView .todo-dashboard-progress > div strong { color: #72d5dd; }
+html[data-theme="dark"] body #todoView .todo-dashboard-progress-track { background: #29434e; }
+html[data-theme="dark"] body #todoView .todo-dashboard-stats article { border-color: #324b57; background: #142a34; }
+html[data-theme="dark"] body #todoView .todo-dashboard-stats span,
+html[data-theme="dark"] body #todoView .todo-dashboard-stats small,
+html[data-theme="dark"] body #todoView .todo-dashboard-inbox-head span,
+html[data-theme="dark"] body #todoView .todo-dashboard-empty { color: #9fb2bb; }
+html[data-theme="dark"] body #todoView .todo-dashboard-panel > header { border-color: #38515e; background: #15303b; }
+html[data-theme="dark"] body #todoView .todo-dashboard-panel.list > header { background: #172e3a; }
+html[data-theme="dark"] body #todoView .todo-dashboard-panel > header span { color: #72d5dd; }
+html[data-theme="dark"] body #todoView .todo-dashboard-panel > header em { background: #1d4652; color: #9bdae0; }
+html[data-theme="dark"] body #todoView .todo-dashboard-capture-form,
+html[data-theme="dark"] body #todoView .todo-dashboard-list-guide { border-color: #354d59; background: #112730; }
+html[data-theme="dark"] body #todoView .todo-dashboard-capture-form textarea,
+html[data-theme="dark"] body #todoView .todo-dashboard-priority-actions button,
+html[data-theme="dark"] body #todoView .todo-dashboard-time-range input {
+  border-color: #496573;
+  background: #172f3a;
+  color: #edf5f7;
+}
+html[data-theme="dark"] body #todoView .todo-dashboard-capture-form textarea::placeholder { color: #a8bec8; }
+html[data-theme="dark"] body #todoView .todo-dashboard-inbox-row,
+html[data-theme="dark"] body #todoView .todo-dashboard-task-row { border-color: #314853; }
+html[data-theme="dark"] body #todoView .todo-dashboard-inbox-dot { background: #72d5dd; box-shadow: 0 0 0 5px #1a3944; }
+html[data-theme="dark"] body #todoView .todo-dashboard-rank { color: #72d5dd; }
+html[data-theme="dark"] body #todoView .todo-dashboard-list-guide,
+html[data-theme="dark"] body #todoView .todo-dashboard-empty small { color: #a8bec8; }
+html[data-theme="dark"] body #todoView .todo-dashboard-task-row:hover { background: #18333f; }
+html[data-theme="dark"] body #todoView .todo-dashboard-task-row.done .daily-plan-task-open strong { color: #b6c8cf; }
+html[data-theme="dark"] body #todoView .todo-dashboard-task-state { background: #123b49; color: #80d5df; }
+html[data-theme="dark"] body #todoView .todo-dashboard-task-state.complete { background: #183b34; color: #8ed7bd; }
+html[data-theme="dark"] body #todoView .todo-dashboard-empty.private { background: #142a34; }
+
+/* The desktop shell keeps a 248px sidebar and 28px page gutters. Stack before
+   the two panel minimums can compete for that remaining content width. */
+@media (max-width: 1240px) {
+  body #todoView .todo-dashboard-overview { grid-template-columns: minmax(0, 1fr); }
+  body #todoView .todo-dashboard-panels { grid-template-columns: minmax(0, 1fr); }
+  body #todoView .todo-dashboard-panel { min-height: 0; }
+  body #todoView .todo-dashboard-inbox,
+  body #todoView .todo-dashboard-list { max-height: none; }
+}
+
+@media (max-width: 768px) {
+  body #todoView .todo-dashboard { gap: 10px; }
+  body #todoView .todo-dashboard-toolbar { align-items: stretch; flex-direction: column; gap: 9px; padding: 12px; }
+  body #todoView .todo-dashboard-toolbar-actions { align-items: stretch; flex-direction: column; }
+  body #todoView .todo-dashboard-date-nav { width: 100%; }
+  body #todoView .todo-dashboard-date-nav button { width: 44px; min-width: 44px; height: 44px; }
+  body #todoView .todo-dashboard-date-nav time { flex: 1; min-width: 0; }
+  body #todoView .todo-dashboard-overview { padding: 8px; }
+  body #todoView .todo-dashboard-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  body #todoView .todo-dashboard-stats article { min-height: 78px; }
+  body #todoView .todo-dashboard-panel > header { min-height: 64px; padding-inline: 14px; }
+  body #todoView .todo-dashboard-list-guide { display: none; }
+  body #todoView .todo-dashboard-task-row {
+    grid-template-columns: 44px minmax(0, 1fr) 96px;
+    gap: 8px;
+    min-height: 108px;
+    padding: 11px 0;
+  }
+  body #todoView .todo-dashboard-task-row > .todo-task-check { width: 44px; height: 44px; }
+  body #todoView .todo-dashboard-task-row .daily-plan-task-open { min-height: 44px; }
+  body #todoView .todo-dashboard-task-copy { grid-column: 2; grid-row: 1; }
+  body #todoView .todo-dashboard-priority-actions { grid-column: 3; grid-row: 1; }
+  body #todoView .todo-dashboard-priority-actions button { width: 44px; height: 44px; }
+  body #todoView .todo-dashboard-time-range { grid-column: 2 / -1; grid-row: 2; }
+  body #todoView .todo-dashboard-time-range input,
+  body #todoView .todo-dashboard-time-range .daily-timeline-save { min-height: 44px; }
+  body #todoView .todo-dashboard-capture-form button { min-height: 44px; }
+}
+
+@media (max-width: 430px) {
+  body #todoView .todo-dashboard-toolbar > strong { font-size: 15px; }
+  body #todoView .todo-dashboard-date-nav { gap: 5px; }
+  body #todoView .todo-dashboard-date-nav button { width: 44px; min-width: 44px; height: 44px; }
+  body #todoView .todo-dashboard-date-nav button.today { min-width: 44px; padding-inline: 8px; }
+  body #todoView .todo-dashboard-date-nav time { font-size: 10.5px; }
+  body #todoView .todo-dashboard-progress { min-height: 86px; padding: 14px; }
+  body #todoView .todo-dashboard-progress > div strong { font-size: 25px; }
+  body #todoView .todo-dashboard-stats article { padding: 11px 12px; }
+  body #todoView .todo-dashboard-capture-form { padding: 12px; }
+  body #todoView .todo-dashboard-capture-form textarea { min-height: 92px; font-size: 12px; }
+  body #todoView .todo-dashboard-capture-form button { width: 100%; min-height: 44px; }
+  body #todoView .todo-dashboard-inbox-head { align-items: flex-start; flex-direction: column; }
+  body #todoView .todo-dashboard-inbox-head span { text-align: left; }
+  body #todoView .todo-dashboard-task-copy { align-items: flex-start; flex-direction: column; gap: 2px; }
+  body #todoView .todo-dashboard-task-state { margin-bottom: 2px; }
+  body #todoView .todo-dashboard-time-range { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+  body #todoView .todo-dashboard-time-range .daily-timeline-save { grid-column: 1 / -1; width: 100%; }
+}

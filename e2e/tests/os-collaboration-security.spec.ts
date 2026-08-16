@@ -240,8 +240,12 @@ async function installSharedApi(page: Page, state: CollaborationState) {
     }
     if (resourcePath === '/events' && method === 'GET') {
       const hidden = new Set(state.osHiddenEventIds[workspaceSlug] || []);
+      const from = String(url.searchParams.get('from') || '');
+      const to = String(url.searchParams.get('to') || '');
       return send(requestEvents
         .filter(event => !event.deleted && (!protectedRequest || !hidden.has(String(event.id))))
+        .filter(event => (!from || String(event.date || '').slice(0, 10) >= from)
+          && (!to || String(event.date || '').slice(0, 10) <= to))
         .map(canonicalEventResponse));
     }
     if (resourcePath === '/events' && method === 'POST') {
@@ -568,36 +572,10 @@ async function setup(page: Page, state: CollaborationState, url = '/os/') {
 
 async function addTodo(page: Page, title: string) {
   await page.locator('.nav-item[data-view="todo"]').click();
-  await page.locator('#todoView [data-collab-add-todo]').click();
-  const form = page.locator('#collaborationEventForm');
-  await expect(form).toBeVisible();
+  const form = page.locator('#todoView [data-todo-capture]');
   await form.locator('[name="title"]').fill(title);
-  await form.getByRole('button', { name: '등록', exact: true }).click();
+  await form.getByRole('button', { name: '＋ 적기', exact: true }).click();
   await expect(page.locator('#todoView')).toContainText(title);
-}
-
-async function setTodoRootExpanded(page: Page, group: 'personal' | 'project', expanded = true) {
-  const toggle = page.locator(`[data-todo-group-toggle="${group}"]`);
-  const targetId = await toggle.getAttribute('aria-controls');
-  expect(targetId).toBeTruthy();
-  if ((await toggle.getAttribute('aria-expanded')) !== String(expanded)) await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-expanded', String(expanded));
-  const body = page.locator(`#${targetId}`);
-  if (expanded) await expect(body).toBeVisible();
-  else await expect(body).toBeHidden();
-  return { toggle, body };
-}
-
-async function setTodoProjectExpanded(page: Page, projectId: string, expanded = true) {
-  const toggle = page.locator(`[data-todo-project-group-id="${projectId}"]`);
-  const targetId = await toggle.getAttribute('aria-controls');
-  expect(targetId).toBeTruthy();
-  if ((await toggle.getAttribute('aria-expanded')) !== String(expanded)) await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-expanded', String(expanded));
-  const body = page.locator(`#${targetId}`);
-  if (expanded) await expect(body).toBeVisible();
-  else await expect(body).toBeHidden();
-  return { toggle, body };
 }
 
 async function openCalendarEventEditor(page: Page, eventId: string) {
@@ -632,20 +610,22 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     const collaborationMutations = state.calls.filter(call =>
       call.method !== 'GET' && call.path.startsWith('/peakos/collaboration/')
     );
-    expect(collaborationMutations).toHaveLength(1);
+    expect(collaborationMutations).toHaveLength(2);
     expect(collaborationMutations[0]).toMatchObject({
       method: 'POST', path: '/peakos/collaboration/events', preview: '0',
+    });
+    expect(collaborationMutations[1]).toMatchObject({
+      method: 'POST', path: '/peakos/collaboration/events/reorder', preview: '0',
     });
     const directLegacyWrites = state.calls.filter(call =>
       call.method !== 'GET' && /^\/(events|chat-rooms|projects)(?:\/|$)/.test(call.path)
     );
     expect(directLegacyWrites).toEqual([]);
 
-    await setTodoRootExpanded(page, 'personal');
-    await setTodoRootExpanded(page, 'project');
-    await setTodoProjectExpanded(page, 'preview-project');
     await expect(page.locator('[data-personal-todo-id="owned-todo"]')).toBeVisible();
-    await expect(page.locator('[data-project-todo-id="preview-project-task"]')).toBeVisible();
+    await expect(page.locator('#todoView')).not.toContainText('미리보기 비공개 프로젝트');
+    await expect(page.locator('#todoView')).not.toContainText('미리보기 비공개 프로젝트 업무');
+    await expect(page.locator('#todoView [data-project-todo-id]')).toHaveCount(0);
     let releasePreviewLoad!: () => void;
     let previewLoadStarted = 0;
     let previewLoadSettled = 0;
@@ -666,23 +646,19 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     await expect.poll(() => previewLoadStarted).toBeGreaterThan(0);
     // loadPeakosData가 아직 멈춰 있는 같은 전환 단계에서도 로그인 사용자의
     // 업무 DOM은 즉시 제거되어야 한다.
-    await expect(page.locator('#todoView [data-collab-readonly]')).toBeVisible();
     await expect(page.locator('#todoView [data-collab-add-todo]')).toHaveCount(0);
+    await expect(page.locator('#todoView [data-todo-capture]')).toHaveCount(0);
     await expect(page.locator('#todoView [data-personal-todo-id]')).toHaveCount(0);
     await expect(page.locator('#todoView [data-project-todo-id]')).toHaveCount(0);
     await expect(page.locator('#todoView [data-todo-time-range]')).toHaveCount(0);
-    await expect(page.getByText('계정 미리보기에서는 업무 데이터가 비공개입니다')).toHaveCount(2);
-    await expect(page.locator('[data-todo-group-toggle="personal"]')).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.locator('#personalTodoGroupBody')).toBeHidden();
-    await expect(page.locator('[data-todo-group-toggle="project"]')).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.locator('#projectTodoGroupBody')).toBeHidden();
+    await expect(page.getByText('계정 미리보기에서는 개인 할 일을 표시하지 않습니다')).toHaveCount(2);
     expect(state.calls.filter(call => call.method !== 'GET' && call.path.startsWith('/peakos/collaboration/'))).toHaveLength(beforePreview);
     releasePreviewLoad();
     await expect.poll(() => previewLoadSettled).toBeGreaterThan(0);
     await page.unroute(/\/api\/peakos\/intake\?owner=/);
   });
 
-  test('today todo follows priority, capture, and timeline steps through one protected event record', async ({ page }) => {
+  test('selected-day todo keeps capture, priority, and timeline on one protected event record', async ({ page }) => {
     const date = todayKey();
     const tomorrow = new Date(`${date}T12:00:00+09:00`);
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
@@ -698,27 +674,16 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     });
     await setup(page, state);
     await page.locator('.nav-item[data-view="todo"]').click();
-    await setTodoRootExpanded(page, 'personal');
-
-    const steps = page.locator('#todoView [data-daily-plan-step]');
-    await expect(steps).toHaveCount(3);
-    await expect(steps.nth(0)).toHaveAttribute('data-daily-plan-step', 'priority');
-    await expect(steps.nth(1)).toHaveAttribute('data-daily-plan-step', 'capture');
-    await expect(steps.nth(2)).toHaveAttribute('data-daily-plan-step', 'timeline');
-    await expect(page.locator('#todoView')).toContainText('우선순위 정하기');
-    await expect(page.locator('#todoView')).toContainText('생각한 일 전부 쓰기');
-    await expect(page.locator('#todoView')).toContainText('타임라인 잡기');
+    await expect(page.locator('[data-todo-panel="capture"]')).toBeVisible();
+    await expect(page.locator('[data-todo-panel="list"]')).toBeVisible();
+    await expect(page.locator('[data-todo-selected-date]')).toHaveAttribute('datetime', date);
+    await expect(page.locator('[data-todo-progress]')).toHaveAttribute('aria-valuenow', '0');
     await expect(page.locator('#todoView')).not.toContainText('내일 할 일');
-    const plannerToggle = page.locator('[data-personal-plan-toggle]');
-    await expect(plannerToggle).toHaveAttribute('aria-expanded', 'false');
-    await plannerToggle.click();
-    await expect(plannerToggle).toHaveAttribute('aria-expanded', 'true');
 
     // 마이그레이션 전부터 존재하던 시작 시각 하나짜리 이벤트도 그대로 편집할 수 있다.
     const existingSingleRow = page.locator('[data-daily-timeline-id="second"]');
     await expect(existingSingleRow.locator('[data-todo-time]')).toHaveValue('11:00');
     await expect(existingSingleRow.locator('[data-todo-end-time]')).toHaveValue('');
-    await expect(existingSingleRow.locator('.daily-timeline-state')).toHaveText('종료 미정');
 
     await page.locator('[data-todo-priority-move="first"][data-direction="down"]').click();
     const priorityRows = page.locator('[data-daily-priority-id]');
@@ -762,7 +727,6 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     expect(eventFirstPuts().at(-1)).toMatchObject({ workspace: 'peak', body: { time: '17:30', endTime: '19:00' } });
     expect(state.events.find(event => event.id === 'first')).toMatchObject({ time: '17:30', end_time: '19:00' });
     expect(eventReads().length).toBeGreaterThan(readsBeforeRange);
-    await expect(page.locator('[data-daily-timeline-id="first"] .daily-timeline-state')).toHaveText('시간 확정');
 
     // 상세/편집 화면도 canonical 재조회된 시간 범위를 그대로 보여준다.
     await page.locator('[data-daily-timeline-id="first"] [data-collab-event-open="first"]').click();
@@ -789,10 +753,247 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     await page.locator('[data-daily-timeline-id="first"] [data-todo-time-save="first"]').click();
     expect(eventFirstPuts().at(-1)).toMatchObject({ body: { time: '', endTime: '' } });
     await expect(page.locator('[data-daily-timeline-id="first"] [data-todo-end-time="first"]')).toHaveValue('');
-    await expect(page.locator('[data-daily-timeline-id="first"] .daily-timeline-state')).toHaveText('시간 미정');
 
     expect(state.calls.some(call => call.path.startsWith('/timetable'))).toBe(false);
     expect(state.calls.some(call => call.method !== 'GET' && /^\/events(?:\/|$)/.test(call.path))).toBe(false);
+  });
+
+  test('KST date navigation drives filtered progress and capture without changing the today badge', async ({ page }) => {
+    await page.clock.install({ time: new Date('2026-12-31T03:00:00.000Z') });
+    const state = createState({
+      events: [
+        { id: 'previous-open', type: 'todo', title: '어제 미완료', date: '2026-12-30', time: '', scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', sort_order: 10, done: false, deleted: false },
+        { id: 'previous-done', type: 'todo', title: '어제 완료', date: '2026-12-30', time: '09:00', end_time: '10:00', scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', sort_order: 20, done: true, deleted: false },
+        { id: 'today-open', type: 'todo', title: '오늘 미완료', date: '2026-12-31', time: '', scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', sort_order: 10, done: false, deleted: false },
+        { id: 'next-done-one', type: 'todo', title: '내일 완료 하나', date: '2027-01-01', time: '11:00', end_time: '12:00', scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', sort_order: 10, done: true, deleted: false },
+        { id: 'next-done-two', type: 'todo', title: '내일 완료 둘', date: '2027-01-01', time: '', scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', sort_order: 20, done: true, deleted: false },
+        { id: 'next-team', type: 'todo', title: '내일 팀 업무', date: '2027-01-01', time: '', scope: 'team', owner_id: 'e2e-test-user', owner_name: '김대호', done: false, deleted: false },
+        { id: 'next-other-owner', type: 'todo', title: '다른 사람 내일 업무', date: '2027-01-01', time: '', scope: 'personal', owner_id: 'other-user', owner_name: '박우진', done: false, deleted: false },
+      ],
+    });
+    await setup(page, state);
+    await page.locator('.nav-item[data-view="todo"]').click();
+
+    const selected = page.locator('[data-todo-selected-date]');
+    const progress = page.locator('[data-todo-progress]');
+    const badge = page.locator('.nav-item[data-view="todo"] .nav-badge');
+    await expect(selected).toHaveAttribute('datetime', '2026-12-31');
+    await expect(progress).toHaveAttribute('aria-valuenow', '0');
+    await expect(badge).toHaveText('1');
+
+    await page.locator('[data-todo-date-next]').click();
+    await expect(selected).toHaveAttribute('datetime', '2027-01-01');
+    await expect(progress).toHaveAttribute('aria-valuenow', '100');
+    await expect(page.locator('[data-todo-stat="all"] strong')).toHaveText('2');
+    await expect(page.locator('[data-todo-stat="complete"] strong')).toHaveText('2');
+    await expect(page.locator('#todoView')).not.toContainText('내일 팀 업무');
+    await expect(page.locator('#todoView')).not.toContainText('다른 사람 내일 업무');
+    await expect(badge).toHaveText('1');
+    expect(state.calls.some(call => call.method === 'GET'
+      && call.path === '/peakos/collaboration/events'
+      && call.search === '?from=2027-01-01&to=2027-01-01')).toBe(true);
+
+    const capture = page.locator('[data-todo-capture]');
+    await capture.locator('[name="title"]').fill('선택한 내일에 추가');
+    await capture.getByRole('button', { name: '＋ 적기' }).click();
+    expect(state.events.find(event => event.title === '선택한 내일에 추가')).toMatchObject({
+      date: '2027-01-01', scope: 'personal', type: 'todo',
+    });
+    await expect(progress).toHaveAttribute('aria-valuenow', '67');
+    await expect(page.locator('[data-todo-stat="all"] strong')).toHaveText('3');
+    await expect(badge).toHaveText('1');
+
+    await page.locator('[data-todo-date-next]').click();
+    await expect(selected).toHaveAttribute('datetime', '2027-01-02');
+    await expect(progress).toHaveAttribute('aria-valuenow', '0');
+    await expect(page.locator('[data-todo-stat="all"] strong')).toHaveText('0');
+
+    await page.locator('[data-todo-date-today]').click();
+    await expect(selected).toHaveAttribute('datetime', '2026-12-31');
+    await page.locator('[data-todo-date-prev]').click();
+    await expect(selected).toHaveAttribute('datetime', '2026-12-30');
+    await expect(progress).toHaveAttribute('aria-valuenow', '50');
+    await expect(badge).toHaveText('1');
+  });
+
+  test('calendar year navigation cannot erase the KST-today todo badge or selected-day data', async ({ page }) => {
+    await page.clock.install({ time: new Date('2026-12-31T03:00:00.000Z') });
+    const state = createState({
+      events: [
+        { id: 'badge-today', type: 'todo', title: '오늘 배지 유지 업무', date: '2026-12-31', time: '', scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', done: false, deleted: false },
+        { id: 'next-year-calendar', type: 'event', title: '다음 해 일정', date: '2027-01-05', time: '', scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', done: false, deleted: false },
+      ],
+    });
+    await setup(page, state);
+
+    const badge = page.locator('.nav-item[data-view="todo"] .nav-badge');
+    await expect(badge).toHaveText('1');
+    await page.locator('#calendarNext').click();
+    await expect(page.locator('#calendarMonthLabel')).toHaveText('2027년 1월');
+    expect(state.calls.some(call => call.method === 'GET'
+      && call.path === '/peakos/collaboration/events'
+      && call.search === '?from=2027-01-01&to=2027-12-31')).toBe(true);
+    await expect(badge).toHaveText('1');
+
+    await page.locator('.nav-item[data-view="todo"]').click();
+    await expect(page.locator('[data-todo-selected-date]')).toHaveAttribute('datetime', '2026-12-31');
+    await expect(page.locator('[data-personal-todo-id="badge-today"]')).toContainText('오늘 배지 유지 업무');
+    await expect(badge).toHaveText('1');
+    expect(state.calls.some(call => call.method === 'GET'
+      && call.path === '/peakos/collaboration/events'
+      && call.search === '?from=2026-12-31&to=2026-12-31')).toBe(true);
+  });
+
+  test('a late annual snapshot cannot overwrite a newer canonical todo save', async ({ page }) => {
+    await page.clock.install({ time: new Date('2026-08-16T03:00:00.000Z') });
+    const date = '2026-08-16';
+    const state = createState({
+      events: [{
+        id: 'annual-race-todo', type: 'todo', title: '연간 조회 경합 업무', date, time: '', end_time: '',
+        scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', sort_order: 10,
+        done: false, deleted: false,
+      }],
+    });
+    await setup(page, state);
+    await page.locator('.nav-item[data-view="calendar"]').click();
+
+    const staleAnnualPayload = state.events.map(event => canonicalEventResponse({ ...event }));
+    let annualStarted = 0;
+    let annualDelivered = 0;
+    let releaseAnnual!: () => void;
+    const annualGate = new Promise<void>(resolve => { releaseAnnual = resolve; });
+    await page.route(/\/api\/peakos\/collaboration\/events\?/, async route => {
+      const request = route.request();
+      const url = new URL(request.url());
+      const annual = request.method() === 'GET'
+        && url.searchParams.get('from') === '2026-01-01'
+        && url.searchParams.get('to') === '2026-12-31';
+      if (!annual || annualStarted > 0) return route.fallback();
+      annualStarted += 1;
+      await annualGate;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(staleAnnualPayload) });
+      annualDelivered += 1;
+    });
+
+    await page.evaluate(() => window.dispatchEvent(new Event('pageshow')));
+    await expect.poll(() => annualStarted).toBe(1);
+    await page.locator('.nav-item[data-view="todo"]').click();
+    const row = page.locator('[data-personal-todo-id="annual-race-todo"]');
+    await expect(row).toBeVisible();
+    await row.locator('[data-todo-time]').fill('17:30');
+    await row.locator('[data-todo-end-time]').fill('19:00');
+    await row.locator('[data-todo-time-save]').click();
+    await expect.poll(() => state.events.find(event => event.id === 'annual-race-todo')?.end_time).toBe('19:00');
+    await expect(row.locator('[data-todo-time]')).toHaveValue('17:30');
+    await expect(row.locator('[data-todo-end-time]')).toHaveValue('19:00');
+
+    await row.locator('[data-collab-event-toggle]').click();
+    await expect.poll(() => state.events.find(event => event.id === 'annual-race-todo')?.done).toBe(true);
+    await expect(row).toHaveClass(/done/);
+    await expect(page.locator('.nav-item[data-view="todo"] .nav-badge')).toHaveText('0');
+
+    releaseAnnual();
+    await expect.poll(() => annualDelivered).toBe(1);
+    await expect(row).toHaveClass(/done/);
+    await expect(row.locator('input').nth(0)).toHaveValue('17:30');
+    await expect(row.locator('input').nth(1)).toHaveValue('19:00');
+    await expect(page.locator('[data-todo-progress]')).toHaveAttribute('aria-valuenow', '100');
+    await expect(page.locator('.nav-item[data-view="todo"] .nav-badge')).toHaveText('0');
+
+    // The annual store must also contain the merged canonical day: the calendar's
+    // default incomplete-only agenda must not resurrect the now-completed row.
+    await page.locator('.nav-item[data-view="calendar"]').click();
+    await expect(page.locator('#homeCalendarAgenda')).not.toContainText('연간 조회 경합 업무');
+  });
+
+  test('a failed selected-date load restores the date, dashboard, and capture draft', async ({ page }) => {
+    await page.clock.install({ time: new Date('2026-08-16T03:00:00.000Z') });
+    const state = createState({
+      events: [{
+        id: 'rollback-current', type: 'todo', title: '실패 전 선택일 업무', date: '2026-08-16', time: '',
+        scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', sort_order: 10,
+        done: false, deleted: false,
+      }, {
+        id: 'rollback-next', type: 'todo', title: '재시도할 다음 날 업무', date: '2026-08-17', time: '',
+        scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', sort_order: 10,
+        done: false, deleted: false,
+      }],
+    });
+    await setup(page, state);
+    await page.locator('.nav-item[data-view="todo"]').click();
+    const selected = page.locator('[data-todo-selected-date]');
+    const captureDraft = page.locator('[data-todo-capture] [name="title"]');
+    await expect(selected).toHaveAttribute('datetime', '2026-08-16');
+    await expect(page.locator('[data-personal-todo-id="rollback-current"]')).toBeVisible();
+    await captureDraft.fill('조회 실패 뒤에도 남을 초안');
+
+    let selectedDateReads = 0;
+    let releaseFailure!: () => void;
+    const failureGate = new Promise<void>(resolve => { releaseFailure = resolve; });
+    let releaseSuccess!: () => void;
+    const successGate = new Promise<void>(resolve => { releaseSuccess = resolve; });
+    await page.route(/\/api\/peakos\/collaboration\/events\?/, async route => {
+      const request = route.request();
+      const url = new URL(request.url());
+      const selectedDateRead = request.method() === 'GET'
+        && url.searchParams.get('from') === '2026-08-17'
+        && url.searchParams.get('to') === '2026-08-17';
+      if (!selectedDateRead) return route.fallback();
+      selectedDateReads += 1;
+      if (selectedDateReads === 1) {
+        await failureGate;
+        return route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: '선택 날짜 일시 오류' }),
+        });
+      }
+      if (selectedDateReads === 2) {
+        await successGate;
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(state.events
+            .filter(event => event.date === '2026-08-17' && !event.deleted)
+            .map(canonicalEventResponse)),
+        });
+      }
+      return route.fallback();
+    });
+
+    const mutationCount = () => state.calls.filter(call => call.method !== 'GET').length;
+    const mutationsBeforeNavigation = mutationCount();
+    await page.locator('[data-todo-date-next]').click();
+    await expect.poll(() => selectedDateReads).toBe(1);
+    await expect(page.locator('#todoView')).toHaveAttribute('aria-busy', 'true');
+    await expect(page.locator('[data-todo-date-next]')).toBeDisabled();
+    await expect(page.locator('[data-todo-dashboard] button:not([disabled]), [data-todo-dashboard] input:not([disabled]), [data-todo-dashboard] textarea:not([disabled]), [data-todo-dashboard] select:not([disabled])')).toHaveCount(0);
+    await page.locator('[data-collab-event-toggle="rollback-current"]').evaluate(element => (element as HTMLButtonElement).click());
+    expect(mutationCount()).toBe(mutationsBeforeNavigation);
+    releaseFailure();
+
+    await expect(selected).toHaveAttribute('datetime', '2026-08-16');
+    await expect(captureDraft).toHaveValue('조회 실패 뒤에도 남을 초안');
+    await expect(page.locator('[data-personal-todo-id="rollback-current"]')).toBeVisible();
+    await expect(page.locator('[data-personal-todo-id="rollback-next"]')).toHaveCount(0);
+    await expect(page.locator('#todoView')).not.toHaveAttribute('aria-busy', 'true');
+    await expect(page.locator('[data-todo-date-next]')).toBeEnabled();
+    await expect(captureDraft).toBeEnabled();
+    await expect(page.locator('[data-collab-event-toggle="rollback-current"]')).toBeEnabled();
+    await expect(page.locator('.toast')).toContainText('할 일 조회 실패: 선택 날짜 일시 오류');
+
+    await page.locator('[data-todo-date-next]').click();
+    await expect.poll(() => selectedDateReads).toBe(2);
+    await expect(page.locator('#todoView')).toHaveAttribute('aria-busy', 'true');
+    await expect(page.locator('[data-todo-dashboard] button:not([disabled]), [data-todo-dashboard] input:not([disabled]), [data-todo-dashboard] textarea:not([disabled]), [data-todo-dashboard] select:not([disabled])')).toHaveCount(0);
+    await page.locator('[data-collab-event-toggle="rollback-current"]').evaluate(element => (element as HTMLButtonElement).click());
+    expect(mutationCount()).toBe(mutationsBeforeNavigation);
+    releaseSuccess();
+    await expect(selected).toHaveAttribute('datetime', '2026-08-17');
+    await expect(page.locator('[data-personal-todo-id="rollback-next"]')).toBeVisible();
+    await expect(captureDraft).toHaveValue('');
+    await expect(captureDraft).toBeEnabled();
+    await expect(page.locator('[data-collab-event-toggle="rollback-next"]')).toBeEnabled();
   });
 
   for (const width of [900, 768]) {
@@ -808,8 +1009,6 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
       });
       await setup(page, state);
       await page.locator('.nav-item[data-view="todo"]').click();
-      await setTodoRootExpanded(page, 'personal');
-      await page.locator('[data-personal-plan-toggle]').click();
 
       const geometry = await page.locator(`[data-daily-timeline-id="responsive-range-${width}"]`).evaluate(row => {
         const rect = row.getBoundingClientRect();
@@ -833,129 +1032,96 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     });
   }
 
-  test('one compact worklist groups personal and project tasks with distinct completion workflows', async ({ page }) => {
+  test('personal todo is a two-panel dashboard and never renders or refreshes project tasks', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const date = todayKey();
-    const tomorrow = addDaysKey(date, 1);
     const state = createState({
       events: [{
-        id: 'personal-split-task', type: 'todo', title: '개인 체크리스트 업무', date, time: '10:00',
+        id: 'personal-inbox-task', type: 'todo', title: '생각나는 개인 업무', date, time: '',
         scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', sort_order: 10,
         done: false, deleted: false,
+      }, {
+        id: 'personal-timed-task', type: 'todo', title: '시간을 정한 개인 업무', date, time: '10:00', end_time: '11:00',
+        scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', sort_order: 20,
+        done: false, deleted: false,
+      }, {
+        id: 'personal-done-task', type: 'todo', title: '완료한 개인 업무', date, time: '09:00', end_time: '09:30',
+        scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', sort_order: 30,
+        done: true, deleted: false,
+      }, {
+        id: 'project-linked-event', type: 'todo', title: '이벤트 API의 프로젝트 연결 업무', date, time: '',
+        project_id: 'split-project', scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호',
+        sort_order: 40, done: false, deleted: false,
       }],
       projects: [{
         id: 'split-project', name: '신규 캠페인 프로젝트', status: 'active', owner_name: '김대호',
         tasks: [{
           id: 'project-split-task', project_id: 'split-project', title: '프로젝트 원고 작성',
-          status: 'doing', due_date: tomorrow, assignment_mode: 'single',
+          status: 'doing', assignment_mode: 'single',
           assignee_uid: 'e2e-test-user', assignee_name: '김대호',
           assignees: [{ uid: 'e2e-test-user', name: '김대호', completed: false }],
-          role_label: '콘텐츠 작성', reviewer_uid: 'manager-user', reviewer_name: '팀장',
-          permissions: { canRequestReview: true, canReview: false, canComplete: false },
-        }, {
-          id: 'project-all-task', project_id: 'split-project', title: '전체 담당 현황 취합',
-          status: 'doing', due_date: tomorrow, assignment_mode: 'all',
-          assignee_name: '모두', completed_assignee_count: 1,
-          assignees: [
-            { uid: 'e2e-test-user', name: '김대호', completed: false },
-            { uid: 'other-user', name: '박우진', completed: true },
-          ],
-          role_label: '취합', reviewer_uid: 'manager-user', reviewer_name: '팀장',
-          permissions: { canRequestReview: false, canReview: false, canComplete: true },
+          permissions: { canRequestReview: true },
         }],
       }],
     });
     await setup(page, state);
     await page.locator('.nav-item[data-view="todo"]').click();
 
-    const split = page.locator('[data-todo-split-view]');
-    const personal = split.locator('[data-todo-panel="personal"]');
-    const project = split.locator('[data-todo-panel="project"]');
-    await expect(split).toBeVisible();
-    await expect(page.locator('.todo-worklist-toolbar')).toContainText('할 일 및 일정');
-    await expect(personal.getByText('오늘의 개인 업무', { exact: true })).toBeVisible();
-    await expect(project.getByText('프로젝트 업무', { exact: true })).toBeVisible();
+    const dashboard = page.locator('[data-todo-dashboard]');
+    const capture = dashboard.locator('[data-todo-panel="capture"]');
+    const list = dashboard.locator('[data-todo-panel="list"]');
+    await expect(dashboard).toBeVisible();
+    await expect(dashboard.locator('[data-todo-panel]')).toHaveCount(2);
+    await expect(capture.getByText('생각나는 일 적기', { exact: true })).toBeVisible();
+    await expect(list.getByText('투두리스트', { exact: true })).toBeVisible();
+    await expect(page.locator('#todoView .todo-page-toolbar')).toHaveCount(0);
+    await expect(page.locator('#todoView')).not.toContainText('현재 워크스페이스 운영 데이터');
 
-    const personalToggle = personal.locator('[data-todo-group-toggle="personal"]');
-    const projectToggle = project.locator('[data-todo-group-toggle="project"]');
-    const groupToggle = project.locator('[data-todo-project-group-id="split-project"]');
-    const groupBody = project.locator(`#${await groupToggle.getAttribute('aria-controls')}`);
-    const mutationsBeforePresentation = state.calls.filter(call => call.method !== 'GET').length;
+    await expect(dashboard.locator('[data-todo-stat]')).toHaveCount(4);
+    await expect(dashboard.locator('[data-todo-stat="all"] strong')).toHaveText('3');
+    await expect(dashboard.locator('[data-todo-stat="remaining"] strong')).toHaveText('2');
+    await expect(dashboard.locator('[data-todo-stat="scheduled"] strong')).toHaveText('2');
+    await expect(dashboard.locator('[data-todo-stat="complete"] strong')).toHaveText('1');
+    await expect(dashboard.locator('[data-todo-progress]')).toHaveAttribute('aria-valuenow', '33');
+    await expect(capture.locator('[data-todo-capture-item]')).toHaveCount(1);
+    await expect(capture).toContainText('생각나는 개인 업무');
+    await expect(capture).not.toContainText('시간을 정한 개인 업무');
+    await expect(list.locator('[data-personal-todo-id]')).toHaveCount(3);
 
-    // First entry is intentionally quiet: both top-level sections are closed,
-    // and opening Projects still leaves every individual project closed.
-    await expect(personalToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(personal.locator('#personalTodoGroupBody')).toBeHidden();
-    await expect(projectToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(project.locator('#projectTodoGroupBody')).toBeHidden();
-    await expect(groupToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(groupBody).toBeHidden();
-    await setTodoRootExpanded(page, 'project');
-    await expect(groupToggle).toBeVisible();
-    await expect(groupToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(groupBody).toBeHidden();
-    await setTodoRootExpanded(page, 'personal');
-    await setTodoProjectExpanded(page, 'split-project');
-    expect(state.calls.filter(call => call.method !== 'GET')).toHaveLength(mutationsBeforePresentation);
+    await expect(dashboard).not.toContainText('신규 캠페인 프로젝트');
+    await expect(dashboard).not.toContainText('프로젝트 원고 작성');
+    await expect(dashboard).not.toContainText('이벤트 API의 프로젝트 연결 업무');
+    await expect(dashboard.locator('[data-project-todo-id], [data-todo-panel="project"]')).toHaveCount(0);
+    expect(state.calls.some(call => call.path === '/peakos/collaboration/projects/my-tasks')).toBe(false);
+    await expect(page.locator('.nav-item[data-view="todo"] .nav-badge')).toHaveText('2');
 
-    await expect(personal.locator('[data-personal-todo-id="personal-split-task"]')).toContainText('개인 체크리스트 업무');
-    await expect(project.locator('[data-project-todo-id="project-split-task"]')).toContainText('프로젝트 원고 작성');
-    await expect(project.locator('[data-project-todo-id="project-split-task"]')).toContainText('신규 캠페인 프로젝트');
-    await expect(project.locator('[data-project-todo-id="project-split-task"] .todo-worklist-status')).toHaveText('진행 중');
-    await expect(project.locator('[data-project-todo-id="project-split-task"] .todo-worklist-dday')).toHaveText('D-1');
-    await expect(project.locator('[data-project-todo-id="project-split-task"] .todo-worklist-date')).toHaveAttribute('datetime', tomorrow);
-    await expect(project.locator('[data-todo-group-key="project:split-project"] .todo-worklist-project-count')).toHaveText('0/2');
+    const [captureBox, listBox] = await Promise.all([capture.boundingBox(), list.boundingBox()]);
+    expect(captureBox).not.toBeNull();
+    expect(listBox).not.toBeNull();
+    expect(listBox?.x || 0).toBeGreaterThan((captureBox?.x || 0) + (captureBox?.width || 0) - 2);
+    expect(Math.abs((captureBox?.y || 0) - (listBox?.y || 0))).toBeLessThan(4);
 
-    const [personalBox, projectBox] = await Promise.all([personal.boundingBox(), project.boundingBox()]);
-    expect(personalBox).not.toBeNull();
-    expect(projectBox).not.toBeNull();
-    expect(Math.abs((personalBox?.x || 0) - (projectBox?.x || 0))).toBeLessThan(4);
-    expect(Math.abs((personalBox?.width || 0) - (projectBox?.width || 0))).toBeLessThan(4);
-    expect(projectBox?.y || 0).toBeGreaterThan((personalBox?.y || 0) + (personalBox?.height || 0) - 2);
-    const compactRowHeight = await personal.locator('[data-personal-todo-id="personal-split-task"]').evaluate(row => row.getBoundingClientRect().height);
-    expect(compactRowHeight).toBeLessThanOrEqual(54);
-
-    await personal.locator('[data-personal-todo-id="personal-split-task"] [data-collab-event-toggle]').click();
-    await expect(personal.locator('[data-personal-todo-id="personal-split-task"]')).toHaveClass(/done/);
+    await list.locator('[data-personal-todo-id="personal-inbox-task"] [data-collab-event-toggle]').click();
+    await expect(list.locator('[data-personal-todo-id="personal-inbox-task"]')).toHaveClass(/done/);
     expect(state.calls.find(call => call.method === 'PUT'
-      && call.path === '/peakos/collaboration/events/personal-split-task')).toMatchObject({
+      && call.path === '/peakos/collaboration/events/personal-inbox-task')).toMatchObject({
       workspace: 'peak', body: { done: true },
     });
-    await expect(personalToggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(projectToggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(groupToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(dashboard.locator('[data-todo-progress]')).toHaveAttribute('aria-valuenow', '67');
+    await expect(page.locator('.nav-item[data-view="todo"] .nav-badge')).toHaveText('1');
 
-    await project.locator('[data-project-todo-id="project-split-task"] [data-collab-task-review-request]').click();
-    await expect(project.locator('[data-project-todo-id="project-split-task"]')).toHaveClass(/review/);
-    const reviewCall = state.calls.find(call => call.method === 'POST'
-      && call.path === '/peakos/collaboration/projects/split-project/tasks/project-split-task/review');
-    expect(reviewCall).toMatchObject({ workspace: 'peak', body: { action: 'request' } });
-
-    await project.locator('[data-project-todo-id="project-all-task"] [data-collab-task-completion]').click();
-    await expect(project.locator('[data-project-todo-id="project-all-task"]')).toHaveClass(/done/);
-    const completionCall = state.calls.find(call => call.method === 'PUT'
-      && call.path === '/peakos/collaboration/projects/split-project/tasks/project-all-task/completion');
-    expect(completionCall).toMatchObject({ workspace: 'peak', body: { completed: true } });
-    expect(state.calls.some(call => call.method === 'POST'
-      && call.path.endsWith('/tasks/project-all-task/review'))).toBe(false);
-    expect(state.calls.filter(call => call.method === 'PUT'
-      && call.path === '/peakos/collaboration/events/personal-split-task')).toHaveLength(1);
-
-    // Polling may rebuild the list, but user expansion stays local to this
-    // account/workspace and must not create another mutation.
-    const mutationsBeforePoll = state.calls.filter(call => call.method !== 'GET').length;
+    const projectReadsBeforePoll = state.calls.filter(call => call.method === 'GET'
+      && call.path === '/peakos/collaboration/projects/my-tasks').length;
+    const todoDayReadsBeforePoll = state.calls.filter(call => call.method === 'GET'
+      && call.path === '/peakos/collaboration/events'
+      && call.search === `?from=${date}&to=${date}`).length;
     await page.locator('#personaSelect').focus();
     await page.waitForTimeout(5_400);
-    await expect(personalToggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(projectToggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(groupToggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(groupBody).toBeVisible();
-    expect(state.calls.filter(call => call.method !== 'GET')).toHaveLength(mutationsBeforePoll);
-
-    await groupToggle.click();
-    await expect(groupToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(groupBody).toBeHidden();
-    expect(state.calls.filter(call => call.method !== 'GET')).toHaveLength(mutationsBeforePoll);
+    expect(state.calls.filter(call => call.method === 'GET'
+      && call.path === '/peakos/collaboration/events'
+      && call.search === `?from=${date}&to=${date}`).length).toBeGreaterThan(todoDayReadsBeforePoll);
+    expect(state.calls.filter(call => call.method === 'GET'
+      && call.path === '/peakos/collaboration/projects/my-tasks')).toHaveLength(projectReadsBeforePoll);
   });
 
   test('automatic report review reminders stay on the calendar but never enter personal todo surfaces', async ({ page }) => {
@@ -1020,61 +1186,45 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     await expect(dashboardTasks).toContainText('1건 완료 · 3건 남음');
     await expect(page.locator('.executive-list')).not.toContainText('📄 전현우 보고서 확인');
     await expect(page.locator('.executive-list')).not.toContainText('📋 손명아 업무보고 확인');
-    await expect(page.locator('.nav-item[data-view="todo"] .nav-badge')).toHaveText('4');
+    await expect(page.locator('.nav-item[data-view="todo"] .nav-badge')).toHaveText('3');
 
     await page.locator('.nav-item[data-view="todo"]').click();
-    const personal = page.locator('[data-todo-panel="personal"]');
-    const project = page.locator('[data-todo-panel="project"]');
-    const mutationsBeforeExpand = state.calls.filter(call => call.method !== 'GET').length;
-    await setTodoRootExpanded(page, 'personal');
-    await setTodoRootExpanded(page, 'project');
-    await setTodoProjectExpanded(page, 'report-filter-project');
-    expect(state.calls.filter(call => call.method !== 'GET')).toHaveLength(mutationsBeforeExpand);
+    const dashboard = page.locator('[data-todo-dashboard]');
+    const capture = dashboard.locator('[data-todo-panel="capture"]');
+    const list = dashboard.locator('[data-todo-panel="list"]');
+    await expect(list.locator('[data-personal-todo-id]')).toHaveCount(4);
+    await expect(list.locator('[data-personal-todo-id="auto-daily-report-review"]')).toHaveCount(0);
+    await expect(list.locator('[data-personal-todo-id="auto-work-report-review"]')).toHaveCount(0);
+    await expect(list.locator('[data-personal-todo-id="manual-same-category-title"]')).toContainText('전현우 보고서 확인');
+    await expect(list.locator('[data-personal-todo-id="manual-report-prep"]')).toContainText('보고서 자료 정리');
+    await expect(list.locator('[data-personal-todo-id="report-writing-reminder"]')).toContainText('📝 일일 보고서 작성');
+    await expect(capture.locator('[data-todo-capture-item]')).toHaveCount(2);
+    await expect(capture).not.toContainText('📄 전현우 보고서 확인');
+    await expect(capture).not.toContainText('📋 손명아 업무보고 확인');
+    await expect(dashboard.locator('[data-todo-progress]')).toHaveAttribute('aria-valuenow', '25');
+    await expect(dashboard.locator('[data-todo-stat="all"] strong')).toHaveText('4');
+    await expect(dashboard.locator('[data-todo-stat="remaining"] strong')).toHaveText('3');
+    await expect(dashboard.locator('[data-todo-stat="scheduled"] strong')).toHaveText('1');
+    await expect(dashboard.locator('[data-todo-stat="complete"] strong')).toHaveText('1');
 
-    await expect(personal.locator('[data-personal-todo-id]')).toHaveCount(4);
-    await expect(personal.locator('[data-personal-todo-id="auto-daily-report-review"]')).toHaveCount(0);
-    await expect(personal.locator('[data-personal-todo-id="auto-work-report-review"]')).toHaveCount(0);
-    await expect(personal.locator('[data-personal-todo-id="manual-same-category-title"]')).toContainText('전현우 보고서 확인');
-    await expect(personal.locator('[data-personal-todo-id="manual-report-prep"]')).toContainText('보고서 자료 정리');
-    await expect(personal.locator('[data-personal-todo-id="report-writing-reminder"]')).toContainText('📝 일일 보고서 작성');
-    const unscheduledDate = personal.locator('[data-personal-todo-id="manual-same-category-title"] .todo-worklist-date');
-    await expect(unscheduledDate).toHaveText('시간 미정');
-    await expect(unscheduledDate).not.toHaveAttribute('datetime');
-    expect(await unscheduledDate.evaluate(element => element.tagName)).toBe('SPAN');
-    await expect(personal.locator('.todo-split-panel-head > em')).toHaveText('3건 남음');
-    await expect(personal.locator('.todo-split-progress')).toHaveAttribute('aria-label', '나의 할 일 25% 완료');
-    await expect(personal.locator('.todo-split-progress > strong')).toHaveText('1/4');
-
-    await expect(project.locator('[data-project-todo-id="report-filter-project-task"]')).toContainText('프로젝트 정상 업무');
-    const missingDeadline = project.locator('[data-project-todo-id="report-filter-project-task"] .todo-worklist-date');
-    await expect(missingDeadline).toHaveText('—');
-    await expect(missingDeadline).not.toHaveAttribute('datetime');
-    expect(await missingDeadline.evaluate(element => element.tagName)).toBe('SPAN');
-    await expect(project.locator('.todo-split-panel-head > em')).toHaveText('1건 남음');
-    await expect(project.locator('.todo-split-progress > strong')).toHaveText('0/1');
-
-    await personal.locator('[data-personal-plan-toggle]').click();
-    const planner = personal.locator('#personalTodoPlanner');
-    await expect(planner).toBeVisible();
-    await expect(planner).not.toContainText('📄 전현우 보고서 확인');
-    await expect(planner).not.toContainText('📋 손명아 업무보고 확인');
-    await expect(planner.locator('[data-daily-priority-id]')).toHaveCount(3);
-    await expect(planner.locator('[data-daily-timeline-id]')).toHaveCount(4);
-    await expect(planner.locator('[data-daily-plan-step="priority"] .daily-plan-step-head > em')).toHaveText('3건');
-    await expect(planner.locator('[data-daily-plan-step="capture"] .daily-plan-step-head > em')).toHaveText('2건 미정');
-    await expect(planner.locator('[data-daily-plan-step="timeline"] .daily-plan-step-head > em')).toHaveText('1/4');
-    await expect(planner.locator('.todo-summary-card').nth(0).locator('strong')).toHaveText('3건');
-    await expect(planner.locator('.todo-summary-card').nth(1).locator('strong')).toHaveText('1건');
-    await expect(planner.locator('.todo-summary-card').nth(2).locator('strong')).toHaveText('1건');
+    await expect(dashboard).not.toContainText('보고서 필터 영향 확인 프로젝트');
+    await expect(dashboard).not.toContainText('프로젝트 정상 업무');
+    await expect(dashboard.locator('[data-project-todo-id], [data-todo-panel="project"]')).toHaveCount(0);
+    expect(state.calls.some(call => call.path === '/peakos/collaboration/projects/my-tasks')).toBe(false);
   });
 
-  for (const viewport of [
+  const todoVisualViewports = [
     { label: '1440', width: 1440, height: 900 },
     { label: '768', width: 768, height: 900 },
     { label: '390', width: 390, height: 844 },
-  ]) {
+    ...(process.env.PEAKOS_TODO_MID_GEOMETRY === '1' ? [
+      { label: '1200', width: 1200, height: 900 },
+      { label: '1100', width: 1100, height: 900 },
+    ] : []),
+  ];
+  for (const viewport of todoVisualViewports) {
     for (const theme of ['light', 'dark'] as const) {
-      test(`compact todo worklist fits ${viewport.label}px in ${theme} theme`, async ({ page }, testInfo) => {
+      test(`two-panel todo dashboard fits ${viewport.label}px in ${theme} theme`, async ({ page }, testInfo) => {
         await page.setViewportSize({ width: viewport.width, height: viewport.height });
         const date = todayKey();
         const deadline = addDaysKey(date, 2);
@@ -1106,39 +1256,29 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
         if (theme === 'dark') await page.locator('#themeToggle').click();
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
 
-        const surface = page.locator('[data-todo-split-view]');
-        const personal = surface.locator('[data-todo-panel="personal"]');
-        const project = surface.locator('[data-todo-panel="project"]');
-        const projectId = `responsive-project-${viewport.label}-${theme}`;
-        const projectItemToggle = project.locator(`[data-todo-project-group-id="${projectId}"]`);
-        const projectItemBody = project.locator(`#${await projectItemToggle.getAttribute('aria-controls')}`);
-        await expect(personal.locator('[data-todo-group-toggle="personal"]')).toHaveAttribute('aria-expanded', 'false');
-        await expect(personal.locator('#personalTodoGroupBody')).toBeHidden();
-        await expect(project.locator('[data-todo-group-toggle="project"]')).toHaveAttribute('aria-expanded', 'false');
-        await expect(project.locator('#projectTodoGroupBody')).toBeHidden();
-        await expect(projectItemToggle).toHaveAttribute('aria-expanded', 'false');
-        await expect(projectItemBody).toBeHidden();
+        const surface = page.locator('[data-todo-dashboard]');
+        const capture = surface.locator('[data-todo-panel="capture"]');
+        const list = surface.locator('[data-todo-panel="list"]');
+        await expect(surface).toBeVisible();
+        await expect(surface.locator('[data-todo-panel]')).toHaveCount(2);
+        await expect(capture).toBeVisible();
+        await expect(list).toBeVisible();
+        await expect(surface.locator('[data-project-todo-id], [data-todo-panel="project"]')).toHaveCount(0);
+        await expect(surface).not.toContainText('긴 화면에서도 실제 메타데이터가 잘리는지 확인하는 프로젝트 업무');
 
-        // The visual reference is the requested first-entry state: every level closed.
         const screenshot = await page.screenshot({ fullPage: true });
-        await testInfo.attach(`compact-todo-${viewport.label}-${theme}`, {
+        await testInfo.attach(`two-panel-todo-${viewport.label}-${theme}`, {
           body: screenshot, contentType: 'image/png',
         });
         const visualDir = process.env.PEAKOS_COMPACT_TODO_VISUAL_DIR;
         if (visualDir) {
           fs.mkdirSync(visualDir, { recursive: true });
-          fs.writeFileSync(path.join(visualDir, `compact-todo-${viewport.label}-${theme}.png`), screenshot);
+          fs.writeFileSync(path.join(visualDir, `two-panel-todo-${viewport.label}-${theme}.png`), screenshot);
         }
-
-        const mutationsBeforeExpand = state.calls.filter(call => call.method !== 'GET').length;
-        await setTodoRootExpanded(page, 'personal');
-        await setTodoRootExpanded(page, 'project');
-        await setTodoProjectExpanded(page, projectId);
-        expect(state.calls.filter(call => call.method !== 'GET')).toHaveLength(mutationsBeforeExpand);
 
         const geometry = await surface.evaluate(element => {
           const rect = element.getBoundingClientRect();
-          const visibleRows = [...element.querySelectorAll<HTMLElement>('.todo-worklist-row')]
+          const visibleRows = [...element.querySelectorAll<HTMLElement>('.todo-dashboard-task-row')]
             .filter(row => row.offsetParent !== null)
             .map(row => {
               const rowRect = row.getBoundingClientRect();
@@ -1152,7 +1292,7 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
           };
         });
         expect(geometry.surface.width).toBeGreaterThan(0);
-        expect(geometry.visibleRows).toHaveLength(3);
+        expect(geometry.visibleRows).toHaveLength(2);
         for (const row of geometry.visibleRows) {
           expect(row.width).toBeGreaterThan(0);
           expect(row.left).toBeGreaterThanOrEqual(geometry.surface.left - 1);
@@ -1160,7 +1300,6 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
         }
         expect(geometry.overflow).toBeLessThanOrEqual(1);
         if (theme === 'dark') expect(geometry.background).not.toBe('rgb(255, 255, 255)');
-        else expect(geometry.background).toBe('rgb(255, 255, 255)');
 
         if (theme === 'dark') {
           const contrastSamples = await page.locator('#todoView').evaluate(root => {
@@ -1191,32 +1330,32 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
               return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
             };
             const luminance = (colour: Colour) => 0.2126 * channel(colour.r) + 0.7152 * channel(colour.g) + 0.0722 * channel(colour.b);
-            const contrastFor = (element: Element) => {
+            const contrastFor = (element: Element, foregroundValue = getComputedStyle(element).color) => {
               const background = backgroundFor(element);
-              const foreground = blend(parseColour(getComputedStyle(element).color), background);
+              const foreground = blend(parseColour(foregroundValue), background);
               const values = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
               return {
                 ratio: (values[0] + 0.05) / (values[1] + 0.05),
-                foreground: getComputedStyle(element).color,
+                foreground: foregroundValue,
                 background: `rgb(${Math.round(background.r)}, ${Math.round(background.g)}, ${Math.round(background.b)})`,
               };
             };
             const targets = [
-              ['toolbar subtitle', '.todo-worklist-toolbar .todo-date-copy span'],
-              ['personal kicker', '[data-todo-group="personal"] > .todo-split-panel-head .todo-worklist-section-copy > span'],
-              ['project kicker', '[data-todo-group="project"] > .todo-split-panel-head .todo-worklist-section-copy > span'],
-              ['caret', '.todo-worklist-caret'],
-              ['project count', '.todo-worklist-project-count'],
-              ['project remaining', '.todo-worklist-project-remaining'],
-              ['progress count', '.todo-worklist-group > .todo-split-panel-head > .todo-split-progress > strong'],
-              ['remaining pill', '.todo-worklist-group > .todo-split-panel-head > em'],
-              ['completed row title', '.todo-worklist-row.done .daily-plan-task-open strong'],
-              ['completed row metadata', '.todo-worklist-row.done .daily-plan-task-open small'],
-              ['row status', '.todo-worklist-row .todo-worklist-status'],
-              ['row deadline', '.todo-worklist-row .todo-worklist-dday'],
-              ['row date', '.todo-worklist-row .todo-worklist-date'],
+              ['toolbar title', '.todo-dashboard-toolbar > strong'],
+              ['selected date', '[data-todo-selected-date]'],
+              ['progress label', '.todo-dashboard-progress > div > span'],
+              ['progress value', '.todo-dashboard-progress > div > strong'],
+              ['stat label', '[data-todo-stat] > span'],
+              ['stat value', '[data-todo-stat] > strong'],
+              ['stat detail', '[data-todo-stat] > small'],
+              ['panel kicker', '.todo-dashboard-panel > header > div > span'],
+              ['panel title', '.todo-dashboard-panel > header > div > strong'],
+              ['panel count', '.todo-dashboard-panel > header > em'],
+              ['completed row title', '.todo-dashboard-task-row.done .daily-plan-task-open strong'],
+              ['completed row metadata', '.todo-dashboard-task-row.done .daily-plan-task-open small'],
+              ['row status', '.todo-dashboard-task-state'],
             ] as const;
-            return targets.flatMap(([label, selector]) => {
+            const samples = targets.flatMap(([label, selector]) => {
               const elements = [...root.querySelectorAll(selector)];
               if (!elements.length) return [{ label, text: 'MISSING', ratio: 0, foreground: '', background: '' }];
               return elements.map((element, index) => ({
@@ -1225,6 +1364,18 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
                 ...contrastFor(element),
               }));
             });
+            const captureInput = root.querySelector('[data-todo-capture] textarea');
+            if (!captureInput) {
+              samples.push({ label: 'capture placeholder', text: 'MISSING', ratio: 0, foreground: '', background: '' });
+            } else {
+              const placeholder = getComputedStyle(captureInput, '::placeholder').color;
+              samples.push({
+                label: 'capture placeholder',
+                text: captureInput.getAttribute('placeholder') || '',
+                ...contrastFor(captureInput, placeholder),
+              });
+            }
+            return samples;
           });
           for (const sample of contrastSamples) {
             expect(sample.ratio, `${sample.label} (${sample.text}) ${sample.foreground} on ${sample.background}`).toBeGreaterThanOrEqual(4.5);
@@ -1237,45 +1388,54 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
           }
         }
 
-        const [personalBox, projectBox] = await Promise.all([personal.boundingBox(), project.boundingBox()]);
-        expect(projectBox?.y || 0).toBeGreaterThan((personalBox?.y || 0) + (personalBox?.height || 0) - 2);
-        expect(Math.abs((personalBox?.x || 0) - (projectBox?.x || 0))).toBeLessThan(4);
-        await expect(project.locator('.todo-worklist-dday')).toHaveText('D-2');
-        await expect(project.locator('.todo-worklist-date')).toHaveAttribute('datetime', deadline);
-        const completedRow = personal.locator(`[data-personal-todo-id="responsive-completed-${viewport.label}-${theme}"]`);
+        const [surfaceBox, captureBox, listBox] = await Promise.all([
+          surface.boundingBox(), capture.boundingBox(), list.boundingBox(),
+        ]);
+        expect(surfaceBox).not.toBeNull();
+        expect(captureBox).not.toBeNull();
+        expect(listBox).not.toBeNull();
+        for (const panelBox of [captureBox!, listBox!]) {
+          expect(panelBox.x).toBeGreaterThanOrEqual(surfaceBox!.x - 1);
+          expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(surfaceBox!.x + surfaceBox!.width + 1);
+        }
+        if (viewport.width > 1240) {
+          expect(listBox?.x || 0).toBeGreaterThan((captureBox?.x || 0) + (captureBox?.width || 0) - 2);
+          expect(Math.abs((captureBox?.y || 0) - (listBox?.y || 0))).toBeLessThan(4);
+        } else {
+          expect(listBox?.y || 0).toBeGreaterThan((captureBox?.y || 0) + (captureBox?.height || 0) - 2);
+        }
+        await expect(surface.locator('[data-todo-progress]')).toHaveAttribute('aria-valuenow', '50');
+        const completedRow = list.locator(`[data-personal-todo-id="responsive-completed-${viewport.label}-${theme}"]`);
         await expect(completedRow).toHaveClass(/done/);
         await expect(completedRow).toHaveCSS('opacity', '1');
-        await expect(completedRow.locator('.todo-worklist-status')).toHaveText('완료');
-        await expect(completedRow.locator('.todo-worklist-dday')).toHaveText('완료');
-        await expect(completedRow.locator('.todo-worklist-date')).toHaveAttribute('datetime', `${date}T09:00`);
-        await expect(completedRow.locator('.todo-worklist-date')).toHaveText('오전 9:00 ~ 오전 10:00');
+        await expect(completedRow.locator('.todo-dashboard-task-state')).toHaveText('완료');
+        await expect(completedRow.locator('input').nth(0)).toHaveValue('09:00');
+        await expect(completedRow.locator('input').nth(0)).toBeDisabled();
+        await expect(completedRow.locator('input').nth(1)).toHaveValue('10:00');
+        await expect(completedRow.locator('input').nth(1)).toBeDisabled();
 
-        const plannerToggle = page.locator('[data-personal-plan-toggle]');
-        await expect(plannerToggle).toHaveAttribute('aria-expanded', 'false');
-        await expect(page.locator('#personalTodoPlanner')).toBeHidden();
         if (viewport.width === 390) {
           for (const control of [
-            page.locator('[data-todo-group-toggle="personal"]'),
-            page.locator('[data-todo-project-group-id]').first(),
+            page.locator('[data-todo-date-prev]'),
+            page.locator('[data-todo-date-next]'),
             page.locator(`[data-personal-todo-id="responsive-personal-${viewport.label}-${theme}"] .todo-task-check`),
             page.locator(`[data-personal-todo-id="responsive-completed-${viewport.label}-${theme}"] .todo-task-check`),
-            page.locator('.todo-worklist-toolbar [data-collab-add-todo]'),
             page.locator('[data-todo-capture] button[type="submit"]'),
+            page.locator(`[data-daily-timeline-id="responsive-personal-${viewport.label}-${theme}"] [data-todo-time]`),
+            page.locator(`[data-daily-timeline-id="responsive-personal-${viewport.label}-${theme}"] [data-todo-end-time]`),
+            page.locator(`[data-daily-timeline-id="responsive-personal-${viewport.label}-${theme}"] [data-todo-time-save]`),
           ]) {
             const box = await control.boundingBox();
             expect(box).not.toBeNull();
             expect(box!.height).toBeGreaterThanOrEqual(44);
           }
-          await plannerToggle.click();
-          await expect(plannerToggle).toHaveAttribute('aria-expanded', 'true');
-          await expect(page.locator('#personalTodoPlanner')).toBeVisible();
           expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
         }
       });
     }
   }
 
-  test('a branch todo split reads only that workspace personal and project records', async ({ page }) => {
+  test('a branch todo dashboard reads only that workspace personal records', async ({ page }) => {
     const date = todayKey();
     const state = createState({
       events: [{
@@ -1310,26 +1470,19 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     await setup(page, state, '/os/w/daegu');
     await page.locator('.nav-item[data-view="todo"]').click();
 
-    await expect(page.locator('[data-todo-group-toggle="personal"]')).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.locator('#personalTodoGroupBody')).toBeHidden();
-    await expect(page.locator('[data-todo-group-toggle="project"]')).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.locator('#projectTodoGroupBody')).toBeHidden();
-    const mutationsBeforeExpand = state.calls.filter(call => call.method !== 'GET').length;
-    await setTodoRootExpanded(page, 'personal');
-    await setTodoRootExpanded(page, 'project');
-    await setTodoProjectExpanded(page, 'daegu-project');
-    expect(state.calls.filter(call => call.method !== 'GET')).toHaveLength(mutationsBeforeExpand);
+    await expect(page.locator('[data-todo-dashboard] [data-todo-panel]')).toHaveCount(2);
     await expect(page.locator('[data-personal-todo-id="daegu-personal-task"]')).toBeVisible();
     await expect(page.locator('[data-personal-todo-id="daegu-personal-task"]')).toContainText('대구지사 개인 업무');
-    await expect(page.locator('[data-project-todo-id="daegu-project-task"]')).toBeVisible();
-    await expect(page.locator('[data-project-todo-id="daegu-project-task"]')).toContainText('대구지사 프로젝트 업무');
+    await expect(page.locator('#todoView')).not.toContainText('대구지사 프로젝트');
+    await expect(page.locator('#todoView')).not.toContainText('대구지사 프로젝트 업무');
     await expect(page.locator('#todoView')).not.toContainText('본사 전용 개인 업무');
     await expect(page.locator('#todoView')).not.toContainText('본사 전용 프로젝트 업무');
-    const splitReads = state.calls.filter(call => call.method === 'GET'
-      && (call.path === '/peakos/collaboration/events'
-        || call.path === '/peakos/collaboration/projects/my-tasks'));
-    expect(splitReads.length).toBeGreaterThanOrEqual(2);
-    expect(splitReads.every(call => call.workspace === 'daegu')).toBe(true);
+    await expect(page.locator('.nav-item[data-view="todo"] .nav-badge')).toHaveText('1');
+    const eventReads = state.calls.filter(call => call.method === 'GET'
+      && call.path === '/peakos/collaboration/events');
+    expect(eventReads.length).toBeGreaterThanOrEqual(1);
+    expect(eventReads.every(call => call.workspace === 'daegu')).toBe(true);
+    expect(state.calls.some(call => call.path === '/peakos/collaboration/projects/my-tasks')).toBe(false);
   });
 
   test('Korea New Year loads and renders the new Korean calendar year', async ({ page }) => {
@@ -1344,7 +1497,7 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     await setup(page, state);
     await page.locator('.nav-item[data-view="todo"]').click();
 
-    await expect(page.locator('[data-daily-plan-date]')).toHaveAttribute('data-daily-plan-date', '2027-01-01');
+    await expect(page.locator('[data-todo-selected-date]')).toHaveAttribute('datetime', '2027-01-01');
     await expect(page.locator('#todoView')).toContainText('새해 첫 할 일');
     expect(state.calls.some(call =>
       call.method === 'GET'
@@ -1354,21 +1507,21 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     )).toBe(true);
   });
 
-  test('a draft opened before Korean midnight is saved to the new Korean day', async ({ page }) => {
+  test('a draft opened before Korean midnight stays on its explicitly selected day', async ({ page }) => {
     await page.clock.install({ time: new Date('2026-12-31T14:59:30.000Z') });
     const state = createState();
     await setup(page, state);
     await page.locator('.nav-item[data-view="todo"]').click();
-    await setTodoRootExpanded(page, 'personal');
+    await expect(page.locator('[data-todo-selected-date]')).toHaveAttribute('datetime', '2026-12-31');
     const capture = page.locator('[data-todo-capture]');
-    await capture.locator('[name="title"]').fill('자정 이후 오늘 할 일');
+    await capture.locator('[name="title"]').fill('선택 날짜에 남을 할 일');
 
     await page.clock.setFixedTime(new Date('2026-12-31T15:00:30.000Z'));
     await capture.getByRole('button', { name: '＋ 적기' }).click();
 
-    await expect(page.locator('[data-daily-plan-date]')).toHaveAttribute('data-daily-plan-date', '2027-01-01');
-    expect(state.events.find(event => event.title === '자정 이후 오늘 할 일')).toMatchObject({
-      date: '2027-01-01', scope: 'personal', type: 'todo',
+    await expect(page.locator('[data-todo-selected-date]')).toHaveAttribute('datetime', '2026-12-31');
+    expect(state.events.find(event => event.title === '선택 날짜에 남을 할 일')).toMatchObject({
+      date: '2026-12-31', scope: 'personal', type: 'todo',
     });
   });
 
@@ -1376,7 +1529,6 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     const state = createState();
     await setup(page, state);
     await page.locator('.nav-item[data-view="todo"]').click();
-    await setTodoRootExpanded(page, 'personal');
     const draft = page.locator('[data-todo-capture] [name="title"]');
     await draft.fill('자동 동기화에도 남아야 하는 생각');
     const readsBefore = state.calls.filter(call =>
@@ -1417,7 +1569,7 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     ).length).toBeGreaterThan(readsBefore);
     expect(state.calls.filter(call =>
       call.method === 'GET' && call.path === '/peakos/collaboration/projects/my-tasks'
-    ).length).toBeGreaterThan(projectReadsBefore);
+    )).toHaveLength(projectReadsBefore);
   });
 
   test('protected OS writes and legacy writes round-trip through one shared state', async ({ page }) => {
@@ -1662,8 +1814,7 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
   test('a server conflict keeps the draft open and an expired second factor locks the OS', async ({ page }) => {
     const state = createState();
     await setup(page, state);
-    await page.locator('.nav-item[data-view="todo"]').click();
-    await page.locator('#todoView [data-collab-add-todo]').click();
+    await page.locator('#homeCalendarAgenda [data-collab-add-todo]').click();
     const form = page.locator('#collaborationEventForm');
     await form.locator('[name="title"]').fill('실패해도 남는 입력');
     state.failNextMutation = true;
@@ -2112,8 +2263,6 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     });
     await setup(page, state, '/os/w/peak');
     await page.locator('.nav-item[data-view="todo"]').click();
-    await setTodoRootExpanded(page, 'personal');
-    await page.locator('[data-personal-plan-toggle]').click();
     const row = page.locator('[data-daily-timeline-id="audit-readonly-range"]');
     const start = row.getByRole('textbox', { name: '읽기 전용 시간 범위 시작 시간' });
     const end = row.getByRole('textbox', { name: '읽기 전용 시간 범위 종료 시간' });
@@ -2136,8 +2285,6 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     });
     await setup(page, state);
     await page.locator('.nav-item[data-view="todo"]').click();
-    await setTodoRootExpanded(page, 'personal');
-    await page.locator('[data-personal-plan-toggle]').click();
     const row = page.locator('[data-daily-timeline-id="audit-poll-range"]');
     const start = row.locator('[data-todo-time]');
     const end = row.locator('[data-todo-end-time]');
@@ -2175,12 +2322,10 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     // older polling response so this test exercises the harmful completion order.
     await expect.poll(eventReadCount).toBeGreaterThan(readsBeforeSave);
     await expect(page.locator('[data-daily-timeline-id="audit-poll-range"] [data-todo-end-time]')).toHaveValue('19:00');
-    await expect(page.locator('[data-daily-timeline-id="audit-poll-range"] .daily-timeline-state')).toHaveText('시간 확정');
     releaseStale();
     await expect.poll(() => staleDelivered).toBe(1);
     await page.waitForTimeout(1_200);
     await expect(page.locator('[data-daily-timeline-id="audit-poll-range"] [data-todo-end-time]')).toHaveValue('19:00');
-    await expect(page.locator('[data-daily-timeline-id="audit-poll-range"] .daily-timeline-state')).toHaveText('시간 확정');
   });
 
 });
