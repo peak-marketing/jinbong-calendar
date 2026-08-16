@@ -11522,3 +11522,220 @@ body .app-sidebar .sidebar-tab-search-submit::before {
   inset: -1px;
   content: "";
 }
+
+/* Calendar density refinement: let the month grid lead the workspace while
+   keeping the agenda readable and every interaction hook unchanged. */
+body.calendar-workspace .page {
+  width: calc(100% - 32px);
+  padding-top: 16px;
+}
+
+body.calendar-workspace .calendar-page .calendar-panel-head {
+  min-height: 56px;
+  padding: 9px 16px;
+}
+
+body.calendar-workspace .calendar-page .panel-title {
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+body.calendar-workspace .calendar-head-actions { gap: 8px; }
+
+body.calendar-workspace .calendar-nav {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  font-size: 18px;
+}
+
+body.calendar-workspace .calendar-month {
+  min-width: 112px;
+  font-size: 14px;
+}
+
+body.calendar-workspace .calendar-page .home-calendar-layout {
+  grid-template-columns: minmax(0, 1fr) 316px;
+}
+
+body.calendar-workspace .calendar-page .home-calendar-main {
+  padding: 12px 14px 16px;
+}
+
+body.calendar-workspace .home-calendar-grid { gap: 6px; }
+
+body.calendar-workspace .home-calendar-weekday {
+  padding: 3px 0 8px;
+  font-size: 11px;
+}
+
+body.calendar-workspace .calendar-page .home-calendar-cell {
+  min-height: clamp(126px, 8vw, 154px);
+  padding: 8px;
+}
+
+body.calendar-workspace .calendar-date-line {
+  min-height: 27px;
+  margin-bottom: 5px;
+}
+
+@media (min-width: 761px) {
+  body.calendar-workspace .calendar-page .calendar-agenda {
+    top: 76px;
+    max-height: calc(100vh - 92px);
+    padding: 12px;
+  }
+
+  body.calendar-workspace .agenda-scope-tabs {
+    gap: 5px;
+    margin-bottom: 8px;
+  }
+
+  body.calendar-workspace .agenda-scope-tabs button {
+    min-height: 32px;
+    border-radius: 8px;
+    font-size: 10px;
+  }
+
+  body.calendar-workspace .agenda-filter-row { margin-bottom: 7px; }
+
+  body.calendar-workspace .agenda-filter-row button {
+    min-height: 26px;
+    padding-inline: 8px;
+    font-size: 8px;
+  }
+
+  body.calendar-workspace .agenda-day-summary {
+    padding: 12px;
+    border-radius: 10px;
+  }
+
+  body.calendar-workspace .agenda-date { gap: 4px; }
+  body.calendar-workspace .agenda-date span { font-size: 9px; }
+  body.calendar-workspace .agenda-date strong { font-size: 16px; line-height: 1.35; }
+
+  body.calendar-workspace .agenda-day-summary > p {
+    margin: 6px 0 9px;
+    font-size: 9px;
+  }
+
+  body.calendar-workspace .agenda-day-stats { gap: 5px; }
+
+  body.calendar-workspace .agenda-day-stats > span {
+    padding: 8px 3px;
+    border-radius: 8px;
+  }
+
+  body.calendar-workspace .agenda-day-stats strong { font-size: 15px; }
+  body.calendar-workspace .agenda-day-stats small { margin-top: 3px; font-size: 8px; }
+
+  body.calendar-workspace .agenda-report-section,
+  body.calendar-workspace .agenda-work-section {
+    margin-top: 11px;
+    padding-top: 11px;
+  }
+
+  body.calendar-workspace .agenda-report-section > header,
+  body.calendar-workspace .agenda-work-section > header { margin-bottom: 7px; }
+
+  body.calendar-workspace .agenda-report-section > header strong,
+  body.calendar-workspace .agenda-work-section > header strong { font-size: 11px; }
+
+  body.calendar-workspace .agenda-report-section > header span,
+  body.calendar-workspace .agenda-work-section > header span { font-size: 8px; }
+
+  body.calendar-workspace .agenda-report-section > div button {
+    min-height: 31px;
+    padding: 6px 7px;
+  }
+
+  body.calendar-workspace .agenda-report-section > div button strong,
+  body.calendar-workspace .agenda-work-group-head strong,
+  body.calendar-workspace .agenda-work-copy strong { font-size: 9px; }
+
+  body.calendar-workspace .agenda-report-section > div p {
+    padding: 11px 7px;
+    font-size: 9px;
+  }
+
+  body.calendar-workspace .agenda-work-groups { gap: 6px; }
+
+  body.calendar-workspace .agenda-work-group-head {
+    min-height: 34px;
+    padding: 6px 8px;
+  }
+
+  body.calendar-workspace .agenda-work-group-body { padding-inline: 8px; }
+
+  body.calendar-workspace .agenda-work-item {
+    grid-template-columns: 18px minmax(0, 1fr);
+    gap: 7px;
+    padding: 9px 0;
+  }
+
+  body.calendar-workspace .agenda-work-check {
+    width: 17px;
+    height: 17px;
+    border-radius: 4px;
+    font-size: 8px;
+  }
+
+  body.calendar-workspace .agenda-work-copy small { margin-top: 3px; font-size: 8px; }
+  body.calendar-workspace .agenda-work-copy em { margin-top: 4px; font-size: 8px; }
+  body.calendar-workspace .agenda-work-checklist { font-size: 8px; }
+  body.calendar-workspace .agenda-work-empty { padding: 20px 8px; font-size: 9px; }
+}
+
+@media (max-width: 1080px) and (min-width: 761px) {
+  body.calendar-workspace .calendar-page .home-calendar-main { padding-inline: 10px; }
+  body.calendar-workspace .calendar-page .home-calendar-cell { min-height: 94px; padding: 6px; }
+  body.calendar-workspace .home-calendar-grid { gap: 4px; }
+}
+
+@media (max-width: 1100px) and (min-width: 761px) {
+  body.calendar-workspace .calendar-page .home-calendar-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body.calendar-workspace .calendar-page .calendar-agenda {
+    position: static;
+    max-height: none;
+    border-top: 1px solid var(--premium-line, #edf1f4);
+    border-left: 0;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 760px) {
+  body.calendar-workspace .page {
+    width: calc(100% - 16px);
+    padding-top: 10px;
+  }
+
+  body.calendar-workspace .calendar-page .calendar-panel-head {
+    min-height: 56px;
+    padding: 5px 8px;
+  }
+
+  body.calendar-workspace .calendar-page .panel-title { font-size: 13px; }
+  body.calendar-workspace .calendar-head-actions { gap: 4px; }
+  body.calendar-workspace .calendar-nav {
+    width: 44px;
+    height: 44px;
+    font-size: 18px;
+  }
+  body.calendar-workspace .calendar-month { min-width: 88px; font-size: 12px; }
+  body.calendar-workspace .calendar-page .home-calendar-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  body.calendar-workspace .calendar-page .home-calendar-main { padding: 8px; }
+  body.calendar-workspace .home-calendar-grid { gap: 4px; }
+  body.calendar-workspace .home-calendar-weekday { padding: 2px 0 7px; font-size: 10px; }
+  body.calendar-workspace .calendar-page .home-calendar-cell {
+    min-height: 76px;
+    padding: 5px;
+    border-radius: 8px;
+  }
+  body.calendar-workspace .calendar-date-line { min-height: 24px; margin-bottom: 4px; }
+  body.calendar-workspace .calendar-agenda button { min-height: 44px; }
+}

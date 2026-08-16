@@ -244,6 +244,7 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#homeCalendarAgenda .agenda-day-stats')).toContainText('팀 일정');
     await expect(page.locator('#homeCalendarAgenda .agenda-report-section')).toContainText('일일 보고서 작성');
     await expect(page.locator('#homeCalendarAgenda')).toContainText('체크리스트 1/3');
+    await expect(page.locator('#calendarView .panel-subtitle')).toHaveCount(0);
     await page.locator('#homeCalendarAgenda [data-agenda-scope="team"]').click();
     await expect(page.locator('#homeCalendarAgenda')).toContainText('팀 운영 회의');
     await page.locator('#homeCalendarAgenda [data-agenda-scope="all"]').click();
