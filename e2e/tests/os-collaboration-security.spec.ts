@@ -49,6 +49,13 @@ function todayKey() {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+function addDaysKey(dateKey: string, days: number) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 function createState(overrides: Partial<CollaborationState> = {}): CollaborationState {
   return {
     otpVerified: true,
@@ -497,6 +504,17 @@ async function installSharedApi(page: Page, state: CollaborationState) {
       project.done_task_count = project.tasks.filter((item: any) => item.status === 'done').length;
       return send(task);
     }
+    const projectTaskCompletionMatch = resourcePath.match(/^\/projects\/([^/]+)\/tasks\/([^/]+)\/completion$/);
+    if (projectTaskCompletionMatch && method === 'PUT') {
+      const project = state.projects.find(item => String(item.id) === decodeURIComponent(projectTaskCompletionMatch[1]));
+      const task = project?.tasks.find((item: any) => String(item.id) === decodeURIComponent(projectTaskCompletionMatch[2]));
+      const assignee = task?.assignees?.find((item: any) => String(item.uid || '') === String(state.user.uid));
+      if (!project || !task || !assignee) return send({ error: 'Not found' }, 404);
+      assignee.completed = body?.completed === true;
+      assignee.completed_at = assignee.completed ? new Date().toISOString() : null;
+      task.completed_assignee_count = task.assignees.filter((item: any) => item.completed === true).length;
+      return send({ task, assignee });
+    }
     const projectCommentMatch = resourcePath.match(/^\/projects\/([^/]+)\/comments$/);
     if (projectCommentMatch && method === 'POST') {
       const project = state.projects.find(item => String(item.id) === decodeURIComponent(projectCommentMatch[1]));
@@ -782,8 +800,10 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     });
   }
 
-  test('one desktop view separates personal and project checklists with distinct completion workflows', async ({ page }) => {
+  test('one compact worklist groups personal and project tasks with distinct completion workflows', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
     const date = todayKey();
+    const tomorrow = addDaysKey(date, 1);
     const state = createState({
       events: [{
         id: 'personal-split-task', type: 'todo', title: '개인 체크리스트 업무', date, time: '10:00',
@@ -794,11 +814,21 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
         id: 'split-project', name: '신규 캠페인 프로젝트', status: 'active', owner_name: '김대호',
         tasks: [{
           id: 'project-split-task', project_id: 'split-project', title: '프로젝트 원고 작성',
-          status: 'doing', due_date: date, assignment_mode: 'single',
+          status: 'doing', due_date: tomorrow, assignment_mode: 'single',
           assignee_uid: 'e2e-test-user', assignee_name: '김대호',
           assignees: [{ uid: 'e2e-test-user', name: '김대호', completed: false }],
           role_label: '콘텐츠 작성', reviewer_uid: 'manager-user', reviewer_name: '팀장',
           permissions: { canRequestReview: true, canReview: false, canComplete: false },
+        }, {
+          id: 'project-all-task', project_id: 'split-project', title: '전체 담당 현황 취합',
+          status: 'doing', due_date: tomorrow, assignment_mode: 'all',
+          assignee_name: '모두', completed_assignee_count: 1,
+          assignees: [
+            { uid: 'e2e-test-user', name: '김대호', completed: false },
+            { uid: 'other-user', name: '박우진', completed: true },
+          ],
+          role_label: '취합', reviewer_uid: 'manager-user', reviewer_name: '팀장',
+          permissions: { canRequestReview: false, canReview: false, canComplete: true },
         }],
       }],
     });
@@ -809,17 +839,25 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     const personal = split.locator('[data-todo-panel="personal"]');
     const project = split.locator('[data-todo-panel="project"]');
     await expect(split).toBeVisible();
-    await expect(personal.getByText('나의 할 일', { exact: true })).toBeVisible();
-    await expect(project.getByText('프로젝트 할 일', { exact: true })).toBeVisible();
+    await expect(page.locator('.todo-worklist-toolbar')).toContainText('할 일 및 일정');
+    await expect(personal.getByText('오늘의 개인 업무', { exact: true })).toBeVisible();
+    await expect(project.getByText('프로젝트 업무', { exact: true })).toBeVisible();
     await expect(personal.locator('[data-personal-todo-id="personal-split-task"]')).toContainText('개인 체크리스트 업무');
     await expect(project.locator('[data-project-todo-id="project-split-task"]')).toContainText('프로젝트 원고 작성');
     await expect(project.locator('[data-project-todo-id="project-split-task"]')).toContainText('신규 캠페인 프로젝트');
+    await expect(project.locator('[data-project-todo-id="project-split-task"] .todo-worklist-status')).toHaveText('진행 중');
+    await expect(project.locator('[data-project-todo-id="project-split-task"] .todo-worklist-dday')).toHaveText('D-1');
+    await expect(project.locator('[data-project-todo-id="project-split-task"] .todo-worklist-date')).toHaveAttribute('datetime', tomorrow);
+    await expect(project.locator('[data-todo-group-key="project:split-project"] .todo-worklist-project-count')).toHaveText('0/2');
 
     const [personalBox, projectBox] = await Promise.all([personal.boundingBox(), project.boundingBox()]);
     expect(personalBox).not.toBeNull();
     expect(projectBox).not.toBeNull();
-    expect(Math.abs((personalBox?.y || 0) - (projectBox?.y || 0))).toBeLessThan(4);
-    expect(projectBox?.x || 0).toBeGreaterThan((personalBox?.x || 0) + (personalBox?.width || 0) - 2);
+    expect(Math.abs((personalBox?.x || 0) - (projectBox?.x || 0))).toBeLessThan(4);
+    expect(Math.abs((personalBox?.width || 0) - (projectBox?.width || 0))).toBeLessThan(4);
+    expect(projectBox?.y || 0).toBeGreaterThan((personalBox?.y || 0) + (personalBox?.height || 0) - 2);
+    const compactRowHeight = await personal.locator('[data-personal-todo-id="personal-split-task"]').evaluate(row => row.getBoundingClientRect().height);
+    expect(compactRowHeight).toBeLessThanOrEqual(54);
 
     await personal.locator('[data-personal-todo-id="personal-split-task"] [data-collab-event-toggle]').click();
     await expect(personal.locator('[data-personal-todo-id="personal-split-task"]')).toHaveClass(/done/);
@@ -833,8 +871,32 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     const reviewCall = state.calls.find(call => call.method === 'POST'
       && call.path === '/peakos/collaboration/projects/split-project/tasks/project-split-task/review');
     expect(reviewCall).toMatchObject({ workspace: 'peak', body: { action: 'request' } });
+
+    await project.locator('[data-project-todo-id="project-all-task"] [data-collab-task-completion]').click();
+    await expect(project.locator('[data-project-todo-id="project-all-task"]')).toHaveClass(/done/);
+    const completionCall = state.calls.find(call => call.method === 'PUT'
+      && call.path === '/peakos/collaboration/projects/split-project/tasks/project-all-task/completion');
+    expect(completionCall).toMatchObject({ workspace: 'peak', body: { completed: true } });
+    expect(state.calls.some(call => call.method === 'POST'
+      && call.path.endsWith('/tasks/project-all-task/review'))).toBe(false);
     expect(state.calls.filter(call => call.method === 'PUT'
       && call.path === '/peakos/collaboration/events/personal-split-task')).toHaveLength(1);
+
+    const groupToggle = project.locator('[data-todo-project-group-id="split-project"]');
+    const groupBody = project.locator(`#${await groupToggle.getAttribute('aria-controls')}`);
+    const mutationsBeforeCollapse = state.calls.filter(call => call.method !== 'GET').length;
+    await groupToggle.click();
+    await expect(groupToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(groupBody).toBeHidden();
+    expect(state.calls.filter(call => call.method !== 'GET')).toHaveLength(mutationsBeforeCollapse);
+
+    // Polling may rebuild the list, but a presentation-only collapse choice stays local
+    // to the current account/workspace and must not write task state.
+    await page.locator('#personaSelect').focus();
+    await page.waitForTimeout(5_400);
+    await expect(project.locator('[data-todo-project-group-id="split-project"]')).toHaveAttribute('aria-expanded', 'false');
+    await expect(project.locator('[data-todo-group-key="project:split-project"] .todo-worklist-project-body')).toBeHidden();
+    expect(state.calls.filter(call => call.method !== 'GET')).toHaveLength(mutationsBeforeCollapse);
   });
 
   test('automatic report review reminders stay on the calendar but never enter personal todo surfaces', async ({ page }) => {
@@ -911,11 +973,19 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     await expect(personal.locator('[data-personal-todo-id="manual-same-category-title"]')).toContainText('전현우 보고서 확인');
     await expect(personal.locator('[data-personal-todo-id="manual-report-prep"]')).toContainText('보고서 자료 정리');
     await expect(personal.locator('[data-personal-todo-id="report-writing-reminder"]')).toContainText('📝 일일 보고서 작성');
+    const unscheduledDate = personal.locator('[data-personal-todo-id="manual-same-category-title"] .todo-worklist-date');
+    await expect(unscheduledDate).toHaveText('시간 미정');
+    await expect(unscheduledDate).not.toHaveAttribute('datetime');
+    expect(await unscheduledDate.evaluate(element => element.tagName)).toBe('SPAN');
     await expect(personal.locator('.todo-split-panel-head > em')).toHaveText('3건 남음');
     await expect(personal.locator('.todo-split-progress')).toHaveAttribute('aria-label', '나의 할 일 25% 완료');
     await expect(personal.locator('.todo-split-progress > strong')).toHaveText('1/4');
 
     await expect(project.locator('[data-project-todo-id="report-filter-project-task"]')).toContainText('프로젝트 정상 업무');
+    const missingDeadline = project.locator('[data-project-todo-id="report-filter-project-task"] .todo-worklist-date');
+    await expect(missingDeadline).toHaveText('—');
+    await expect(missingDeadline).not.toHaveAttribute('datetime');
+    expect(await missingDeadline.evaluate(element => element.tagName)).toBe('SPAN');
     await expect(project.locator('.todo-split-panel-head > em')).toHaveText('1건 남음');
     await expect(project.locator('.todo-split-progress > strong')).toHaveText('0/1');
 
@@ -934,42 +1004,197 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     await expect(planner.locator('.todo-summary-card').nth(2).locator('strong')).toHaveText('1건');
   });
 
-  test('the two todo panels stack on mobile without horizontal overflow and keep the planner folded', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    const date = todayKey();
-    const state = createState({
-      events: [{
-        id: 'mobile-personal-task', type: 'todo', title: '모바일 개인 업무', date,
-        scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', done: false, deleted: false,
-      }],
-      projects: [{
-        id: 'mobile-project', name: '모바일 프로젝트', status: 'active', owner_name: '김대호',
-        tasks: [{
-          id: 'mobile-project-task', project_id: 'mobile-project', title: '모바일 프로젝트 업무', status: 'todo',
-          assignment_mode: 'single', assignee_uid: 'e2e-test-user', assignee_name: '김대호',
-          assignees: [{ uid: 'e2e-test-user', name: '김대호', completed: false }],
-          permissions: { canRequestReview: true },
-        }],
-      }],
-    });
-    await setup(page, state);
-    await page.locator('.nav-item[data-view="todo"]').click();
+  for (const viewport of [
+    { label: '1440', width: 1440, height: 900 },
+    { label: '768', width: 768, height: 900 },
+    { label: '390', width: 390, height: 844 },
+  ]) {
+    for (const theme of ['light', 'dark'] as const) {
+      test(`compact todo worklist fits ${viewport.label}px in ${theme} theme`, async ({ page }, testInfo) => {
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        const date = todayKey();
+        const deadline = addDaysKey(date, 2);
+        const state = createState({
+          events: [{
+            id: `responsive-personal-${viewport.label}-${theme}`, type: 'todo', title: '반응형 개인 업무', date,
+            time: '17:30', end_time: '19:00', scope: 'personal', owner_id: 'e2e-test-user',
+            owner_name: '김대호', sort_order: 10, done: false, deleted: false,
+          }, {
+            id: `responsive-completed-${viewport.label}-${theme}`, type: 'todo', title: '완료한 반응형 개인 업무', date,
+            time: '09:00', end_time: '10:00', todo_cat: '완료 검증', scope: 'personal', owner_id: 'e2e-test-user',
+            owner_name: '김대호', sort_order: 20, done: true, deleted: false,
+          }],
+          projects: [{
+            id: `responsive-project-${viewport.label}-${theme}`, name: '반응형 프로젝트', status: 'active', owner_name: '김대호',
+            tasks: [{
+              id: `responsive-project-task-${viewport.label}-${theme}`,
+              project_id: `responsive-project-${viewport.label}-${theme}`,
+              title: '긴 화면에서도 실제 메타데이터가 잘리는지 확인하는 프로젝트 업무',
+              status: 'todo', due_date: deadline, assignment_mode: 'single',
+              assignee_uid: 'e2e-test-user', assignee_name: '김대호',
+              assignees: [{ uid: 'e2e-test-user', name: '김대호', completed: false }],
+              role_label: '화면 검수', permissions: { canRequestReview: true },
+            }],
+          }],
+        });
+        await setup(page, state);
+        await page.locator('.nav-item[data-view="todo"]').click();
+        if (theme === 'dark') await page.locator('#themeToggle').click();
+        await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
 
-    const personal = page.locator('[data-todo-panel="personal"]');
-    const project = page.locator('[data-todo-panel="project"]');
-    const [personalBox, projectBox] = await Promise.all([personal.boundingBox(), project.boundingBox()]);
-    expect(projectBox?.y || 0).toBeGreaterThan((personalBox?.y || 0) + (personalBox?.height || 0) - 2);
-    expect(Math.abs((personalBox?.x || 0) - (projectBox?.x || 0))).toBeLessThan(4);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        const surface = page.locator('[data-todo-split-view]');
+        const personal = surface.locator('[data-todo-panel="personal"]');
+        const project = surface.locator('[data-todo-panel="project"]');
+        const geometry = await surface.evaluate(element => {
+          const rect = element.getBoundingClientRect();
+          const visibleRows = [...element.querySelectorAll<HTMLElement>('.todo-worklist-row')]
+            .filter(row => row.offsetParent !== null)
+            .map(row => {
+              const rowRect = row.getBoundingClientRect();
+              return { left: rowRect.left, right: rowRect.right, width: rowRect.width };
+            });
+          return {
+            surface: { left: rect.left, right: rect.right, width: rect.width },
+            visibleRows,
+            overflow: document.documentElement.scrollWidth - window.innerWidth,
+            background: getComputedStyle(element).backgroundColor,
+          };
+        });
+        expect(geometry.surface.width).toBeGreaterThan(0);
+        expect(geometry.visibleRows).toHaveLength(3);
+        for (const row of geometry.visibleRows) {
+          expect(row.width).toBeGreaterThan(0);
+          expect(row.left).toBeGreaterThanOrEqual(geometry.surface.left - 1);
+          expect(row.right).toBeLessThanOrEqual(geometry.surface.right + 1);
+        }
+        expect(geometry.overflow).toBeLessThanOrEqual(1);
+        if (theme === 'dark') expect(geometry.background).not.toBe('rgb(255, 255, 255)');
+        else expect(geometry.background).toBe('rgb(255, 255, 255)');
 
-    const plannerToggle = page.locator('[data-personal-plan-toggle]');
-    await expect(plannerToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.locator('#personalTodoPlanner')).toBeHidden();
-    await plannerToggle.click();
-    await expect(plannerToggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.locator('#personalTodoPlanner')).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  });
+        if (theme === 'dark') {
+          const contrastSamples = await page.locator('#todoView').evaluate(root => {
+            type Colour = { r: number; g: number; b: number; a: number };
+            const parseColour = (value: string): Colour => {
+              const values = value.match(/[\d.]+/g)?.map(Number) || [];
+              return { r: values[0] || 0, g: values[1] || 0, b: values[2] || 0, a: values.length > 3 ? values[3] : 1 };
+            };
+            const blend = (top: Colour, bottom: Colour): Colour => {
+              const alpha = top.a + bottom.a * (1 - top.a);
+              if (!alpha) return { r: 0, g: 0, b: 0, a: 0 };
+              return {
+                r: (top.r * top.a + bottom.r * bottom.a * (1 - top.a)) / alpha,
+                g: (top.g * top.a + bottom.g * bottom.a * (1 - top.a)) / alpha,
+                b: (top.b * top.a + bottom.b * bottom.a * (1 - top.a)) / alpha,
+                a: alpha,
+              };
+            };
+            const backgroundFor = (element: Element) => {
+              const layers: Colour[] = [];
+              for (let current: Element | null = element; current; current = current.parentElement) {
+                layers.push(parseColour(getComputedStyle(current).backgroundColor));
+              }
+              return layers.reverse().reduce((background, layer) => blend(layer, background), { r: 255, g: 255, b: 255, a: 1 });
+            };
+            const channel = (value: number) => {
+              const normalized = value / 255;
+              return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+            };
+            const luminance = (colour: Colour) => 0.2126 * channel(colour.r) + 0.7152 * channel(colour.g) + 0.0722 * channel(colour.b);
+            const contrastFor = (element: Element) => {
+              const background = backgroundFor(element);
+              const foreground = blend(parseColour(getComputedStyle(element).color), background);
+              const values = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+              return {
+                ratio: (values[0] + 0.05) / (values[1] + 0.05),
+                foreground: getComputedStyle(element).color,
+                background: `rgb(${Math.round(background.r)}, ${Math.round(background.g)}, ${Math.round(background.b)})`,
+              };
+            };
+            const targets = [
+              ['toolbar subtitle', '.todo-worklist-toolbar .todo-date-copy span'],
+              ['personal kicker', '[data-todo-group="personal"] > .todo-split-panel-head .todo-worklist-section-copy > span'],
+              ['project kicker', '[data-todo-group="project"] > .todo-split-panel-head .todo-worklist-section-copy > span'],
+              ['caret', '.todo-worklist-caret'],
+              ['project count', '.todo-worklist-project-count'],
+              ['project remaining', '.todo-worklist-project-remaining'],
+              ['progress count', '.todo-worklist-group > .todo-split-panel-head > .todo-split-progress > strong'],
+              ['remaining pill', '.todo-worklist-group > .todo-split-panel-head > em'],
+              ['completed row title', '.todo-worklist-row.done .daily-plan-task-open strong'],
+              ['completed row metadata', '.todo-worklist-row.done .daily-plan-task-open small'],
+              ['row status', '.todo-worklist-row .todo-worklist-status'],
+              ['row deadline', '.todo-worklist-row .todo-worklist-dday'],
+              ['row date', '.todo-worklist-row .todo-worklist-date'],
+            ] as const;
+            return targets.flatMap(([label, selector]) => {
+              const elements = [...root.querySelectorAll(selector)];
+              if (!elements.length) return [{ label, text: 'MISSING', ratio: 0, foreground: '', background: '' }];
+              return elements.map((element, index) => ({
+                label: `${label} ${index + 1}`,
+                text: String(element.textContent || '').trim(),
+                ...contrastFor(element),
+              }));
+            });
+          });
+          for (const sample of contrastSamples) {
+            expect(sample.ratio, `${sample.label} (${sample.text}) ${sample.foreground} on ${sample.background}`).toBeGreaterThanOrEqual(4.5);
+          }
+          if (process.env.PEAKOS_COMPACT_TODO_VISUAL_DIR) {
+            console.log(`[compact-todo-contrast:${viewport.label}] ${JSON.stringify(contrastSamples.map(sample => ({
+              label: sample.label, text: sample.text, ratio: Number(sample.ratio.toFixed(2)),
+              foreground: sample.foreground, background: sample.background,
+            })))}`);
+          }
+        }
+
+        const [personalBox, projectBox] = await Promise.all([personal.boundingBox(), project.boundingBox()]);
+        expect(projectBox?.y || 0).toBeGreaterThan((personalBox?.y || 0) + (personalBox?.height || 0) - 2);
+        expect(Math.abs((personalBox?.x || 0) - (projectBox?.x || 0))).toBeLessThan(4);
+        await expect(project.locator('.todo-worklist-dday')).toHaveText('D-2');
+        await expect(project.locator('.todo-worklist-date')).toHaveAttribute('datetime', deadline);
+        const completedRow = personal.locator(`[data-personal-todo-id="responsive-completed-${viewport.label}-${theme}"]`);
+        await expect(completedRow).toHaveClass(/done/);
+        await expect(completedRow).toHaveCSS('opacity', '1');
+        await expect(completedRow.locator('.todo-worklist-status')).toHaveText('완료');
+        await expect(completedRow.locator('.todo-worklist-dday')).toHaveText('완료');
+        await expect(completedRow.locator('.todo-worklist-date')).toHaveAttribute('datetime', `${date}T09:00`);
+        await expect(completedRow.locator('.todo-worklist-date')).toHaveText('오전 9:00 ~ 오전 10:00');
+
+        // Capture the default compact state. The expanded planner is exercised below,
+        // but is intentionally not the reference image for the primary worklist.
+        const screenshot = await page.screenshot({ fullPage: true });
+        await testInfo.attach(`compact-todo-${viewport.label}-${theme}`, {
+          body: screenshot, contentType: 'image/png',
+        });
+        const visualDir = process.env.PEAKOS_COMPACT_TODO_VISUAL_DIR;
+        if (visualDir) {
+          fs.mkdirSync(visualDir, { recursive: true });
+          fs.writeFileSync(path.join(visualDir, `compact-todo-${viewport.label}-${theme}.png`), screenshot);
+        }
+
+        const plannerToggle = page.locator('[data-personal-plan-toggle]');
+        await expect(plannerToggle).toHaveAttribute('aria-expanded', 'false');
+        await expect(page.locator('#personalTodoPlanner')).toBeHidden();
+        if (viewport.width === 390) {
+          for (const control of [
+            page.locator('[data-todo-group-toggle="personal"]'),
+            page.locator('[data-todo-project-group-id]').first(),
+            page.locator(`[data-personal-todo-id="responsive-personal-${viewport.label}-${theme}"] .todo-task-check`),
+            page.locator(`[data-personal-todo-id="responsive-completed-${viewport.label}-${theme}"] .todo-task-check`),
+            page.locator('.todo-worklist-toolbar [data-collab-add-todo]'),
+            page.locator('[data-todo-capture] button[type="submit"]'),
+          ]) {
+            const box = await control.boundingBox();
+            expect(box).not.toBeNull();
+            expect(box!.height).toBeGreaterThanOrEqual(44);
+          }
+          await plannerToggle.click();
+          await expect(plannerToggle).toHaveAttribute('aria-expanded', 'true');
+          await expect(page.locator('#personalTodoPlanner')).toBeVisible();
+          expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
+        }
+      });
+    }
+  }
 
   test('a branch todo split reads only that workspace personal and project records', async ({ page }) => {
     const date = todayKey();
