@@ -3792,7 +3792,7 @@
       projectTodoGroups.get(projectId).entries.push(entry);
     });
     const groupContextKey = projectTodosContextKey();
-    const todoGroupIsOpen = key => todoGroupOpenState.get(`${groupContextKey}|${key}`) !== false;
+    const todoGroupIsOpen = key => todoGroupOpenState.get(`${groupContextKey}|${key}`) === true;
     const projectChecklistMarkup = [...projectTodoGroups.values()].map(({ project, entries }, index) => {
       const projectId = String(project.id || '');
       const stateKey = `project:${projectId}`;

@@ -576,6 +576,30 @@ async function addTodo(page: Page, title: string) {
   await expect(page.locator('#todoView')).toContainText(title);
 }
 
+async function setTodoRootExpanded(page: Page, group: 'personal' | 'project', expanded = true) {
+  const toggle = page.locator(`[data-todo-group-toggle="${group}"]`);
+  const targetId = await toggle.getAttribute('aria-controls');
+  expect(targetId).toBeTruthy();
+  if ((await toggle.getAttribute('aria-expanded')) !== String(expanded)) await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', String(expanded));
+  const body = page.locator(`#${targetId}`);
+  if (expanded) await expect(body).toBeVisible();
+  else await expect(body).toBeHidden();
+  return { toggle, body };
+}
+
+async function setTodoProjectExpanded(page: Page, projectId: string, expanded = true) {
+  const toggle = page.locator(`[data-todo-project-group-id="${projectId}"]`);
+  const targetId = await toggle.getAttribute('aria-controls');
+  expect(targetId).toBeTruthy();
+  if ((await toggle.getAttribute('aria-expanded')) !== String(expanded)) await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', String(expanded));
+  const body = page.locator(`#${targetId}`);
+  if (expanded) await expect(body).toBeVisible();
+  else await expect(body).toBeHidden();
+  return { toggle, body };
+}
+
 async function openCalendarEventEditor(page: Page, eventId: string) {
   await page.locator(`#homeCalendarAgenda [data-event-detail="${eventId}"]`).first().click();
   await expect(page.locator('#readonlyModalBody')).toBeVisible();
@@ -617,6 +641,9 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     );
     expect(directLegacyWrites).toEqual([]);
 
+    await setTodoRootExpanded(page, 'personal');
+    await setTodoRootExpanded(page, 'project');
+    await setTodoProjectExpanded(page, 'preview-project');
     await expect(page.locator('[data-personal-todo-id="owned-todo"]')).toBeVisible();
     await expect(page.locator('[data-project-todo-id="preview-project-task"]')).toBeVisible();
     let releasePreviewLoad!: () => void;
@@ -645,6 +672,10 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     await expect(page.locator('#todoView [data-project-todo-id]')).toHaveCount(0);
     await expect(page.locator('#todoView [data-todo-time-range]')).toHaveCount(0);
     await expect(page.getByText('계정 미리보기에서는 업무 데이터가 비공개입니다')).toHaveCount(2);
+    await expect(page.locator('[data-todo-group-toggle="personal"]')).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#personalTodoGroupBody')).toBeHidden();
+    await expect(page.locator('[data-todo-group-toggle="project"]')).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#projectTodoGroupBody')).toBeHidden();
     expect(state.calls.filter(call => call.method !== 'GET' && call.path.startsWith('/peakos/collaboration/'))).toHaveLength(beforePreview);
     releasePreviewLoad();
     await expect.poll(() => previewLoadSettled).toBeGreaterThan(0);
@@ -667,6 +698,7 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     });
     await setup(page, state);
     await page.locator('.nav-item[data-view="todo"]').click();
+    await setTodoRootExpanded(page, 'personal');
 
     const steps = page.locator('#todoView [data-daily-plan-step]');
     await expect(steps).toHaveCount(3);
@@ -776,6 +808,7 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
       });
       await setup(page, state);
       await page.locator('.nav-item[data-view="todo"]').click();
+      await setTodoRootExpanded(page, 'personal');
       await page.locator('[data-personal-plan-toggle]').click();
 
       const geometry = await page.locator(`[data-daily-timeline-id="responsive-range-${width}"]`).evaluate(row => {
@@ -842,6 +875,29 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     await expect(page.locator('.todo-worklist-toolbar')).toContainText('할 일 및 일정');
     await expect(personal.getByText('오늘의 개인 업무', { exact: true })).toBeVisible();
     await expect(project.getByText('프로젝트 업무', { exact: true })).toBeVisible();
+
+    const personalToggle = personal.locator('[data-todo-group-toggle="personal"]');
+    const projectToggle = project.locator('[data-todo-group-toggle="project"]');
+    const groupToggle = project.locator('[data-todo-project-group-id="split-project"]');
+    const groupBody = project.locator(`#${await groupToggle.getAttribute('aria-controls')}`);
+    const mutationsBeforePresentation = state.calls.filter(call => call.method !== 'GET').length;
+
+    // First entry is intentionally quiet: both top-level sections are closed,
+    // and opening Projects still leaves every individual project closed.
+    await expect(personalToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(personal.locator('#personalTodoGroupBody')).toBeHidden();
+    await expect(projectToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(project.locator('#projectTodoGroupBody')).toBeHidden();
+    await expect(groupToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(groupBody).toBeHidden();
+    await setTodoRootExpanded(page, 'project');
+    await expect(groupToggle).toBeVisible();
+    await expect(groupToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(groupBody).toBeHidden();
+    await setTodoRootExpanded(page, 'personal');
+    await setTodoProjectExpanded(page, 'split-project');
+    expect(state.calls.filter(call => call.method !== 'GET')).toHaveLength(mutationsBeforePresentation);
+
     await expect(personal.locator('[data-personal-todo-id="personal-split-task"]')).toContainText('개인 체크리스트 업무');
     await expect(project.locator('[data-project-todo-id="project-split-task"]')).toContainText('프로젝트 원고 작성');
     await expect(project.locator('[data-project-todo-id="project-split-task"]')).toContainText('신규 캠페인 프로젝트');
@@ -865,6 +921,9 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
       && call.path === '/peakos/collaboration/events/personal-split-task')).toMatchObject({
       workspace: 'peak', body: { done: true },
     });
+    await expect(personalToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(projectToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(groupToggle).toHaveAttribute('aria-expanded', 'true');
 
     await project.locator('[data-project-todo-id="project-split-task"] [data-collab-task-review-request]').click();
     await expect(project.locator('[data-project-todo-id="project-split-task"]')).toHaveClass(/review/);
@@ -882,21 +941,21 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     expect(state.calls.filter(call => call.method === 'PUT'
       && call.path === '/peakos/collaboration/events/personal-split-task')).toHaveLength(1);
 
-    const groupToggle = project.locator('[data-todo-project-group-id="split-project"]');
-    const groupBody = project.locator(`#${await groupToggle.getAttribute('aria-controls')}`);
-    const mutationsBeforeCollapse = state.calls.filter(call => call.method !== 'GET').length;
+    // Polling may rebuild the list, but user expansion stays local to this
+    // account/workspace and must not create another mutation.
+    const mutationsBeforePoll = state.calls.filter(call => call.method !== 'GET').length;
+    await page.locator('#personaSelect').focus();
+    await page.waitForTimeout(5_400);
+    await expect(personalToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(projectToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(groupToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(groupBody).toBeVisible();
+    expect(state.calls.filter(call => call.method !== 'GET')).toHaveLength(mutationsBeforePoll);
+
     await groupToggle.click();
     await expect(groupToggle).toHaveAttribute('aria-expanded', 'false');
     await expect(groupBody).toBeHidden();
-    expect(state.calls.filter(call => call.method !== 'GET')).toHaveLength(mutationsBeforeCollapse);
-
-    // Polling may rebuild the list, but a presentation-only collapse choice stays local
-    // to the current account/workspace and must not write task state.
-    await page.locator('#personaSelect').focus();
-    await page.waitForTimeout(5_400);
-    await expect(project.locator('[data-todo-project-group-id="split-project"]')).toHaveAttribute('aria-expanded', 'false');
-    await expect(project.locator('[data-todo-group-key="project:split-project"] .todo-worklist-project-body')).toBeHidden();
-    expect(state.calls.filter(call => call.method !== 'GET')).toHaveLength(mutationsBeforeCollapse);
+    expect(state.calls.filter(call => call.method !== 'GET')).toHaveLength(mutationsBeforePoll);
   });
 
   test('automatic report review reminders stay on the calendar but never enter personal todo surfaces', async ({ page }) => {
@@ -966,6 +1025,11 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     await page.locator('.nav-item[data-view="todo"]').click();
     const personal = page.locator('[data-todo-panel="personal"]');
     const project = page.locator('[data-todo-panel="project"]');
+    const mutationsBeforeExpand = state.calls.filter(call => call.method !== 'GET').length;
+    await setTodoRootExpanded(page, 'personal');
+    await setTodoRootExpanded(page, 'project');
+    await setTodoProjectExpanded(page, 'report-filter-project');
+    expect(state.calls.filter(call => call.method !== 'GET')).toHaveLength(mutationsBeforeExpand);
 
     await expect(personal.locator('[data-personal-todo-id]')).toHaveCount(4);
     await expect(personal.locator('[data-personal-todo-id="auto-daily-report-review"]')).toHaveCount(0);
@@ -1045,6 +1109,33 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
         const surface = page.locator('[data-todo-split-view]');
         const personal = surface.locator('[data-todo-panel="personal"]');
         const project = surface.locator('[data-todo-panel="project"]');
+        const projectId = `responsive-project-${viewport.label}-${theme}`;
+        const projectItemToggle = project.locator(`[data-todo-project-group-id="${projectId}"]`);
+        const projectItemBody = project.locator(`#${await projectItemToggle.getAttribute('aria-controls')}`);
+        await expect(personal.locator('[data-todo-group-toggle="personal"]')).toHaveAttribute('aria-expanded', 'false');
+        await expect(personal.locator('#personalTodoGroupBody')).toBeHidden();
+        await expect(project.locator('[data-todo-group-toggle="project"]')).toHaveAttribute('aria-expanded', 'false');
+        await expect(project.locator('#projectTodoGroupBody')).toBeHidden();
+        await expect(projectItemToggle).toHaveAttribute('aria-expanded', 'false');
+        await expect(projectItemBody).toBeHidden();
+
+        // The visual reference is the requested first-entry state: every level closed.
+        const screenshot = await page.screenshot({ fullPage: true });
+        await testInfo.attach(`compact-todo-${viewport.label}-${theme}`, {
+          body: screenshot, contentType: 'image/png',
+        });
+        const visualDir = process.env.PEAKOS_COMPACT_TODO_VISUAL_DIR;
+        if (visualDir) {
+          fs.mkdirSync(visualDir, { recursive: true });
+          fs.writeFileSync(path.join(visualDir, `compact-todo-${viewport.label}-${theme}.png`), screenshot);
+        }
+
+        const mutationsBeforeExpand = state.calls.filter(call => call.method !== 'GET').length;
+        await setTodoRootExpanded(page, 'personal');
+        await setTodoRootExpanded(page, 'project');
+        await setTodoProjectExpanded(page, projectId);
+        expect(state.calls.filter(call => call.method !== 'GET')).toHaveLength(mutationsBeforeExpand);
+
         const geometry = await surface.evaluate(element => {
           const rect = element.getBoundingClientRect();
           const visibleRows = [...element.querySelectorAll<HTMLElement>('.todo-worklist-row')]
@@ -1159,18 +1250,6 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
         await expect(completedRow.locator('.todo-worklist-date')).toHaveAttribute('datetime', `${date}T09:00`);
         await expect(completedRow.locator('.todo-worklist-date')).toHaveText('오전 9:00 ~ 오전 10:00');
 
-        // Capture the default compact state. The expanded planner is exercised below,
-        // but is intentionally not the reference image for the primary worklist.
-        const screenshot = await page.screenshot({ fullPage: true });
-        await testInfo.attach(`compact-todo-${viewport.label}-${theme}`, {
-          body: screenshot, contentType: 'image/png',
-        });
-        const visualDir = process.env.PEAKOS_COMPACT_TODO_VISUAL_DIR;
-        if (visualDir) {
-          fs.mkdirSync(visualDir, { recursive: true });
-          fs.writeFileSync(path.join(visualDir, `compact-todo-${viewport.label}-${theme}.png`), screenshot);
-        }
-
         const plannerToggle = page.locator('[data-personal-plan-toggle]');
         await expect(plannerToggle).toHaveAttribute('aria-expanded', 'false');
         await expect(page.locator('#personalTodoPlanner')).toBeHidden();
@@ -1231,7 +1310,18 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     await setup(page, state, '/os/w/daegu');
     await page.locator('.nav-item[data-view="todo"]').click();
 
+    await expect(page.locator('[data-todo-group-toggle="personal"]')).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#personalTodoGroupBody')).toBeHidden();
+    await expect(page.locator('[data-todo-group-toggle="project"]')).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#projectTodoGroupBody')).toBeHidden();
+    const mutationsBeforeExpand = state.calls.filter(call => call.method !== 'GET').length;
+    await setTodoRootExpanded(page, 'personal');
+    await setTodoRootExpanded(page, 'project');
+    await setTodoProjectExpanded(page, 'daegu-project');
+    expect(state.calls.filter(call => call.method !== 'GET')).toHaveLength(mutationsBeforeExpand);
+    await expect(page.locator('[data-personal-todo-id="daegu-personal-task"]')).toBeVisible();
     await expect(page.locator('[data-personal-todo-id="daegu-personal-task"]')).toContainText('대구지사 개인 업무');
+    await expect(page.locator('[data-project-todo-id="daegu-project-task"]')).toBeVisible();
     await expect(page.locator('[data-project-todo-id="daegu-project-task"]')).toContainText('대구지사 프로젝트 업무');
     await expect(page.locator('#todoView')).not.toContainText('본사 전용 개인 업무');
     await expect(page.locator('#todoView')).not.toContainText('본사 전용 프로젝트 업무');
@@ -1269,6 +1359,7 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     const state = createState();
     await setup(page, state);
     await page.locator('.nav-item[data-view="todo"]').click();
+    await setTodoRootExpanded(page, 'personal');
     const capture = page.locator('[data-todo-capture]');
     await capture.locator('[name="title"]').fill('자정 이후 오늘 할 일');
 
@@ -1285,6 +1376,7 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     const state = createState();
     await setup(page, state);
     await page.locator('.nav-item[data-view="todo"]').click();
+    await setTodoRootExpanded(page, 'personal');
     const draft = page.locator('[data-todo-capture] [name="title"]');
     await draft.fill('자동 동기화에도 남아야 하는 생각');
     const readsBefore = state.calls.filter(call =>
@@ -2020,6 +2112,7 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     });
     await setup(page, state, '/os/w/peak');
     await page.locator('.nav-item[data-view="todo"]').click();
+    await setTodoRootExpanded(page, 'personal');
     await page.locator('[data-personal-plan-toggle]').click();
     const row = page.locator('[data-daily-timeline-id="audit-readonly-range"]');
     const start = row.getByRole('textbox', { name: '읽기 전용 시간 범위 시작 시간' });
@@ -2043,6 +2136,7 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     });
     await setup(page, state);
     await page.locator('.nav-item[data-view="todo"]').click();
+    await setTodoRootExpanded(page, 'personal');
     await page.locator('[data-personal-plan-toggle]').click();
     const row = page.locator('[data-daily-timeline-id="audit-poll-range"]');
     const start = row.locator('[data-todo-time]');
