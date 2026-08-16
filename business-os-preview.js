@@ -2043,6 +2043,17 @@
     };
   }
 
+  // 보고서 제출 시 서버가 관리자에게 자동으로 만드는 "확인" 알림은
+  // 캘린더·보고서 흐름에는 남기되, 사용자가 직접 관리하는 개인 투두에서는 제외한다.
+  // 같은 '보고서' 분류를 사용한 수동 할 일이나 작성 알림까지 숨기지 않도록
+  // 서버가 생성하는 제목 형식을 정확히 일치시킨다.
+  function isAutomaticReportReviewTodo(event) {
+    if (event?.type !== 'todo' || event.todoCat !== '보고서') return false;
+    const title = String(event.title || '');
+    return /^📄 .+ 보고서 확인$/u.test(title)
+      || /^📋 .+ 업무보고 확인$/u.test(title);
+  }
+
   function collaborationEventContextKey() {
     return [
       workspaceAccessGeneration,
@@ -2722,6 +2733,7 @@
       && event.date === today
       && event.scope !== 'team'
       && String(event.ownerId || '') === String(currentUser?.uid || '')
+      && !isAutomaticReportReviewTodo(event)
       && !event.done).length;
     const projectRemaining = previewPersona || liveProjectTodosState.status !== 'ready'
       || liveProjectTodosState.contextKey !== projectTodosContextKey()
@@ -3023,6 +3035,7 @@
       && event.date === today
       && event.scope !== 'team'
       && String(event.ownerId || '') === String(currentUser?.uid || '')
+      && !isAutomaticReportReviewTodo(event)
     ).sort(comparePersonalTodoEvents);
     const activeProjects = dashboardProjects.filter(project => ['active', 'planning', 'review'].includes(project.status));
     const reviewProjectCount = dashboardProjects.filter(project => project.status === 'review').length;
@@ -3637,6 +3650,7 @@
       && event.date === today
       && event.scope !== 'team'
       && String(event.ownerId || '') === String(currentUser?.uid || '')
+      && !isAutomaticReportReviewTodo(event)
     );
     if (previewPersona) items = [];
     const byPriority = comparePersonalTodoEvents;

@@ -837,6 +837,103 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
       && call.path === '/peakos/collaboration/events/personal-split-task')).toHaveLength(1);
   });
 
+  test('automatic report review reminders stay on the calendar but never enter personal todo surfaces', async ({ page }) => {
+    const date = todayKey();
+    const state = createState({
+      events: [
+        {
+          id: 'auto-daily-report-review', type: 'todo', title: '📄 전현우 보고서 확인', date, time: '',
+          todo_cat: '보고서', scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호',
+          sort_order: 1, done: false, deleted: false,
+        },
+        {
+          id: 'auto-work-report-review', type: 'todo', title: '📋 손명아 업무보고 확인', date,
+          time: '09:00', end_time: '09:30', todo_cat: '보고서', scope: 'personal',
+          owner_id: 'e2e-test-user', owner_name: '김대호', sort_order: 2, done: false, deleted: false,
+        },
+        {
+          id: 'manual-same-category-title', type: 'todo', title: '전현우 보고서 확인', date, time: '',
+          todo_cat: '보고서', scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호',
+          sort_order: 10, done: false, deleted: false,
+        },
+        {
+          id: 'manual-report-prep', type: 'todo', title: '보고서 자료 정리', date,
+          time: '13:00', end_time: '14:00', todo_cat: '보고서', scope: 'personal',
+          owner_id: 'e2e-test-user', owner_name: '김대호', sort_order: 20, done: false, deleted: false,
+        },
+        {
+          id: 'report-writing-reminder', type: 'todo', title: '📝 일일 보고서 작성', date, time: '',
+          todo_cat: '보고서', scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호',
+          sort_order: 30, done: false, deleted: false,
+        },
+        {
+          id: 'completed-personal-task', type: 'todo', title: '완료한 직접 투두', date, time: '',
+          todo_cat: '기획', scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호',
+          sort_order: 40, done: true, deleted: false,
+        },
+      ],
+      projects: [{
+        id: 'report-filter-project', name: '보고서 필터 영향 확인 프로젝트', status: 'active', owner_name: '김대호',
+        tasks: [{
+          id: 'report-filter-project-task', project_id: 'report-filter-project', title: '프로젝트 정상 업무',
+          status: 'todo', assignment_mode: 'single', assignee_uid: 'e2e-test-user', assignee_name: '김대호',
+          assignees: [{ uid: 'e2e-test-user', name: '김대호', completed: false }],
+          permissions: { canRequestReview: true },
+        }],
+      }],
+    });
+    await setup(page, state);
+
+    // The source records remain in the shared calendar and report workflow.
+    await page.locator('.nav-item[data-view="calendar"]').click();
+    const todayCell = page.locator(`#homeCalendarGrid [data-date="${date}"]`);
+    await expect(todayCell).toContainText('📄 전현우 보고서 확인');
+    await expect(todayCell).toContainText('📋 손명아 업무보고 확인');
+    await expect(page.locator('#homeCalendarAgenda [data-event-detail="auto-daily-report-review"]').first()).toBeVisible();
+    await expect(page.locator('#homeCalendarAgenda [data-event-detail="auto-work-report-review"]').first()).toBeVisible();
+
+    // Dashboard and the global todo badge derive their counts from the filtered personal collection.
+    await page.locator('.nav-item[data-view="dashboard"]').click();
+    const dashboardTasks = page.locator('.executive-metric-card.tasks');
+    await expect(dashboardTasks.locator(':scope > strong')).toHaveText('4건');
+    await expect(dashboardTasks).toContainText('1건 완료 · 3건 남음');
+    await expect(page.locator('.executive-list')).not.toContainText('📄 전현우 보고서 확인');
+    await expect(page.locator('.executive-list')).not.toContainText('📋 손명아 업무보고 확인');
+    await expect(page.locator('.nav-item[data-view="todo"] .nav-badge')).toHaveText('4');
+
+    await page.locator('.nav-item[data-view="todo"]').click();
+    const personal = page.locator('[data-todo-panel="personal"]');
+    const project = page.locator('[data-todo-panel="project"]');
+
+    await expect(personal.locator('[data-personal-todo-id]')).toHaveCount(4);
+    await expect(personal.locator('[data-personal-todo-id="auto-daily-report-review"]')).toHaveCount(0);
+    await expect(personal.locator('[data-personal-todo-id="auto-work-report-review"]')).toHaveCount(0);
+    await expect(personal.locator('[data-personal-todo-id="manual-same-category-title"]')).toContainText('전현우 보고서 확인');
+    await expect(personal.locator('[data-personal-todo-id="manual-report-prep"]')).toContainText('보고서 자료 정리');
+    await expect(personal.locator('[data-personal-todo-id="report-writing-reminder"]')).toContainText('📝 일일 보고서 작성');
+    await expect(personal.locator('.todo-split-panel-head > em')).toHaveText('3건 남음');
+    await expect(personal.locator('.todo-split-progress')).toHaveAttribute('aria-label', '나의 할 일 25% 완료');
+    await expect(personal.locator('.todo-split-progress > strong')).toHaveText('1/4');
+
+    await expect(project.locator('[data-project-todo-id="report-filter-project-task"]')).toContainText('프로젝트 정상 업무');
+    await expect(project.locator('.todo-split-panel-head > em')).toHaveText('1건 남음');
+    await expect(project.locator('.todo-split-progress > strong')).toHaveText('0/1');
+
+    await personal.locator('[data-personal-plan-toggle]').click();
+    const planner = personal.locator('#personalTodoPlanner');
+    await expect(planner).toBeVisible();
+    await expect(planner).not.toContainText('📄 전현우 보고서 확인');
+    await expect(planner).not.toContainText('📋 손명아 업무보고 확인');
+    await expect(planner.locator('[data-daily-priority-id]')).toHaveCount(3);
+    await expect(planner.locator('[data-daily-timeline-id]')).toHaveCount(4);
+    await expect(planner.locator('[data-daily-plan-step="priority"] .daily-plan-step-head > em')).toHaveText('3건');
+    await expect(planner.locator('[data-daily-plan-step="capture"] .daily-plan-step-head > em')).toHaveText('2건 미정');
+    await expect(planner.locator('[data-daily-plan-step="timeline"] .daily-plan-step-head > em')).toHaveText('1/4');
+    await expect(planner.locator('.todo-summary-card').nth(0).locator('strong')).toHaveText('3건');
+    await expect(planner.locator('.todo-summary-card').nth(1).locator('strong')).toHaveText('1건');
+    await expect(planner.locator('.todo-summary-card').nth(2).locator('strong')).toHaveText('1건');
+  });
+
   test('the two todo panels stack on mobile without horizontal overflow and keep the planner folded', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const date = todayKey();
