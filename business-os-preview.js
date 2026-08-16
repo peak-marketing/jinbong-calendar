@@ -142,6 +142,7 @@
   let collaborationWakeListenersReady = false;
   let chatMessageLoadGeneration = 0;
   let collaborationMutationBusy = false;
+  let collaborationEventLoadGeneration = 0;
   let eventLoadedYear = null;
   const initialKoreaDate = koreaDateKey(new Date());
   let calendarYear = Number(initialKoreaDate.slice(0, 4));
@@ -629,6 +630,20 @@
       return `${suffix} ${displayHour}:${String(minute).padStart(2, '0')}`;
     }
     return formatDate(value, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+
+  function formatTimeRange(startValue, endValue) {
+    if (!startValue) return '시간 미정';
+    const startLabel = formatTime(startValue);
+    return endValue ? `${startLabel} ~ ${formatTime(endValue)}` : startLabel;
+  }
+
+  function timeRangeError(startValue, endValue) {
+    const startTime = String(startValue || '').slice(0, 5);
+    const endTime = String(endValue || '').slice(0, 5);
+    if (endTime && !startTime) return '종료 시간을 정하려면 시작 시간을 먼저 입력해 주세요.';
+    if (startTime && endTime && endTime <= startTime) return '종료 시간은 시작 시간보다 뒤여야 합니다.';
+    return '';
   }
 
   function safeAssetUrl(value) {
@@ -2014,6 +2029,7 @@
       date: String(record.date || '').slice(0, 10),
       endDate: String(record.end_date || record.endDate || '').slice(0, 10),
       time: record.time || '',
+      endTime: record.end_time ?? record.endTime ?? '',
       memo: record.memo || '',
       todoCat: record.todo_cat ?? record.todoCat ?? '',
       scope: record.scope || 'personal',
@@ -2027,14 +2043,29 @@
     };
   }
 
+  function collaborationEventContextKey() {
+    return [
+      workspaceAccessGeneration,
+      activeWorkspaceSlug || 'peak',
+      currentUser?.uid || '',
+      osAuthAccessGeneration,
+      previewPersona || 'self'
+    ].join('|');
+  }
+
   async function fetchEventsForYear(year) {
     if (!collaborationAccess().events) {
+      collaborationEventLoadGeneration += 1;
       liveEvents = [];
       liveChecklistSummary = {};
       eventLoadedYear = null;
       return [];
     }
+    const generation = ++collaborationEventLoadGeneration;
+    const contextKey = collaborationEventContextKey();
     const data = await collaborationApi('GET', `/events?from=${year}-01-01&to=${year}-12-31`);
+    if (generation !== collaborationEventLoadGeneration
+      || contextKey !== collaborationEventContextKey()) return liveEvents;
     liveEvents = Array.isArray(data) ? data.map(normalizeEvent) : [];
     eventLoadedYear = year;
     return liveEvents;
@@ -2085,6 +2116,8 @@
   async function loadLiveData() {
     const currentYear = Number(koreaDateKey(new Date()).slice(0, 4));
     const access = collaborationAccess();
+    const eventGeneration = ++collaborationEventLoadGeneration;
+    const eventContextKey = collaborationEventContextKey();
     const [events, checklistSummary, rooms, unread, projectData, projectTodoData] = await Promise.all([
       access.events
         ? collaborationApi('GET', `/events?from=${currentYear}-01-01&to=${currentYear}-12-31`)
@@ -2099,9 +2132,12 @@
         ? collaborationApi('GET', '/projects/my-tasks').catch(error => ({ tasks: [], loadError: error.message }))
         : Promise.resolve({ tasks: [] })
     ]);
-    liveEvents = Array.isArray(events) ? events.map(normalizeEvent) : [];
-    liveChecklistSummary = checklistSummary && typeof checklistSummary === 'object' ? checklistSummary : {};
-    eventLoadedYear = access.events ? currentYear : null;
+    if (eventGeneration === collaborationEventLoadGeneration
+      && eventContextKey === collaborationEventContextKey()) {
+      liveEvents = Array.isArray(events) ? events.map(normalizeEvent) : [];
+      liveChecklistSummary = checklistSummary && typeof checklistSummary === 'object' ? checklistSummary : {};
+      eventLoadedYear = access.events ? currentYear : null;
+    }
     liveChatRooms = Array.isArray(rooms) ? rooms : [];
     liveUnreadCounts = unread && typeof unread === 'object' ? unread : {};
     liveProjects = Array.isArray(projectData) ? projectData : (projectData.projects || []);
@@ -2113,15 +2149,20 @@
 
   async function refreshCollaborationEvents({ year = calendarYear || Number(koreaDateKey(new Date()).slice(0, 4)), render = true } = {}) {
     if (!collaborationAccess().events) {
+      collaborationEventLoadGeneration += 1;
       liveEvents = [];
       liveChecklistSummary = {};
       eventLoadedYear = null;
       return liveEvents;
     }
+    const generation = ++collaborationEventLoadGeneration;
+    const contextKey = collaborationEventContextKey();
     const [records, checklist] = await Promise.all([
       collaborationApi('GET', `/events?from=${year}-01-01&to=${year}-12-31`),
       collaborationApi('GET', '/events/checklist-summary').catch(() => ({}))
     ]);
+    if (generation !== collaborationEventLoadGeneration
+      || contextKey !== collaborationEventContextKey()) return liveEvents;
     liveEvents = Array.isArray(records) ? records.map(normalizeEvent) : [];
     liveChecklistSummary = checklist && typeof checklist === 'object' ? checklist : {};
     eventLoadedYear = year;
@@ -2250,6 +2291,7 @@
 
   function resetCollaborationState() {
     stopCollaborationPolling();
+    collaborationEventLoadGeneration += 1;
     liveEvents = [];
     liveChecklistSummary = {};
     liveProjects = [];
@@ -3040,7 +3082,7 @@
     const todayRows = todayTodos.slice(0, 3).map(event => `
       <div class="executive-list-row ${event.done ? 'done' : ''}">
         <span class="executive-list-mark ${event.done ? 'done' : 'todo'}">${event.done ? '✓' : ''}</span>
-        <span class="executive-list-copy"><strong>${esc(event.title)}</strong><small>${esc(event.ownerName || name)} · ${esc(formatTime(event.time))}</small></span>
+        <span class="executive-list-copy"><strong>${esc(event.title)}</strong><small>${esc(event.ownerName || name)} · ${esc(formatTimeRange(event.time, event.endTime))}</small></span>
         <span class="executive-list-state">${event.done ? '완료' : '진행 중'}</span>
       </div>`).join('');
     const projectRows = activeProjects.slice(0, 3).map(project => {
@@ -3188,8 +3230,9 @@
           </select></label>
           <label><span>공개 범위</span><select name="scope"><option value="personal" ${selectedScope !== 'team' ? 'selected' : ''}>내 일정</option>${allowTeam ? `<option value="team" ${selectedScope === 'team' ? 'selected' : ''}>팀 일정</option>` : ''}</select></label>
           <label class="wide"><span>제목</span><input name="title" maxlength="180" required value="${esc(event?.title || '')}" placeholder="일정 또는 할 일 제목"></label>
-          <label><span>날짜</span><input name="date" type="date" required value="${esc(selectedDate)}"></label>
-          <label><span>시간</span><input name="time" type="time" value="${esc(String(event?.time || '').slice(0, 5))}"></label>
+          <label class="wide"><span>날짜</span><input name="date" type="date" required value="${esc(selectedDate)}"></label>
+          <label><span>시작 시간</span><input name="time" type="time" value="${esc(String(event?.time || '').slice(0, 5))}"></label>
+          <label><span>종료 시간</span><input name="endTime" type="time" value="${esc(String(event?.endTime || '').slice(0, 5))}"></label>
           <label class="wide"><span>분류</span><input name="todoCat" maxlength="80" value="${esc(event?.todoCat || '')}" placeholder="예: 보고서, 고객 관리"></label>
           <label class="wide"><span>설명</span><textarea name="memo" rows="4" maxlength="5000" placeholder="설명이나 확인사항">${esc(event?.memo || '')}</textarea></label>
           ${allowTeam ? `<fieldset class="wide collaboration-member-field" data-collab-event-shares ${selectedScope === 'team' ? '' : 'hidden'}><legend>팀 일정 공유 직원</legend><div class="collaboration-member-list">${shareOptions}</div><small>선택한 직원은 직급과 소속에 관계없이 이 일정을 함께 볼 수 있습니다.</small></fieldset>` : ''}
@@ -3265,11 +3308,20 @@
         return;
       }
       const data = new FormData(form);
+      const startTime = String(data.get('time') || '');
+      const endTime = String(data.get('endTime') || '');
+      const rangeError = timeRangeError(startTime, endTime);
+      if (rangeError) {
+        showToast(rangeError);
+        form.elements[!startTime ? 'time' : 'endTime']?.focus();
+        return;
+      }
       const record = {
         type: String(data.get('type') || 'event'),
         title: String(data.get('title') || '').trim(),
         date: String(data.get('date') || ''),
-        time: String(data.get('time') || ''),
+        time: startTime,
+        endTime,
         memo: String(data.get('memo') || '').trim(),
         // PUT handler는 null을 "변경 없음"으로 처리하므로 분류를 지울 때는
         // 빈 문자열을 보내야 기존 값이 실제로 삭제된다.
@@ -3328,7 +3380,7 @@
       <span class="agenda-work-check">${event.done ? '✓' : ''}</span>
       <span class="agenda-work-copy">
         <strong>${esc(event.title)}</strong>
-        <small>${esc(event.ownerName || '담당자 미지정')}${event.time ? ` · ${esc(formatTime(event.time))}` : ''}</small>
+        <small>${esc(event.ownerName || '담당자 미지정')}${event.time ? ` · ${esc(formatTimeRange(event.time, event.endTime))}` : ''}</small>
         ${event.memo ? `<em>${esc(event.memo)}</em>` : ''}
       </span>
       ${checklistLabel ? `<span class="agenda-work-checklist">${esc(checklistLabel)}</span>` : ''}
@@ -3505,7 +3557,7 @@
       <div class="readonly-detail-meta">
         <span>${esc(eventTypeLabel(current))}</span><span>${esc(current.scope === 'team' ? '팀 일정' : '내 일정')}</span>${current.projectId ? '<span>프로젝트 연결</span>' : ''}
       </div>
-      <p class="readonly-detail-copy"><strong>일시</strong><br>${esc(formatDate(current.date, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }))} · ${esc(formatTime(current.time))}</p>
+      <p class="readonly-detail-copy"><strong>일시</strong><br>${esc(formatDate(current.date, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }))} · ${esc(formatTimeRange(current.time, current.endTime))}</p>
       <p class="readonly-detail-copy"><strong>담당</strong><br>${esc(current.ownerName || '담당자 미지정')}</p>
       <p class="readonly-detail-copy"><strong>설명</strong><br>${esc(current.memo || '등록된 설명이 없습니다.')}</p>
       <section class="collaboration-modal-section">
@@ -3593,6 +3645,7 @@
     const done = items.length - openItems.length;
     const scheduledItems = items.filter(event => Boolean(String(event.time || '').slice(0, 5)))
       .sort((a, b) => String(a.time).localeCompare(String(b.time)) || byPriority(a, b));
+    const rangedItems = scheduledItems.filter(event => Boolean(String(event.endTime || '').slice(0, 5)));
     const unscheduledItems = openItems.filter(event => !String(event.time || '').slice(0, 5));
     const timelineUnscheduledItems = items.filter(event => !String(event.time || '').slice(0, 5));
     const priorityEditable = openItems.filter(event => canEditCollaborationEvent(event));
@@ -3610,7 +3663,7 @@
       return `<div class="daily-priority-row" data-daily-priority-id="${esc(event.id)}">
         <span class="daily-priority-rank" aria-label="${index + 1}순위">${index + 1}</span>
         ${taskOpenMarkup(event)}
-        <span class="daily-priority-time">${esc(formatTime(event.time))}</span>
+        <span class="daily-priority-time">${esc(formatTimeRange(event.time, event.endTime))}</span>
         <div class="daily-priority-actions" aria-label="${esc(event.title)} 우선순위 이동">
           ${editable ? `<button type="button" data-todo-priority-move="${esc(event.id)}" data-direction="up" ${editableIndex === 0 ? 'disabled' : ''} aria-label="우선순위 올리기">↑</button>
           <button type="button" data-todo-priority-move="${esc(event.id)}" data-direction="down" ${editableIndex === priorityEditable.length - 1 ? 'disabled' : ''} aria-label="우선순위 내리기">↓</button>` : `<span class="daily-plan-locked">${canReorderVisible ? '조회' : '개인 업무만 정렬'}</span>`}
@@ -3631,17 +3684,22 @@
     const timelineMarkup = timelineItems.map(event => {
       const editable = canEditCollaborationEvent(event) && !event.done;
       return `<div class="daily-timeline-row ${event.done ? 'done' : ''}" data-daily-timeline-id="${esc(event.id)}">
-        <label class="daily-timeline-time"><span class="sr-only">${esc(event.title)} 시간</span><input type="time" value="${esc(String(event.time || '').slice(0, 5))}" ${editable ? `data-todo-time="${esc(event.id)}"` : 'disabled'} aria-label="${esc(event.title)} 시간 정하기"></label>
+        <form class="daily-timeline-range" data-todo-time-range="${esc(event.id)}" aria-label="${esc(event.title)} 시간 범위">
+          <label class="daily-timeline-time"><span class="sr-only">${esc(event.title)} 시작 시간</span><input type="time" value="${esc(String(event.time || '').slice(0, 5))}" ${editable ? `data-todo-time="${esc(event.id)}" data-todo-time-field="start"` : 'disabled'} aria-label="${esc(event.title)} 시작 시간"></label>
+          <span class="daily-timeline-separator" aria-hidden="true">~</span>
+          <label class="daily-timeline-time"><span class="sr-only">${esc(event.title)} 종료 시간</span><input type="time" value="${esc(String(event.endTime || '').slice(0, 5))}" ${editable ? `data-todo-end-time="${esc(event.id)}" data-todo-time-field="end"` : 'disabled'} aria-label="${esc(event.title)} 종료 시간"></label>
+          <button class="daily-timeline-save" type="submit" ${editable ? `data-todo-time-save="${esc(event.id)}"` : 'disabled'}>적용</button>
+        </form>
         <button class="todo-task-check ${event.done ? 'checked' : ''}" type="button" ${canEditCollaborationEvent(event) ? `data-collab-event-toggle="${esc(event.id)}"` : 'disabled'} aria-label="${esc(event.title)} ${event.done ? '미완료로 변경' : '완료'}">${event.done ? '✓' : ''}</button>
         ${taskOpenMarkup(event)}
-        <span class="daily-timeline-state">${event.done ? '완료' : (event.time ? '예정' : '시간 미정')}</span>
+        <span class="daily-timeline-state">${event.done ? '완료' : (event.endTime ? '시간 확정' : (event.time ? '종료 미정' : '시간 미정'))}</span>
       </div>`;
     }).join('');
 
     const personalChecklistMarkup = items.map(event => `<article class="todo-split-row ${event.done ? 'done' : ''}" data-personal-todo-id="${esc(event.id)}">
       <button class="todo-task-check ${event.done ? 'checked' : ''}" type="button" ${canEditCollaborationEvent(event) ? `data-collab-event-toggle="${esc(event.id)}"` : 'disabled'} aria-label="${esc(event.title)} ${event.done ? '미완료로 변경' : '완료'}">${event.done ? '✓' : ''}</button>
       ${taskOpenMarkup(event)}
-      <span class="todo-split-row-state">${event.done ? '완료' : (event.time ? esc(formatTime(event.time)) : '오늘')}</span>
+      <span class="todo-split-row-state">${event.done ? '완료' : (event.time ? esc(formatTimeRange(event.time, event.endTime)) : '오늘')}</span>
     </article>`).join('');
 
     const projectContextReady = liveProjectTodosState.contextKey === projectTodosContextKey();
@@ -3729,7 +3787,7 @@
           <div class="personal-plan-panel" id="personalTodoPlanner" ${personalTodoPlannerExpanded ? '' : 'hidden'}>
             <section class="todo-summary" aria-label="나의 오늘 업무 요약">
               <article class="todo-summary-card primary"><span>우선순위 업무</span><strong>${openItems.length}건</strong></article>
-              <article class="todo-summary-card"><span>시간 확정</span><strong>${scheduledItems.filter(event => !event.done).length}건</strong></article>
+              <article class="todo-summary-card"><span>시간 범위</span><strong>${rangedItems.filter(event => !event.done).length}건</strong></article>
               <article class="todo-summary-card"><span>완료</span><strong>${done}건</strong></article>
             </section>
             <div class="daily-plan" data-daily-plan-date="${esc(today)}">
@@ -3742,7 +3800,7 @@
                 <div class="daily-thought-list">${thoughtMarkup || '<div class="daily-plan-empty">시간을 정하지 않은 일이 없습니다.</div>'}</div>
               </section>
               <section class="daily-plan-step" data-daily-plan-step="timeline">
-                <header class="daily-plan-step-head"><span>3</span><div><strong>타임라인 잡기</strong><small>각 업무의 시작 시간을 정해 오늘의 흐름을 완성하세요.</small></div><em>${scheduledItems.length}/${items.length}</em></header>
+                <header class="daily-plan-step-head"><span>3</span><div><strong>타임라인 잡기</strong><small>각 업무의 시작부터 종료까지 정해 오늘의 흐름을 완성하세요.</small></div><em>${rangedItems.length}/${items.length}</em></header>
                 <div class="daily-timeline-list">${timelineMarkup || '<div class="daily-plan-empty">타임라인에 배치할 일이 없습니다.</div>'}</div>
                 <footer class="daily-plan-progress"><span><i style="width:${personalPercent}%"></i></span><strong>${personalPercent}% 완료</strong></footer>
               </section>
@@ -3842,16 +3900,40 @@
       if (!saved) { todoPriorityFocus = null; button.disabled = false; return; }
       await refreshTodoAfterMutation(Number(today.slice(0, 4)));
     }));
-    todoView.querySelectorAll('[data-todo-time]').forEach(input => input.addEventListener('change', async () => {
-      const event = liveEvents.find(item => String(item.id) === String(input.dataset.todoTime));
+    todoView.querySelectorAll('[data-todo-time-range]').forEach(form => form.addEventListener('submit', async submitEvent => {
+      submitEvent.preventDefault();
+      const row = form.closest('[data-daily-timeline-id]');
+      const event = liveEvents.find(item => String(item.id) === String(form.dataset.todoTimeRange));
       if (!event) return;
-      input.disabled = true;
+      const startInput = row.querySelector('[data-todo-time]');
+      const endInput = row.querySelector('[data-todo-end-time]');
+      const saveButton = form.querySelector('[data-todo-time-save]');
+      let startTime = String(startInput?.value || '');
+      let endTime = String(endInput?.value || '');
+      if (!startTime) {
+        endTime = '';
+        if (endInput) endInput.value = '';
+      }
+      const rangeError = timeRangeError(startTime, endTime);
+      if (rangeError) {
+        showToast(rangeError);
+        (!startTime ? startInput : endInput)?.focus();
+        return;
+      }
+      const controls = [startInput, endInput, saveButton].filter(Boolean);
+      controls.forEach(control => { control.disabled = true; });
       const saved = await runCollaborationMutation(
-        () => collaborationApi('PUT', `/events/${encodeURIComponent(event.id)}`, { time: input.value }),
-        input.value ? '타임라인 시간을 저장했습니다.' : '타임라인 시간을 비웠습니다.'
+        () => collaborationApi('PUT', `/events/${encodeURIComponent(event.id)}`, { time: startTime, endTime }),
+        startTime && endTime ? '타임라인 시간 범위를 저장했습니다.' : (startTime ? '시작 시간을 저장했습니다.' : '타임라인 시간을 비웠습니다.')
       );
-      if (!saved) { input.disabled = false; input.value = String(event.time || '').slice(0, 5); return; }
-      await refreshTodoAfterMutation(Number(today.slice(0, 4)));
+      if (!saved) {
+        controls.forEach(control => { control.disabled = false; });
+        if (startInput) startInput.value = String(event.time || '').slice(0, 5);
+        if (endInput) endInput.value = String(event.endTime || '').slice(0, 5);
+        return;
+      }
+      const refreshed = await refreshTodoAfterMutation(Number(today.slice(0, 4)));
+      if (!refreshed) controls.forEach(control => { control.disabled = false; });
     }));
     todoView.querySelectorAll('[data-collab-event-toggle]').forEach(button => button.addEventListener('click', async () => {
       const event = liveEvents.find(item => String(item.id) === String(button.dataset.collabEventToggle));
@@ -4312,7 +4394,7 @@
 
   function projectEventRow(event) {
     return `<article class="project-detail-event">
-      <span class="project-detail-event-date"><strong>${esc(formatDate(event.date, { month: 'numeric', day: 'numeric' }))}</strong><small>${esc(formatTime(event.time || ''))}</small></span>
+      <span class="project-detail-event-date"><strong>${esc(formatDate(event.date, { month: 'numeric', day: 'numeric' }))}</strong><small>${esc(formatTimeRange(event.time, event.endTime))}</small></span>
       <span><strong>${esc(event.title || '프로젝트 일정')}</strong><small>${esc(event.memo || event.description || '등록된 일정 설명이 없습니다.')}</small></span>
     </article>`;
   }

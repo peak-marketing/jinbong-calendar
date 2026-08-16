@@ -3026,18 +3026,27 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
 
 .daily-timeline-row {
   display: grid;
-  grid-template-columns: 82px 32px minmax(0, 1fr) 58px;
-  gap: 9px;
+  grid-template-columns: 226px 32px minmax(0, 1fr) 58px;
+  gap: 8px;
   align-items: center;
   min-height: 56px;
   border-bottom: 1px solid #edf1f4;
 }
 .daily-timeline-row.done { opacity: .65; }
 .daily-timeline-row.done .daily-plan-task-open strong { text-decoration: line-through; }
+.daily-timeline-range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) 44px;
+  gap: 5px;
+  align-items: center;
+  min-width: 0;
+}
+.daily-timeline-time { min-width: 0; }
 .daily-timeline-time input {
-  width: 78px;
+  width: 100%;
+  box-sizing: border-box;
   min-height: 31px;
-  padding: 0 6px;
+  padding: 0 4px;
   border: 1px solid #cfdae2;
   border-radius: 8px;
   background: #fff;
@@ -3045,6 +3054,21 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   font: inherit;
   font-size: 9px;
 }
+.daily-timeline-separator { color: #78909f; font-size: 10px; font-weight: 850; }
+.daily-timeline-save {
+  min-width: 44px;
+  min-height: 31px;
+  padding: 0 7px;
+  border: 1px solid #2674ac;
+  border-radius: 8px;
+  background: #2674ac;
+  color: #fff;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 850;
+  cursor: pointer;
+}
+.daily-timeline-save:disabled { cursor: default; opacity: .52; }
 .daily-timeline-time input:not(:disabled):focus { border-color: #348ecd; outline: 3px solid rgba(52, 142, 205, .1); }
 .daily-timeline-state { color: #4383ad; font-size: 8px; font-weight: 850; text-align: right; white-space: nowrap; }
 
@@ -7752,12 +7776,22 @@ body.calendar-workspace .calendar-agenda .todo-readonly-note { margin-top: 16px;
   .daily-capture-form { grid-template-columns: minmax(0, 1fr); padding-inline: 12px; }
   .daily-capture-form input,
   .daily-capture-form button { min-height: 44px; font-size: 12px; }
-  .daily-timeline-row { grid-template-columns: 100px 40px minmax(0, 1fr); gap: 7px; }
+  .daily-timeline-row {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: 7px;
+    min-height: 110px;
+    padding: 8px 0;
+  }
+  .daily-timeline-range { grid-column: 1 / -1; grid-row: 2; gap: 7px; width: 100%; }
+  .daily-timeline-row .todo-task-check { grid-column: 1; grid-row: 1; }
+  .daily-timeline-row .daily-plan-task-open { grid-column: 2; grid-row: 1; }
   .daily-thought-row { grid-template-columns: 40px minmax(0, 1fr) auto; }
   .daily-thought-row .todo-task-check,
   .daily-timeline-row .todo-task-check { width: 40px; height: 40px; }
-  .daily-timeline-state { grid-column: 3; margin-top: -8px; text-align: left; }
-  .daily-timeline-time input { width: 96px; min-height: 40px; font-size: 12px; }
+  .daily-timeline-state { grid-column: 3; grid-row: 1; margin: 0; text-align: right; }
+  .daily-timeline-time input { width: 100%; min-height: 44px; font-size: 12px; }
+  .daily-timeline-save { min-height: 44px; font-size: 11px; }
   .collaboration-toolbar-actions { width: 100%; flex-wrap: wrap; justify-content: flex-start; }
   .collaboration-form-grid,
   .collaboration-member-list { grid-template-columns: minmax(0, 1fr); }
@@ -11738,4 +11772,25 @@ body.calendar-workspace .calendar-date-line {
   }
   body.calendar-workspace .calendar-date-line { min-height: 24px; margin-bottom: 4px; }
   body.calendar-workspace .calendar-agenda button { min-height: 44px; }
+}
+
+/* Timeline ranges need the full todo panel width before the phone breakpoint. */
+@media (max-width: 1100px) and (min-width: 701px) {
+  body #todoView .todo-split-view {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 700px) {
+  body #todoView .daily-timeline-time input,
+  body #todoView .daily-timeline-save {
+    min-height: 44px;
+    height: 44px;
+  }
+}
+
+html[data-theme="dark"] body #todoView .daily-timeline-save {
+  border-color: var(--lux-cyan, #35bbc9);
+  background: var(--lux-cyan, #35bbc9);
+  color: #05202b;
 }

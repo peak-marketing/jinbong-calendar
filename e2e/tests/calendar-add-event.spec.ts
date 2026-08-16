@@ -134,6 +134,51 @@ test.describe('calendar add-event UX', () => {
     expect(result.markerSurvived).toBe(true);
   });
 
+  test('legacy editor round-trips a canonical start and end range', async ({ page }) => {
+    const eventId = 'legacy-range-roundtrip';
+    await page.evaluate(async ({ eventId }) => {
+      const w = window as any;
+      w.__e2e_api_state.events = [{
+        id: eventId, type: 'meeting', title: '기존 파라곤 시간 범위', date: w.todayStr(),
+        time: '17:30:00', end_time: '19:00', scope: 'personal',
+        owner_id: 'e2e-test-user', owner_name: 'E2E', done: false, deleted: false,
+      }];
+      await w.fetchEvents();
+      await w.editEventModal(eventId);
+    }, { eventId });
+
+    const modal = page.locator('#modalOverlay');
+    await expect(modal).not.toHaveClass(/hidden/);
+    await expect(page.locator('#evTime')).toHaveValue('17:30');
+    await expect(page.locator('#evEndTime')).toHaveValue('19:00');
+
+    // Legacy UI validation also blocks an inverted range before an API write.
+    await page.locator('#evTime').fill('20:00');
+    const invalidMessage = new Promise<string>(resolve => {
+      page.once('dialog', async dialog => {
+        resolve(dialog.message());
+        await dialog.accept();
+      });
+    });
+    await page.locator('#modalContent').getByRole('button', { name: '저장', exact: true }).click();
+    expect(await invalidMessage).toContain('종료 시간은 시작 시간보다 뒤여야 합니다');
+    await expect(modal).not.toHaveClass(/hidden/);
+    expect(await page.evaluate(() => (window as any).__e2e_api_state.events[0].end_time)).toBe('19:00');
+
+    await page.locator('#evTime').fill('17:30');
+    await page.locator('#evEndTime').fill('19:30');
+    await page.locator('#modalContent').getByRole('button', { name: '저장', exact: true }).click();
+    await expect(modal).toHaveClass(/hidden/);
+    expect(await page.evaluate(() => {
+      const event = (window as any).__e2e_api_state.events[0];
+      return { time: event.time, end_time: event.end_time, hasCamelEnd: 'endTime' in event };
+    })).toEqual({ time: '17:30', end_time: '19:30', hasCamelEnd: false });
+
+    await page.evaluate(async eventId => (window as any).editEventModal(eventId), eventId);
+    await expect(page.locator('#evTime')).toHaveValue('17:30');
+    await expect(page.locator('#evEndTime')).toHaveValue('19:30');
+  });
+
   test('no navigation occurs after swUpdateAvailable flag flip', async ({ page }) => {
     let navCount = 0;
     page.on('framenavigated', () => { navCount += 1; });

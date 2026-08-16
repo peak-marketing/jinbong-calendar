@@ -1053,7 +1053,7 @@ function buildChatMessageHtml(msg, dividerHtml = '') {
         const data = JSON.parse(msg.text.replace('[EVENT_SHARE]',''));
         bubble += `<div style="background:var(--bg4);border:1px solid var(--border);border-radius:8px;padding:8px;margin-top:2px">
           <div style="font-size:12px;font-weight:600">📅 ${esc(data.title)}</div>
-          <div style="font-size:10px;color:var(--text3);margin-top:2px">${data.date}${data.endDate ? ' ~ ' + data.endDate : ''}${data.time ? ' ' + data.time : ''}</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px">${esc(data.date || '')}${data.endDate ? ' ~ ' + esc(data.endDate) : ''}${data.time ? ' ' + esc(eventTimeRangeLabel(data.time, data.endTime)) : ''}</div>
           ${data.memo ? `<div style="font-size:10px;color:var(--text3);margin-top:2px">📝 ${esc(data.memo.split('\n')[0])}</div>` : ''}
         </div>`;
       } catch (e) {
@@ -2184,6 +2184,7 @@ function mapEventRecord(record = {}) {
     title: record.title,
     date: record.date,
     time: record.time || '',
+    endTime: record.endTime !== undefined ? record.endTime : (record.end_time || ''),
     url: record.url || '',
     memo: record.memo || '',
     todoCat: record.todoCat !== undefined ? record.todoCat : (record.todo_cat || null),
@@ -2201,6 +2202,21 @@ function mapEventRecord(record = {}) {
     sortOrder: record.sortOrder !== undefined ? record.sortOrder : (record.sort_order || 0),
     createdAt: record.createdAt !== undefined ? record.createdAt : record.created_at
   };
+}
+
+function eventTimeRangeLabel(startValue, endValue) {
+  const startTime = String(startValue || '').slice(0, 5);
+  const endTime = String(endValue || '').slice(0, 5);
+  if (!startTime) return '';
+  return endTime ? `${startTime} ~ ${endTime}` : startTime;
+}
+
+function eventTimeRangeValidationMessage(startValue, endValue) {
+  const startTime = String(startValue || '').slice(0, 5);
+  const endTime = String(endValue || '').slice(0, 5);
+  if (endTime && !startTime) return '종료 시간을 정하려면 시작 시간을 먼저 입력해 주세요.';
+  if (startTime && endTime && endTime <= startTime) return '종료 시간은 시작 시간보다 뒤여야 합니다.';
+  return '';
 }
 
 const checklistItemsCache = {};
@@ -3025,7 +3041,7 @@ function renderTeamEvSection(teamEvs) {
         <div onclick="openEventDetail('${e.id}')" style="cursor:pointer">
           <div style="display:flex;align-items:flex-start;gap:6px">
             <div style="flex:1;font-size:13px;font-weight:600;${titleStyle}">${t.icon} ${esc(e.title)} ${renderCarriedTodoBadge(e)}${cl&&cl.total>0?` <span style="font-size:10px;color:${cl.completed===cl.total?'var(--green)':'var(--yellow)'}">(${cl.completed}/${cl.total})</span>`:''}</div>
-            ${e.time?`<span style="font-size:10px;color:var(--text3)">${e.time}</span>`:''}
+            ${e.time?`<span style="font-size:10px;color:var(--text3)">${esc(eventTimeRangeLabel(e.time, e.endTime))}</span>`:''}
           </div>
           ${renderCarriedTodoMeta(e)}
           ${e.memo?`<div style="font-size:10px;color:var(--text3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📝 ${esc(e.memo.split('\\n')[0])}</div>`:''}
@@ -3046,7 +3062,7 @@ function renderProjectMeetingSection(projectMeetings) {
     ${projectMeetings.map(e => `<div class="ev-item" onclick="openProjectFromCalendar('${e.projectId}')" style="flex-direction:column;align-items:stretch;padding:10px;margin-bottom:6px;background:rgba(90,167,255,0.12);border:1px solid rgba(90,167,255,0.22);border-left:3px solid var(--blue);border-radius:10px;cursor:pointer">
       <div style="display:flex;align-items:flex-start;gap:6px">
         <div style="flex:1;font-size:13px;font-weight:750;line-height:1.4">📅 ${esc(e.title)}</div>
-        ${e.time ? `<span style="font-size:10px;color:var(--text3)">${esc(e.time)}</span>` : ''}
+        ${e.time ? `<span style="font-size:10px;color:var(--text3)">${esc(eventTimeRangeLabel(e.time, e.endTime))}</span>` : ''}
       </div>
       <div style="font-size:10px;color:var(--text3);margin-top:4px">프로젝트 연결 일정${e.ownerName ? ' · ' + esc(e.ownerName) : ''}</div>
       ${e.memo ? `<div style="font-size:10px;color:var(--text3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📝 ${esc(e.memo.split('\\n')[0])}</div>` : ''}
@@ -3136,7 +3152,7 @@ function renderEvSection(dayEvs, sectionTitle) {
       <div style="display:flex;align-items:center;gap:6px">
         <div class="ev-color" style="background:${t.color}"></div>
         <div style="flex:1;font-size:13px;font-weight:600">${t.icon} ${esc(e.title)}${cl&&cl.total>0?` <span style="font-size:10px;color:${cl.completed===cl.total?'var(--green)':'var(--yellow)'}">(${cl.completed}/${cl.total})</span>`:''}</div>
-        ${e.time?`<span style="font-size:10px;color:var(--text3)">${e.time}</span>`:''}
+        ${e.time?`<span style="font-size:10px;color:var(--text3)">${esc(eventTimeRangeLabel(e.time, e.endTime))}</span>`:''}
       </div>
       ${e.endDate?`<div style="font-size:10px;color:var(--text3);margin-top:3px;padding-left:10px">📅 ${e.date} ~ ${e.endDate}</div>`:''}
       ${e.memo?`<div style="font-size:11px;color:var(--text3);margin-top:3px;padding-left:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📝 ${esc(e.memo.split('\\n')[0])}</div>`:''}
@@ -3254,7 +3270,7 @@ function evItemHtml(e, options = {}) {
       <div class="ev-title ${e.done?'ev-done':''}">${t.icon} ${esc(e.title)} ${renderCarriedTodoBadge(e)} ${clBadge}${e.scope==='team'?'<span style="background:var(--red-bg);color:var(--red);font-size:9px;padding:1px 5px;border-radius:4px;margin-left:4px">팀</span>':''}</div>
       ${renderCarriedTodoMeta(e)}${dateMeta}${dateRange}${memoPreview}
     </div>
-    ${e.time?`<div class="ev-time">${e.time}</div>`:''}
+    ${e.time?`<div class="ev-time">${esc(eventTimeRangeLabel(e.time, e.endTime))}</div>`:''}
   </div>`;
 }
 
@@ -3292,7 +3308,7 @@ function groupEventsByOwner(evs) {
 
 function eventDateMeta(e) {
   const dateLabel = e?.date ? e.date.slice(5) : '';
-  const timeLabel = e?.time ? ` ${e.time}` : '';
+  const timeLabel = e?.time ? ` ${eventTimeRangeLabel(e.time, e.endTime)}` : '';
   return dateLabel || timeLabel ? `<div style="font-size:10px;color:var(--text3);margin-top:2px">📅 ${dateLabel}${timeLabel}</div>` : '';
 }
 
@@ -3672,7 +3688,7 @@ async function renderWeeklyInline(body, prefix) {
           const chatLink = matchRoom3 ? `<span onclick="event.stopPropagation();openChatRoomById('${matchRoom3.id}')" style="font-size:9px;color:var(--blue);cursor:pointer;margin-left:4px">💬</span>` : '';
           h += `<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;font-size:12px;${e.done?'text-decoration:line-through;opacity:0.5':''}">
             <span>${t.icon}</span><span style="flex:1">${esc(e.title)}${owner}${chatLink}</span>
-            ${e.time?`<span style="color:var(--text3);font-size:10px">${e.time}</span>`:''}
+            ${e.time?`<span style="color:var(--text3);font-size:10px">${esc(eventTimeRangeLabel(e.time, e.endTime))}</span>`:''}
           </div>`;
         });
       } else h += '<div style="padding:4px 8px;font-size:12px;color:var(--text3)">없음</div>';
@@ -3857,9 +3873,10 @@ async function openImportEvents(date) {
     available.forEach((e, idx) => {
       const t = allTypes[e.type] || {icon:'📌'};
       const time = e.time || '';
+      const endTime = e.endTime !== undefined ? e.endTime : (e.end_time || '');
       h += `<div class="room-item" onclick="importEventByIndex('${date}',${idx})">
         <div style="width:32px;height:32px;border-radius:8px;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:16px">${t.icon}</div>
-        <div style="flex:1"><div style="font-size:13px;font-weight:600">${esc(e.title)}</div><div style="font-size:10px;color:var(--text3)">${e.date}${time?' · '+time:''}</div></div>
+        <div style="flex:1"><div style="font-size:13px;font-weight:600">${esc(e.title)}</div><div style="font-size:10px;color:var(--text3)">${e.date}${time?' · '+esc(eventTimeRangeLabel(time, endTime)):''}</div></div>
         <span style="color:var(--blue);font-size:12px">+ 추가</span>
       </div>`;
     });
@@ -3871,18 +3888,23 @@ async function openImportEvents(date) {
 function importEventByIndex(date, idx) {
   const e = window._importAvailable[idx];
   if (!e) return;
-  importEventToTimetable(date, e.id, e.title, e.time || '');
+  importEventToTimetable(date, e.id, e.title, e.time || '', e.endTime !== undefined ? e.endTime : (e.end_time || ''));
 }
 
-async function importEventToTimetable(date, eventId, title, time) {
+async function importEventToTimetable(date, eventId, title, time, eventEndTime = '') {
   // 시간이 있으면 그 시간 사용, 없으면 기본값
   let startTime = '09:00', endTime = '09:30';
   if (time && time.includes(':')) {
     startTime = time.slice(0, 5);
-    // 종료시간은 시작시간 + 30분
-    const [hh, mm] = startTime.split(':').map(Number);
-    const endMin = mm + 30;
-    endTime = String(hh + Math.floor(endMin / 60)).padStart(2, '0') + ':' + String(endMin % 60).padStart(2, '0');
+    const canonicalEnd = String(eventEndTime || '').slice(0, 5);
+    if (canonicalEnd && canonicalEnd > startTime) {
+      endTime = canonicalEnd;
+    } else {
+      // 종료 시간이 없는 기존 단일 일정만 시작 + 30분으로 가져옵니다.
+      const [hh, mm] = startTime.split(':').map(Number);
+      const endMin = mm + 30;
+      endTime = String(hh + Math.floor(endMin / 60)).padStart(2, '0') + ':' + String(endMin % 60).padStart(2, '0');
+    }
   }
   try {
     await api('POST', '/timetable', { date, startTime, endTime, title, eventId });
@@ -7771,7 +7793,7 @@ function renderProjectSchedule(project) {
     </div>
     ${(project.events || []).map(ev => `<div style="padding:10px 0;border-bottom:1px solid var(--line)">
       <div style="font-size:13px;font-weight:750">${esc(ev.title)}</div>
-      <div style="font-size:11px;color:var(--text3);margin-top:4px">${esc(ev.date || '')} ${esc(ev.time || '')} · ${ev.scope === 'team' ? '팀 공유' : '개인'}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">${esc(ev.date || '')} ${esc(eventTimeRangeLabel(ev.time, ev.endTime))} · ${ev.scope === 'team' ? '팀 공유' : '개인'}</div>
       ${ev.memo ? `<div style="font-size:12px;color:var(--text3);white-space:pre-wrap;line-height:1.5;margin-top:5px">${esc(ev.memo)}</div>` : ''}
       <button class="day-action-btn" onclick="goToProjectEventDate('${esc(ev.date || '')}', '${ev.id}')" style="margin-top:8px">캘린더에서 보기</button>
     </div>`).join('') || '<div class="card-meta">아직 연결된 일정이 없습니다.</div>'}
@@ -8525,7 +8547,7 @@ async function openEventDetail(id, options = {}) {
   // 날짜
   h += `<div style="padding:10px;border-radius:8px;background:var(--bg3);margin-bottom:8px">
     <div style="font-size:11px;color:var(--text3);margin-bottom:4px">📅 날짜</div>
-    <div style="font-size:13px">${ev.date}${ev.endDate?' ~ '+ev.endDate:''}${ev.time?' '+ev.time:''}</div>
+    <div style="font-size:13px">${ev.date}${ev.endDate?' ~ '+ev.endDate:''}${ev.time?' '+esc(eventTimeRangeLabel(ev.time, ev.endTime)):''}</div>
     ${ev.reminder ? `<div style="font-size:11px;color:var(--text3);margin-top:4px">🔔 ${getEventReminderLabel(ev.reminder)}${ev.time ? ' 푸시 알림' : ' (시간 지정 시 발송)'}</div>` : ''}</div>`;
 
   // 카테고리 변경 (할일만)
@@ -8661,7 +8683,7 @@ async function shareEventToChat(eventId) {
 async function sendEventToRoom(roomId, eventId) {
   const ev = events.find(e=>e.id===eventId);
   if (!ev) return;
-  const shareData = {type:ev.type,title:ev.title,date:ev.date,endDate:ev.endDate,time:ev.time,memo:ev.memo};
+  const shareData = {type:ev.type,title:ev.title,date:ev.date,endDate:ev.endDate,time:ev.time,endTime:ev.endTime,memo:ev.memo};
   await api('POST','/chat-rooms/'+roomId+'/messages',{text:'[EVENT_SHARE]'+JSON.stringify(shareData)});
   closeModal();
   alert('공유 완료!');
@@ -8734,7 +8756,7 @@ function showShareIdeas() {
 async function quickShareEvent(eventId) {
   const ev = events.find(e=>e.id===eventId);
   if (!ev||!currentRoomId) return;
-  const shareData = {type:ev.type,title:ev.title,date:ev.date,endDate:ev.endDate,time:ev.time,memo:ev.memo};
+  const shareData = {type:ev.type,title:ev.title,date:ev.date,endDate:ev.endDate,time:ev.time,endTime:ev.endTime,memo:ev.memo};
   await api('POST','/chat-rooms/'+currentRoomId+'/messages',{text:'[EVENT_SHARE]'+JSON.stringify(shareData)});
   closeModal(); await fetchRoomMessages();
 }
@@ -8798,7 +8820,7 @@ async function createChatForEvent(eventId) {
     try { chatUnreadCounts = await api('GET','/chat-rooms/unread'); } catch(e) { chatUnreadCounts = {}; }
 
     // 채팅방에 일정 정보 자동 전송
-    const shareData = {type:ev.type,title:ev.title,date:ev.date,endDate:ev.endDate,time:ev.time,memo:ev.memo};
+    const shareData = {type:ev.type,title:ev.title,date:ev.date,endDate:ev.endDate,time:ev.time,endTime:ev.endTime,memo:ev.memo};
     await api('POST','/chat-rooms/'+room.id+'/messages',{text:'[EVENT_SHARE]'+JSON.stringify(shareData)});
 
     closeModal();
@@ -9103,7 +9125,8 @@ function openAddEvent() {
     <div class="form-group"><label class="form-label">제목</label><input class="form-input" id="evTitle" placeholder="제목"></div>
     <div class="form-group"><label class="form-label">날짜</label><input class="form-input" type="date" id="evDate" value="${selectedDate||todayStr()}"></div>
     <div class="form-group"><label class="form-label">마감일 (선택)</label><input class="form-input" type="date" id="evEndDate"></div>
-    <div class="form-group"><label class="form-label">시간 (선택)</label><input class="form-input" type="time" id="evTime"></div>
+    <div class="form-group"><label class="form-label">시작 시간 (선택)</label><input class="form-input" type="time" id="evTime"></div>
+    <div class="form-group"><label class="form-label">종료 시간 (선택)</label><input class="form-input" type="time" id="evEndTime"></div>
     <div class="form-group"><label class="form-label">리마인더</label><select class="form-input" id="evReminder">${renderEventReminderOptions()}</select><div style="font-size:11px;color:var(--text3);margin-top:4px">시간을 지정한 일정만 PC/모바일 푸시가 발송됩니다.</div></div>
     <div class="form-group"><label class="form-label">메모 (선택)</label><textarea class="form-input" id="evMemo" rows="2" style="resize:none"></textarea></div>
     <div class="form-group" id="todoCatGroup" style="display:none"><label class="form-label">카테고리</label><div style="display:flex;flex-wrap:wrap;gap:6px">
@@ -9242,6 +9265,10 @@ async function saveNewEvent() {
   const title=document.getElementById('evTitle').value.trim();
   const date=document.getElementById('evDate').value;
   if(!title||!date) return alert('제목과 날짜 필수');
+  const startTime = document.getElementById('evTime').value;
+  const endTime = document.getElementById('evEndTime').value;
+  const rangeError = eventTimeRangeValidationMessage(startTime, endTime);
+  if (rangeError) return alert(rangeError);
   const reminder = getValidatedEventReminderValue();
   if (reminder === undefined) return;
   if (isExternalCalendarOnlyUser() && evScope === 'team') return alert('외부 캘린더 계정은 본인 일정만 등록할 수 있습니다.');
@@ -9252,7 +9279,8 @@ async function saveNewEvent() {
   const newEvent = normalizeCreatedTodoEventRecord(await api('POST','/events',{
     type:selType, title, date,
     endDate:document.getElementById('evEndDate')?.value||null,
-    time:document.getElementById('evTime').value,
+    time:startTime,
+    endTime,
     memo:document.getElementById('evMemo').value.trim(),
     todoCat:selType==='todo'?selCat:null,
     reminder,
@@ -10069,7 +10097,8 @@ async function editEventModal(id) {
     <div class="form-group"><label class="form-label">제목</label><input class="form-input" id="evTitle" value="${esc(ev.title)}" placeholder="제목"></div>
     <div class="form-group"><label class="form-label">시작일</label><input class="form-input" type="date" id="evDate" value="${ev.date}"></div>
     <div class="form-group"><label class="form-label">마감일 (선택)</label><input class="form-input" type="date" id="evEndDate" value="${ev.endDate||''}"></div>
-    <div class="form-group"><label class="form-label">시간 (선택)</label><input class="form-input" type="time" id="evTime" value="${ev.time||''}"></div>
+    <div class="form-group"><label class="form-label">시작 시간 (선택)</label><input class="form-input" type="time" id="evTime" value="${esc(String(ev.time || '').slice(0, 5))}"></div>
+    <div class="form-group"><label class="form-label">종료 시간 (선택)</label><input class="form-input" type="time" id="evEndTime" value="${esc(String(ev.endTime || '').slice(0, 5))}"></div>
     <div class="form-group"><label class="form-label">리마인더</label><select class="form-input" id="evReminder">${renderEventReminderOptions(ev.reminder || '')}</select><div style="font-size:11px;color:var(--text3);margin-top:4px">시간을 지정한 일정만 PC/모바일 푸시가 발송됩니다.</div></div>
     <div class="form-group"><label class="form-label">메모 (선택)</label><textarea class="form-input" id="evMemo" rows="2" style="resize:none">${esc(ev.memo||'')}</textarea></div>
     <div class="form-group" id="todoCatGroup" style="display:${selType==='todo'?'':'none'}"><label class="form-label">카테고리</label><div style="display:flex;flex-wrap:wrap;gap:6px">
@@ -10093,6 +10122,10 @@ async function updateEvent(id) {
   const title = document.getElementById('evTitle').value.trim();
   const date = document.getElementById('evDate').value;
   if (!title||!date) return alert('제목과 날짜 필수');
+  const startTime = document.getElementById('evTime').value;
+  const endTime = document.getElementById('evEndTime').value;
+  const rangeError = eventTimeRangeValidationMessage(startTime, endTime);
+  if (rangeError) return alert(rangeError);
   const reminder = getValidatedEventReminderValue();
   if (reminder === undefined) return;
   if (isExternalCalendarOnlyUser() && evScope === 'team') return alert('외부 캘린더 계정은 본인 일정만 등록할 수 있습니다.');
@@ -10100,7 +10133,8 @@ async function updateEvent(id) {
   const updated = await api('PUT','/events/'+id,{
     type:selType, title, date,
     endDate:document.getElementById('evEndDate')?.value||null,
-    time:document.getElementById('evTime').value,
+    time:startTime,
+    endTime,
     memo:document.getElementById('evMemo').value.trim(),
     todoCat:selType==='todo'?selCat:null,
     reminder,

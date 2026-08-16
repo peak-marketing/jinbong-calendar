@@ -123,6 +123,21 @@ export function defaultApiState(): ApiStubState {
   };
 }
 
+function canonicalStubEventPatch(body: any) {
+  const patch = { ...(body || {}) };
+  if (Object.prototype.hasOwnProperty.call(patch, 'endTime')) {
+    patch.end_time = patch.endTime;
+    delete patch.endTime;
+  }
+  return patch;
+}
+
+function canonicalStubEventResponse(event: any) {
+  const row = canonicalStubEventPatch(event);
+  if (!Object.prototype.hasOwnProperty.call(row, 'end_time')) row.end_time = null;
+  return row;
+}
+
 // Route-based API stub. Uses a shared in-page state object so POSTs can
 // see their writes on subsequent GETs.
 export async function installApiStub(page: Page, initial: ApiStubState = defaultApiState()) {
@@ -734,7 +749,7 @@ export async function installApiStub(page: Page, initial: ApiStubState = default
             );
           });
         }, { from, to });
-        return respond(events);
+        return respond(events.map(canonicalStubEventResponse));
       }
       if (pathname === '/events' && method === 'POST') {
         const rec = {
@@ -742,7 +757,7 @@ export async function installApiStub(page: Page, initial: ApiStubState = default
           owner_id: 'e2e-test-user',
           owner_name: 'E2E',
           deleted: false,
-          ...body,
+          ...canonicalStubEventPatch(body),
         };
         await page.evaluate(({ rec, checklist, shareWith }) => {
           const state = (window as any).__e2e_api_state;
@@ -759,7 +774,7 @@ export async function installApiStub(page: Page, initial: ApiStubState = default
           state.eventShares = state.eventShares || {};
           state.eventShares[rec.id] = Array.isArray(shareWith) ? [...shareWith] : [];
         }, { rec, checklist: body?.checklist, shareWith: body?.shareWith });
-        return respond(rec);
+        return respond(canonicalStubEventResponse(rec));
       }
       if (/^\/events\/[^/]+\/shares$/.test(pathname) && method === 'GET') {
         const eventId = pathname.split('/')[2];
@@ -772,6 +787,7 @@ export async function installApiStub(page: Page, initial: ApiStubState = default
       }
       if (/^\/events\/[^/]+$/.test(pathname) && method === 'PUT') {
         const id = pathname.split('/')[2];
+        const eventPatch = canonicalStubEventPatch(body);
         await page.evaluate(({ id, patch }) => {
           const state = (window as any).__e2e_api_state;
           const arr = state.events;
@@ -781,12 +797,12 @@ export async function installApiStub(page: Page, initial: ApiStubState = default
             state.eventShares = state.eventShares || {};
             state.eventShares[id] = [...patch.shareWith];
           }
-        }, { id, patch: body });
+        }, { id, patch: eventPatch });
         const updated = await page.evaluate((id) => {
           const state = (window as any).__e2e_api_state || {};
           return (state.events || []).find((event: any) => event.id === id) || null;
         }, id);
-        return respond(updated || { id, ...body });
+        return respond(canonicalStubEventResponse(updated || { id, ...eventPatch }));
       }
       if (/^\/events\/[^/]+\/checklist$/.test(pathname) && method === 'GET') {
         const eventId = pathname.split('/')[2];

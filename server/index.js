@@ -66,6 +66,11 @@ const {
   normalizeEventReorderItems,
 } = require('./collaboration/peakos-collaboration-policy');
 const {
+  ensureEventTimeRangeInfrastructure,
+  resolveEventTimeRangeUpdate,
+  validateEventTimeRange,
+} = require('./collaboration/event-time-range');
+const {
   projectTaskCreationDecision,
   projectTaskCreationReviewer,
   projectTaskPatchDecision,
@@ -1768,7 +1773,7 @@ function buildRepeatDates(startDate, repeatType, repeatEnd) {
 
 app.post('/api/events', authMiddleware, async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
-  const { type, title, date, time, url, memo, todoCat, reminder, scope, repeatType, repeatEnd, shareWith, endDate, checklist } = req.body;
+  const { type, title, date, time, endTime, url, memo, todoCat, reminder, scope, repeatType, repeatEnd, shareWith, endDate, checklist } = req.body;
   const resolvedScope = scope || 'personal';
   const checklistTitles = normalizeEventChecklistTitles(checklist);
   const requestedShareIds = Array.from(new Set((Array.isArray(shareWith) ? shareWith : [])
@@ -1782,6 +1787,7 @@ app.post('/api/events', authMiddleware, async (req, res) => {
     if (isExternalCalendarUser(req) && resolvedScope === 'team') {
       return res.status(403).json({ error: '외부 캘린더 계정은 개인 일정만 등록할 수 있습니다' });
     }
+    const normalizedRange = validateEventTimeRange(time, endTime);
     const repeatDates = buildRepeatDates(date, repeatType, repeatEnd);
     let validShareIds = [];
     if (resolvedScope === 'team' && requestedShareIds.length) {
@@ -1797,9 +1803,9 @@ app.post('/api/events', authMiddleware, async (req, res) => {
     client = await pool.connect();
     await client.query('BEGIN');
     const result = await client.query(
-      `INSERT INTO events (workspace_id, type, title, date, time, url, memo, todo_cat, reminder, scope, owner_id, owner_name, repeat_type, repeat_end, end_date, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
-      [requestWorkspaceId(req), type, title, date, time||'', url||'', memo||'', todoCat||null, reminder||null, resolvedScope, req.uid, req.userName, repeatType||null, repeatEnd||null, endDate||null, sortOrder]
+      `INSERT INTO events (workspace_id, type, title, date, time, end_time, url, memo, todo_cat, reminder, scope, owner_id, owner_name, repeat_type, repeat_end, end_date, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+      [requestWorkspaceId(req), type, title, date, normalizedRange.startTime, normalizedRange.endTime, url||'', memo||'', todoCat||null, reminder||null, resolvedScope, req.uid, req.userName, repeatType||null, repeatEnd||null, endDate||null, sortOrder]
     );
     const parent = result.rows[0];
     const eventIds = [parent.id];
@@ -1807,11 +1813,11 @@ app.post('/api/events', authMiddleware, async (req, res) => {
       await client.query('UPDATE events SET repeat_parent_id = $1 WHERE id = $1', [parent.id]);
       const children = await client.query(
         `INSERT INTO events
-           (workspace_id,type,title,date,time,url,memo,todo_cat,reminder,scope,owner_id,owner_name,repeat_type,repeat_end,repeat_parent_id,end_date,sort_order)
-         SELECT $1,$2,$3,repeat_date,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,0
-         FROM unnest($16::text[]) AS repeat_dates(repeat_date)
+           (workspace_id,type,title,date,time,end_time,url,memo,todo_cat,reminder,scope,owner_id,owner_name,repeat_type,repeat_end,repeat_parent_id,end_date,sort_order)
+         SELECT $1,$2,$3,repeat_date,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,0
+         FROM unnest($17::text[]) AS repeat_dates(repeat_date)
          RETURNING id`,
-        [requestWorkspaceId(req), type, title, time||'', url||'', memo||'', todoCat||null, reminder||null, resolvedScope,
+        [requestWorkspaceId(req), type, title, normalizedRange.startTime, normalizedRange.endTime, url||'', memo||'', todoCat||null, reminder||null, resolvedScope,
           req.uid, req.userName, repeatType, repeatEnd, parent.id, endDate||null, repeatDates]
       );
       eventIds.push(...children.rows.map(row => row.id));
@@ -1935,7 +1941,7 @@ async function getEventRowById(eventId) {
 
 app.put('/api/events/:id', authMiddleware, async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
-  const { type, title, date, time, url, memo, todoCat, reminder, scope, done, deleted, kanbanStatus, kanbanOrder, endDate, shareWith } = req.body;
+  const { type, title, date, time, endTime, url, memo, todoCat, reminder, scope, done, deleted, kanbanStatus, kanbanOrder, endDate, shareWith } = req.body;
   const shouldSyncShares = Array.isArray(shareWith) || scope === 'personal';
   const requestedShareIds = Array.from(new Set((Array.isArray(shareWith) ? shareWith : [])
     .map(uid => String(uid || '').trim())
@@ -1960,6 +1966,17 @@ app.put('/api/events/:id', authMiddleware, async (req, res) => {
       throw Object.assign(new Error('외부 캘린더 계정은 개인 일정만 등록할 수 있습니다'), { statusCode: 403 });
     }
 
+    const {
+      startTime: normalizedTime,
+      endTime: normalizedEndTime,
+    } = resolveEventTimeRangeUpdate({
+      existingStartTime: ev.rows[0].time,
+      existingEndTime: ev.rows[0].end_time,
+      requestedStartTime: time,
+      requestedEndTime: endTime,
+      legacyRequest: !isPeakosCollaborationAuthenticated(req),
+    });
+
     let validShareIds = [];
     if (shouldSyncShares && resolvedScope === 'team' && requestedShareIds.length) {
       validShareIds = await peakosWorkspaceService.assertUsersInWorkspace(
@@ -1974,13 +1991,13 @@ app.put('/api/events/:id', authMiddleware, async (req, res) => {
 
     const result = await client.query(
       `UPDATE events SET type=COALESCE($1,type), title=COALESCE($2,title), date=COALESCE($3,date),
-       time=COALESCE($4,time), url=COALESCE($5,url), memo=COALESCE($6,memo),
-       todo_cat=COALESCE($7,todo_cat), reminder=COALESCE($8,reminder), scope=COALESCE($9,scope),
-       done=COALESCE($10,done), deleted=COALESCE($11,deleted),
-       kanban_status=COALESCE($12,kanban_status), kanban_order=COALESCE($13,kanban_order),
-       end_date=COALESCE($14,end_date)
-       WHERE id=$15 RETURNING *`,
-      [type, title, date, time, url, memo, todoCat, reminder, scope, done, deleted, kanbanStatus, kanbanOrder, endDate, req.params.id]
+       time=COALESCE($4,time), end_time=COALESCE($5,end_time), url=COALESCE($6,url), memo=COALESCE($7,memo),
+       todo_cat=COALESCE($8,todo_cat), reminder=COALESCE($9,reminder), scope=COALESCE($10,scope),
+       done=COALESCE($11,done), deleted=COALESCE($12,deleted),
+       kanban_status=COALESCE($13,kanban_status), kanban_order=COALESCE($14,kanban_order),
+       end_date=COALESCE($15,end_date)
+       WHERE id=$16 RETURNING *`,
+      [type, title, date, normalizedTime, normalizedEndTime, url, memo, todoCat, reminder, scope, done, deleted, kanbanStatus, kanbanOrder, endDate, req.params.id]
     );
     if (shouldSyncShares) {
       await client.query('DELETE FROM event_shares WHERE event_id = $1', [req.params.id]);
@@ -7736,6 +7753,7 @@ async function startServer() {
     // readiness check; application startup never attempts owner DDL here.
     await ensurePeakosWorkspaceInfrastructure(pool);
     await ensurePeakosEventVisibilityInfrastructure(pool);
+    await ensureEventTimeRangeInfrastructure(pool);
     await ensurePeakosNewProjectInfrastructure(pool);
     await ensureReminderInfrastructure();
     await ensureChatPerformanceIndexes();

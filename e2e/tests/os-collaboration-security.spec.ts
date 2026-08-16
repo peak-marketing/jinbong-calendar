@@ -102,6 +102,21 @@ function parseBody(route: Route) {
   try { return route.request().postDataJSON(); } catch { return null; }
 }
 
+function canonicalEventPatch(body: any) {
+  const patch = { ...(body || {}) };
+  if (Object.prototype.hasOwnProperty.call(patch, 'endTime')) {
+    patch.end_time = patch.endTime;
+    delete patch.endTime;
+  }
+  return patch;
+}
+
+function canonicalEventResponse(event: any) {
+  const row = canonicalEventPatch(event);
+  if (!Object.prototype.hasOwnProperty.call(row, 'end_time')) row.end_time = null;
+  return row;
+}
+
 async function installSharedApi(page: Page, state: CollaborationState) {
   const peakos = createPeakosStore('김대호', 'admin');
   await page.route('**/api/**', async route => {
@@ -218,7 +233,9 @@ async function installSharedApi(page: Page, state: CollaborationState) {
     }
     if (resourcePath === '/events' && method === 'GET') {
       const hidden = new Set(state.osHiddenEventIds[workspaceSlug] || []);
-      return send(requestEvents.filter(event => !event.deleted && (!protectedRequest || !hidden.has(String(event.id)))));
+      return send(requestEvents
+        .filter(event => !event.deleted && (!protectedRequest || !hidden.has(String(event.id))))
+        .map(canonicalEventResponse));
     }
     if (resourcePath === '/events' && method === 'POST') {
       const category = String(body?.todoCat || '');
@@ -231,7 +248,7 @@ async function installSharedApi(page: Page, state: CollaborationState) {
       );
       const created = {
         id: `event-${++state.sequence}`,
-        ...body,
+        ...canonicalEventPatch(body),
         owner_id: 'e2e-test-user', owner_name: '김대호', done: false, deleted: false,
         sort_order: Math.max(-1, ...categoryRows.map(event => Number(event.sort_order || 0))) + 1,
       };
@@ -239,7 +256,7 @@ async function installSharedApi(page: Page, state: CollaborationState) {
       state.checklists[created.id] = (body?.checklist || []).map((title: string, index: number) => ({
         id: `${created.id}-check-${index + 1}`, event_id: created.id, title, done: false, sort_order: index,
       }));
-      return send(created);
+      return send(canonicalEventResponse(created));
     }
     if (resourcePath === '/events/reorder' && method === 'POST') {
       for (const item of body?.items || []) {
@@ -272,8 +289,8 @@ async function installSharedApi(page: Page, state: CollaborationState) {
     if (eventMatch && method === 'PUT') {
       const event = state.events.find(item => String(item.id) === decodeURIComponent(eventMatch[1]));
       if (!event) return send({ error: 'Not found' }, 404);
-      Object.assign(event, body || {});
-      return send(event);
+      Object.assign(event, canonicalEventPatch(body));
+      return send(canonicalEventResponse(event));
     }
     const checklistListMatch = resourcePath.match(/^\/events\/([^/]+)\/checklist$/);
     if (checklistListMatch && method === 'GET') {
@@ -608,6 +625,7 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     await expect(page.locator('#todoView [data-collab-add-todo]')).toHaveCount(0);
     await expect(page.locator('#todoView [data-personal-todo-id]')).toHaveCount(0);
     await expect(page.locator('#todoView [data-project-todo-id]')).toHaveCount(0);
+    await expect(page.locator('#todoView [data-todo-time-range]')).toHaveCount(0);
     await expect(page.getByText('계정 미리보기에서는 업무 데이터가 비공개입니다')).toHaveCount(2);
     expect(state.calls.filter(call => call.method !== 'GET' && call.path.startsWith('/peakos/collaboration/'))).toHaveLength(beforePreview);
     releasePreviewLoad();
@@ -646,6 +664,12 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     await plannerToggle.click();
     await expect(plannerToggle).toHaveAttribute('aria-expanded', 'true');
 
+    // 마이그레이션 전부터 존재하던 시작 시각 하나짜리 이벤트도 그대로 편집할 수 있다.
+    const existingSingleRow = page.locator('[data-daily-timeline-id="second"]');
+    await expect(existingSingleRow.locator('[data-todo-time]')).toHaveValue('11:00');
+    await expect(existingSingleRow.locator('[data-todo-end-time]')).toHaveValue('');
+    await expect(existingSingleRow.locator('.daily-timeline-state')).toHaveText('종료 미정');
+
     await page.locator('[data-todo-priority-move="first"][data-direction="down"]').click();
     const priorityRows = page.locator('[data-daily-priority-id]');
     await expect(priorityRows.nth(0)).toHaveAttribute('data-daily-priority-id', 'second');
@@ -668,15 +692,95 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
     expect(captureOrderCall?.body?.items.at(-1)).toMatchObject({ id: captured.id });
     await expect(page.locator('[data-daily-priority-id]').last()).toHaveAttribute('data-daily-priority-id', captured.id);
 
+    const eventFirstPuts = () => state.calls.filter(call =>
+      call.method === 'PUT' && call.path === '/peakos/collaboration/events/first');
+    const eventReads = () => state.calls.filter(call =>
+      call.method === 'GET' && call.path === '/peakos/collaboration/events');
+    const putsBeforeRange = eventFirstPuts().length;
+    const readsBeforeRange = eventReads().length;
     const timeInput = page.locator('[data-daily-timeline-id="first"] [data-todo-time="first"]');
-    await timeInput.fill('09:30');
-    await timeInput.press('Tab');
-    await expect(page.locator('[data-daily-timeline-id="first"] [data-todo-time="first"]')).toHaveValue('09:30');
-    const timeCall = state.calls.find(call => call.method === 'PUT' && call.path === '/peakos/collaboration/events/first' && call.body?.time === '09:30');
-    expect(timeCall).toMatchObject({ workspace: 'peak', body: { time: '09:30' } });
+    const endTimeInput = page.locator('[data-daily-timeline-id="first"] [data-todo-end-time="first"]');
+
+    // 두 입력은 draft이며, 적용을 눌렀을 때만 한 요청으로 원자 저장한다.
+    await timeInput.fill('17:30');
+    await endTimeInput.fill('19:00');
+    expect(eventFirstPuts()).toHaveLength(putsBeforeRange);
+    await page.locator('[data-daily-timeline-id="first"] [data-todo-time-save="first"]').click();
+    await expect(page.locator('[data-daily-timeline-id="first"] [data-todo-time="first"]')).toHaveValue('17:30');
+    await expect(page.locator('[data-daily-timeline-id="first"] [data-todo-end-time="first"]')).toHaveValue('19:00');
+    expect(eventFirstPuts()).toHaveLength(putsBeforeRange + 1);
+    expect(eventFirstPuts().at(-1)).toMatchObject({ workspace: 'peak', body: { time: '17:30', endTime: '19:00' } });
+    expect(state.events.find(event => event.id === 'first')).toMatchObject({ time: '17:30', end_time: '19:00' });
+    expect(eventReads().length).toBeGreaterThan(readsBeforeRange);
+    await expect(page.locator('[data-daily-timeline-id="first"] .daily-timeline-state')).toHaveText('시간 확정');
+
+    // 상세/편집 화면도 canonical 재조회된 시간 범위를 그대로 보여준다.
+    await page.locator('[data-daily-timeline-id="first"] [data-collab-event-open="first"]').click();
+    await expect(page.locator('#readonlyModalBody')).toContainText('오후 5:30 ~ 오후 7:00');
+    await page.locator('#readonlyModalBody [data-collab-event-edit]').click();
+    const eventForm = page.locator('#collaborationEventForm');
+    await expect(eventForm.locator('[name="time"]')).toHaveValue('17:30');
+    await expect(eventForm.locator('[name="endTime"]')).toHaveValue('19:00');
+    await eventForm.locator('[name="endTime"]').fill('19:30');
+    await eventForm.getByRole('button', { name: '수정 저장', exact: true }).click();
+    await expect(eventForm).toBeHidden();
+    expect(eventFirstPuts().at(-1)).toMatchObject({ body: { time: '17:30', endTime: '19:30' } });
+    expect(state.events.find(event => event.id === 'first')).toMatchObject({ time: '17:30', end_time: '19:30' });
+
+    // 종료가 시작보다 앞서면 draft는 고칠 수 있게 남기되 서버 쓰기는 전혀 보내지 않는다.
+    const putsBeforeInvalidRange = eventFirstPuts().length;
+    await page.locator('[data-daily-timeline-id="first"] [data-todo-end-time="first"]').fill('17:00');
+    await page.locator('[data-daily-timeline-id="first"] [data-todo-time-save="first"]').click();
+    await expect(page.locator('[data-daily-timeline-id="first"] [data-todo-end-time="first"]')).toBeFocused();
+    expect(eventFirstPuts()).toHaveLength(putsBeforeInvalidRange);
+
+    // 시작을 비우면 범위 자체가 성립하지 않으므로 종료도 함께 비운다.
+    await page.locator('[data-daily-timeline-id="first"] [data-todo-time="first"]').fill('');
+    await page.locator('[data-daily-timeline-id="first"] [data-todo-time-save="first"]').click();
+    expect(eventFirstPuts().at(-1)).toMatchObject({ body: { time: '', endTime: '' } });
+    await expect(page.locator('[data-daily-timeline-id="first"] [data-todo-end-time="first"]')).toHaveValue('');
+    await expect(page.locator('[data-daily-timeline-id="first"] .daily-timeline-state')).toHaveText('시간 미정');
+
     expect(state.calls.some(call => call.path.startsWith('/timetable'))).toBe(false);
     expect(state.calls.some(call => call.method !== 'GET' && /^\/events(?:\/|$)/.test(call.path))).toBe(false);
   });
+
+  for (const width of [900, 768]) {
+    test(`${width}px timeline range keeps every row control inside its panel`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      const date = todayKey();
+      const state = createState({
+        events: [{
+          id: `responsive-range-${width}`, type: 'todo', title: '시간 범위 배치 확인', date,
+          time: '17:30', end_time: '19:00', scope: 'personal', owner_id: 'e2e-test-user',
+          owner_name: '김대호', sort_order: 10, done: false, deleted: false,
+        }],
+      });
+      await setup(page, state);
+      await page.locator('.nav-item[data-view="todo"]').click();
+      await page.locator('[data-personal-plan-toggle]').click();
+
+      const geometry = await page.locator(`[data-daily-timeline-id="responsive-range-${width}"]`).evaluate(row => {
+        const rect = row.getBoundingClientRect();
+        const childRects = [...row.children].map(child => {
+          const childRect = child.getBoundingClientRect();
+          return { left: childRect.left, right: childRect.right, width: childRect.width };
+        });
+        return {
+          row: { left: rect.left, right: rect.right, width: rect.width },
+          childRects,
+          overflow: document.documentElement.scrollWidth - window.innerWidth,
+        };
+      });
+      expect(geometry.row.width).toBeGreaterThan(0);
+      for (const child of geometry.childRects) {
+        expect(child.width).toBeGreaterThan(0);
+        expect(child.left).toBeGreaterThanOrEqual(geometry.row.left - 1);
+        expect(child.right).toBeLessThanOrEqual(geometry.row.right + 1);
+      }
+      expect(geometry.overflow).toBeLessThanOrEqual(1);
+    });
+  }
 
   test('one desktop view separates personal and project checklists with distinct completion workflows', async ({ page }) => {
     const date = todayKey();
@@ -1053,6 +1157,30 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
       await setup(page, state, workspaceRole === 'oversight' ? '/os/w/peak' : '/os/');
       await expect(page.locator('[data-collab-event-hide]')).toHaveCount(0);
       expect(state.calls.some(call => call.method === 'POST' && call.path.endsWith('/os-hide'))).toBe(false);
+    });
+  }
+
+  for (const accessCase of [
+    { label: 'non-owner', ownerId: 'other-user', permission: 'write' as const },
+    { label: 'read-only workspace', ownerId: 'e2e-test-user', permission: 'read' as const },
+  ]) {
+    test(`${accessCase.label} can read a time range but cannot edit or save it`, async ({ page }) => {
+      const date = todayKey();
+      const event = {
+        id: `range-${accessCase.label}`, type: 'event', title: `${accessCase.label} 시간 범위`, date,
+        time: '17:30:00', end_time: '19:00', scope: 'personal',
+        owner_id: accessCase.ownerId, owner_name: accessCase.ownerId === 'other-user' ? '박우진' : '김대호',
+        done: false, deleted: false,
+      };
+      const state = createState({
+        events: [event], workspaceRole: 'member', calendarPermission: accessCase.permission,
+        user: { ...createState().user, role: 'member' },
+      });
+      await setup(page, state, '/os/w/peak');
+      await page.locator(`#homeCalendarAgenda [data-event-detail="${event.id}"]`).first().click();
+      await expect(page.locator('#readonlyModalBody')).toContainText('오후 5:30 ~ 오후 7:00');
+      await expect(page.locator('#readonlyModalBody [data-collab-event-edit]')).toHaveCount(0);
+      expect(state.calls.some(call => call.method !== 'GET' && call.path.endsWith(`/events/${event.id}`))).toBe(false);
     });
   }
 
@@ -1558,4 +1686,85 @@ test.describe('PEAK OS collaboration security and shared-data contract', () => {
       for (const path of account.required) expect(protectedReads).toContain(path);
     });
   }
+
+  test('read-only range exposes disabled start, end, and apply with no writes', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const date = todayKey();
+    const state = createState({
+      events: [{ id: 'audit-readonly-range', type: 'todo', title: '읽기 전용 시간 범위', date, time: '17:30', end_time: '19:00', scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', done: false, deleted: false }],
+      workspaceRole: 'member',
+      calendarPermission: 'read',
+      user: { ...createState().user, role: 'member' },
+    });
+    await setup(page, state, '/os/w/peak');
+    await page.locator('.nav-item[data-view="todo"]').click();
+    await page.locator('[data-personal-plan-toggle]').click();
+    const row = page.locator('[data-daily-timeline-id="audit-readonly-range"]');
+    const start = row.getByRole('textbox', { name: '읽기 전용 시간 범위 시작 시간' });
+    const end = row.getByRole('textbox', { name: '읽기 전용 시간 범위 종료 시간' });
+    const apply = row.getByRole('button', { name: '적용', exact: true });
+    await expect(start).toHaveValue('17:30');
+    await expect(end).toHaveValue('19:00');
+    await expect(start).toBeDisabled();
+    await expect(end).toBeDisabled();
+    await expect(apply).toBeDisabled();
+    const sizes = await row.locator('input, .daily-timeline-save').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().height));
+    expect(sizes).toEqual([44, 44, 44]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
+    expect(state.calls.some(call => call.method !== 'GET' && call.path.includes('/events/audit-readonly-range'))).toBe(false);
+  });
+
+  test('focused range draft survives polling and stale pre-save response cannot overwrite applied range', async ({ page }) => {
+    const date = todayKey();
+    const state = createState({
+      events: [{ id: 'audit-poll-range', type: 'todo', title: '폴링 시간 범위', date, time: '17:30', end_time: '', scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', done: false, deleted: false }],
+    });
+    await setup(page, state);
+    await page.locator('.nav-item[data-view="todo"]').click();
+    await page.locator('[data-personal-plan-toggle]').click();
+    const row = page.locator('[data-daily-timeline-id="audit-poll-range"]');
+    const start = row.locator('[data-todo-time]');
+    const end = row.locator('[data-todo-end-time]');
+    await start.fill('17:30');
+    await end.fill('19:00');
+    const putsBeforeDraft = state.calls.filter(call => call.method === 'PUT' && call.path.endsWith('/events/audit-poll-range')).length;
+    await page.waitForTimeout(5_400);
+    await expect(start).toHaveValue('17:30');
+    await expect(end).toHaveValue('19:00');
+    expect(state.calls.filter(call => call.method === 'PUT' && call.path.endsWith('/events/audit-poll-range'))).toHaveLength(putsBeforeDraft);
+
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.waitForTimeout(1_200);
+    const stalePayload = state.events.map(event => canonicalEventResponse({ ...event }));
+    let staleStarted = 0;
+    let staleDelivered = 0;
+    let releaseStale!: () => void;
+    const staleGate = new Promise<void>(resolve => { releaseStale = resolve; });
+    await page.route(/\/api\/peakos\/collaboration\/events\?/, async route => {
+      if (route.request().method() !== 'GET' || staleStarted > 0) return route.fallback();
+      staleStarted += 1;
+      await staleGate;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(stalePayload) });
+      staleDelivered += 1;
+    });
+    await page.evaluate(() => window.dispatchEvent(new Event('pageshow')));
+    await expect.poll(() => staleStarted).toBe(1);
+    const eventReadCount = () => state.calls.filter(call => call.method === 'GET'
+      && call.path === '/peakos/collaboration/events'
+      && call.search.startsWith('?from=')).length;
+    const readsBeforeSave = eventReadCount();
+    await row.locator('[data-todo-time-save]').click();
+    await expect.poll(() => state.calls.filter(call => call.method === 'PUT' && call.path.endsWith('/events/audit-poll-range')).length).toBe(1);
+    // Wait for the post-save canonical GET/render first. Only then release the
+    // older polling response so this test exercises the harmful completion order.
+    await expect.poll(eventReadCount).toBeGreaterThan(readsBeforeSave);
+    await expect(page.locator('[data-daily-timeline-id="audit-poll-range"] [data-todo-end-time]')).toHaveValue('19:00');
+    await expect(page.locator('[data-daily-timeline-id="audit-poll-range"] .daily-timeline-state')).toHaveText('시간 확정');
+    releaseStale();
+    await expect.poll(() => staleDelivered).toBe(1);
+    await page.waitForTimeout(1_200);
+    await expect(page.locator('[data-daily-timeline-id="audit-poll-range"] [data-todo-end-time]')).toHaveValue('19:00');
+    await expect(page.locator('[data-daily-timeline-id="audit-poll-range"] .daily-timeline-state')).toHaveText('시간 확정');
+  });
+
 });
