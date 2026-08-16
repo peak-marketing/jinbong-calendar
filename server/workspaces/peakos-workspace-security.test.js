@@ -90,7 +90,9 @@ test('workspace permission middleware enforces membership and the exact oversigh
     async query(sql, params = []) {
       const text = String(sql).replace(/\s+/g, ' ').trim();
       if (!/peakos_workspace_memberships/.test(text)) throw new Error(`unexpected query: ${text}`);
-      const context = contexts.get(`${params[1]}:${params[0]}`);
+      const context = text.includes("m.role <> 'oversight'") && text.includes('LIMIT 1')
+        ? contexts.get(`${params[0]}:daegu`)
+        : contexts.get(`${params[1]}:${params[0]}`);
       return { rows: context ? [{
         workspace_id: context.workspace.id,
         slug: context.workspace.slug,
@@ -100,7 +102,16 @@ test('workspace permission middleware enforces membership and the exact oversigh
       }] : [] };
     },
   };
-  const service = createPeakosWorkspaceService({ pool, environment: {}, logger: { error() {} } });
+  const service = createPeakosWorkspaceService({
+    pool,
+    environment: { PEAKOS_ACCESS_UIDS_JSON: JSON.stringify({
+      '패션TV봉이': 'hq-oversight',
+      '박종원': 'uid-oversight-park',
+      '김대호': 'uid-oversight-kim',
+      '손명아': 'uid-oversight-son',
+    }) },
+    logger: { error() {} },
+  });
   const req = (uid, slug, method = 'GET') => ({ uid, method, headers: { 'x-peakos-workspace': slug } });
 
   for (const area of [...OVERSIGHT_AREAS, ...DENIED_OVERSIGHT_AREAS]) {

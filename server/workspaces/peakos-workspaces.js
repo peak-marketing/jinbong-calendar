@@ -296,6 +296,39 @@ async function backfillPeakWorkspaceBatches(pool, {
 function createPeakosWorkspaceService({ pool, environment = process.env, logger = console } = {}) {
   if (!pool || typeof pool.query !== 'function') throw new TypeError('pool.query가 필요합니다.');
 
+  // Cross-workspace visibility is a separate, immutable-identity capability.
+  // It must not be inferred from a display name, global role, preview persona,
+  // or leftover membership rows. If the UID configuration is unavailable the
+  // policy fails closed: users retain only their canonical direct workspace.
+  let portfolioUidSet;
+  function canAccessWorkspacePortfolio(uid) {
+    if (portfolioUidSet === undefined) {
+      try {
+        portfolioUidSet = new Set(parseAccessUidMap(environment).values());
+      } catch (_) {
+        portfolioUidSet = new Set();
+      }
+    }
+    return portfolioUidSet.has(String(uid || '').trim());
+  }
+
+  async function resolvePrimaryDirectForUser(uid) {
+    const result = await pool.query(
+      `SELECT w.id AS workspace_id, w.slug, w.name, w.kind,
+              m.role AS membership_role, m.permissions, m.is_default
+         FROM peakos_workspace_memberships m
+         JOIN peakos_workspaces w ON w.id = m.workspace_id
+        WHERE m.user_uid = $1
+          AND m.active = TRUE
+          AND m.role <> 'oversight'
+          AND w.active = TRUE
+        ORDER BY m.is_default DESC, m.created_at, w.slug
+        LIMIT 1`,
+      [uid],
+    );
+    return result.rows[0] ? serializeWorkspaceRow(result.rows[0]) : null;
+  }
+
   async function seedOversightMemberships() {
     const uidByName = parseAccessUidMap(environment);
     const uids = [...uidByName.values()];
@@ -375,6 +408,10 @@ function createPeakosWorkspaceService({ pool, environment = process.env, logger 
   }
 
   async function listForUser(uid) {
+    if (!canAccessWorkspacePortfolio(uid)) {
+      const primary = await resolvePrimaryDirectForUser(uid);
+      return primary ? [primary] : [];
+    }
     const result = await pool.query(
       `SELECT w.id AS workspace_id, w.slug, w.name, w.kind,
               m.role AS membership_role, m.permissions, m.is_default
@@ -396,6 +433,17 @@ function createPeakosWorkspaceService({ pool, environment = process.env, logger 
     if (!normalized || !WORKSPACE_BY_SLUG.has(normalized)) {
       throw new WorkspaceAccessError('올바르지 않은 워크스페이스입니다.', 'PEAKOS_WORKSPACE_INVALID', 400);
     }
+    if (!canAccessWorkspacePortfolio(uid)) {
+      const primary = await resolvePrimaryDirectForUser(uid);
+      if (!primary || primary.slug !== normalized) {
+        throw new WorkspaceAccessError(
+          '이 워크스페이스에 접근할 수 없습니다.',
+          'PEAKOS_WORKSPACE_FORBIDDEN',
+          403,
+        );
+      }
+      return primary;
+    }
     const result = await pool.query(
       `SELECT w.id AS workspace_id, w.slug, w.name, w.kind,
               m.role AS membership_role, m.permissions, m.is_default
@@ -414,20 +462,7 @@ function createPeakosWorkspaceService({ pool, environment = process.env, logger 
   }
 
   async function resolveDefaultForUser(uid) {
-    const result = await pool.query(
-      `SELECT w.id AS workspace_id, w.slug, w.name, w.kind,
-              m.role AS membership_role, m.permissions, m.is_default
-         FROM peakos_workspace_memberships m
-         JOIN peakos_workspaces w ON w.id = m.workspace_id
-        WHERE m.user_uid = $1
-          AND m.active = TRUE
-          AND m.role <> 'oversight'
-          AND w.active = TRUE
-        ORDER BY m.is_default DESC, m.created_at, w.slug
-        LIMIT 1`,
-      [uid],
-    );
-    return result.rows[0] ? serializeWorkspaceRow(result.rows[0]) : null;
+    return resolvePrimaryDirectForUser(uid);
   }
 
   async function attachRequestWorkspace(req, { required = false } = {}) {
@@ -714,6 +749,7 @@ function createPeakosWorkspaceService({ pool, environment = process.env, logger 
     setUserMembershipsActive,
     syncUserDefaultMembership,
     userHasDirectMembership,
+    canAccessWorkspacePortfolio,
     workspaceId,
   });
 }

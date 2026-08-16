@@ -1217,7 +1217,7 @@
     const displayName = active?.name || '워크스페이스 확인 필요';
     const role = String(workspaceContext?.membership?.role || active?.role || '');
     const roleLabelMap = { admin: '관리자', manager: '매니저', member: '구성원', oversight: '본사 열람' };
-    if (nameNode) nameNode.textContent = `${displayName} OS`;
+    if (nameNode) nameNode.textContent = displayName;
     if (metaNode) metaNode.textContent = workspaceContext
       ? `${roleLabelMap[role] || '구성원'} · 분리 워크스페이스`
       : 'WORKSPACE 권한 확인 중';
@@ -1231,7 +1231,7 @@
       ? availableWorkspaces
       : (active ? [active] : []);
     selector.innerHTML = rows.length
-      ? rows.map(workspace => `<option value="${esc(workspace.slug)}" ${workspace.slug === activeWorkspaceSlug ? 'selected' : ''}>${esc(workspace.name)} OS${workspace.role === 'oversight' ? ' · 열람' : ''}</option>`).join('')
+      ? rows.map(workspace => `<option value="${esc(workspace.slug)}" ${workspace.slug === activeWorkspaceSlug ? 'selected' : ''}>${esc(workspace.name)}</option>`).join('')
       : '<option value="">접근 가능한 워크스페이스 없음</option>';
     selector.disabled = workspaceSwitching || !workspaceContext || rows.length < 2;
   }

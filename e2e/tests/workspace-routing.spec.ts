@@ -185,7 +185,7 @@ test('canonical workspace route sends a non-overridable workspace header and kee
   const calls = await setup(page, { defaultSlug: 'daegu', activeRoles: { peak: 'admin', daegu: 'member' } });
   await page.goto('/os/w/daegu');
   await expect(page.locator('#authGate')).toBeHidden();
-  await expect(page.locator('[data-active-workspace-name]')).toHaveText('피크마케팅 대구지사 OS');
+  await expect(page.locator('[data-active-workspace-name]')).toHaveText('피크마케팅 대구지사');
   await expect(page.locator('[data-workspace-selector]')).toHaveValue('daegu');
   for (const clusterName of ['main', 'sales-operations', 'company', 'finance', 'tax-banking', 'tools']) {
     const cluster = page.locator(`[data-nav-cluster="${clusterName}"]`);
@@ -258,7 +258,7 @@ for (const slug of ['build-solution', 'jeonju'] as const) {
     const calls = await setup(page, { defaultSlug: slug, activeRoles: { [slug]: 'member' as const } });
     await page.goto(`/os/w/${slug}`);
     await expect(page.locator('#authGate')).toBeHidden();
-    await expect(page.locator('[data-active-workspace-name]')).toHaveText(`${names[slug]} OS`);
+    await expect(page.locator('[data-active-workspace-name]')).toHaveText(names[slug]);
     const businessCalls = calls.filter(call => call.path.startsWith('/peakos/'));
     expect(businessCalls.length).toBeGreaterThan(0);
     expect(businessCalls.every(call => call.workspace === slug)).toBe(true);
@@ -396,7 +396,7 @@ for (const account of branchAccountMappings) {
     await page.goto('/os/');
     await page.waitForURL(new RegExp(`/os/w/${account.slug}$`));
     await expect(page.locator('#authGate')).toBeHidden();
-    await expect(page.locator('[data-active-workspace-name]')).toHaveText(`${branchName} OS`);
+    await expect(page.locator('[data-active-workspace-name]')).toHaveText(branchName);
     await expect(page).toHaveTitle(`${branchName} OS · PEAK OS`);
     await expect(page.locator('[data-active-workspace-meta]')).toContainText(account.role === 'manager' ? '매니저' : '구성원');
     await expect(page.locator('[data-workspace-selector]')).toHaveValue(account.slug);
@@ -444,6 +444,38 @@ test('invalid workspace slug fails closed before authentication or data requests
   await expect(page.locator('#authGate')).toContainText('올바르지 않은 워크스페이스 주소');
   expect(calls).toEqual([]);
 });
+
+for (const viewport of [
+  { label: 'desktop', width: 1440, height: 900 },
+  { label: 'mobile', width: 390, height: 844 },
+] as const) {
+  test(`exact4 workspace selector uses plain organization names on ${viewport.label}`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await setup(page, {
+      defaultSlug: 'peak',
+      activeRoles: {
+        peak: 'admin',
+        'build-solution': 'oversight',
+        jeonju: 'oversight',
+        daegu: 'oversight',
+      },
+      viewer: {
+        uid: 'uid-kim-daeho',
+        name: '김대호',
+        email: 'kim-daeho@test.local',
+        role: 'admin',
+        groupName: '본사 영업팀',
+      },
+    });
+
+    await page.goto('/os/w/peak');
+    await expect(page.locator('#authGate')).toBeHidden();
+    await expect(page.locator('[data-active-workspace-name]')).toHaveText(names.peak);
+    const optionLabels = await page.locator('[data-workspace-selector] option').allTextContents();
+    expect(optionLabels).toEqual(VALID_SLUGS.map(slug => names[slug]));
+    expect(optionLabels.join(' ')).not.toMatch(/(?:\sOS|\u00b7\s*열람)/);
+  });
+}
 
 test('selector performs a full canonical navigation and no Peak project remains after switching', async ({ page }) => {
   const calls = await setup(page, { defaultSlug: 'peak', activeRoles: { peak: 'admin', daegu: 'member' } });

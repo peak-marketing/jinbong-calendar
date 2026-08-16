@@ -127,14 +127,13 @@ test('membership resolver는 선택 UID+slug 조합만 허용하고 default는 o
   const pool = {
     async query(sql, params) {
       calls.push({ sql: String(sql), params });
-      if (String(sql).includes('WHERE w.slug = $1')) {
-        if (params[0] !== 'daegu' || params[1] !== 'branch-user') return { rows: [] };
+      if (String(sql).includes("m.role <> 'oversight'")) {
+        if (params[0] !== 'branch-user') return { rows: [] };
         return { rows: [{
           workspace_id: 'ws_daegu', slug: 'daegu', name: '대구지사', kind: 'branch',
           membership_role: 'member', permissions: DIRECT_PERMISSIONS, is_default: true,
         }] };
       }
-      if (String(sql).includes("m.role <> 'oversight'")) return { rows: [] };
       throw new Error('unexpected query');
     },
   };
@@ -146,6 +145,138 @@ test('membership resolver는 선택 UID+slug 조합만 허용하고 default는 o
   ));
   assert.equal(await service.resolveDefaultForUser('oversight-only'), null);
   assert.ok(calls.every(call => !call.params?.includes('피크마케팅')));
+});
+
+test('exact4 UID만 전체 workspace를 보고 일반 계정은 canonical direct workspace 하나만 접근한다', async () => {
+  const directPermissions = { ...DIRECT_PERMISSIONS };
+  const membershipRows = Object.freeze({
+    [ACCESS['패션TV봉이']]: [
+      {
+        workspace_id: 'ws_peak', slug: 'peak', name: '피크마케팅 본사', kind: 'headquarters',
+        membership_role: 'admin', permissions: directPermissions, is_default: true,
+        created_at: '2026-01-01',
+      },
+      ...WORKSPACES.filter(workspace => workspace.id !== PEAK_WORKSPACE_ID).map(workspace => ({
+        workspace_id: workspace.id, slug: workspace.slug, name: workspace.name, kind: workspace.kind,
+        membership_role: 'oversight', permissions: OVERSIGHT_PERMISSIONS, is_default: false,
+        created_at: '2026-01-02',
+      })),
+    ],
+    'ordinary-hq': [
+      {
+        workspace_id: 'ws_peak', slug: 'peak', name: '피크마케팅 본사', kind: 'headquarters',
+        membership_role: 'admin', permissions: directPermissions, is_default: true,
+        created_at: '2026-01-01',
+      },
+      {
+        workspace_id: 'ws_daegu', slug: 'daegu', name: '피크마케팅 대구지사', kind: 'branch',
+        membership_role: 'manager', permissions: directPermissions, is_default: false,
+        created_at: '2026-01-02',
+      },
+      {
+        workspace_id: 'ws_jeonju', slug: 'jeonju', name: '피크마케팅 전주지사', kind: 'branch',
+        membership_role: 'oversight', permissions: OVERSIGHT_PERMISSIONS, is_default: false,
+        created_at: '2026-01-03',
+      },
+    ],
+    'ordinary-branch': [{
+      workspace_id: 'ws_daegu', slug: 'daegu', name: '피크마케팅 대구지사', kind: 'branch',
+      membership_role: 'member', permissions: directPermissions, is_default: true,
+      created_at: '2026-01-01',
+    }],
+  });
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      const text = String(sql).replace(/\s+/g, ' ').trim();
+      calls.push({ text, params });
+      if (text.includes("m.role <> 'oversight'") && text.includes('LIMIT 1')) {
+        const direct = (membershipRows[params[0]] || [])
+          .filter(row => row.membership_role !== 'oversight')
+          .sort((left, right) => Number(right.is_default) - Number(left.is_default)
+            || String(left.created_at).localeCompare(String(right.created_at))
+            || left.slug.localeCompare(right.slug));
+        return { rows: direct.slice(0, 1) };
+      }
+      if (text.includes('CASE WHEN w.id = $2 THEN 0 ELSE 1 END')) {
+        return { rows: [...(membershipRows[params[0]] || [])] };
+      }
+      if (text.includes('WHERE w.slug = $1')) {
+        return { rows: (membershipRows[params[1]] || []).filter(row => row.slug === params[0]) };
+      }
+      throw new Error(`unexpected query: ${text}`);
+    },
+  };
+  const service = createPeakosWorkspaceService({
+    pool,
+    environment: { PEAKOS_ACCESS_UIDS_JSON: JSON.stringify(ACCESS) },
+  });
+
+  assert.equal(service.canAccessWorkspacePortfolio(ACCESS['패션TV봉이']), true);
+  assert.equal(service.canAccessWorkspacePortfolio('ordinary-hq'), false);
+  assert.deepEqual(
+    (await service.listForUser(ACCESS['패션TV봉이'])).map(workspace => workspace.slug).sort(),
+    WORKSPACES.map(workspace => workspace.slug).sort(),
+  );
+  assert.deepEqual((await service.listForUser('ordinary-hq')).map(workspace => workspace.slug), ['peak']);
+  assert.deepEqual((await service.listForUser('ordinary-branch')).map(workspace => workspace.slug), ['daegu']);
+
+  const oversight = await service.resolveForUser(ACCESS['패션TV봉이'], 'daegu');
+  assert.equal(oversight.role, 'oversight');
+  assert.equal((await service.resolveForUser('ordinary-hq', 'peak')).slug, 'peak');
+  assert.equal((await service.resolveForUser('ordinary-branch', 'daegu')).slug, 'daegu');
+  await assert.rejects(
+    service.resolveForUser('ordinary-hq', 'daegu'),
+    error => error.code === 'PEAKOS_WORKSPACE_FORBIDDEN' && error.statusCode === 403,
+  );
+  await assert.rejects(
+    service.resolveForUser('ordinary-branch', 'peak'),
+    error => error.code === 'PEAKOS_WORKSPACE_FORBIDDEN' && error.statusCode === 403,
+  );
+  assert.equal(calls.some(call => call.params?.includes('ordinary-hq') && call.params?.includes('daegu')), false);
+
+  const runHeaderRequest = async req => {
+    const capture = {
+      statusCode: 200,
+      payload: null,
+      status(code) { this.statusCode = code; return this; },
+      json(payload) { this.payload = payload; return this; },
+      set() { return this; },
+      vary() { return this; },
+    };
+    let nextCalls = 0;
+    await service.requireWorkspace({ area: 'projects', action: 'read', requireHeader: true })(
+      req,
+      capture,
+      () => { nextCalls += 1; },
+    );
+    return { capture, nextCalls };
+  };
+  const spoofedName = await runHeaderRequest({
+    uid: 'ordinary-hq',
+    method: 'GET',
+    headers: { 'x-peakos-workspace': 'daegu' },
+    userDoc: { name: '패션TV봉이', role: 'admin', approved: true, is_active: true },
+  });
+  assert.equal(spoofedName.nextCalls, 0);
+  assert.equal(spoofedName.capture.statusCode, 403);
+  assert.equal(spoofedName.capture.payload.code, 'PEAKOS_WORKSPACE_FORBIDDEN');
+
+  const exactUid = await runHeaderRequest({
+    uid: ACCESS['패션TV봉이'],
+    method: 'GET',
+    headers: { 'x-peakos-workspace': 'daegu' },
+    userDoc: { name: '표시이름 변경됨', role: 'member', approved: true, is_active: true },
+  });
+  assert.equal(exactUid.nextCalls, 1);
+  assert.equal(exactUid.capture.statusCode, 200);
+
+  const missingConfiguration = createPeakosWorkspaceService({ pool, environment: {} });
+  assert.equal(missingConfiguration.canAccessWorkspacePortfolio(ACCESS['패션TV봉이']), false);
+  assert.deepEqual(
+    (await missingConfiguration.listForUser(ACCESS['패션TV봉이'])).map(workspace => workspace.slug),
+    ['peak'],
+  );
 });
 
 test('초대 대상은 같은 direct workspace membership 전체가 확인되어야 한다', async () => {
