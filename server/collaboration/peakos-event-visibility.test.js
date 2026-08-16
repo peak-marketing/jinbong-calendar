@@ -170,6 +170,10 @@ test('migration is additive, workspace-scoped, indexed, and never mutates events
   assert.match(sql, /peakos_events_workspace_hide_guard/);
   assert.match(sql, /REVOKE ALL PRIVILEGES ON TABLE peakos_workspace_event_hides/);
   assert.match(sql, /GRANT SELECT, INSERT, DELETE/);
+  assert.doesNotMatch(
+    sql,
+    /GRANT\s+(?:ALL PRIVILEGES|UPDATE|TRUNCATE|REFERENCES|TRIGGER)[^;]*peakos_workspace_event_hides/i,
+  );
   assert.doesNotMatch(sql, /UPDATE\s+events|ALTER TABLE\s+events/i);
   assert.doesNotMatch(sql, /SET\s+deleted/i);
 });
