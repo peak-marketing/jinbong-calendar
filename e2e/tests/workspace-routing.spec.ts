@@ -477,6 +477,150 @@ for (const viewport of [
   });
 }
 
+for (const surface of [
+  { label: 'desktop', width: 1440, height: 900 },
+  { label: 'compact desktop', width: 806, height: 910 },
+  { label: 'mobile', width: 390, height: 844 },
+] as const) {
+  for (const theme of ['light', 'dark'] as const) {
+    test(`expanded sidebar keeps fixed utilities and an internal scroll on ${surface.label} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width: surface.width, height: surface.height });
+      await page.addInitScript(selectedTheme => {
+        window.localStorage.setItem('peakos-color-theme-v1', selectedTheme);
+      }, theme);
+      await setup(page, {
+        defaultSlug: 'peak',
+        activeRoles: {
+          peak: 'admin',
+          'build-solution': 'oversight',
+          jeonju: 'oversight',
+          daegu: 'oversight',
+        },
+        viewer: {
+          uid: 'uid-kim-daeho',
+          name: '김대호',
+          email: 'kim-daeho@test.local',
+          role: 'admin',
+          groupName: '본사 경영지원팀',
+        },
+      });
+
+      await page.goto('/os/w/peak');
+      await expect(page.locator('#authGate')).toBeHidden();
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      if (surface.width <= 760) {
+        await page.locator('.mobile-menu').click();
+        await expect(page.locator('body')).toHaveClass(/\bmenu-open\b/);
+      }
+
+      const sidebar = page.locator('.app-sidebar');
+      const workspace = sidebar.locator(':scope > .workspace');
+      const searchRow = sidebar.locator(':scope > .search-button');
+      const search = page.locator('#sidebarTabSearch');
+      const nav = sidebar.locator(':scope > .sidebar-nav');
+      const member = sidebar.locator(':scope > .member');
+      const selector = page.locator('[data-workspace-selector]');
+      await expect(sidebar).toBeVisible();
+      await expect(workspace).toBeVisible();
+      await expect(searchRow).toBeVisible();
+      await expect(member).toBeVisible();
+      await expect(selector).toBeEnabled();
+
+      const topChrome = await page.evaluate(() => {
+        const bounds = (selector: string) => {
+          const rect = document.querySelector(selector)!.getBoundingClientRect();
+          return { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left };
+        };
+        return {
+          sidebar: bounds('.app-sidebar'),
+          workspace: bounds('.app-sidebar > .workspace'),
+          search: bounds('.app-sidebar > .search-button'),
+          nav: bounds('.app-sidebar > .sidebar-nav'),
+          member: bounds('.app-sidebar > .member'),
+        };
+      });
+      expect(topChrome.workspace.bottom).toBeLessThanOrEqual(topChrome.search.top + 0.5);
+      expect(topChrome.search.bottom).toBeLessThanOrEqual(topChrome.nav.top + 0.5);
+      expect(topChrome.nav.bottom).toBeLessThanOrEqual(topChrome.member.top + 0.5);
+      expect(topChrome.sidebar.top).toBeGreaterThanOrEqual(-0.5);
+      expect(topChrome.sidebar.bottom).toBeLessThanOrEqual(surface.height + 0.5);
+
+      await search.fill('SAAS HUB');
+      await expect(page.locator('[data-view="saas"]')).toBeVisible();
+      await search.press('Enter');
+      await expect(page.locator('#pageCrumb')).toHaveText('SaaS 허브');
+      if (surface.width <= 760) {
+        await page.locator('.mobile-menu').click();
+        await expect(page.locator('body')).toHaveClass(/\bmenu-open\b/);
+      }
+
+      for (const cluster of await page.locator('[data-nav-cluster]:visible').all()) {
+        if ((await cluster.getAttribute('class'))?.split(/\s+/).includes('closed')) {
+          await cluster.locator(':scope > .nav-cluster-toggle').click();
+        }
+        await expect(cluster.locator(':scope > .nav-cluster-toggle')).toHaveAttribute('aria-expanded', 'true');
+      }
+      for (const subcluster of await page.locator('[data-nav-subcluster]:visible').all()) {
+        if ((await subcluster.getAttribute('class'))?.split(/\s+/).includes('closed')) {
+          await subcluster.locator(':scope > .nav-subcluster-toggle').click();
+        }
+        await expect(subcluster.locator(':scope > .nav-subcluster-toggle')).toHaveAttribute('aria-expanded', 'true');
+      }
+
+      const scrollState = await nav.evaluate(element => {
+        const node = element as HTMLElement;
+        const style = getComputedStyle(node);
+        return {
+          clientHeight: node.clientHeight,
+          scrollHeight: node.scrollHeight,
+          clientWidth: node.clientWidth,
+          scrollWidth: node.scrollWidth,
+          overflowX: style.overflowX,
+          overflowY: style.overflowY,
+        };
+      });
+      expect(scrollState.clientHeight).toBeGreaterThan(0);
+      expect(scrollState.scrollHeight).toBeGreaterThan(scrollState.clientHeight + 100);
+      expect(scrollState.overflowY).toBe('auto');
+      expect(scrollState.overflowX).toBe('hidden');
+      expect(scrollState.scrollWidth).toBeLessThanOrEqual(scrollState.clientWidth);
+
+      await nav.evaluate(element => {
+        const node = element as HTMLElement;
+        node.scrollTop = node.scrollHeight;
+      });
+      await expect.poll(() => nav.evaluate(element => (element as HTMLElement).scrollTop)).toBeGreaterThan(0);
+      await expect(page.locator('[data-view="saas"]')).toBeInViewport();
+      await expect(member).toBeInViewport();
+      await expect(workspace).toBeInViewport();
+      await expect(searchRow).toBeInViewport();
+
+      const afterScroll = await page.evaluate(() => {
+        const bounds = (selector: string) => {
+          const rect = document.querySelector(selector)!.getBoundingClientRect();
+          return { top: rect.top, bottom: rect.bottom };
+        };
+        return {
+          workspace: bounds('.app-sidebar > .workspace'),
+          search: bounds('.app-sidebar > .search-button'),
+          member: bounds('.app-sidebar > .member'),
+          documentClientWidth: document.documentElement.clientWidth,
+          documentScrollWidth: document.documentElement.scrollWidth,
+        };
+      });
+      expect(afterScroll.workspace.top).toBeCloseTo(topChrome.workspace.top, 0);
+      expect(afterScroll.search.top).toBeCloseTo(topChrome.search.top, 0);
+      expect(afterScroll.member.bottom).toBeCloseTo(topChrome.member.bottom, 0);
+      expect(afterScroll.documentScrollWidth).toBeLessThanOrEqual(afterScroll.documentClientWidth);
+
+      await selector.selectOption('daegu');
+      await page.waitForURL(/\/os\/w\/daegu$/);
+      await expect(page.locator('[data-active-workspace-name]')).toHaveText(names.daegu);
+      await expect(page.locator('[data-workspace-selector]')).toHaveValue('daegu');
+    });
+  }
+}
+
 test('selector performs a full canonical navigation and no Peak project remains after switching', async ({ page }) => {
   const calls = await setup(page, { defaultSlug: 'peak', activeRoles: { peak: 'admin', daegu: 'member' } });
   await page.goto('/os/w/peak');

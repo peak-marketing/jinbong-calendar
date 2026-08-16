@@ -11240,6 +11240,42 @@ html[data-theme="dark"] body #moduleView .personal-settlement-security { border-
   body #moduleView .settlement-block-heading > span { align-items: flex-start; flex-direction: column; }
 }
 
+/* Keep sidebar utilities independent from long, fully-expanded navigation.
+   Only the menu pane scrolls; the workspace, search, and signed-in user remain
+   visible and can no longer be flex-shrunk into one another. */
+body .app-sidebar {
+  overflow: hidden;
+}
+
+body .app-sidebar > .workspace,
+body .app-sidebar > .search-button,
+body .app-sidebar > .member {
+  flex: 0 0 auto;
+}
+
+body .app-sidebar > .sidebar-nav {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: #52798b transparent;
+  scrollbar-width: thin;
+}
+
+body .app-sidebar > .sidebar-nav::-webkit-scrollbar {
+  width: 6px;
+}
+
+body .app-sidebar > .sidebar-nav::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #52798b;
+}
+
+body .app-sidebar > .sidebar-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 /* Sidebar matte controls — keep the navy rail visually continuous. */
 body .app-sidebar {
   --sidebar-control-bg: rgba(7, 37, 50, .48);
