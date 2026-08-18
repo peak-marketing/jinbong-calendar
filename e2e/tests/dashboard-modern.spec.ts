@@ -35,6 +35,7 @@ async function setupDashboard(
     delayedPreviewOwner?: string;
     previewRows?: Record<string, unknown>[];
     events?: Record<string, unknown>[];
+    todos?: Record<string, unknown>[];
     projects?: Record<string, unknown>[];
     chatRooms?: Record<string, unknown>[];
     unreadCounts?: Record<string, number>;
@@ -55,6 +56,19 @@ async function setupDashboard(
     const path = requestUrl.pathname.replace(/^\/api/, '');
     const collaborationPath = path.replace(/^\/peakos\/collaboration/, '') || '/';
     calls.push({ path, search: requestUrl.search });
+
+    if (path === '/peakos/todos' && route.request().method() === 'GET') {
+      const date = String(requestUrl.searchParams.get('date') || '');
+      const source = options.todos || [];
+      return route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({
+          date, timeZone: 'Asia/Seoul', readOnly: false,
+          capabilities: { create: true, edit: true, reorder: true, archive: true },
+          items: source.filter(todo => todo.date === date),
+        }),
+      });
+    }
 
     if (path === '/peakos/intake'
       && requestUrl.searchParams.get('owner') === options.delayedPreviewOwner
@@ -242,9 +256,11 @@ test.describe('modern finance dashboard', () => {
     ], {
       delayedPreviewOwner: '박우진',
       previewRows: [row({ id: 'preview-own', ownerName: '박우진', date: '2026-08-11', sell: 70_000, cost: 1 })],
-      events: [{
-        id: 'actual-private-todo', type: 'todo', title: '실계정 비공개 할 일',
-        date: '2026-08-12', scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', done: false,
+      todos: [{
+        id: 'actual-private-todo', title: '실계정 비공개 할 일', date: '2026-08-12',
+        startTime: '', endTime: '', category: '일반', memo: '', done: false,
+        sortOrder: 10, version: 1, ownerUid: 'e2e-test-user', ownerName: '김대호',
+        createdAt: '2026-08-11T15:30:00.000Z', updatedAt: '2026-08-11T15:30:00.000Z',
       }],
       projects: [{
         id: 'actual-private-project', name: '실계정 비공개 프로젝트', status: 'active',
@@ -302,10 +318,10 @@ test.describe('modern finance dashboard', () => {
     await expect(page.locator('.executive-chart-point.profit')).toHaveCount(0);
   });
 
-  test('shows only the signed-in UID personal todos on the regular dashboard', async ({ page }) => {
+  test('uses the standalone todo response and ignores legacy Paragon events', async ({ page }) => {
     await setupDashboard(page, { name: '김대호', finance: true }, [], {
       events: [{
-        id: 'mine', type: 'todo', title: '내 개인 할 일', date: '2026-08-12',
+        id: 'legacy-mine', type: 'todo', title: '기존 개인 할 일', date: '2026-08-12',
         scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', done: false,
       }, {
         id: 'other', type: 'todo', title: '다른 사람 개인 할 일', date: '2026-08-12',
@@ -317,11 +333,18 @@ test.describe('modern finance dashboard', () => {
         id: 'meeting', type: 'meeting', title: '내 미팅', date: '2026-08-12',
         scope: 'personal', owner_id: 'e2e-test-user', owner_name: '김대호', done: false,
       }],
+      todos: [{
+        id: 'standalone-mine', title: 'PEAK OS 개인 할 일', date: '2026-08-12',
+        startTime: '', endTime: '', category: '일반', memo: '', done: false,
+        sortOrder: 10, version: 1, ownerUid: 'e2e-test-user', ownerName: '김대호',
+        createdAt: '2026-08-11T15:30:00.000Z', updatedAt: '2026-08-11T15:30:00.000Z',
+      }],
     });
 
     await expect(page.locator('.executive-metric-card.tasks > strong')).toHaveText('1건');
     await expect(page.locator('.executive-list-row')).toHaveCount(1);
-    await expect(page.locator('.executive-list')).toContainText('내 개인 할 일');
+    await expect(page.locator('.executive-list')).toContainText('PEAK OS 개인 할 일');
+    await expect(page.locator('.executive-list')).not.toContainText('기존 개인 할 일');
     await expect(page.locator('.executive-list')).not.toContainText('다른 사람 개인 할 일');
     await expect(page.locator('.executive-list')).not.toContainText('팀 범위 할 일');
     await expect(page.locator('.executive-list')).not.toContainText('내 미팅');

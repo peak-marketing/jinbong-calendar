@@ -34,7 +34,7 @@
     daegu: Object.freeze({ slug: 'daegu', name: '피크마케팅 대구지사', shortName: '대', kind: 'branch' })
   });
   const WORKSPACE_PERMISSION_AREAS = Object.freeze([
-    'calendar', 'chat', 'projects', 'settlements', 'documents'
+    'calendar', 'chat', 'projects', 'settlements', 'documents', 'sales'
   ]);
   const WORKSPACE_INITIAL_API_PATHS = Object.freeze([
     '/users/me', '/os-auth/session', '/os-auth/email/request',
@@ -127,6 +127,12 @@
   let structuredBoardSmallFilter = 'all';
   let structuredBoardAssigneeFilter = 'all';
   let selectedStructuredBoardTaskId = '';
+  // 계층 보기의 접힘 상태는 서버 데이터가 아니라 현재 화면의 표시 상태다.
+  // 프로젝트·인증·워크스페이스가 달라지면 키가 달라져 이전 사용자의 펼침
+  // 상태를 재사용하지 않으며, 첫 진입은 Notion처럼 모두 접힌 상태로 연다.
+  let structuredHierarchyExpansionKey = '';
+  const structuredExpandedMediumIds = new Set();
+  const structuredExpandedSmallIds = new Set();
   let liveChatMessages = [];
   const chatReadAckByRoom = new Map();
   let collaborationDirectory = [];
@@ -139,7 +145,7 @@
   let collaborationMutationBusy = false;
   let collaborationEventLoadGeneration = 0;
   let todoDateLoadGeneration = 0;
-  let todoDateAppliedGeneration = 0;
+  let todoTodayBadgeLoadGeneration = 0;
   let todoDateNavigationGeneration = 0;
   let todoDateNavigationBusy = false;
   let eventLoadedYear = null;
@@ -150,12 +156,23 @@
   let calendarScope = 'all';
   let calendarIncompleteOnly = true;
   let todoSelectedDate = initialKoreaDate;
-  let todoDayState = { status: 'idle', contextKey: '', date: '', events: [], error: '' };
-  // 캘린더가 과거/다음 연도를 불러와 liveEvents를 교체해도 사이드바의
-  // 할 일 배지는 언제나 한국 기준 '오늘' 개인 업무 수를 유지한다.
-  let todoTodayBadgeState = { status: 'idle', contextKey: '', date: '', remaining: 0 };
+  // PEAK OS 할 일은 기존 Paragon 일정(/events)과 물리적으로 다른 저장소다.
+  // 선택 날짜와 오늘 배지는 각각 세대·인증·워크스페이스 키로 격리해
+  // 늦게 도착한 다른 계정/지사의 응답을 화면에 올리지 않는다.
+  let todoDayState = {
+    status: 'idle', contextKey: '', date: '', todos: [], readOnly: true, capabilities: {}, error: ''
+  };
+  let todoTodayBadgeState = { status: 'idle', contextKey: '', date: '', remaining: 0, todos: [] };
   let todoCaptureDraft = '';
   let todoPriorityFocus = null;
+  // OS 체크리스트 지시자는 현재 인증·워크스페이스와 함께 격리한다.
+  // 지시함에는 서버가 준 최소 항목만 보관하고, 메모나 다른 체크리스트를
+  // 메모리나 DOM에 옮기지 않는다.
+  let checklistInstructorDirectoryState = {
+    status: 'idle', contextKey: '', instructors: [], error: ''
+  };
+  let checklistInstructorDirectoryLoadGeneration = 0;
+  let eventChecklistDetailLoadGeneration = 0;
   let projectFilter = 'all';
   let projectSearch = '';
   let projectDetailTab = 'overview';
@@ -166,8 +183,67 @@
   let chatFilter = 'all';
   let selectedChatRoomId = null;
   let reportType = 'attendance';
+  let attendanceMonth = koreaDateKey(new Date()).slice(0, 7);
+  let attendanceLoadGeneration = 0;
+  let attendanceMutationBusy = false;
+  let attendanceState = {
+    status: 'idle', contextKey: '', month: attendanceMonth, scope: 'self',
+    records: [], members: [], summary: [], canViewTeam: false,
+    readOnly: true, error: '', code: ''
+  };
   let salesSummary = { key: '', status: 'idle', data: null, error: '' };
   const salesSummaryCache = new Map();
+  // 월 정산은 외부 플랫폼 정산과 개인 정산을 비교해서 보는 본인 전용 화면이다.
+  // 다른 계정의 자료나 계정 미리보기 자료는 요청하지 않으며, 인증·워크스페이스가
+  // 바뀌면 진행 중인 응답을 세대 번호로 폐기한다.
+  let monthlySettlementLoadGeneration = 0;
+  let monthlySettlementMonth = koreaDateKey(new Date()).slice(0, 7);
+  let monthlySettlementState = {
+    status: 'idle', contextKey: '', month: monthlySettlementMonth,
+    data: null, error: '', code: ''
+  };
+  let monthlySettlementExpanded = { personal: true, platforms: true };
+  let monthlySettlementFocusPlatforms = false;
+  const MONTHLY_SETTLEMENT_PLATFORMS = Object.freeze([
+    Object.freeze({ key: 'rewardspace', label: '리워드스페이스' }),
+    Object.freeze({ key: 'reviewspace', label: '리뷰스페이스' }),
+    Object.freeze({ key: 'keywordmaster', label: '키워드마스터' }),
+    Object.freeze({ key: 'brandautospace', label: '브랜드오토스페이스' }),
+    Object.freeze({ key: 'reviewflow', label: '리뷰플로우' })
+  ]);
+  // 영업이익과 수당은 같은 숫자가 아니다. 수당은 서버의 명시적 승인 규칙으로만
+  // 계산하며, 규칙이 없거나 겹치면 금액을 추정하지 않고 상태만 보여 준다.
+  let commissionEstimateLoadGeneration = 0;
+  let commissionRuleLoadGeneration = 0;
+  let commissionEstimateState = {
+    status: 'idle', contextKey: '', range: null, estimates: [], truncated: false,
+    limitedRange: false, error: '', code: ''
+  };
+  let commissionRuleState = {
+    status: 'idle', contextKey: '', rules: [], error: '', code: ''
+  };
+  let commissionRuleMutationBusy = false;
+  let commissionRuleForm = {
+    scopeOwnerUid: '', scopePlatform: '', scopeProductA: '', scopeProductB: '', scopeProductC: '',
+    ratePercent: '', effectiveFrom: koreaDateKey(new Date()), effectiveTo: '', reason: ''
+  };
+  // 영업 DB는 기존 정산/매출 요약과 별개의 워크스페이스 데이터다.
+  // 목록에는 마스킹된 연락처만 저장하고, 전체 PII가 포함될 수 있는 상세는
+  // 선택된 한 건만 보관한다. 인증·워크스페이스가 바뀌면 세대로 폐기한다.
+  let salesLeadLoadGeneration = 0;
+  let salesLeadDetailLoadGeneration = 0;
+  let salesLeadState = {
+    status: 'idle', contextKey: '', readOnly: true, piiAccess: 'masked',
+    detailPiiAccess: 'masked', leads: [], total: 0, limit: 50, offset: 0,
+    summary: null, owners: [], error: ''
+  };
+  let salesLeadFilters = { q: '', status: 'all', ownerUid: 'all', includeArchived: false };
+  let selectedSalesLeadId = '';
+  let selectedSalesLeadTrigger = null;
+  let salesLeadDetailState = {
+    status: 'idle', contextKey: '', leadId: '', readOnly: true,
+    piiAccess: 'masked', lead: null, calls: [], error: ''
+  };
   // 실제 로그인 계정. 미리보기로 다른 사람 화면을 볼 때 되돌릴 기준이 된다.
   let realUserDoc = null;
   let previewPersona = '';
@@ -197,13 +273,20 @@
     'purchase-fixed', 'purchase-supplier'
   ];
   let financePeriodFilter = {
-    mode: 'all',
+    // 실사용 첫 화면은 전체 과거 원장보다 이번 달 최신분을 먼저 보여준다.
+    // 사용자는 기존 '전체' 버튼으로 언제든 전체 이력을 다시 열 수 있다.
+    mode: 'month',
     month: koreaDateKey(new Date()).slice(0, 7),
     from: '',
     to: ''
   };
-  // 최종정산서는 담당자 정리용으로 따로 기간을 잡는다.
-  let finalFilter = { from: '', to: '', manager: '' };
+  // 최종정산서도 첫 진입은 이번 달 최신분이다. 개인정산과 별도의 필터를
+  // 유지하되 '조건 해제'로 전체 이력을 보는 기존 흐름은 그대로 둔다.
+  let finalFilter = {
+    from: `${koreaDateKey(new Date()).slice(0, 7)}-01`,
+    to: koreaDateKey(new Date()),
+    manager: ''
+  };
   // 접수 폼이 정산서/최종정산서 양쪽에 뜬다. 최종정산서에서 넣은 건은
   // 개인정산서에 올라가지 않는다.
   let intakeContext = 'settlement';
@@ -220,6 +303,17 @@
   let companyDocumentState = { uid: '', status: 'idle', documents: [], error: '' };
   let companyDocumentLoadGeneration = 0;
   let companyDocumentFolder = 'branches';
+  const COMPANY_RESOURCE_FOLDERS = Object.freeze([
+    Object.freeze({ id: 'company-equipment-usage', key: 'equipment-usage', label: '비품 사용 내역', icon: '▦', tone: '', description: '누가 언제 어떤 비품을 사용했는지 원장과 취소 이력으로 남깁니다.' }),
+    Object.freeze({ id: 'company-development-costs', key: 'development-costs', label: '개발비', icon: '⌘', tone: 'violet', description: '증빙 원본과 연결된 개발비만 회사 원장에 기록합니다.' }),
+    Object.freeze({ id: 'company-bank-copies', key: 'bank-copy', category: 'BANK_COPY', label: '통장사본', icon: '▨', tone: '', description: '통장 사본 원본을 보호 저장소에서 버전별로 관리합니다.' }),
+    Object.freeze({ id: 'company-materials', key: 'company-materials', category: 'COMPANY_MATERIAL', label: '기타 회사자료', icon: '◇', tone: 'violet', description: '회사 기본자료와 공식 문서를 보호 저장소에 보관합니다.' })
+  ]);
+  let companyResourceLoadGeneration = 0;
+  let companyResourceState = {
+    contextKey: '', folder: '', status: 'idle', entries: [], documents: [],
+    evidenceDocuments: [], canWrite: false, error: ''
+  };
   let clientCompanyDocumentState = {
     uid: '', status: 'idle', documents: [], error: '', query: '', draftQuery: '',
     pagination: { page: 1, limit: 25, total: 0, totalPages: 0 }
@@ -229,6 +323,8 @@
   let companyDocumentPreviewGeneration = 0;
   let companyDocumentPreviewTrigger = null;
   let companyDocumentPreviewCleanup = null;
+  let detailModalFocusTrigger = null;
+  let detailModalBackgroundState = [];
   // 통장 원장은 권한이 있는 사용자가 탭을 처음 열 때만 읽는다.
   // 계정 미리보기로 전환하면 메모리에서도 비워 민감한 재무자료가 남지 않게 한다.
   let bankData = emptyBankData();
@@ -242,6 +338,9 @@
     pagination: { page: 1, limit: 50, total: 0, totalPages: 0 }
   };
   let financeRequestLoadGeneration = 0;
+  // 환불 완료 후보 조회가 끝나기 전에 모달을 닫거나 다른 모달을 열면
+  // 늦게 도착한 은행 거래 응답을 공용 모달에 다시 그리지 않는다.
+  let refundDepositCandidateLoadGeneration = 0;
   let financeRequestForm = {};
   let purchaseLedgerPage = 1;
   let purchaseLedgerState = {
@@ -268,10 +367,16 @@
   ];
 
   const PLANNED_MODULES = {
+    'sales-db': '영업 DB',
+    'monthly-settlement': '월 정산',
     reports: '보고서',
     documents: '문서',
     services: '서비스',
     company: '회사 자료',
+    'company-equipment-usage': '비품 사용 내역',
+    'company-development-costs': '개발비',
+    'company-bank-copies': '통장사본',
+    'company-materials': '기타 회사자료',
     organization: '조직도',
     settlement: '개인 정산서',
     'final-settlement': '최종정산서',
@@ -449,6 +554,54 @@
     if (SPECIAL_SETTLEMENT_OWNERS.includes(String(userDoc?.name || '').trim())) return true;
     if (String(userDoc?.group_type || '').trim() === 'sales') return true;
     return /영업|지사/.test(String(userDoc?.group_name || ''));
+  }
+
+  function canSeeSalesDatabase() {
+    // 서버 createSalesLeadContext와 같은 조건만 사용한다. 이름·소속명으로
+    // 영업 여부를 추측하지 않고 선택 워크스페이스의 발급된 role과 실제
+    // 계정 group_type만 본다. 계정 미리보기에서는 GET도 발생시키지 않는다.
+    if (!currentUser || previewPersona || !workspaceContext) return false;
+    const account = realUserDoc || userDoc || {};
+    if (account.approved !== true || account.is_active === false) return false;
+    if (!workspaceCanRead('sales')) return false;
+    const role = String(workspaceContext?.membership?.role || '');
+    if (role === 'oversight' || workspaceIsOversight()) return true;
+    if (['admin', 'manager'].includes(role)) return true;
+    return role === 'member' && String(account.group_type || '').trim() === 'sales';
+  }
+
+  function salesDatabaseWritable() {
+    return canSeeSalesDatabase()
+      && !workspaceIsOversight()
+      && workspaceCanWrite('sales')
+      && !osAuthExpired
+      && !osAuthHardNavigating;
+  }
+
+  function canShowPersonalMonthlySettlementView() {
+    if (!isOsRoute() || !currentUser || !workspaceContext) return false;
+    const account = realUserDoc || userDoc || {};
+    if (account.approved !== true || account.is_active === false) return false;
+    if (isRestrictedCollaborationAccount()) return false;
+    if (workspaceIsOversight()) return false;
+    return ['admin', 'manager', 'member'].includes(String(workspaceContext?.membership?.role || ''));
+  }
+
+  function canShowReportsView() {
+    if (!isOsRoute() || !currentUser || !workspaceContext) return false;
+    const account = realUserDoc || userDoc || {};
+    if (account.approved !== true || account.is_active === false) return false;
+    if (account.chat_only === true || account.external_calendar_only === true) return false;
+    if (previewPersona && !knownPreviewPersona()) return false;
+    return workspaceCanAccessView('reports');
+  }
+
+  function canAccessPersonalMonthlySettlementData() {
+    return canShowPersonalMonthlySettlementView()
+      && !previewPersona
+      && !isRestrictedCollaborationAccount()
+      && !osAuthExpired
+      && !osAuthHardNavigating;
   }
 
   // 하위 영업자의 개인정산서를 열어볼 수 있는 사람.
@@ -821,7 +974,14 @@
     if (value.startsWith('/peakos/collaboration/')) {
       return workspaceAreaForCollaborationPath(value.slice('/peakos/collaboration'.length));
     }
+    // 본인 UID만 허용하는 전용 서버 route다. 모든 approved direct OS 계정에
+    // 열기 위해 workspace settlements permission과 연결하지 않는다. context와
+    // X-PeakOS-Workspace 헤더, 서버의 direct-member 검증은 그대로 적용된다.
+    if (/^\/peakos\/monthly-settlement\/self(?:\?|$)/.test(value)) return '';
+    if (/^\/peakos\/todos(?:\/|\?|$)/.test(value)) return 'calendar';
+    if (/^\/peakos\/sales-leads(?:\/|\?|$)/.test(value)) return 'sales';
     if (/^\/peakos\/prices(?:\/|\?|$)/.test(value)) return 'settlements';
+    if (/^\/peakos\/company-resources(?:\/|\?|$)/.test(value)) return 'documents';
     if (/^\/peakos\/company-documents(?:\/|\?|$)/.test(value)) return 'documents';
     if (/^\/(ideas|service-requests)(?:\/|\?|$)/.test(value)) return 'projects';
     if (/^\/reports(?:\/|\?|$)/.test(value)) return 'settlements';
@@ -840,18 +1000,28 @@
       return false;
     }
     return /^\/peakos\/prices(?:\/|\?|$)/.test(value)
+      || /^\/peakos\/todos(?:\/|\?|$)/.test(value)
+      || /^\/peakos\/monthly-settlement(?:\/|\?|$)/.test(value)
+      || /^\/peakos\/attendance(?:\/|\?|$)/.test(value)
+      || /^\/peakos\/vendor-reconciliations(?:\/|\?|$)/.test(value)
+      || /^\/peakos\/commission-(?:rules|estimates|calculations)(?:\/|\?|$)/.test(value)
+      || /^\/peakos\/finance-requests(?:\/|\?|$)/.test(value)
+      || /^\/peakos\/sales-leads(?:\/|\?|$)/.test(value)
       || value.startsWith('/peakos/collaboration/')
+      || /^\/peakos\/company-resources(?:\/|\?|$)/.test(value)
       || /^\/peakos\/company-documents(?:\/|\?|$)/.test(value)
       || /^\/peakos\/intake(?:\/|\?|$)/.test(value)
       || /^\/peakos\/monthly(?:\/|\?|$)/.test(value)
+      || /^\/peakos\/settlement-completion(?:\/|\?|$)/.test(value)
       || /^\/peakos\/final-execution(?:\/|\?|$)/.test(value);
   }
 
   function workspaceAreaForView(view) {
+    if (view === 'sales-db') return 'sales';
     if (['calendar', 'todo'].includes(view)) return 'calendar';
     if (view === 'chat') return 'chat';
     if (['review', 'new-projects', 'ideas', 'requests'].includes(view)) return 'projects';
-    if (['company', 'documents'].includes(view)) return 'documents';
+    if (['company', 'documents', ...COMPANY_RESOURCE_FOLDERS.map(folder => folder.id)].includes(view)) return 'documents';
     if ([
       'reports', 'settlement', 'final-settlement', 'final-execution-settlement',
       'monthly-guarantee', 'monthly-manage', 'direct-execution', 'deposit-check',
@@ -878,6 +1048,17 @@
         return workspaceCanRead('documents')
           && workspaceApiIsScoped('/peakos/company-documents');
       }
+      if (COMPANY_RESOURCE_FOLDERS.some(folder => folder.id === view)) return false;
+      if (view === 'sales-db') {
+        return workspaceCanRead('sales')
+          && workspaceApiIsScoped('/peakos/sales-leads');
+      }
+      if (view === 'reports') {
+        return workspaceCanRead('settlements')
+          && workspaceApiIsScoped('/peakos/attendance');
+      }
+      // 본사 oversight에는 자기 원장이 없으므로 self-only 월 정산을 열지 않는다.
+      if (view === 'monthly-settlement') return false;
       return [
         'settlement', 'final-settlement', 'final-execution-settlement',
         'monthly-guarantee', 'monthly-manage', 'direct-execution'
@@ -887,12 +1068,31 @@
     }
     if (activeWorkspaceSlug !== 'peak') {
       if (view === 'dashboard') return true;
-      if (['calendar', 'todo'].includes(view)) return workspaceCanRead('calendar');
+      if (view === 'calendar') return workspaceCanRead('calendar');
+      if (view === 'todo') {
+        return workspaceCanRead('calendar') && workspaceApiIsScoped('/peakos/todos');
+      }
       if (view === 'chat') return workspaceCanRead('chat');
       if (['review', 'new-projects'].includes(view)) return workspaceCanRead('projects');
       if (['company', 'documents'].includes(view)) {
         return workspaceCanRead('documents')
           && workspaceApiIsScoped('/peakos/company-documents');
+      }
+      if (COMPANY_RESOURCE_FOLDERS.some(folder => folder.id === view)) {
+        return workspaceCanRead('documents')
+          && workspaceApiIsScoped('/peakos/company-resources');
+      }
+      if (view === 'sales-db') {
+        return workspaceCanRead('sales')
+          && workspaceApiIsScoped('/peakos/sales-leads');
+      }
+      if (view === 'reports') {
+        return workspaceCanRead('settlements')
+          && workspaceApiIsScoped('/peakos/attendance');
+      }
+      if (view === 'monthly-settlement') {
+        return canShowPersonalMonthlySettlementView()
+          && workspaceApiIsScoped('/peakos/monthly-settlement/self');
       }
       if (view === 'settlement') {
         return workspaceCanRead('settlements')
@@ -924,6 +1124,7 @@
     }
     if (workspaceCanAccessView('calendar')) return 'calendar';
     if (workspaceCanAccessView('review')) return 'review';
+    if (workspaceCanAccessView('sales-db') && canSeeSalesDatabase()) return 'sales-db';
     if (workspaceCanAccessView('settlement')) return 'settlement';
     if (workspaceCanAccessView('company')) return 'company';
     if (workspaceCanAccessView('chat')) return 'chat';
@@ -995,6 +1196,8 @@
     osAuthExpired = true;
     osAuthChallengeId = '';
     resetCollaborationState();
+    resetSalesLeadState();
+    resetAttendanceState();
     resetBankData({ clearOperation: true });
     bankMatchReviewRows = [];
     if (activeView === 'bank') moduleView.innerHTML = '';
@@ -1547,7 +1750,7 @@
     modal.id = 'readonlyDetailModal';
     modal.hidden = true;
     modal.innerHTML = `
-      <article class="readonly-modal-card" role="dialog" aria-modal="true" aria-labelledby="readonlyModalTitle">
+      <article class="readonly-modal-card" role="dialog" aria-modal="true" aria-labelledby="readonlyModalTitle" tabindex="-1">
         <header class="readonly-modal-head">
           <strong id="readonlyModalTitle">상세 정보</strong>
           <button class="readonly-modal-close" id="readonlyModalClose" type="button" aria-label="닫기">×</button>
@@ -1561,8 +1764,58 @@
       if (event.target === modal && modal.dataset.locked !== 'true') closeDetailModal();
     });
     document.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && !modal.hidden && modal.dataset.locked !== 'true') closeDetailModal();
+      if (modal.hidden) return;
+      if (event.key === 'Escape') {
+        // 영업 연락처·통화 메모 모달은 입력 중이어도 Escape로 즉시 닫고
+        // closeDetailModal에서 민감한 폼 DOM까지 함께 폐기한다.
+        const salesLeadModalOpen = Boolean(modal.querySelector('[data-sales-lead-modal]'));
+        if (modal.dataset.locked !== 'true' || salesLeadModalOpen) closeDetailModal();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = [...modal.querySelectorAll(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+      )].filter(node => !node.hidden && node.getAttribute('aria-hidden') !== 'true');
+      if (!focusable.length) {
+        event.preventDefault();
+        modal.querySelector('.readonly-modal-card')?.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !modal.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !modal.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
     });
+  }
+
+  function suspendDetailModalBackground(modal) {
+    detailModalBackgroundState = [...body.children]
+      .filter(node => node instanceof HTMLElement && node !== modal && !['SCRIPT', 'STYLE'].includes(node.tagName))
+      .map(node => ({
+        node,
+        inert: node.inert,
+        hadAriaHidden: node.hasAttribute('aria-hidden'),
+        ariaHidden: node.getAttribute('aria-hidden')
+      }));
+    detailModalBackgroundState.forEach(({ node }) => {
+      node.inert = true;
+      node.setAttribute('aria-hidden', 'true');
+    });
+  }
+
+  function restoreDetailModalBackground() {
+    detailModalBackgroundState.forEach(({ node, inert, hadAriaHidden, ariaHidden }) => {
+      if (!node.isConnected) return;
+      node.inert = inert;
+      if (hadAriaHidden) node.setAttribute('aria-hidden', ariaHidden || '');
+      else node.removeAttribute('aria-hidden');
+    });
+    detailModalBackgroundState = [];
   }
 
   function clearCompanyDocumentPreview() {
@@ -1576,22 +1829,57 @@
     return trigger;
   }
 
-  function openDetailModal(title, content, { locked = false } = {}) {
+  function openDetailModal(title, content, { locked = false, restoreFocusTo = null } = {}) {
+    // 공용 모달은 일정·프로젝트·영업이 함께 사용한다. 새 내용을 열 때마다
+    // 이전 일정 체크리스트 상세 응답을 폐기해 다른 모달을 덮지 못하게 한다.
+    eventChecklistDetailLoadGeneration += 1;
+    refundDepositCandidateLoadGeneration += 1;
+    settlementCompletionModalGeneration += 1;
+    settlementCompletionModalSourceId = '';
     clearCompanyDocumentPreview();
     const modal = document.getElementById('readonlyDetailModal');
+    if (modal.hidden) {
+      detailModalFocusTrigger = restoreFocusTo instanceof HTMLElement && restoreFocusTo.isConnected
+        ? restoreFocusTo
+        : (document.activeElement instanceof HTMLElement && document.activeElement !== body
+            ? document.activeElement : null);
+      suspendDetailModalBackground(modal);
+    }
     document.getElementById('readonlyModalTitle').textContent = title;
     document.getElementById('readonlyModalBody').innerHTML = content;
     modal.dataset.locked = locked ? 'true' : 'false';
     modal.hidden = false;
     body.style.overflow = 'hidden';
+    window.requestAnimationFrame(() => {
+      if (modal.hidden) return;
+      const preferred = modal.querySelector('[autofocus]')
+        || document.getElementById('readonlyModalBody')?.querySelector(
+          'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), a[href]'
+        )
+        || document.getElementById('readonlyModalClose');
+      (preferred || modal.querySelector('.readonly-modal-card'))?.focus();
+    });
   }
 
   function closeDetailModal({ restoreFocus = true } = {}) {
-    const trigger = clearCompanyDocumentPreview();
+    eventChecklistDetailLoadGeneration += 1;
+    refundDepositCandidateLoadGeneration += 1;
+    settlementCompletionModalGeneration += 1;
+    settlementCompletionModalSourceId = '';
+    const companyTrigger = clearCompanyDocumentPreview();
+    const trigger = companyTrigger || detailModalFocusTrigger;
+    detailModalFocusTrigger = null;
     const modal = document.getElementById('readonlyDetailModal');
+    const modalBody = document.getElementById('readonlyModalBody');
+    const containsSalesLeadPii = Boolean(modalBody?.querySelector('[data-sales-lead-modal]'));
+    const containsSettlementEvidence = Boolean(modalBody?.querySelector('[data-settlement-completion-modal]'));
+    const containsTaxInvoiceEvidence = Boolean(modalBody?.querySelector('[data-tax-invoice-evidence-modal]'));
+    const containsPeakosTodo = Boolean(modalBody?.querySelector('[data-peakos-todo-editor]'));
     modal.dataset.locked = 'false';
     modal.hidden = true;
     body.style.overflow = '';
+    restoreDetailModalBackground();
+    if (containsSalesLeadPii || containsSettlementEvidence || containsTaxInvoiceEvidence || containsPeakosTodo) modalBody.replaceChildren();
     if (restoreFocus && trigger?.isConnected) {
       window.requestAnimationFrame(() => trigger.focus());
     }
@@ -1896,7 +2184,9 @@
       cache: 'no-store',
       credentials: 'same-origin'
     });
-    const payload = await response.json().catch(() => ({}));
+    const payload = options.responseType === 'blob' && response.ok
+      ? await response.blob()
+      : await response.json().catch(() => ({}));
     // 다른 Google 계정으로 바뀐 뒤 도착한 응답은 전역 화면 데이터에 절대
     // 반영하지 않는다. 특히 이전 계정의 늦은 401이 새 계정을 잠그면 안 된다.
     if (!currentUser || currentUser.uid !== requestUid) throw staleAuthContextError();
@@ -2026,7 +2316,7 @@
     // 오래된 응답이 끼어들지 않게 한다.
     collaborationMutationBusy = true;
     try {
-      await refreshTodoDateEvents(date);
+      await refreshTodoDate(date);
       return true;
     } catch (error) {
       showToast(error.message || '저장은 완료했지만 최신 목록을 불러오지 못했습니다.');
@@ -2037,11 +2327,6 @@
   }
 
   async function refreshEventMutationContext(date) {
-    if (activeView === 'todo') {
-      const todoDate = validDateKey(todoSelectedDate) || validDateKey(date) || koreaDateKey(new Date());
-      todoSelectedDate = todoDate;
-      return refreshTodoDateEvents(todoDate);
-    }
     const year = Number(String(validDateKey(date) || '').slice(0, 4)) || calendarYear;
     return refreshCollaborationEvents({ year });
   }
@@ -2068,17 +2353,6 @@
     };
   }
 
-  // 보고서 제출 시 서버가 관리자에게 자동으로 만드는 "확인" 알림은
-  // 캘린더·보고서 흐름에는 남기되, 사용자가 직접 관리하는 개인 투두에서는 제외한다.
-  // 같은 '보고서' 분류를 사용한 수동 할 일이나 작성 알림까지 숨기지 않도록
-  // 서버가 생성하는 제목 형식을 정확히 일치시킨다.
-  function isAutomaticReportReviewTodo(event) {
-    if (event?.type !== 'todo' || event.todoCat !== '보고서') return false;
-    const title = String(event.title || '');
-    return /^📄 .+ 보고서 확인$/u.test(title)
-      || /^📋 .+ 업무보고 확인$/u.test(title);
-  }
-
   function collaborationEventContextKey() {
     return [
       workspaceAccessGeneration,
@@ -2089,69 +2363,196 @@
     ].join('|');
   }
 
-  function personalTodoRemainingForDate(records, date) {
-    if (previewPersona || !currentUser) return 0;
-    return (Array.isArray(records) ? records : []).filter(event => event.type === 'todo'
-      && event.date === date
-      && event.scope === 'personal'
-      && !event.projectId
-      && String(event.ownerId || '') === String(currentUser.uid || '')
-      && !isAutomaticReportReviewTodo(event)
-      && !event.done).length;
+  function resetChecklistDirectiveUiState() {
+    checklistInstructorDirectoryLoadGeneration += 1;
+    eventChecklistDetailLoadGeneration += 1;
+    checklistInstructorDirectoryState = {
+      status: 'idle', contextKey: '', instructors: [], error: ''
+    };
   }
 
-  function syncTodoTodayBadge(records, date) {
+  function normalizeChecklistInstructors(records) {
+    const byUid = new Map();
+    for (const record of Array.isArray(records) ? records : []) {
+      const uid = String(record?.uid || '').trim();
+      const name = String(record?.name || '').trim();
+      if (!uid || !name || uid.length > 200 || name.length > 240 || /[\u0000-\u001f\u007f]/.test(uid)) continue;
+      if (!byUid.has(uid)) byUid.set(uid, { uid, name });
+    }
+    return [...byUid.values()];
+  }
+
+  async function loadChecklistInstructorDirectory({ force = false } = {}) {
+    const contextKey = collaborationEventContextKey();
+    if (!isOsRoute() || !currentUser || previewPersona || !collaborationAccess().events) {
+      checklistInstructorDirectoryLoadGeneration += 1;
+      checklistInstructorDirectoryState = {
+        status: 'idle', contextKey: '', instructors: [], error: ''
+      };
+      return [];
+    }
+    if (!force && checklistInstructorDirectoryState.status === 'ready'
+      && checklistInstructorDirectoryState.contextKey === contextKey) {
+      return checklistInstructorDirectoryState.instructors;
+    }
+    const generation = ++checklistInstructorDirectoryLoadGeneration;
+    checklistInstructorDirectoryState = {
+      status: 'loading', contextKey, instructors: [], error: ''
+    };
+    try {
+      const payload = await collaborationApi('GET', '/events/instructors');
+      if (generation !== checklistInstructorDirectoryLoadGeneration
+        || contextKey !== collaborationEventContextKey() || previewPersona) return [];
+      const instructors = normalizeChecklistInstructors(payload?.instructors);
+      checklistInstructorDirectoryState = {
+        status: 'ready', contextKey, instructors, error: ''
+      };
+      return instructors;
+    } catch (error) {
+      if (generation !== checklistInstructorDirectoryLoadGeneration
+        || contextKey !== collaborationEventContextKey() || previewPersona) return [];
+      checklistInstructorDirectoryState = {
+        status: 'error', contextKey, instructors: [],
+        error: error.message || '지시자 목록을 불러오지 못했습니다.'
+      };
+      return [];
+    }
+  }
+
+ function checklistInstructorOptionsMarkup(instructors, selectedUid = '') {
+    const selected = String(selectedUid || '');
+    return `<option value="" ${selected ? '' : 'selected'}>지시자 없음</option>${(Array.isArray(instructors) ? instructors : []).map(instructor => `
+      <option value="${esc(instructor.uid)}" ${String(instructor.uid) === selected ? 'selected' : ''}>${esc(instructor.name)}</option>`).join('')}`;
+  }
+
+  async function consumeTodoDirectiveDeepLink() {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('view') !== 'todo' || !url.searchParams.has('instruction')) return false;
+    const date = validDateKey(url.searchParams.get('date'));
+    const instructionId = String(url.searchParams.get('instruction') || '').trim();
+    const cleanConsumedParameters = () => {
+      url.searchParams.delete('view');
+      url.searchParams.delete('date');
+      url.searchParams.delete('instruction');
+      const remainingQuery = url.searchParams.toString();
+      window.history.replaceState(window.history.state, '', `${url.pathname}${remainingQuery ? `?${remainingQuery}` : ''}${url.hash}`);
+    };
+
+    // 기존 체크리스트 알림은 Paragon 일정 소유 데이터다. 독립 할 일 화면에는
+    // 절대 지시함이나 legacy 항목을 주입하지 않고 해당 날짜의 캘린더로 보낸다.
+    cleanConsumedParameters();
+    if (!isOsRoute() || !currentUser || previewPersona || !collaborationAccess().events) return false;
+    if (!date || !instructionId || instructionId.length > 200 || /[\u0000-\u001f\u007f]/.test(instructionId)) {
+      showToast('체크리스트 알림 링크가 올바르지 않습니다.');
+      return false;
+    }
+
+    calendarSelected = date;
+    calendarYear = Number(date.slice(0, 4));
+    calendarMonth = Number(date.slice(5, 7));
+    activateView('calendar');
+    if (eventLoadedYear !== calendarYear) {
+      await fetchEventsForYear(calendarYear).catch(() => []);
+      renderCalendar();
+    }
+    showToast('기존 체크리스트 알림은 캘린더에서 확인해 주세요.');
+    return true;
+  }
+
+  async function consumeStructuredProjectDeepLink() {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('view') !== 'new-projects' || !url.searchParams.has('projectId')) return false;
+    const projectId = String(url.searchParams.get('projectId') || '').trim().toLowerCase();
+    const taskId = String(url.searchParams.get('taskId') || '').trim().toLowerCase();
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+    url.searchParams.delete('view');
+    url.searchParams.delete('projectId');
+    url.searchParams.delete('taskId');
+    const remainingQuery = url.searchParams.toString();
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${url.pathname}${remainingQuery ? `?${remainingQuery}` : ''}${url.hash}`,
+    );
+
+    if (!isOsRoute() || !currentUser || previewPersona || !collaborationAccess().projects) return false;
+    if (!uuidPattern.test(projectId) || (taskId && !uuidPattern.test(taskId))) {
+      showToast('프로젝트 알림 링크가 올바르지 않습니다.');
+      return false;
+    }
+
+    // Load the portfolio first so activateView does not start a competing
+    // list request that can invalidate the detail generation below.
+    await refreshStructuredProjects({ render: false, quiet: true }).catch(() => []);
+    selectedStructuredProjectId = projectId;
+    resetStructuredHierarchyExpansion(projectId);
+    structuredProjectTaskView = 'hierarchy';
+    selectedStructuredBoardTaskId = '';
+    structuredProjectDetailState = {
+      status: 'loading', readOnly: true, capabilities: {}, project: null, error: '',
+      contextKey: structuredProjectContextKey(), projectId,
+    };
+    activateView('new-projects');
+    const project = await refreshStructuredProjectDetail(projectId, { render: true }).catch(() => null);
+    if (!project) {
+      showToast('이 프로젝트를 열람할 수 없거나 더 이상 사용할 수 없습니다.');
+      return false;
+    }
+    if (taskId) {
+      const record = structuredProjectTaskRecords(project)
+        .find(item => String(item.task?.id || '') === taskId);
+      if (record) {
+        openStructuredHierarchyPath(projectId, record.medium?.id, record.small?.id);
+        renderStructuredProjects();
+        window.requestAnimationFrame(() => {
+          const target = newProjectsView.querySelector(`[data-work-item-id="${CSS.escape(taskId)}"]`);
+          target?.setAttribute('tabindex', '-1');
+          target?.focus({ preventScroll: true });
+          target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        });
+      } else {
+        showToast('알림의 업무를 이 프로젝트에서 찾지 못했습니다.');
+      }
+    }
+    return true;
+  }
+
+  function normalizePeakosTodo(record) {
+    return {
+      id: String(record?.id || ''),
+      title: String(record?.title || '제목 없음'),
+      date: String(record?.date || '').slice(0, 10),
+      startTime: String(record?.startTime ?? record?.start_time ?? '').slice(0, 5),
+      endTime: String(record?.endTime ?? record?.end_time ?? '').slice(0, 5),
+      category: String(record?.category || '일반'),
+      memo: String(record?.memo || ''),
+      done: record?.done === true,
+      sortOrder: Number(record?.sortOrder ?? record?.sort_order ?? 0),
+      version: Number(record?.version || 0),
+      ownerUid: String(record?.ownerUid ?? record?.owner_uid ?? ''),
+      ownerName: String(record?.ownerName ?? record?.owner_name ?? ''),
+      createdAt: String(record?.createdAt ?? record?.created_at ?? ''),
+      updatedAt: String(record?.updatedAt ?? record?.updated_at ?? '')
+    };
+  }
+
+  function syncTodoTodayBadge(records, date, contextKey = collaborationEventContextKey()) {
     const today = koreaDateKey(new Date());
     if (date !== today) return;
     todoTodayBadgeState = {
       status: 'ready',
-      contextKey: collaborationEventContextKey(),
+      contextKey,
       date: today,
-      remaining: personalTodoRemainingForDate(records, today)
+      remaining: (Array.isArray(records) ? records : []).filter(todo => !todo.done).length,
+      todos: Array.isArray(records) ? [...records] : []
     };
   }
 
-  function syncTodoDayFromAnnualEvents(year) {
-    if (todoDayState.status !== 'ready'
-      || todoDayState.contextKey !== collaborationEventContextKey()
-      || Number(String(todoDayState.date || '').slice(0, 4)) !== Number(year)) return;
-    todoDayState = {
-      ...todoDayState,
-      events: liveEvents.filter(event => event.date === todoDayState.date),
-      error: ''
-    };
-  }
-
-  function applyAnnualEventRecords(records, year, todoAppliedGenerationAtStart) {
+  function applyAnnualEventRecords(records, year) {
     const normalizedYear = Number(year);
     const normalized = Array.isArray(records) ? records.map(normalizeEvent) : [];
-    const contextKey = collaborationEventContextKey();
-    const todoDayWasApplied = todoAppliedGenerationAtStart !== todoDateAppliedGeneration;
-    const canonicalTodoDayReady = todoDayState.status === 'ready'
-      && todoDayState.contextKey === contextKey
-      && Number(String(todoDayState.date || '').slice(0, 4)) === normalizedYear;
-
     liveEvents = normalized;
     eventLoadedYear = normalizedYear;
-    // 연간 요청보다 늦게 시작해 완료된 일별 canonical 응답이 있으면 그 하루는
-    // 오래된 연간 snapshot으로 되돌리지 않는다.
-    if (todoDayWasApplied && canonicalTodoDayReady) {
-      liveEvents = [
-        ...liveEvents.filter(event => event.date !== todoDayState.date),
-        ...todoDayState.events
-      ];
-    }
-
-    const today = koreaDateKey(new Date());
-    if (normalizedYear === Number(today.slice(0, 4))) {
-      const todayRecords = todoDayWasApplied
-        && canonicalTodoDayReady
-        && todoDayState.date === today
-        ? todoDayState.events
-        : liveEvents;
-      syncTodoTodayBadge(todayRecords, today);
-    }
-    if (!todoDayWasApplied) syncTodoDayFromAnnualEvents(normalizedYear);
     return liveEvents;
   }
 
@@ -2165,19 +2566,21 @@
     }
     const generation = ++collaborationEventLoadGeneration;
     const contextKey = collaborationEventContextKey();
-    const todoAppliedGenerationAtStart = todoDateAppliedGeneration;
     const data = await collaborationApi('GET', `/events?from=${year}-01-01&to=${year}-12-31`);
     if (generation !== collaborationEventLoadGeneration
       || contextKey !== collaborationEventContextKey()) return liveEvents;
-    return applyAnnualEventRecords(data, year, todoAppliedGenerationAtStart);
+    return applyAnnualEventRecords(data, year);
   }
 
-  async function refreshTodoDateEvents(value, { render = true } = {}) {
+  async function refreshTodoDate(value, { render = true } = {}) {
     const date = validDateKey(value);
     const contextKey = collaborationEventContextKey();
     if (!date || !collaborationAccess().events || previewPersona) {
       todoDateLoadGeneration += 1;
-      todoDayState = { status: 'ready', contextKey, date, events: [], error: '' };
+      todoDayState = {
+        status: 'ready', contextKey, date, todos: [], readOnly: true, capabilities: {}, error: ''
+      };
+      if (date === koreaDateKey(new Date())) syncTodoTodayBadge([], date, contextKey);
       return [];
     }
     const generation = ++todoDateLoadGeneration;
@@ -2187,21 +2590,23 @@
       && previousDayState.date === date;
     todoDayState = refreshingCurrentDay
       ? { ...previousDayState, status: 'refreshing', error: '' }
-      : { status: 'loading', contextKey, date, events: [], error: '' };
+      : { status: 'loading', contextKey, date, todos: [], readOnly: true, capabilities: {}, error: '' };
     try {
-      const records = await collaborationApi('GET', `/events?from=${date}&to=${date}`);
+      const payload = await callApi('GET', `/peakos/todos?date=${encodeURIComponent(date)}`, null, {
+        headers: { 'X-PeakOS-Preview': '0' }
+      });
       if (generation !== todoDateLoadGeneration
         || contextKey !== collaborationEventContextKey()
         || date !== todoSelectedDate) return null;
-      const normalized = Array.isArray(records) ? records.map(normalizeEvent) : [];
-      todoDayState = { status: 'ready', contextKey, date, events: normalized, error: '' };
-      todoDateAppliedGeneration += 1;
-      syncTodoTodayBadge(normalized, date);
-      // 현재 캘린더가 이미 같은 연도를 보유할 때만 해당 날짜를 최신 응답으로
-      // 교체한다. 다른 연도 하루를 전역 연간 저장소에 섞지 않는다.
-      if (Number(date.slice(0, 4)) === eventLoadedYear) {
-        liveEvents = [...liveEvents.filter(event => event.date !== date), ...normalized];
-      }
+      if (payload?.date && payload.date !== date) throw new Error('할 일 조회 기준일이 선택한 날짜와 다릅니다.');
+      const normalized = (Array.isArray(payload?.items) ? payload.items : []).map(normalizePeakosTodo);
+      todoDayState = {
+        status: 'ready', contextKey, date, todos: normalized,
+        readOnly: payload?.readOnly === true,
+        capabilities: payload?.capabilities && typeof payload.capabilities === 'object' ? payload.capabilities : {},
+        error: ''
+      };
+      syncTodoTodayBadge(normalized, date, contextKey);
       if (render) {
         updateNavigationBadges();
         renderDashboard();
@@ -2212,12 +2617,52 @@
       if (generation !== todoDateLoadGeneration
         || contextKey !== collaborationEventContextKey()
         || date !== todoSelectedDate) return null;
-      const annualFallback = Number(date.slice(0, 4)) === eventLoadedYear
-        ? liveEvents.filter(event => event.date === date)
-        : previousDayState.events;
       todoDayState = refreshingCurrentDay
-        ? { ...previousDayState, status: 'ready', events: annualFallback, error: error.message || '할 일을 불러오지 못했습니다.' }
-        : { status: 'error', contextKey, date, events: [], error: error.message || '할 일을 불러오지 못했습니다.' };
+        ? { ...previousDayState, status: 'ready', error: error.message || '할 일을 불러오지 못했습니다.' }
+        : {
+          status: 'error', contextKey, date, todos: [], readOnly: true, capabilities: {},
+          error: error.message || '할 일을 불러오지 못했습니다.'
+        };
+      throw error;
+    }
+  }
+
+  async function refreshTodoTodayBadge({ render = true } = {}) {
+    const date = koreaDateKey(new Date());
+    const contextKey = collaborationEventContextKey();
+    if (!currentUser || previewPersona || !collaborationAccess().events) {
+      todoTodayBadgeLoadGeneration += 1;
+      todoTodayBadgeState = { status: 'ready', contextKey, date, remaining: 0, todos: [] };
+      if (render) updateNavigationBadges();
+      return [];
+    }
+    const generation = ++todoTodayBadgeLoadGeneration;
+    try {
+      const payload = await callApi('GET', `/peakos/todos?date=${encodeURIComponent(date)}`, null, {
+        headers: { 'X-PeakOS-Preview': '0' }
+      });
+      if (generation !== todoTodayBadgeLoadGeneration || contextKey !== collaborationEventContextKey()) return null;
+      if (payload?.date && payload.date !== date) throw new Error('오늘 할 일 조회 기준일이 현재 날짜와 다릅니다.');
+      const todos = (Array.isArray(payload?.items) ? payload.items : []).map(normalizePeakosTodo);
+      syncTodoTodayBadge(todos, date, contextKey);
+      if (todoSelectedDate === date
+        && (!['ready', 'refreshing'].includes(todoDayState.status) || todoDayState.contextKey !== contextKey)) {
+        todoDayState = {
+          status: 'ready', contextKey, date, todos,
+          readOnly: payload?.readOnly === true,
+          capabilities: payload?.capabilities && typeof payload.capabilities === 'object' ? payload.capabilities : {},
+          error: ''
+        };
+      }
+      if (render) {
+        updateNavigationBadges();
+        renderDashboard();
+        if (activeView === 'todo' && todoSelectedDate === date) renderTodo();
+      }
+      return todos;
+    } catch (error) {
+      if (generation !== todoTodayBadgeLoadGeneration || contextKey !== collaborationEventContextKey()) return null;
+      todoTodayBadgeState = { status: 'error', contextKey, date, remaining: 0, todos: [] };
       throw error;
     }
   }
@@ -2228,8 +2673,7 @@
     const access = collaborationAccess();
     const eventGeneration = ++collaborationEventLoadGeneration;
     const eventContextKey = collaborationEventContextKey();
-    const todoAppliedGenerationAtStart = todoDateAppliedGeneration;
-    const [events, checklistSummary, rooms, unread, projectData] = await Promise.all([
+    const [events, checklistSummary, rooms, unread, projectData, _todayTodos] = await Promise.all([
       access.events
         ? collaborationApi('GET', `/events?from=${currentYear}-01-01&to=${currentYear}-12-31`)
         : Promise.resolve([]),
@@ -2238,12 +2682,15 @@
         : Promise.resolve({}),
       access.chat ? collaborationApi('GET', '/chat-rooms') : Promise.resolve([]),
       access.chat ? collaborationApi('GET', '/chat-rooms/unread').catch(() => ({})) : Promise.resolve({}),
-      access.projects ? collaborationApi('GET', '/projects') : Promise.resolve({ projects: [] })
+      access.projects ? collaborationApi('GET', '/projects') : Promise.resolve({ projects: [] }),
+      access.events && !previewPersona
+        ? refreshTodoTodayBadge({ render: false }).catch(() => [])
+        : Promise.resolve([])
     ]);
     if (eventGeneration === collaborationEventLoadGeneration
       && eventContextKey === collaborationEventContextKey()) {
       liveChecklistSummary = checklistSummary && typeof checklistSummary === 'object' ? checklistSummary : {};
-      if (access.events) applyAnnualEventRecords(events, currentYear, todoAppliedGenerationAtStart);
+      if (access.events) applyAnnualEventRecords(events, currentYear);
       else {
         liveEvents = [];
         eventLoadedYear = null;
@@ -2264,7 +2711,6 @@
     }
     const generation = ++collaborationEventLoadGeneration;
     const contextKey = collaborationEventContextKey();
-    const todoAppliedGenerationAtStart = todoDateAppliedGeneration;
     const [records, checklist] = await Promise.all([
       collaborationApi('GET', `/events?from=${year}-01-01&to=${year}-12-31`),
       collaborationApi('GET', '/events/checklist-summary').catch(() => ({}))
@@ -2272,12 +2718,11 @@
     if (generation !== collaborationEventLoadGeneration
       || contextKey !== collaborationEventContextKey()) return liveEvents;
     liveChecklistSummary = checklist && typeof checklist === 'object' ? checklist : {};
-    applyAnnualEventRecords(records, year, todoAppliedGenerationAtStart);
+    applyAnnualEventRecords(records, year);
     if (render) {
       updateNavigationBadges();
       renderDashboard();
       if (activeView === 'calendar') renderCalendar();
-      if (activeView === 'todo') renderTodo();
     }
     return liveEvents;
   }
@@ -2349,8 +2794,9 @@
           year: calendarYear
         });
       } else if (activeView === 'todo') {
+        const selectedTodoDate = validDateKey(todoSelectedDate) || koreaDateKey(new Date());
         if (access.events) {
-          await refreshTodoDateEvents(validDateKey(todoSelectedDate) || koreaDateKey(new Date()), { render: false });
+          await refreshTodoDate(selectedTodoDate, { render: false });
         }
         updateNavigationBadges();
         renderDashboard();
@@ -2366,11 +2812,11 @@
         }
       } else if (activeView === 'chat') {
         await refreshCollaborationChatRooms();
-      } else if (activeView === 'dashboard' && access.projects) {
+      } else if (activeView === 'dashboard') {
         await Promise.all([
-          refreshCollaborationEvents({ year: Number(koreaDateKey(new Date()).slice(0, 4)), render: false }),
-          refreshCollaborationProjects({ render: false }),
-          refreshCollaborationChatRooms({ render: false })
+          access.events ? refreshTodoTodayBadge({ render: false }) : Promise.resolve([]),
+          access.projects ? refreshCollaborationProjects({ render: false }) : Promise.resolve([]),
+          access.chat ? refreshCollaborationChatRooms({ render: false }) : Promise.resolve([])
         ]);
         renderDashboard();
       }
@@ -2396,6 +2842,7 @@
 
   function resetCollaborationState() {
     stopCollaborationPolling();
+    resetChecklistDirectiveUiState();
     collaborationEventLoadGeneration += 1;
     liveEvents = [];
     liveChecklistSummary = {};
@@ -2427,12 +2874,14 @@
     selectedChatRoomId = null;
     eventLoadedYear = null;
     todoDateLoadGeneration += 1;
-    todoDateAppliedGeneration = 0;
+    todoTodayBadgeLoadGeneration += 1;
     todoDateNavigationGeneration += 1;
     todoDateNavigationBusy = false;
     todoSelectedDate = koreaDateKey(new Date());
-    todoDayState = { status: 'idle', contextKey: '', date: '', events: [], error: '' };
-    todoTodayBadgeState = { status: 'idle', contextKey: '', date: '', remaining: 0 };
+    todoDayState = {
+      status: 'idle', contextKey: '', date: '', todos: [], readOnly: true, capabilities: {}, error: ''
+    };
+    todoTodayBadgeState = { status: 'idle', contextKey: '', date: '', remaining: 0, todos: [] };
     todoCaptureDraft = '';
     todoPriorityFocus = null;
     projectFilter = 'all';
@@ -2516,6 +2965,9 @@
     const salesOperationsOpen = canSeeSalesOperations();
     const financeOperationsOpen = canNavigateFinanceOperations();
     const locks = {
+      'sales-db': canSeeSalesDatabase(),
+      reports: canShowReportsView(),
+      'monthly-settlement': canShowPersonalMonthlySettlementView(),
       settlement: salesOperationsOpen,
       'deposit-check': salesOperationsOpen,
       'final-settlement': peakosOpen && canNavigateFinanceOperation('final-settlement'),
@@ -2525,7 +2977,7 @@
       'direct-execution': canSeeMonthly('direct-execution'),
       // 영업자는 여기서 리뷰/리워드 충전 요청을 올리고, 지정 재무 담당자만
       // 전체 요청과 기존 충전금 장부를 본다.
-      credit: canNavigateFinanceOperation('credit'),
+      credit: canUseCreditRequests() || canNavigateFinanceOperation('credit'),
       closing: peakosOpen && canNavigateFinanceOperation('closing'),
       bank: canNavigateTaxBankingView('bank'),
       receivable: peakosOpen && canNavigateFinanceOperation('receivable')
@@ -2535,6 +2987,11 @@
     });
     PURCHASE_TAX_VIEWS.forEach(view => {
       locks[view] = canNavigateTaxBankingView(view);
+    });
+    // 비품은 지정 운영 열람자 5명, 개발비·통장사본·기타자료는 지정 재무
+    // 담당자 4명만 연다. 서버도 exact UID와 direct membership을 재검증한다.
+    COMPANY_RESOURCE_FOLDERS.forEach(folder => {
+      locks[folder.id] = canNavigateCompanyResource(folder.id);
     });
     // 미리보기 중에는 채팅을 닫는다. 실제로는 로그인한 본인의 대화가 뜨는데
     // 남의 계정 화면처럼 보이면 오해를 부르고, 대화 내용은 미리 볼 것이 아니다.
@@ -2549,6 +3006,13 @@
     // 재무 · 운영은 직급·표시이름을 추정하지 않고 서버가 UID로 계산해 준
     // capability가 있어야만 연다. 기존 하위 탭별 제한은 그대로 더 좁게 유지한다.
     FINANCE_OPERATION_VIEWS.forEach(view => {
+      // 출근보고서는 모든 승인된 direct 구성원이 본인 기록을 볼 수 있고,
+      // manager/admin/oversight 범위는 서버가 다시 제한한다. 매출 보고서도
+      // 기존 self/team/admin 서버 scope를 그대로 사용한다.
+      if (view === 'reports') return;
+      // 충전 요청은 실제 Peak 직속 영업자에게도 mine 범위만 연다. 회사
+      // 장부·전체 검토는 아래 finance capability에서 계속 좁게 유지된다.
+      if (view === 'credit' && canUseCreditRequests()) return;
       locks[view] = financeOperationsOpen && locks[view] === true;
     });
     // 기존 파라곤과 동일한 제한 계정 정책을 OS 내비게이션에도 적용한다.
@@ -2565,9 +3029,10 @@
     if (isWorkspaceRoute()) {
       const coreWorkspaceViews = new Set([
         'calendar', 'todo', 'chat', 'review', 'new-projects', 'ideas', 'requests',
-        'settlement', 'final-settlement', 'final-execution-settlement',
+        'sales-db',
+        'monthly-settlement', 'settlement', 'final-settlement', 'final-execution-settlement',
         'monthly-guarantee', 'monthly-manage', 'direct-execution',
-        'company', 'documents'
+        'company', 'documents', ...COMPANY_RESOURCE_FOLDERS.map(folder => folder.id)
       ]);
       document.querySelectorAll('.app-sidebar .nav-item[data-view]').forEach(button => {
         const view = button.dataset.view;
@@ -2615,13 +3080,26 @@
     const realName = String(realUserDoc?.name || '').trim();
     // 내 조직도 행을 강제로 선택해도 별도 미리보기 계정으로 만들지 않는다.
     previewPersona = requestedName && requestedName !== realName ? requestedName : '';
+    resetChecklistDirectiveUiState();
     todoDateLoadGeneration += 1;
-    todoDateAppliedGeneration = 0;
+    todoTodayBadgeLoadGeneration += 1;
     todoDateNavigationGeneration += 1;
     todoDateNavigationBusy = false;
-    todoDayState = { status: 'idle', contextKey: '', date: '', events: [], error: '' };
-    todoTodayBadgeState = { status: 'idle', contextKey: '', date: '', remaining: 0 };
+    todoDayState = {
+      status: 'idle', contextKey: '', date: '', todos: [], readOnly: true, capabilities: {}, error: ''
+    };
+    todoTodayBadgeState = { status: 'idle', contextKey: '', date: '', remaining: 0, todos: [] };
     intakeLoadGeneration += 1;
+    resetSalesLeadState();
+    resetMonthlySettlementState();
+    resetCommissionState();
+    resetAttendanceState();
+    salesSummary = {
+      key: '', status: previewPersona ? 'private' : 'idle', data: null, error: ''
+    };
+    salesSummaryCache.clear();
+    if (activeView === 'reports' && reportType !== 'attendance') moduleView.replaceChildren();
+    if (activeView === 'monthly-settlement') moduleView.replaceChildren();
     if (!previewPersona) {
       userDoc = realUserDoc;
     } else {
@@ -2686,7 +3164,11 @@
       };
       if (FINANCE_OPERATION_VIEWS.includes(activeView)
           || TAX_BANKING_PUBLIC_VIEWS.includes(activeView)
-          || PURCHASE_TAX_VIEWS.includes(activeView)) {
+          || PURCHASE_TAX_VIEWS.includes(activeView)
+          || activeView === 'sales-db') {
+        // 숨겨진 이전 화면의 입력 버튼도 강제 DOM 클릭 대상이 되지 않게
+        // 미리보기 전환 프레임에서 즉시 제거한다.
+        moduleView.replaceChildren();
         activateView('calendar', { revealNav: false });
       }
     } else {
@@ -2709,6 +3191,7 @@
     // 다시 불러오는 동안에도 로그인 사용자의 할 일이 남의 업무처럼 보이지 않도록
     // 전환한 같은 프레임에서 두 체크리스트 DOM을 먼저 비공개 상태로 교체한다.
     applyUserIdentity();
+    if (activeView === 'monthly-settlement') renderMonthlySettlementModule();
     updateNavigationBadges();
     renderTodo();
     loadPeakosData().catch(error => {
@@ -2731,6 +3214,63 @@
     });
   }
 
+  function resetSalesLeadState() {
+    salesLeadLoadGeneration += 1;
+    salesLeadDetailLoadGeneration += 1;
+    salesLeadState = {
+      status: 'idle', contextKey: '', readOnly: true, piiAccess: 'masked',
+      detailPiiAccess: 'masked', leads: [], total: 0, limit: 50, offset: 0,
+      summary: null, owners: [], error: ''
+    };
+    salesLeadFilters = { q: '', status: 'all', ownerUid: 'all', includeArchived: false };
+    selectedSalesLeadId = '';
+    selectedSalesLeadTrigger = null;
+    salesLeadDetailState = {
+      status: 'idle', contextKey: '', leadId: '', readOnly: true,
+      piiAccess: 'masked', lead: null, calls: [], error: ''
+    };
+    const modalBody = document.getElementById('readonlyModalBody');
+    if (modalBody?.querySelector('[data-sales-lead-modal]')) {
+      closeDetailModal({ restoreFocus: false });
+      modalBody.replaceChildren();
+    }
+  }
+
+  function resetMonthlySettlementState({ resetMonth = false } = {}) {
+    monthlySettlementLoadGeneration += 1;
+    monthlySettlementFocusPlatforms = false;
+    if (resetMonth) monthlySettlementMonth = koreaDateKey(new Date()).slice(0, 7);
+    monthlySettlementState = {
+      status: previewPersona ? 'private' : 'idle',
+      contextKey: '', month: monthlySettlementMonth,
+      data: null, error: '', code: ''
+    };
+  }
+
+  function resetCommissionState() {
+    commissionEstimateLoadGeneration += 1;
+    commissionRuleLoadGeneration += 1;
+    commissionEstimateState = {
+      status: previewPersona ? 'private' : 'idle', contextKey: '', range: null,
+      estimates: [], truncated: false, limitedRange: false, error: '', code: ''
+    };
+    commissionRuleState = {
+      status: previewPersona ? 'private' : 'idle', contextKey: '', rules: [], error: '', code: ''
+    };
+    commissionRuleMutationBusy = false;
+  }
+
+  function resetAttendanceState({ resetMonth = false } = {}) {
+    attendanceLoadGeneration += 1;
+    attendanceMutationBusy = false;
+    if (resetMonth) attendanceMonth = koreaDateKey(new Date()).slice(0, 7);
+    attendanceState = {
+      status: previewPersona ? 'private' : 'idle', contextKey: '',
+      month: attendanceMonth, scope: 'self', records: [], members: [], summary: [],
+      canViewTeam: false, readOnly: true, error: '', code: ''
+    };
+  }
+
   function resetRestrictedPeakosData() {
     intakeLoadGeneration += 1;
     intakeDraft = [];
@@ -2749,6 +3289,7 @@
     monthlyDraft = {};
     monthlyForm = { editId: '', view: '', parentId: '', date: '', client: '', a: '', b: '', c: '', qty: '', amount: '', period: '', memo: '' };
     finalExecutionState = { status: 'idle', rows: [], error: '' };
+    resetSettlementCompletionState();
     creditDraft = [];
     creditRequests = [];
     creditRequestScope = 'mine';
@@ -2757,6 +3298,10 @@
     liveRequests = [];
     salesSummary = { key: '', status: 'idle', data: null, error: '' };
     salesSummaryCache.clear();
+    resetAttendanceState();
+    resetMonthlySettlementState();
+    resetCommissionState();
+    resetSalesLeadState();
     orgDirectory = { status: 'idle', accounts: [] };
     financeRequestState = {
       status: 'idle', requests: [], scope: 'mine', error: '', view: '', queryKey: '',
@@ -2832,14 +3377,7 @@
   function updateNavigationBadges() {
     const unreadTotal = Object.values(liveUnreadCounts).reduce((sum, value) => sum + Number(value || 0), 0);
     const today = koreaDateKey(new Date());
-    const currentYear = Number(today.slice(0, 4));
     const badgeContextKey = collaborationEventContextKey();
-    if (!previewPersona && eventLoadedYear === currentYear
-      && (todoTodayBadgeState.status !== 'ready'
-        || todoTodayBadgeState.contextKey !== badgeContextKey
-        || todoTodayBadgeState.date !== today)) {
-      syncTodoTodayBadge(liveEvents, today);
-    }
     const personalRemaining = previewPersona ? 0
       : (todoTodayBadgeState.status === 'ready'
         && todoTodayBadgeState.contextKey === badgeContextKey
@@ -2977,10 +3515,10 @@
     return `${amount.toLocaleString('ko-KR')}원`;
   }
 
-  function comparePersonalTodoEvents(a, b) {
+  function comparePeakosTodos(a, b) {
     return Number(Boolean(a.done)) - Number(Boolean(b.done))
       || Number(a.sortOrder || 0) - Number(b.sortOrder || 0)
-      || String(a.time || '99:99').localeCompare(String(b.time || '99:99'))
+      || String(a.startTime || '99:99').localeCompare(String(b.startTime || '99:99'))
       || String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
       || String(a.title || '').localeCompare(String(b.title || ''), 'ko');
   }
@@ -3123,15 +3661,16 @@
     // 계정 미리보기는 인증 사용자의 협업 저장소를 대신 조회하지 않는다.
     // 전환 직후부터 할 일·프로젝트·채팅 지표를 모두 0으로 닫아 실제 계정의
     // 제목이나 미확인 건수가 한 프레임도 섞이지 않게 한다.
-    const dashboardEvents = previewPersona ? [] : liveEvents;
+    const todoContextKey = collaborationEventContextKey();
+    const dashboardTodos = !previewPersona
+      && todoTodayBadgeState.status === 'ready'
+      && todoTodayBadgeState.contextKey === todoContextKey
+      && todoTodayBadgeState.date === today
+      ? todoTodayBadgeState.todos
+      : [];
     const dashboardProjects = previewPersona ? [] : liveProjects;
     const dashboardUnreadCounts = previewPersona ? {} : liveUnreadCounts;
-    const todayTodos = dashboardEvents.filter(event => event.type === 'todo'
-      && event.date === today
-      && event.scope !== 'team'
-      && String(event.ownerId || '') === String(currentUser?.uid || '')
-      && !isAutomaticReportReviewTodo(event)
-    ).sort(comparePersonalTodoEvents);
+    const todayTodos = [...dashboardTodos].sort(comparePeakosTodos);
     const activeProjects = dashboardProjects.filter(project => ['active', 'planning', 'review'].includes(project.status));
     const reviewProjectCount = dashboardProjects.filter(project => project.status === 'review').length;
     const unreadTotal = Object.values(dashboardUnreadCounts).reduce((sum, value) => sum + Number(value || 0), 0);
@@ -3187,11 +3726,11 @@
     const profitStatus = companyFinanceReady
       ? (!hasFinanceRows ? 'empty' : (missingCompanyCost ? 'partial' : 'verified'))
       : 'locked';
-    const todayRows = todayTodos.slice(0, 3).map(event => `
-      <div class="executive-list-row ${event.done ? 'done' : ''}">
-        <span class="executive-list-mark ${event.done ? 'done' : 'todo'}">${event.done ? '✓' : ''}</span>
-        <span class="executive-list-copy"><strong>${esc(event.title)}</strong><small>${esc(event.ownerName || name)} · ${esc(formatTimeRange(event.time, event.endTime))}</small></span>
-        <span class="executive-list-state">${event.done ? '완료' : '진행 중'}</span>
+    const todayRows = todayTodos.slice(0, 3).map(todo => `
+      <div class="executive-list-row ${todo.done ? 'done' : ''}" data-dashboard-todo-id="${esc(todo.id)}">
+        <span class="executive-list-mark ${todo.done ? 'done' : 'todo'}">${todo.done ? '✓' : ''}</span>
+        <span class="executive-list-copy"><strong>${esc(todo.title)}</strong><small>${esc(todo.ownerName || name)} · ${esc(formatTimeRange(todo.startTime, todo.endTime))}</small></span>
+        <span class="executive-list-state">${todo.done ? '완료' : '진행 중'}</span>
       </div>`).join('');
     const projectRows = activeProjects.slice(0, 3).map(project => {
       const progress = projectProgress(project);
@@ -3237,7 +3776,7 @@
           <small>${todayTodos.filter(event => event.done).length.toLocaleString('ko-KR')}건 완료 · ${Math.max(0, todayTodos.length - todayTodos.filter(event => event.done).length).toLocaleString('ko-KR')}건 남음</small>
         </article>
         <article class="executive-metric-card projects">
-          <div class="executive-metric-top"><span>진행 프로젝트</span><i>◇</i></div>
+          <div class="executive-metric-top"><span>기존 프로젝트</span><i>◇</i></div>
           <strong>${activeProjects.length.toLocaleString('ko-KR')}개</strong>
           <small>확인 대기 ${reviewProjectCount.toLocaleString('ko-KR')}개 · 읽지 않은 채팅 ${unreadTotal.toLocaleString('ko-KR')}건</small>
         </article>
@@ -3271,8 +3810,8 @@
             <div class="executive-list">${todayRows || '<div class="executive-empty"><span>✓</span><strong>오늘 등록된 할 일이 없습니다</strong><small>할 일에서 오늘의 우선순위를 정해 보세요.</small></div>'}</div>
           </section>
           <section class="executive-compact-card">
-            <header class="executive-card-head compact"><div><span class="executive-card-kicker">PROJECTS</span><h2>진행 프로젝트</h2><p>내 권한으로 조회 가능한 업무</p></div><button type="button" data-go-view="review">전체 <span>→</span></button></header>
-            <div class="executive-project-list">${projectRows || '<div class="executive-empty"><span>◇</span><strong>진행 중인 프로젝트가 없습니다</strong><small>프로젝트를 만들면 진행률이 표시됩니다.</small></div>'}</div>
+            <header class="executive-card-head compact"><div><span class="executive-card-kicker">PARAGON PROJECTS</span><h2>기존 프로젝트</h2><p>기존 Paragon에서 연결된 업무</p></div><button type="button" data-go-view="review">전체 <span>→</span></button></header>
+            <div class="executive-project-list">${projectRows || '<div class="executive-empty"><span>◇</span><strong>연결된 기존 프로젝트가 없습니다</strong><small>기존 Paragon 프로젝트만 이곳에 표시됩니다.</small></div>'}</div>
           </section>
         </aside>
       </div>
@@ -3446,14 +3985,10 @@
       );
       if (!saved) return;
       closeDetailModal();
-      if (activeView === 'todo') {
-        await refreshEventMutationContext(event?.date || todoSelectedDate);
-      } else {
-        calendarSelected = record.date;
-        calendarYear = Number(record.date.slice(0, 4)) || calendarYear;
-        calendarMonth = Number(record.date.slice(5, 7)) || calendarMonth;
-        await refreshCollaborationEvents({ year: calendarYear });
-      }
+      calendarSelected = record.date;
+      calendarYear = Number(record.date.slice(0, 4)) || calendarYear;
+      calendarMonth = Number(record.date.slice(5, 7)) || calendarMonth;
+      await refreshCollaborationEvents({ year: calendarYear });
     });
     form.querySelector('[data-collab-event-hide]')?.addEventListener('click', async () => {
       if (!canHideCollaborationEventInOs(event)) {
@@ -3643,33 +4178,75 @@
     });
   }
 
+  async function refreshChecklistDirectiveMutationContext(date) {
+    await refreshEventMutationContext(date);
+  }
+
   async function openEventDetail(event) {
     const eventId = String(event.id || '');
+    const detailContextKey = collaborationEventContextKey();
+    const mayManageCandidate = isOsRoute() && canEditCollaborationEvent(event) && !previewPersona;
     openDetailModal(event.title, '<div class="project-detail-loading"><strong>체크리스트를 불러오는 중입니다</strong></div>');
+    const detailGeneration = eventChecklistDetailLoadGeneration;
     let checklist = [];
+    let instructors = [];
     try {
-      const payload = await collaborationApi('GET', `/events/${encodeURIComponent(eventId)}/checklist`);
+      const [payload, directory] = await Promise.all([
+        collaborationApi('GET', `/events/${encodeURIComponent(eventId)}/checklist`),
+        mayManageCandidate ? loadChecklistInstructorDirectory() : Promise.resolve([])
+      ]);
+      if (detailGeneration !== eventChecklistDetailLoadGeneration
+        || detailContextKey !== collaborationEventContextKey()
+        || document.getElementById('readonlyDetailModal')?.hidden) return;
       checklist = Array.isArray(payload) ? payload : [];
+      instructors = Array.isArray(directory) ? directory : [];
     } catch (error) {
-      if (!document.getElementById('readonlyDetailModal')?.hidden) {
+      if (detailGeneration === eventChecklistDetailLoadGeneration
+        && detailContextKey === collaborationEventContextKey()
+        && !document.getElementById('readonlyDetailModal')?.hidden) {
         document.getElementById('readonlyModalBody').innerHTML = `<p class="collaboration-error">${esc(error.message)}</p>`;
       }
       return;
     }
-    const activeEventSource = activeView === 'todo'
-      && todoDayState.contextKey === collaborationEventContextKey()
-      && todoDayState.date === todoSelectedDate
-      ? todoDayState.events
-      : liveEvents;
-    const current = activeEventSource.find(item => String(item.id) === eventId) || event;
+    const current = liveEvents.find(item => String(item.id) === eventId) || event;
     const mayEdit = canEditCollaborationEvent(current);
     const mayCollaborate = collaborationWritable();
-    const rows = checklist.map(item => `
-      <div class="collaboration-checklist-row ${item.done ? 'done' : ''}" data-checklist-id="${esc(item.id)}">
-        <button type="button" class="collaboration-check" ${mayCollaborate ? 'data-collab-checklist-toggle' : 'disabled'} aria-label="${item.done ? '미완료로 변경' : '완료로 변경'}">${item.done ? '✓' : ''}</button>
-        <span>${esc(item.title)}</span>
-        ${mayCollaborate ? '<button type="button" data-collab-checklist-edit>수정</button><button type="button" class="danger" data-collab-checklist-delete>삭제</button>' : ''}
-      </div>`).join('');
+    const mayManageChecklist = isOsRoute() ? mayEdit : mayCollaborate;
+    const optionsForItem = item => {
+      if (!item?.instructor?.uid || instructors.some(row => String(row.uid) === String(item.instructor.uid))) return instructors;
+      return [...instructors, { uid: String(item.instructor.uid), name: String(item.instructor.name || '현재 지시자') }];
+    };
+    const rows = checklist.map(item => {
+      const capabilities = isOsRoute()
+        ? {
+          toggle: item?.capabilities?.toggle === true,
+          edit: item?.capabilities?.edit === true,
+          delete: item?.capabilities?.delete === true
+        }
+        : { toggle: mayCollaborate, edit: mayCollaborate, delete: mayCollaborate };
+      const itemInstructors = optionsForItem(item);
+      return `<div class="collaboration-checklist-row directive ${item.done ? 'done' : ''}" data-checklist-id="${esc(item.id)}">
+        <button type="button" class="collaboration-check" ${capabilities.toggle ? 'data-collab-checklist-toggle' : 'disabled'} aria-label="${item.done ? '미완료로 변경' : '완료로 변경'}">${item.done ? '✓' : ''}</button>
+        <div class="collaboration-checklist-copy"><span class="collaboration-checklist-title">${esc(item.title)}</span>${item.instructor ? `<span class="collaboration-instructor-chip">지시자 · ${esc(item.instructor.name)}</span>` : ''}</div>
+        <div class="collaboration-checklist-actions">${capabilities.edit ? '<button type="button" data-collab-checklist-edit>수정</button>' : ''}${capabilities.delete ? '<button type="button" class="danger" data-collab-checklist-delete>삭제</button>' : ''}</div>
+        ${isOsRoute() && capabilities.edit ? `<form class="collaboration-checklist-edit-form" data-checklist-edit-form hidden>
+          <label><span class="sr-only">체크리스트 항목</span><input name="title" maxlength="500" required value="${esc(item.title)}"></label>
+          <label><span class="sr-only">지시자 선택</span><select name="instructorUid" aria-label="지시자 선택">${checklistInstructorOptionsMarkup(itemInstructors, item.instructor?.uid || '')}</select></label>
+          <button class="primary" type="submit">저장</button><button type="button" data-checklist-edit-cancel>취소</button>
+        </form>` : ''}
+      </div>`;
+    }).join('');
+    const instructorError = isOsRoute() && mayManageChecklist && checklistInstructorDirectoryState.status === 'error'
+      ? `<p class="collaboration-instructor-error">${esc(checklistInstructorDirectoryState.error)}</p>` : '';
+    const addForm = mayManageChecklist
+      ? (isOsRoute()
+        ? `<form class="collaboration-inline-form collaboration-checklist-create-form" id="collaborationChecklistForm" data-checklist-create-form>
+            <input name="title" maxlength="500" required placeholder="체크리스트 항목">
+            <select name="instructorUid" aria-label="지시자 선택">${checklistInstructorOptionsMarkup(instructors)}</select>
+            <button class="primary" type="submit" data-collab-checklist-add>추가</button>
+          </form>${instructorError}`
+        : '<form class="collaboration-inline-form" id="collaborationChecklistForm"><input name="title" maxlength="500" required placeholder="체크리스트 항목"><button class="primary" type="submit" data-collab-checklist-add>추가</button></form>')
+      : '';
     openDetailModal(current.title, `
       <div class="readonly-detail-meta">
         <span>${esc(eventTypeLabel(current))}</span><span>${esc(current.scope === 'team' ? '팀 일정' : '내 일정')}</span>${current.projectId ? '<span>프로젝트 연결</span>' : ''}
@@ -3680,7 +4257,7 @@
       <section class="collaboration-modal-section">
         <div class="collaboration-section-head"><strong>체크리스트 ${checklist.length}개</strong></div>
         <div class="collaboration-checklist">${rows || '<p class="project-detail-empty">등록된 체크리스트가 없습니다.</p>'}</div>
-        ${mayCollaborate ? '<form class="collaboration-inline-form" id="collaborationChecklistForm"><input name="title" maxlength="500" required placeholder="체크리스트 항목"><button class="primary" type="submit" data-collab-checklist-add>추가</button></form>' : ''}
+        ${addForm}
       </section>
       <div class="collaboration-form-actions">
         ${collaborationReadonlyMarkup()}<span></span>
@@ -3696,18 +4273,22 @@
       );
       if (!saved) return;
       closeDetailModal();
-      await refreshEventMutationContext(current.date);
+      await refreshChecklistDirectiveMutationContext(current.date);
     });
     modalBody.querySelector('#collaborationChecklistForm')?.addEventListener('submit', async submitEvent => {
       submitEvent.preventDefault();
-      const title = new FormData(submitEvent.currentTarget).get('title')?.toString().trim();
+      const form = submitEvent.currentTarget;
+      const data = new FormData(form);
+      const title = data.get('title')?.toString().trim();
       if (!title) return;
+      const body = { title };
+      if (isOsRoute()) body.instructorUid = data.get('instructorUid')?.toString() || null;
       const saved = await runCollaborationMutation(
-        () => collaborationApi('POST', `/events/${encodeURIComponent(eventId)}/checklist`, { title }),
+        () => collaborationApi('POST', `/events/${encodeURIComponent(eventId)}/checklist`, body),
         '체크리스트를 추가했습니다.'
       );
       if (!saved) return;
-      await refreshEventMutationContext(current.date);
+      await refreshChecklistDirectiveMutationContext(current.date);
       await openEventDetail(current);
     });
     modalBody.querySelectorAll('[data-checklist-id]').forEach(row => {
@@ -3719,17 +4300,46 @@
           '체크 상태를 저장했습니다.'
         );
         if (!saved) return;
-        await refreshEventMutationContext(current.date);
+        await refreshChecklistDirectiveMutationContext(current.date);
         await openEventDetail(current);
       });
       row.querySelector('[data-collab-checklist-edit]')?.addEventListener('click', async () => {
-        const title = prompt('체크리스트 항목을 수정하세요.', item.title || '');
-        if (title === null || !title.trim()) return;
+        if (!isOsRoute()) {
+          const title = prompt('체크리스트 항목을 수정하세요.', item.title || '');
+          if (title === null || !title.trim()) return;
+          const saved = await runCollaborationMutation(
+            () => collaborationApi('PUT', `/events/${encodeURIComponent(eventId)}/checklist/${encodeURIComponent(item.id)}`, { title: title.trim() }),
+            '체크리스트를 수정했습니다.'
+          );
+          if (saved) await openEventDetail(current);
+          return;
+        }
+        const editForm = row.querySelector('[data-checklist-edit-form]');
+        if (!editForm) return;
+        editForm.hidden = false;
+        row.classList.add('editing');
+        editForm.querySelector('[name="title"]')?.focus();
+      });
+      row.querySelector('[data-checklist-edit-cancel]')?.addEventListener('click', () => {
+        const editForm = row.querySelector('[data-checklist-edit-form]');
+        if (editForm) editForm.hidden = true;
+        row.classList.remove('editing');
+        row.querySelector('[data-collab-checklist-edit]')?.focus();
+      });
+      row.querySelector('[data-checklist-edit-form]')?.addEventListener('submit', async submitEvent => {
+        submitEvent.preventDefault();
+        const data = new FormData(submitEvent.currentTarget);
+        const title = data.get('title')?.toString().trim();
+        if (!title) return;
         const saved = await runCollaborationMutation(
-          () => collaborationApi('PUT', `/events/${encodeURIComponent(eventId)}/checklist/${encodeURIComponent(item.id)}`, { title: title.trim() }),
+          () => collaborationApi('PUT', `/events/${encodeURIComponent(eventId)}/checklist/${encodeURIComponent(item.id)}`, {
+            title, instructorUid: data.get('instructorUid')?.toString() || null
+          }),
           '체크리스트를 수정했습니다.'
         );
-        if (saved) await openEventDetail(current);
+        if (!saved) return;
+        await refreshChecklistDirectiveMutationContext(current.date);
+        await openEventDetail(current);
       });
       row.querySelector('[data-collab-checklist-delete]')?.addEventListener('click', async () => {
         if (!confirm('이 체크리스트 항목을 삭제할까요?')) return;
@@ -3738,108 +4348,208 @@
           '체크리스트를 삭제했습니다.'
         );
         if (!saved) return;
-        await refreshEventMutationContext(current.date);
+        await refreshChecklistDirectiveMutationContext(current.date);
         await openEventDetail(current);
       });
     });
   }
 
 
+ async function runPeakosTodoMutation(action, { successMessage = '', refreshDate = todoSelectedDate } = {}) {
+    if (todoDateNavigationBusy) {
+      showToast('날짜를 불러온 뒤 변경해 주세요.');
+      return null;
+    }
+    if (collaborationMutationBusy) {
+      showToast('앞선 저장이 끝난 뒤 다시 시도해 주세요.');
+      return null;
+    }
+    collaborationMutationBusy = true;
+    try {
+      const result = await action();
+      if (successMessage) showToast(successMessage);
+      return result;
+    } catch (error) {
+      if (error?.status === 409 || error?.code === 'TODO_VERSION_CONFLICT') {
+        await refreshTodoDate(refreshDate).catch(() => null);
+        showToast('다른 화면에서 먼저 변경되어 최신 할 일을 다시 불러왔습니다. 내용을 확인해 주세요.');
+        return null;
+      }
+      showToast(error?.message || '할 일을 저장하지 못했습니다.');
+      return null;
+    } finally {
+      collaborationMutationBusy = false;
+    }
+  }
+
+  function peakosTodoCapabilities() {
+    const state = todoDayState;
+    const current = ['ready', 'refreshing'].includes(state.status)
+      && state.contextKey === collaborationEventContextKey()
+      && state.date === todoSelectedDate;
+    if (!current || previewPersona || state.readOnly || !collaborationWritable('calendar')) {
+      return { create: false, edit: false, reorder: false, archive: false };
+    }
+    return {
+      create: state.capabilities?.create === true,
+      edit: state.capabilities?.edit === true,
+      reorder: state.capabilities?.reorder === true,
+      archive: state.capabilities?.archive === true
+    };
+  }
+
+  async function openPeakosTodoEditor(todo, trigger = null) {
+    if (!todo) return;
+    const capabilities = peakosTodoCapabilities();
+    const editable = capabilities.edit;
+    const archiveable = capabilities.archive;
+    const startTime = String(todo.startTime || '').slice(0, 5);
+    const endTime = String(todo.endTime || '').slice(0, 5);
+    openDetailModal('할 일 상세', `
+      <form class="collaboration-editor peakos-todo-editor" data-peakos-todo-editor data-todo-id="${esc(todo.id)}" data-version="${todo.version}">
+        <div class="collaboration-form-grid">
+          <label class="wide"><span>제목</span><input name="title" maxlength="180" required value="${esc(todo.title)}" ${editable ? 'autofocus' : 'disabled'}></label>
+          <label><span>날짜</span><input name="date" type="date" required value="${esc(todo.date)}" ${editable ? '' : 'disabled'}></label>
+          <label><span>분류</span><input name="category" maxlength="60" value="${esc(todo.category || '일반')}" placeholder="예: 고객관리" ${editable ? '' : 'disabled'}></label>
+          <label><span>시작 시간</span><input name="startTime" type="time" value="${esc(startTime)}" ${editable ? '' : 'disabled'}></label>
+          <label><span>종료 시간</span><input name="endTime" type="time" value="${esc(endTime)}" ${editable ? '' : 'disabled'}></label>
+          <label class="wide"><span>메모</span><textarea name="memo" maxlength="4000" rows="6" placeholder="필요한 내용을 적어 주세요" ${editable ? '' : 'disabled'}>${esc(todo.memo)}</textarea></label>
+        </div>
+        <div class="collaboration-form-actions">
+          ${archiveable ? '<button class="danger" type="button" data-peakos-todo-archive>보관</button>' : '<span></span>'}
+          <span></span>
+          <button type="button" data-peakos-todo-modal-close>닫기</button>
+          ${editable ? '<button class="primary" type="submit">변경 저장</button>' : ''}
+        </div>
+      </form>`, { locked: editable, restoreFocusTo: trigger });
+    const modal = document.getElementById('readonlyDetailModal');
+    const form = document.querySelector('[data-peakos-todo-editor]');
+    form?.querySelector('[data-peakos-todo-modal-close]')?.addEventListener('click', () => closeDetailModal());
+    form?.addEventListener('submit', async submitEvent => {
+      submitEvent.preventDefault();
+      const data = new FormData(form);
+      const title = String(data.get('title') || '').trim();
+      const date = validDateKey(data.get('date'));
+      let nextStartTime = String(data.get('startTime') || '').slice(0, 5);
+      let nextEndTime = String(data.get('endTime') || '').slice(0, 5);
+      if (!title || !date) return;
+      if (!nextStartTime) nextEndTime = '';
+      const rangeError = timeRangeError(nextStartTime, nextEndTime);
+      if (rangeError) {
+        showToast(rangeError);
+        form.querySelector(nextStartTime ? '[name="endTime"]' : '[name="startTime"]')?.focus();
+        return;
+      }
+      const submitButton = form.querySelector('button[type="submit"]');
+      if (submitButton) submitButton.disabled = true;
+      const saved = await runPeakosTodoMutation(
+        () => callApi('PATCH', `/peakos/todos/${encodeURIComponent(todo.id)}`, {
+          title,
+          date,
+          startTime: nextStartTime,
+          endTime: nextEndTime,
+          category: String(data.get('category') || '').trim(),
+          memo: String(data.get('memo') || ''),
+          expectedVersion: todo.version
+        }),
+        { successMessage: '할 일을 변경했습니다.', refreshDate: todoSelectedDate }
+      );
+      if (!saved) {
+        if (submitButton && !modal?.hidden) submitButton.disabled = false;
+        return;
+      }
+      closeDetailModal();
+      await refreshTodoDate(todoSelectedDate).catch(error => showToast(error.message));
+    });
+    form?.querySelector('[data-peakos-todo-archive]')?.addEventListener('click', async buttonEvent => {
+      if (!confirm('이 할 일을 보관할까요? 보관한 항목은 현재 목록에서 숨겨집니다.')) return;
+      buttonEvent.currentTarget.disabled = true;
+      const archived = await runPeakosTodoMutation(
+        () => callApi('DELETE', `/peakos/todos/${encodeURIComponent(todo.id)}`, { expectedVersion: todo.version }),
+        { successMessage: '할 일을 보관했습니다.', refreshDate: todoSelectedDate }
+      );
+      if (!archived) {
+        if (!modal?.hidden) buttonEvent.currentTarget.disabled = false;
+        return;
+      }
+      closeDetailModal();
+      await refreshTodoDate(todoSelectedDate).catch(error => showToast(error.message));
+    });
+  }
+
   function renderTodo() {
     todoView.removeAttribute('aria-busy');
     const today = koreaDateKey(new Date());
     const selectedDate = validDateKey(todoSelectedDate) || today;
     todoSelectedDate = selectedDate;
-    const dayContextKey = collaborationEventContextKey();
-    const selectedYear = Number(selectedDate.slice(0, 4));
-    const dayStateReady = ['ready', 'refreshing'].includes(todoDayState.status)
-      && todoDayState.contextKey === dayContextKey
-      && todoDayState.date === selectedDate;
-    const eventSource = dayStateReady
-      ? todoDayState.events
-      : (eventLoadedYear === selectedYear ? liveEvents : []);
-
-    // 할 일 화면은 로그인한 사용자가 직접 만든 개인 업무만 다룬다.
-    // 팀 일정은 캘린더, 프로젝트 지시는 프로젝트 화면에 남겨 서로 섞이지 않게 한다.
-    let items = eventSource.filter(event => event.type === 'todo'
-      && event.date === selectedDate
-      && event.scope === 'personal'
-      && !event.projectId
-      && String(event.ownerId || '') === String(currentUser?.uid || '')
-      && !isAutomaticReportReviewTodo(event)
-    );
-    if (previewPersona) items = [];
-    items = [...items].sort(comparePersonalTodoEvents);
-
-    const openItems = items.filter(event => !event.done);
-    const doneItems = items.filter(event => event.done);
-    const inboxItems = openItems.filter(event => !String(event.time || '').slice(0, 5));
-    const rangedItems = items.filter(event => String(event.time || '').slice(0, 5)
-      && String(event.endTime || '').slice(0, 5));
-    const priorityEditable = openItems.filter(event => canEditCollaborationEvent(event));
-    const priorityById = new Map(openItems.map((event, index) => [String(event.id), index + 1]));
+    const contextKey = collaborationEventContextKey();
+    const stateCurrent = todoDayState.contextKey === contextKey && todoDayState.date === selectedDate;
+    const state = stateCurrent ? todoDayState : {
+      status: previewPersona ? 'ready' : 'idle', todos: [], readOnly: true, capabilities: {}, error: ''
+    };
+    const items = previewPersona ? [] : [...(Array.isArray(state.todos) ? state.todos : [])].sort(comparePeakosTodos);
+    const openItems = items.filter(todo => !todo.done);
+    const doneItems = items.filter(todo => todo.done);
+    const inboxItems = openItems.filter(todo => !todo.startTime);
+    const rangedItems = items.filter(todo => todo.startTime && todo.endTime);
+    const capabilities = peakosTodoCapabilities();
+    const priorityEditable = capabilities.reorder ? openItems : [];
+    const priorityById = new Map(openItems.map((todo, index) => [String(todo.id), index + 1]));
     const progressPercent = items.length ? Math.round(doneItems.length / items.length * 100) : 0;
     const isToday = selectedDate === today;
-    const writable = collaborationWritable('calendar') && !previewPersona;
-    const readonlyCandidate = writable ? '' : collaborationReadonlyMarkup();
-    const readonlyNotice = !writable && readonlyCandidate.includes('data-collab-readonly')
-      ? readonlyCandidate
-      : (!writable ? '<span class="todo-readonly-note" data-collab-readonly>읽기 전용</span>' : '');
     const selectedDateLabel = formatDate(`${selectedDate}T00:00:00+09:00`, {
       timeZone: 'Asia/Seoul', year: 'numeric', month: 'long', day: 'numeric', weekday: 'short'
     });
-
-    const taskOpenMarkup = event => `
-      <button class="daily-plan-task-open" type="button" data-collab-event-open="${esc(event.id)}">
-        <strong>${esc(event.title)}</strong>
-        <small>${event.todoCat ? esc(event.todoCat) : '개인 할 일'}</small>
+    const readonlyNotice = (!capabilities.create && !previewPersona)
+      ? '<span class="todo-readonly-note" data-collab-readonly>읽기 전용</span>' : '';
+    const taskOpenMarkup = todo => `
+      <button class="daily-plan-task-open" type="button" data-peakos-todo-open="${esc(todo.id)}">
+        <strong>${esc(todo.title)}</strong>
+        <small>${esc(todo.category || '일반')}${todo.memo ? ` · ${esc(todo.memo)}` : ''}</small>
       </button>`;
-
-    const captureItemsMarkup = inboxItems.map(event => {
-      const priority = priorityById.get(String(event.id)) || 1;
-      return `<article class="todo-dashboard-inbox-row" data-todo-capture-item="${esc(event.id)}">
+    const captureItemsMarkup = inboxItems.map(todo => `
+      <article class="todo-dashboard-inbox-row" data-todo-capture-item="${esc(todo.id)}">
         <span class="todo-dashboard-inbox-dot" aria-hidden="true"></span>
-        ${taskOpenMarkup(event)}
-        <span class="todo-dashboard-rank">${priority}순위</span>
-      </article>`;
-    }).join('');
-
-    const listItemsMarkup = items.map(event => {
-      const priority = priorityById.get(String(event.id));
-      const editableIndex = priorityEditable.findIndex(item => String(item.id) === String(event.id));
-      const canEdit = editableIndex >= 0;
-      const canEditTime = canEditCollaborationEvent(event) && !event.done;
-      return `<article class="todo-dashboard-task-row ${event.done ? 'done' : ''}" data-personal-todo-id="${esc(event.id)}" data-daily-priority-id="${esc(event.id)}" data-daily-timeline-id="${esc(event.id)}">
-        <button class="todo-task-check ${event.done ? 'checked' : ''}" type="button" ${canEditCollaborationEvent(event) ? `data-collab-event-toggle="${esc(event.id)}"` : 'disabled'} aria-label="${esc(event.title)} ${event.done ? '미완료로 변경' : '완료'}">${event.done ? '✓' : ''}</button>
+        ${taskOpenMarkup(todo)}
+        <span class="todo-dashboard-rank">${priorityById.get(String(todo.id)) || 1}순위</span>
+      </article>`).join('');
+    const listItemsMarkup = items.map(todo => {
+      const priority = priorityById.get(String(todo.id));
+      const editableIndex = priorityEditable.findIndex(item => String(item.id) === String(todo.id));
+      const canReorder = editableIndex >= 0;
+      const canEdit = capabilities.edit && !todo.done;
+      return `<article class="todo-dashboard-task-row ${todo.done ? 'done' : ''}" data-personal-todo-id="${esc(todo.id)}" data-daily-priority-id="${esc(todo.id)}" data-daily-timeline-id="${esc(todo.id)}">
+        <button class="todo-task-check ${todo.done ? 'checked' : ''}" type="button" ${capabilities.edit ? `data-peakos-todo-toggle="${esc(todo.id)}"` : 'disabled'} aria-label="${esc(todo.title)} ${todo.done ? '미완료로 변경' : '완료'}">${todo.done ? '✓' : ''}</button>
         <div class="todo-dashboard-task-copy">
-          ${taskOpenMarkup(event)}
-          <span class="todo-dashboard-task-state ${event.done ? 'complete' : ''}">${event.done ? '완료' : `${priority || 1}순위`}</span>
+          ${taskOpenMarkup(todo)}
+          <span class="todo-dashboard-task-state ${todo.done ? 'complete' : ''}">${todo.done ? '완료' : `${priority || 1}순위`}</span>
         </div>
-        <div class="todo-dashboard-priority-actions" aria-label="${esc(event.title)} 우선순위">
-          ${canEdit ? `<button type="button" data-todo-priority-move="${esc(event.id)}" data-direction="up" ${editableIndex === 0 ? 'disabled' : ''} aria-label="우선순위 올리기">↑</button>
-          <button type="button" data-todo-priority-move="${esc(event.id)}" data-direction="down" ${editableIndex === priorityEditable.length - 1 ? 'disabled' : ''} aria-label="우선순위 내리기">↓</button>` : '<span>—</span>'}
+        <div class="todo-dashboard-priority-actions" aria-label="${esc(todo.title)} 우선순위">
+          ${canReorder ? `<button type="button" data-todo-priority-move="${esc(todo.id)}" data-direction="up" ${editableIndex === 0 ? 'disabled' : ''} aria-label="우선순위 올리기">↑</button>
+          <button type="button" data-todo-priority-move="${esc(todo.id)}" data-direction="down" ${editableIndex === priorityEditable.length - 1 ? 'disabled' : ''} aria-label="우선순위 내리기">↓</button>` : '<span>—</span>'}
         </div>
-        <form class="daily-timeline-range todo-dashboard-time-range" data-todo-time-range="${esc(event.id)}" aria-label="${esc(event.title)} 시간 범위">
-          <label class="daily-timeline-time"><span class="sr-only">${esc(event.title)} 시작 시간</span><input type="time" value="${esc(String(event.time || '').slice(0, 5))}" ${canEditTime ? `data-todo-time="${esc(event.id)}" data-todo-time-field="start"` : 'disabled'} aria-label="${esc(event.title)} 시작 시간"></label>
+        <form class="daily-timeline-range todo-dashboard-time-range" data-todo-time-range="${esc(todo.id)}" aria-label="${esc(todo.title)} 시간 범위">
+          <label class="daily-timeline-time"><span class="sr-only">${esc(todo.title)} 시작 시간</span><input type="time" value="${esc(todo.startTime)}" ${canEdit ? `data-todo-time="${esc(todo.id)}" data-todo-time-field="start"` : 'disabled'} aria-label="${esc(todo.title)} 시작 시간"></label>
           <span class="daily-timeline-separator" aria-hidden="true">~</span>
-          <label class="daily-timeline-time"><span class="sr-only">${esc(event.title)} 종료 시간</span><input type="time" value="${esc(String(event.endTime || '').slice(0, 5))}" ${canEditTime ? `data-todo-end-time="${esc(event.id)}" data-todo-time-field="end"` : 'disabled'} aria-label="${esc(event.title)} 종료 시간"></label>
-          <button class="daily-timeline-save" type="submit" ${canEditTime ? `data-todo-time-save="${esc(event.id)}"` : 'disabled'}>적용</button>
+          <label class="daily-timeline-time"><span class="sr-only">${esc(todo.title)} 종료 시간</span><input type="time" value="${esc(todo.endTime)}" ${canEdit ? `data-todo-end-time="${esc(todo.id)}" data-todo-time-field="end"` : 'disabled'} aria-label="${esc(todo.title)} 종료 시간"></label>
+          <button class="daily-timeline-save" type="submit" ${canEdit ? `data-todo-time-save="${esc(todo.id)}"` : 'disabled'}>적용</button>
         </form>
       </article>`;
     }).join('');
-
-    const previewPrivateMarkup = '<div class="todo-dashboard-empty private"><strong>계정 미리보기에서는 개인 할 일을 표시하지 않습니다</strong><small>실제 사용자의 비공개 업무와 입력 권한은 안전하게 분리됩니다.</small></div>';
-    const captureListMarkup = previewPersona
-      ? previewPrivateMarkup
-      : (captureItemsMarkup || '<div class="todo-dashboard-empty"><strong>시간을 정하지 않은 일이 없습니다</strong><small>떠오른 일을 적으면 이곳과 오른쪽 할 일 목록에 바로 추가됩니다.</small></div>');
-    const todoListMarkup = previewPersona
-      ? previewPrivateMarkup
-      : (listItemsMarkup || '<div class="todo-dashboard-empty"><strong>선택한 날짜의 할 일이 없습니다</strong><small>왼쪽에서 생각나는 일을 먼저 적어 보세요.</small></div>');
+    const previewPrivateMarkup = '<div class="todo-dashboard-empty private"><strong>계정 미리보기에서는 개인 할 일을 표시하지 않습니다</strong><small>실제 사용자의 비공개 업무와 API 요청을 모두 차단합니다.</small></div>';
+    const loadingMarkup = '<div class="todo-dashboard-empty"><strong>할 일을 불러오는 중입니다</strong><small>PEAK OS 전용 저장소를 확인하고 있습니다.</small></div>';
+    const errorMarkup = `<div class="todo-dashboard-empty"><strong>할 일을 불러오지 못했습니다</strong><small>${esc(state.error || '잠시 후 다시 시도해 주세요.')}</small><button type="button" data-peakos-todo-retry>다시 불러오기</button></div>`;
+    const emptyCapture = '<div class="todo-dashboard-empty"><strong>시간을 정하지 않은 일이 없습니다</strong><small>떠오른 일을 적으면 이곳과 오른쪽 목록에 바로 추가됩니다.</small></div>';
+    const emptyList = '<div class="todo-dashboard-empty"><strong>선택한 날짜의 할 일이 없습니다</strong><small>왼쪽에서 생각나는 일을 먼저 적어 보세요.</small></div>';
+    const statusMarkup = state.status === 'error' ? errorMarkup : (['idle', 'loading'].includes(state.status) ? loadingMarkup : '');
+    const captureListMarkup = previewPersona ? previewPrivateMarkup : (statusMarkup || captureItemsMarkup || emptyCapture);
+    const todoListMarkup = previewPersona ? previewPrivateMarkup : (statusMarkup || listItemsMarkup || emptyList);
 
     todoView.innerHTML = `
-      <section class="todo-dashboard" data-todo-dashboard aria-label="개인 할 일 대시보드">
+      <section class="todo-dashboard" data-todo-dashboard data-todo-source="peakos" aria-label="개인 할 일 대시보드">
         <header class="todo-dashboard-toolbar">
           <strong>할 일</strong>
+          <span class="todo-dashboard-source-note">PEAK OS 전용 · 기존 Paragon과 분리</span>
           <div class="todo-dashboard-toolbar-actions">
             ${readonlyNotice}
             <nav class="todo-dashboard-date-nav" aria-label="할 일 날짜 이동">
@@ -3850,7 +4560,6 @@
             </nav>
           </div>
         </header>
-
         <section class="todo-dashboard-overview" aria-label="선택 날짜 할 일 현황">
           <article class="todo-dashboard-progress" data-todo-progress role="progressbar" aria-label="${isToday ? '오늘' : selectedDateLabel} 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPercent}">
             <div><span>${isToday ? '오늘 진행률' : `${formatDate(`${selectedDate}T00:00:00+09:00`, { timeZone: 'Asia/Seoul', month: 'long', day: 'numeric' })} 진행률`}</span><strong>${progressPercent}%</strong></div>
@@ -3863,18 +4572,16 @@
             <article data-todo-stat="complete"><span>완료</span><strong>${doneItems.length}</strong><small>${progressPercent}% 달성</small></article>
           </div>
         </section>
-
         <section class="todo-dashboard-panels" aria-label="개인 할 일 관리">
           <section class="todo-dashboard-panel capture" data-todo-panel="capture" aria-labelledby="todoCaptureHeading">
             <header><div><span>QUICK CAPTURE</span><strong id="todoCaptureHeading">생각나는 일 적기</strong></div><em>${inboxItems.length}건</em></header>
-            ${writable ? `<form class="todo-dashboard-capture-form" data-todo-capture>
+            ${capabilities.create ? `<form class="todo-dashboard-capture-form" data-todo-capture>
               <label><span class="sr-only">생각나는 일</span><textarea name="title" maxlength="180" rows="3" autocomplete="off" placeholder="지금 떠오른 일을 바로 적어 주세요" required>${esc(todoCaptureDraft)}</textarea></label>
               <div><button class="primary" type="submit">＋ 적기</button></div>
             </form>` : ''}
             <div class="todo-dashboard-inbox-head"><strong>시간 미정</strong><span>오른쪽에서 시간을 계획할 수 있어요</span></div>
             <div class="todo-dashboard-inbox" aria-live="polite">${captureListMarkup}</div>
           </section>
-
           <section class="todo-dashboard-panel list" data-todo-panel="list" aria-labelledby="todoListHeading">
             <header><div><span>DAILY PLAN</span><strong id="todoListHeading">투두리스트</strong></div><em>${openItems.length}건 남음</em></header>
             <div class="todo-dashboard-list-guide" aria-hidden="true"><span>업무</span><span>우선순위</span><span>시작 ~ 종료</span></div>
@@ -3884,53 +4591,42 @@
       </section>`;
 
     const changeSelectedDate = async nextDate => {
-      if (collaborationMutationBusy) {
-        showToast('저장이 끝난 뒤 날짜를 이동해 주세요.');
-        return;
-      }
-      if (todoDateNavigationBusy) {
-        showToast('날짜를 불러오는 중입니다.');
+      if (collaborationMutationBusy || todoDateNavigationBusy) {
+        showToast(collaborationMutationBusy ? '저장이 끝난 뒤 날짜를 이동해 주세요.' : '날짜를 불러오는 중입니다.');
         return;
       }
       const validNextDate = validDateKey(nextDate);
       if (!validNextDate || validNextDate === todoSelectedDate) return;
       const previousDate = todoSelectedDate;
-      const previousDayState = todoDayState;
-      const previousCaptureDraft = todoCaptureDraft;
-      const navigationGeneration = ++todoDateNavigationGeneration;
+      const previousState = todoDayState;
+      const previousDraft = todoCaptureDraft;
+      const generation = ++todoDateNavigationGeneration;
       todoDateNavigationBusy = true;
       todoSelectedDate = validNextDate;
       todoCaptureDraft = '';
-      todoView.querySelectorAll('button, input, textarea, select')
-        .forEach(control => { control.disabled = true; });
-      if (collaborationAccess().events && !previewPersona) {
-        todoView.setAttribute('aria-busy', 'true');
-        try {
-          await refreshTodoDateEvents(validNextDate, { render: false });
-        } catch (error) {
-          if (navigationGeneration === todoDateNavigationGeneration) {
-            if (todoSelectedDate === validNextDate) {
-              todoSelectedDate = previousDate;
-              todoDayState = previousDayState;
-              todoCaptureDraft = previousCaptureDraft;
-            }
-            showToast(`할 일 조회 실패: ${error.message}`);
-          }
-        } finally {
-          if (navigationGeneration === todoDateNavigationGeneration) {
-            todoDateNavigationBusy = false;
-            todoView.removeAttribute('aria-busy');
-          }
+      todoView.setAttribute('aria-busy', 'true');
+      todoView.querySelectorAll('button, input, textarea, select').forEach(control => { control.disabled = true; });
+      try {
+        if (!previewPersona && collaborationAccess().events) await refreshTodoDate(validNextDate, { render: false });
+      } catch (error) {
+        if (generation === todoDateNavigationGeneration) {
+          todoSelectedDate = previousDate;
+          todoDayState = previousState;
+          todoCaptureDraft = previousDraft;
+          showToast(`할 일 조회 실패: ${error.message}`);
         }
-      } else {
-        todoDateNavigationBusy = false;
+      } finally {
+        if (generation === todoDateNavigationGeneration) todoDateNavigationBusy = false;
       }
-      if (navigationGeneration === todoDateNavigationGeneration) renderTodo();
+      if (generation === todoDateNavigationGeneration) renderTodo();
     };
-
     todoView.querySelector('[data-todo-date-prev]')?.addEventListener('click', () => changeSelectedDate(shiftDateKey(selectedDate, -1)));
     todoView.querySelector('[data-todo-date-next]')?.addEventListener('click', () => changeSelectedDate(shiftDateKey(selectedDate, 1)));
     todoView.querySelector('[data-todo-date-today]')?.addEventListener('click', () => changeSelectedDate(today));
+    todoView.querySelectorAll('[data-peakos-todo-retry]').forEach(button => button.addEventListener('click', () => {
+      button.disabled = true;
+      refreshTodoDate(selectedDate).catch(error => showToast(error.message));
+    }));
     todoView.querySelector('[data-todo-capture] [name="title"]')?.addEventListener('input', inputEvent => {
       todoCaptureDraft = inputEvent.currentTarget.value;
     });
@@ -3942,119 +4638,96 @@
       todoCaptureDraft = title;
       const submitButton = form.querySelector('button[type="submit"]');
       if (submitButton) submitButton.disabled = true;
-      const result = await runCollaborationMutation(async () => {
-        const created = await collaborationApi('POST', '/events', {
-          type: 'todo', title, date: selectedDate, time: '', endTime: '', memo: '', todoCat: '',
-          scope: 'personal', shareWith: [], checklist: []
-        });
-        let prioritySaved = Boolean(created?.id);
-        if (created?.id) {
-          try {
-            await collaborationApi('POST', '/events/reorder', {
-              items: [...priorityEditable, created]
-                .filter((event, index, all) => all.findIndex(item => String(item.id) === String(event.id)) === index)
-                .map((event, index) => ({ id: event.id, sortOrder: (index + 1) * 10 }))
-            });
-          } catch (_) {
-            prioritySaved = false;
-          }
-        }
-        return { prioritySaved };
-      });
-      if (!result) {
+      const maxSortOrder = items.reduce((max, todo) => Math.max(max, Number(todo.sortOrder || 0)), 0);
+      const created = await runPeakosTodoMutation(
+        () => callApi('POST', '/peakos/todos', {
+          title, date: selectedDate, startTime: '', endTime: '', category: '일반', memo: '',
+          done: false, sortOrder: maxSortOrder + 10
+        }),
+        { successMessage: '생각난 일을 선택한 날짜에 적었습니다.', refreshDate: selectedDate }
+      );
+      if (!created) {
         if (submitButton) submitButton.disabled = false;
         return;
       }
       todoCaptureDraft = '';
       form.reset();
-      const refreshed = await refreshTodoAfterMutation(selectedDate);
-      if (!refreshed) return;
-      showToast(result.prioritySaved
-        ? '생각난 일을 선택한 날짜의 할 일에 적었습니다.'
-        : '할 일은 저장했지만 순서는 저장하지 못했습니다. 화살표로 다시 정리해 주세요.');
+      await refreshTodoDate(selectedDate).catch(error => showToast(error.message));
     });
-    todoView.querySelectorAll('[data-collab-event-open]').forEach(button => button.addEventListener('click', () => {
-      const event = items.find(item => String(item.id) === String(button.dataset.collabEventOpen));
-      if (event) openEventDetail(event);
+    todoView.querySelectorAll('[data-peakos-todo-open]').forEach(button => button.addEventListener('click', () => {
+      const todo = items.find(item => String(item.id) === String(button.dataset.peakosTodoOpen));
+      if (todo) openPeakosTodoEditor(todo, button);
+    }));
+    todoView.querySelectorAll('[data-peakos-todo-toggle]').forEach(button => button.addEventListener('click', async () => {
+      const todo = items.find(item => String(item.id) === String(button.dataset.peakosTodoToggle));
+      if (!todo) return;
+      button.disabled = true;
+      const saved = await runPeakosTodoMutation(
+        () => callApi('PATCH', `/peakos/todos/${encodeURIComponent(todo.id)}`, {
+          done: !todo.done, expectedVersion: todo.version
+        }),
+        { successMessage: todo.done ? '미완료로 변경했습니다.' : '할 일을 완료했습니다.', refreshDate: selectedDate }
+      );
+      if (!saved) {
+        if (button.isConnected) button.disabled = false;
+        return;
+      }
+      await refreshTodoDate(selectedDate).catch(error => showToast(error.message));
     }));
     todoView.querySelectorAll('[data-todo-priority-move]').forEach(button => button.addEventListener('click', async () => {
-      const currentIndex = priorityEditable.findIndex(event => String(event.id) === String(button.dataset.todoPriorityMove));
-      const offset = button.dataset.direction === 'up' ? -1 : 1;
-      const targetIndex = currentIndex + offset;
+      const currentIndex = priorityEditable.findIndex(todo => String(todo.id) === String(button.dataset.todoPriorityMove));
+      const targetIndex = currentIndex + (button.dataset.direction === 'up' ? -1 : 1);
       if (currentIndex < 0 || targetIndex < 0 || targetIndex >= priorityEditable.length) return;
       const reordered = [...priorityEditable];
       [reordered[currentIndex], reordered[targetIndex]] = [reordered[targetIndex], reordered[currentIndex]];
       button.disabled = true;
       todoPriorityFocus = { id: button.dataset.todoPriorityMove, direction: button.dataset.direction };
-      const saved = await runCollaborationMutation(
-        () => collaborationApi('POST', '/events/reorder', {
-          items: reordered.map((event, index) => ({ id: event.id, sortOrder: (index + 1) * 10 }))
+      const saved = await runPeakosTodoMutation(
+        () => callApi('POST', '/peakos/todos/reorder', {
+          items: reordered.map((todo, index) => ({
+            id: todo.id, sortOrder: (index + 1) * 10, expectedVersion: todo.version
+          }))
         }),
-        '할 일 우선순위를 저장했습니다.'
+        { successMessage: '할 일 우선순위를 저장했습니다.', refreshDate: selectedDate }
       );
       if (!saved) {
         todoPriorityFocus = null;
-        button.disabled = false;
+        if (button.isConnected) button.disabled = false;
         return;
       }
-      await refreshTodoAfterMutation(selectedDate);
+      await refreshTodoDate(selectedDate).catch(error => showToast(error.message));
     }));
     todoView.querySelectorAll('[data-todo-time-range]').forEach(form => form.addEventListener('submit', async submitEvent => {
       submitEvent.preventDefault();
-      const row = form.closest('[data-daily-timeline-id]');
-      const event = items.find(item => String(item.id) === String(form.dataset.todoTimeRange));
-      if (!event || !row) return;
-      const startInput = row.querySelector('[data-todo-time]');
-      const endInput = row.querySelector('[data-todo-end-time]');
+      const todo = items.find(item => String(item.id) === String(form.dataset.todoTimeRange));
+      if (!todo) return;
+      const startInput = form.querySelector('[data-todo-time]');
+      const endInput = form.querySelector('[data-todo-end-time]');
       const saveButton = form.querySelector('[data-todo-time-save]');
-      let startTime = String(startInput?.value || '');
-      let endTime = String(endInput?.value || '');
-      if (!startTime) {
-        endTime = '';
-        if (endInput) endInput.value = '';
-      }
+      const startTime = String(startInput?.value || '').slice(0, 5);
+      const endTime = startTime ? String(endInput?.value || '').slice(0, 5) : '';
       const rangeError = timeRangeError(startTime, endTime);
       if (rangeError) {
         showToast(rangeError);
-        (!startTime ? startInput : endInput)?.focus();
+        (startTime ? endInput : startInput)?.focus();
         return;
       }
-      const controls = [startInput, endInput, saveButton].filter(Boolean);
-      controls.forEach(control => { control.disabled = true; });
-      const saved = await runCollaborationMutation(
-        () => collaborationApi('PUT', `/events/${encodeURIComponent(event.id)}`, { time: startTime, endTime }),
-        startTime && endTime ? '타임라인 시간 범위를 저장했습니다.' : (startTime ? '시작 시간을 저장했습니다.' : '타임라인 시간을 비웠습니다.')
+      [startInput, endInput, saveButton].filter(Boolean).forEach(control => { control.disabled = true; });
+      const saved = await runPeakosTodoMutation(
+        () => callApi('PATCH', `/peakos/todos/${encodeURIComponent(todo.id)}`, {
+          startTime, endTime, expectedVersion: todo.version
+        }),
+        { successMessage: startTime ? '할 일 시간을 저장했습니다.' : '할 일 시간을 비웠습니다.', refreshDate: selectedDate }
       );
-      if (!saved) {
-        controls.forEach(control => { control.disabled = false; });
-        if (startInput) startInput.value = String(event.time || '').slice(0, 5);
-        if (endInput) endInput.value = String(event.endTime || '').slice(0, 5);
-        return;
-      }
-      const refreshed = await refreshTodoAfterMutation(selectedDate);
-      if (!refreshed) controls.forEach(control => { control.disabled = false; });
-    }));
-    todoView.querySelectorAll('[data-collab-event-toggle]').forEach(button => button.addEventListener('click', async () => {
-      const event = items.find(item => String(item.id) === String(button.dataset.collabEventToggle));
-      if (!event) return;
-      button.disabled = true;
-      const saved = await runCollaborationMutation(
-        () => collaborationApi('PUT', `/events/${encodeURIComponent(event.id)}`, { done: !event.done }),
-        event.done ? '미완료로 변경했습니다.' : '할 일을 완료했습니다.'
-      );
-      if (!saved) {
-        button.disabled = false;
-        return;
-      }
-      await refreshTodoAfterMutation(selectedDate);
+      if (!saved) return;
+      await refreshTodoDate(selectedDate).catch(error => showToast(error.message));
     }));
     if (todoPriorityFocus) {
       const focus = todoPriorityFocus;
       todoPriorityFocus = null;
       const row = todoView.querySelector(`[data-daily-priority-id="${CSS.escape(String(focus.id))}"]`);
-      const requested = row?.querySelector(`[data-direction="${focus.direction}"]:not(:disabled)`);
-      const fallback = row?.querySelector('[data-todo-priority-move]:not(:disabled), [data-collab-event-open]');
-      (requested || fallback)?.focus();
+      (row?.querySelector(`[data-direction="${focus.direction}"]:not(:disabled)`)
+        || row?.querySelector('[data-todo-priority-move]:not(:disabled), [data-peakos-todo-open]'))?.focus();
     }
   }
 
@@ -4108,7 +4781,7 @@
 
     reviewView.innerHTML = `
       <header class="review-page-toolbar collaboration-page-toolbar">
-        <div class="review-page-copy"><strong>프로젝트 업무 지시</strong><span>지시자, 담당자, 역할과 마감기한을 한눈에 확인하고 완료 후 상사 검토까지 진행합니다</span></div>
+        <div class="review-page-copy"><strong>기존 프로젝트 · Paragon 연결</strong><span>기존 Paragon의 프로젝트와 업무 지시만 연결됩니다. 신규 프로젝트와 할 일 데이터는 이 원장에 섞이지 않습니다.</span></div>
         <div class="collaboration-toolbar-actions">${collaborationReadonlyMarkup()}${collaborationWritable('projects') ? '<button class="review-create-button" type="button" data-collab-project-create>＋ 새 프로젝트</button>' : ''}</div>
       </header>
       <section class="review-summary" aria-label="프로젝트 요약">
@@ -4850,6 +5523,32 @@
     ].join('|');
   }
 
+  function structuredHierarchyKey(projectId = selectedStructuredProjectId) {
+    return `${structuredProjectContextKey()}|project:${String(projectId || '')}`;
+  }
+
+  function resetStructuredHierarchyExpansion(projectId = '') {
+    structuredExpandedMediumIds.clear();
+    structuredExpandedSmallIds.clear();
+    structuredHierarchyExpansionKey = projectId ? structuredHierarchyKey(projectId) : '';
+  }
+
+  function ensureStructuredHierarchyExpansion(projectId = selectedStructuredProjectId) {
+    const nextKey = structuredHierarchyKey(projectId);
+    if (structuredHierarchyExpansionKey !== nextKey) resetStructuredHierarchyExpansion(projectId);
+  }
+
+  function openStructuredHierarchyPath(projectId, mediumId = '', smallId = '') {
+    ensureStructuredHierarchyExpansion(projectId);
+    if (mediumId) structuredExpandedMediumIds.add(String(mediumId));
+    if (smallId) structuredExpandedSmallIds.add(String(smallId));
+  }
+
+  function structuredHierarchyPanelId(level, id) {
+    const safeId = String(id || '').replace(/[^A-Za-z0-9_-]/g, '-');
+    return `structured-${level}-body-${safeId}`;
+  }
+
   function structuredProjectCapabilities(value) {
     return value && typeof value === 'object' ? value : {};
   }
@@ -5023,6 +5722,7 @@
     const requestedId = String(projectId || '');
     if (!requestedId || previewPersona) return;
     selectedStructuredProjectId = requestedId;
+    resetStructuredHierarchyExpansion(requestedId);
     structuredProjectTaskView = 'hierarchy';
     structuredBoardSearch = '';
     structuredBoardMediumFilter = 'all';
@@ -5040,6 +5740,7 @@
   function closeStructuredProject() {
     structuredProjectLoadGeneration += 1;
     selectedStructuredProjectId = '';
+    resetStructuredHierarchyExpansion();
     structuredProjectTaskView = 'hierarchy';
     structuredBoardSearch = '';
     structuredBoardMediumFilter = 'all';
@@ -5127,23 +5828,23 @@
     const scopeLabel = state.capabilities.viewPortfolio === true ? '전체 포트폴리오' : '내 참여 프로젝트';
     newProjectsView.innerHTML = `<section class="structured-project-page" data-structured-project-list>
       <header class="structured-page-head">
-        <div><span class="structured-eyebrow">PROJECT WORKFLOW · ${esc(scopeLabel)}</span><h1>신규 프로젝트</h1><p>프로젝트별로 업무 중분류·소분류·체크리스트를 나누고, 지시부터 검토까지 한 흐름으로 관리합니다.</p></div>
-        <div class="structured-page-actions">${structuredProjectReadOnlyNotice()}${structuredProjectCan('createProject') ? '<button class="structured-primary-button" type="button" data-structured-project-create>＋ 프로젝트 생성</button>' : ''}</div>
+        <div><span class="structured-eyebrow">NEW PROJECT WORKFLOW · ${esc(scopeLabel)}</span><h1>신규 프로젝트</h1><p>PEAK OS에서 새로 만든 독립 프로젝트입니다. 기존 Paragon 프로젝트·할 일 원장과 연결되지 않습니다.</p></div>
+        <div class="structured-page-actions">${structuredProjectReadOnlyNotice()}${structuredProjectCan('createProject') ? '<button class="structured-primary-button" type="button" data-structured-project-create>＋ 대분류 생성</button>' : ''}</div>
       </header>
       <section class="structured-summary" aria-label="신규 프로젝트 요약">
-        <article><span>조회 프로젝트</span><strong>${state.projects.length}</strong><small>${esc(scopeLabel)}</small></article>
+        <article><span>조회 대분류</span><strong>${state.projects.length}</strong><small>${esc(scopeLabel)}</small></article>
         <article><span>전체 체크리스트</span><strong>${totals.tasks}</strong><small>${totals.done}건 승인 완료</small></article>
         <article class="review"><span>검토 요청</span><strong>${totals.review}</strong><small>승인 또는 수정 요청 필요</small></article>
       </section>
       <section class="structured-project-controls">
-        <label class="structured-search"><span aria-hidden="true">⌕</span><input type="search" data-structured-search value="${esc(structuredProjectSearch)}" placeholder="프로젝트명, 담당자, 팀원 검색" aria-label="신규 프로젝트 검색"></label>
+        <label class="structured-search"><span aria-hidden="true">⌕</span><input type="search" data-structured-search value="${esc(structuredProjectSearch)}" placeholder="대분류명, 담당자, 팀원 검색" aria-label="대분류 프로젝트 검색"></label>
         <nav class="structured-status-filters" aria-label="프로젝트 상태 필터">
           ${[['all', '전체'], ['active', '진행 중'], ['completed', '완료'], ['archived', '보관']].map(([key, label]) => `<button type="button" class="${structuredProjectStatusFilter === key ? 'active' : ''}" data-structured-status-filter="${key}">${label}</button>`).join('')}
         </nav>
         <span class="structured-result-count">${visible.length}개 표시</span>
       </section>
       <section class="structured-project-grid" aria-label="신규 프로젝트 목록">
-        ${visible.map(structuredProjectPortfolioCard).join('') || `<div class="structured-empty"><strong>${state.projects.length ? '검색 조건에 맞는 프로젝트가 없습니다.' : '표시할 신규 프로젝트가 없습니다.'}</strong><span>${state.capabilities.viewPortfolio === true ? '새 프로젝트를 만들거나 필터를 변경해 주세요.' : '프로젝트 팀원 또는 업무 담당자로 배정되면 이곳에 표시됩니다.'}</span></div>`}
+        ${visible.map(structuredProjectPortfolioCard).join('') || `<div class="structured-empty"><strong>${state.projects.length ? '검색 조건에 맞는 대분류가 없습니다.' : '표시할 대분류 프로젝트가 없습니다.'}</strong><span>${state.capabilities.viewPortfolio === true ? '매출과 같은 대분류를 만들거나 필터를 변경해 주세요.' : '프로젝트 팀원 또는 업무 담당자로 배정되면 이곳에 표시됩니다.'}</span></div>`}
       </section>
     </section>`;
     wireStructuredPortfolioActions();
@@ -5324,9 +6025,12 @@
     const tasks = Array.isArray(small.tasks) ? small.tasks : [];
     const done = tasks.filter(task => task.status === 'done').length;
     const canManage = structuredProjectCan('manageProject', structuredProjectDetailState);
-    return `<article class="structured-small-category" data-work-subcategory-id="${esc(small.id)}">
-      <header><div><span>업무 소분류</span><strong>${esc(small.name || '이름 없는 소분류')}</strong><small>체크리스트 ${done}/${tasks.length}</small></div>${canManage ? `<div class="structured-category-actions"><button type="button" data-structured-small-edit data-medium-id="${esc(medium.id)}" data-small-id="${esc(small.id)}">이름 수정</button><button type="button" data-structured-task-create data-medium-id="${esc(medium.id)}" data-small-id="${esc(small.id)}">＋ 업무 배정</button></div>` : ''}</header>
-      <div class="structured-task-list">${tasks.map(task => structuredTaskRow(task, project)).join('') || '<div class="structured-task-empty">아직 등록된 체크리스트 업무가 없습니다.</div>'}</div>
+    const smallId = String(small.id || '');
+    const expanded = structuredExpandedSmallIds.has(smallId);
+    const bodyId = structuredHierarchyPanelId('small', smallId);
+    return `<article class="structured-small-category ${expanded ? 'is-expanded' : 'is-collapsed'}" data-work-subcategory-id="${esc(smallId)}">
+      <header><button class="structured-small-toggle" type="button" data-structured-small-toggle="${esc(smallId)}" aria-expanded="${expanded ? 'true' : 'false'}" aria-controls="${esc(bodyId)}"><span class="structured-disclosure-caret" aria-hidden="true">›</span><span class="structured-small-summary"><span>업무 소분류</span><strong>${esc(small.name || '이름 없는 소분류')}</strong><small>체크리스트 ${done}/${tasks.length}</small></span></button>${canManage ? `<div class="structured-category-actions"><button type="button" data-structured-small-edit data-medium-id="${esc(medium.id)}" data-small-id="${esc(smallId)}">이름 수정</button><button type="button" data-structured-task-create data-medium-id="${esc(medium.id)}" data-small-id="${esc(smallId)}">＋ 할 일 배정</button></div>` : ''}</header>
+      <div class="structured-task-list" id="${esc(bodyId)}" ${expanded ? '' : 'hidden'}>${tasks.map(task => structuredTaskRow(task, project)).join('') || '<div class="structured-task-empty">아직 등록된 체크리스트 업무가 없습니다.</div>'}</div>
     </article>`;
   }
 
@@ -5334,6 +6038,9 @@
     const smalls = Array.isArray(medium.smallCategories) ? medium.smallCategories : [];
     const taskCount = smalls.reduce((sum, small) => sum + (Array.isArray(small.tasks) ? small.tasks.length : 0), 0);
     const canManage = structuredProjectCan('manageProject', structuredProjectDetailState);
+    const mediumId = String(medium.id || '');
+    const expanded = structuredExpandedMediumIds.has(mediumId);
+    const bodyId = structuredHierarchyPanelId('medium', mediumId);
     const manager = medium?.manager && typeof medium.manager === 'object' ? medium.manager : null;
     const managerMember = manager?.uid
       ? [project?.lead, ...(Array.isArray(project?.members) ? project.members : [])]
@@ -5347,9 +6054,9 @@
     const managerMarkup = managerName
       ? `<span>중분류 담당자</span><strong class="structured-medium-manager-name">${esc(managerName)}</strong><small>${esc(managerRank || '직급 미지정')}</small>`
       : '<strong class="structured-medium-manager-empty">중분류 담당자 미지정</strong>';
-    return `<section class="structured-medium-category" data-work-category-id="${esc(medium.id)}">
-      <header class="structured-medium-head"><div class="structured-medium-overview"><div class="structured-medium-title"><span>업무 중분류</span><h2>${esc(medium.name || '이름 없는 중분류')}</h2><small>소분류 ${smalls.length}개 · 체크리스트 ${taskCount}건</small></div><div class="structured-medium-manager" data-structured-medium-manager>${managerMarkup}</div></div>${canManage ? `<div class="structured-category-actions"><button type="button" data-structured-medium-edit="${esc(medium.id)}">중분류 수정</button><button type="button" data-structured-small-create="${esc(medium.id)}">＋ 소분류 추가</button></div>` : ''}</header>
-      <div class="structured-small-list">${smalls.map(small => structuredSmallCategory(small, project, medium)).join('') || `<div class="structured-category-empty"><span>소분류를 추가해 업무를 구체적으로 나눠 주세요.</span>${canManage ? `<button class="structured-empty-action" type="button" data-structured-small-create="${esc(medium.id)}">＋ 업무 소분류 만들기</button>` : ''}</div>`}</div>
+    return `<section class="structured-medium-category ${expanded ? 'is-expanded' : 'is-collapsed'}" data-work-category-id="${esc(mediumId)}">
+      <header class="structured-medium-head"><button class="structured-medium-toggle" type="button" data-structured-medium-toggle="${esc(mediumId)}" aria-expanded="${expanded ? 'true' : 'false'}" aria-controls="${esc(bodyId)}"><span class="structured-disclosure-caret" aria-hidden="true">›</span><span class="structured-medium-overview"><span class="structured-medium-title"><span>업무 중분류</span><h2>${esc(medium.name || '이름 없는 중분류')}</h2><small>소분류 ${smalls.length}개 · 체크리스트 ${taskCount}건</small></span><span class="structured-medium-manager" data-structured-medium-manager>${managerMarkup}</span></span></button>${canManage ? `<div class="structured-category-actions"><button type="button" data-structured-medium-edit="${esc(mediumId)}">중분류 수정</button><button type="button" data-structured-small-create="${esc(mediumId)}">＋ 소분류 추가</button></div>` : ''}</header>
+      <div class="structured-small-list" id="${esc(bodyId)}" ${expanded ? '' : 'hidden'}>${smalls.map(small => structuredSmallCategory(small, project, medium)).join('') || `<div class="structured-category-empty"><span>소분류를 추가해 실행할 업무를 구체적으로 나눠 주세요.</span>${canManage ? `<button class="structured-empty-action" type="button" data-structured-small-create="${esc(mediumId)}">＋ 업무 소분류 만들기</button>` : ''}</div>`}</div>
     </section>`;
   }
 
@@ -5368,6 +6075,7 @@
     }
     const project = state.project;
     if (!project) return renderStructuredProjectPortfolio();
+    ensureStructuredHierarchyExpansion(project.id);
     const mediums = Array.isArray(project.mediumCategories) ? project.mediumCategories : [];
     const tasks = structuredProjectDetailTasks(project);
     const done = tasks.filter(task => task.status === 'done').length;
@@ -5380,16 +6088,16 @@
     const canEditSettings = structuredProjectCanEditSettings(state);
     const leadRank = structuredProjectMemberRank(project.lead);
     newProjectsView.innerHTML = `<section class="structured-project-detail" data-structured-project-detail data-structured-project-id="${esc(project.id)}">
-      <header class="structured-detail-nav"><button type="button" data-structured-project-back>← 프로젝트 목록</button><div>${structuredProjectReadOnlyNotice()}${canEditSettings ? '<button type="button" data-structured-project-edit>프로젝트 수정</button>' : ''}${canManage ? '<button class="structured-primary-button" type="button" data-structured-medium-create>＋ 중분류 추가</button>' : ''}</div></header>
+      <header class="structured-detail-nav"><button type="button" data-structured-project-back>← 대분류 목록</button><div>${structuredProjectReadOnlyNotice()}${canEditSettings ? '<button type="button" data-structured-project-edit>대분류 설정</button>' : ''}${canManage ? '<button class="structured-primary-button" type="button" data-structured-medium-create>＋ 중분류 추가</button>' : ''}</div></header>
       <section class="structured-detail-hero">
-        <div class="structured-detail-title"><span>${structuredProjectStatusBadge(project.status || 'active')}</span><h1>${esc(project.name || '프로젝트명 없음')}</h1><p>${esc(project.description || '등록된 프로젝트 설명이 없습니다.')}</p></div>
+        <div class="structured-detail-title"><span><b class="structured-root-label">대분류</b>${structuredProjectStatusBadge(project.status || 'active')}</span><h1>${esc(project.name || '대분류명 없음')}</h1><p>${esc(project.description || '등록된 대분류 설명이 없습니다.')}</p></div>
         <div class="structured-detail-people">
           <span class="structured-project-lead-card"><span class="structured-detail-person-head"><b>프로젝트 담당자</b>${canEditSettings ? '<button type="button" data-structured-project-lead-edit aria-label="프로젝트 담당자 수정">수정</button>' : ''}</span><strong>${esc(lead)}${leadRank ? `<small>${esc(leadRank)}</small>` : ''}</strong></span>
           <span><b>프로젝트 팀원 ${members.length}명</b><strong class="structured-project-team">${members.map(member => `<span class="structured-project-team-member"><span>${esc(structuredProjectMemberName(member))}</span><small class="structured-project-member-rank">${esc(structuredProjectMemberRank(member) || '직급 미지정')}</small></span>`).join('') || '<span class="structured-project-team-empty">팀원 미지정</span>'}</strong></span>
         </div>
         <div class="structured-detail-progress"><span><b>전체 진행률</b><strong>${percent}%</strong></span><i><b style="width:${percent}%"></b></i><small>승인 완료 ${done}/${tasks.length} · 검토 요청 ${review} · 수정 요청 ${revision}</small></div>
       </section>
-      <section class="structured-task-viewbar"><div><strong>업무 보기</strong><small>기존 계층 구조와 보드 테스트뷰를 전환해 비교할 수 있습니다.</small></div><nav data-structured-task-view-toggle aria-label="업무 보기 방식"><button type="button" data-structured-task-view="hierarchy" class="${structuredProjectTaskView === 'hierarchy' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'hierarchy' ? 'true' : 'false'}">계층 보기</button><button type="button" data-structured-task-view="board" class="${structuredProjectTaskView === 'board' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'board' ? 'true' : 'false'}">보드 테스트뷰</button></nav></section>
+      <section class="structured-task-viewbar"><div><strong>업무 보기</strong><small>대분류 › 중분류 › 소분류 › 할 일 흐름과 상태 보드를 전환합니다.</small></div>${structuredProjectTaskView === 'hierarchy' && mediums.length ? '<span class="structured-hierarchy-bulk" role="group" aria-label="계층 접기 및 펼치기"><button type="button" data-structured-hierarchy-expand-all>모두 펼치기</button><button type="button" data-structured-hierarchy-collapse-all>모두 접기</button></span>' : ''}<nav data-structured-task-view-toggle aria-label="업무 보기 방식"><button type="button" data-structured-task-view="hierarchy" class="${structuredProjectTaskView === 'hierarchy' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'hierarchy' ? 'true' : 'false'}">계층 보기</button><button type="button" data-structured-task-view="board" class="${structuredProjectTaskView === 'board' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'board' ? 'true' : 'false'}">보드 보기</button></nav></section>
       ${structuredProjectTaskView === 'board'
         ? structuredProjectBoard(project)
         : `<section class="structured-medium-list">${mediums.map(medium => structuredMediumCategory(medium, project)).join('') || `<div class="structured-empty"><strong>아직 업무 중분류가 없습니다.</strong><span>${canManage ? '중분류를 추가해 프로젝트 업무를 나눠 주세요.' : '프로젝트 담당자가 업무 구조를 준비하고 있습니다.'}</span>${canManage ? '<button class="structured-empty-action" type="button" data-structured-medium-create>＋ 업무 중분류 만들기</button>' : ''}</div>`}</section>`}
@@ -5439,6 +6147,36 @@
   function wireStructuredDetailActions(project) {
     newProjectsView.querySelector('[data-structured-project-back]')?.addEventListener('click', closeStructuredProject);
     newProjectsView.querySelector('[data-structured-board-assign]')?.addEventListener('click', () => openStructuredBoardAssignmentEditor(project));
+    newProjectsView.querySelectorAll('[data-structured-medium-toggle]').forEach(button => button.addEventListener('click', () => {
+      const mediumId = String(button.dataset.structuredMediumToggle || '');
+      if (!mediumId) return;
+      if (structuredExpandedMediumIds.has(mediumId)) structuredExpandedMediumIds.delete(mediumId);
+      else structuredExpandedMediumIds.add(mediumId);
+      renderStructuredProjectDetail();
+      window.requestAnimationFrame(() => newProjectsView.querySelector(`[data-structured-medium-toggle="${CSS.escape(mediumId)}"]`)?.focus());
+    }));
+    newProjectsView.querySelectorAll('[data-structured-small-toggle]').forEach(button => button.addEventListener('click', () => {
+      const smallId = String(button.dataset.structuredSmallToggle || '');
+      if (!smallId) return;
+      if (structuredExpandedSmallIds.has(smallId)) structuredExpandedSmallIds.delete(smallId);
+      else structuredExpandedSmallIds.add(smallId);
+      renderStructuredProjectDetail();
+      window.requestAnimationFrame(() => newProjectsView.querySelector(`[data-structured-small-toggle="${CSS.escape(smallId)}"]`)?.focus());
+    }));
+    newProjectsView.querySelector('[data-structured-hierarchy-expand-all]')?.addEventListener('click', () => {
+      (project.mediumCategories || []).forEach(medium => {
+        structuredExpandedMediumIds.add(String(medium.id));
+        (medium.smallCategories || []).forEach(small => structuredExpandedSmallIds.add(String(small.id)));
+      });
+      renderStructuredProjectDetail();
+      window.requestAnimationFrame(() => newProjectsView.querySelector('[data-structured-hierarchy-expand-all]')?.focus());
+    });
+    newProjectsView.querySelector('[data-structured-hierarchy-collapse-all]')?.addEventListener('click', () => {
+      structuredExpandedMediumIds.clear();
+      structuredExpandedSmallIds.clear();
+      renderStructuredProjectDetail();
+      window.requestAnimationFrame(() => newProjectsView.querySelector('[data-structured-hierarchy-collapse-all]')?.focus());
+    });
     newProjectsView.querySelectorAll('[data-structured-task-view]').forEach(button => button.addEventListener('click', () => {
       const nextView = button.dataset.structuredTaskView === 'board' ? 'board' : 'hierarchy';
       if (nextView === structuredProjectTaskView) return;
@@ -5554,7 +6292,7 @@
     const source = project ? structuredProjectDetailState : structuredProjectPortfolio;
     const canEdit = project ? structuredProjectCanEditSettings(source) : structuredProjectCan('createProject', source);
     if (!canEdit) return showToast('신규 프로젝트를 변경할 권한이 없습니다.');
-    openDetailModal(project ? '신규 프로젝트 설정' : '신규 프로젝트 생성', '<div class="project-detail-loading"><strong>프로젝트 팀원을 불러오는 중입니다</strong></div>', { locked: true });
+    openDetailModal(project ? '대분류 프로젝트 설정' : '대분류 프로젝트 생성', '<div class="project-detail-loading"><strong>프로젝트 팀원을 불러오는 중입니다</strong></div>', { locked: true });
     let users;
     try {
       users = structuredProjectDirectory(await loadCollaborationDirectory(), project);
@@ -5566,16 +6304,16 @@
     const selectedIds = new Set((Array.isArray(project?.members) ? project.members : []).map(member => String(member.uid)));
     if (leadUid) selectedIds.add(leadUid);
     if (!project && currentUser?.uid) selectedIds.add(String(currentUser.uid));
-    openDetailModal(project ? '신규 프로젝트 설정' : '신규 프로젝트 생성', `
+    openDetailModal(project ? '대분류 프로젝트 설정' : '대분류 프로젝트 생성', `
       <form class="collaboration-form structured-project-form" id="structuredProjectForm">
         <div class="collaboration-form-grid">
-          <label class="wide"><span>프로젝트명</span><input name="name" maxlength="160" required value="${esc(project?.name || '')}" placeholder="예: 2026 하반기 브랜드 캠페인"></label>
+          <label class="wide"><span>대분류명</span><input name="name" maxlength="160" required value="${esc(project?.name || '')}" placeholder="예: 매출"></label>
           <label><span>프로젝트 담당자</span><select name="leadUid" required>${users.map(user => `<option value="${esc(user.uid)}" ${String(user.uid) === leadUid ? 'selected' : ''}>${esc(structuredProjectMemberName(user))}</option>`).join('')}</select></label>
           ${project ? `<label><span>상태</span><select name="status">${Object.entries(STRUCTURED_PROJECT_STATUS).map(([key, label]) => `<option value="${key}" ${(project.status || 'active') === key ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></label>` : '<input name="status" type="hidden" value="active">'}
-          <label class="wide"><span>프로젝트 설명</span><textarea name="description" rows="4" maxlength="5000" placeholder="프로젝트 목표와 완료 기준을 적어 주세요.">${esc(project?.description || '')}</textarea></label>
+          <label class="wide"><span>대분류 설명</span><textarea name="description" rows="4" maxlength="5000" placeholder="예: 플랫폼별 매출 업무와 콜 진행 기준을 관리합니다.">${esc(project?.description || '')}</textarea></label>
           <fieldset class="wide collaboration-member-field"><legend>프로젝트 팀원</legend><p class="structured-form-help">프로젝트 담당자는 자동으로 팀원에 포함됩니다. 저장 후에도 추가하거나 교체할 수 있습니다.</p><div class="collaboration-member-list">${structuredMemberCheckboxes(users, selectedIds)}</div></fieldset>
         </div>
-        <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">${project ? '변경 저장' : '프로젝트 생성'}</button></div>
+        <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">${project ? '변경 저장' : '대분류 생성'}</button></div>
       </form>`, { locked: true });
     const form = document.getElementById('structuredProjectForm');
     const syncLeadMember = () => {
@@ -5605,7 +6343,7 @@
         record.status = String(data.get('status') || 'active');
         record.expectedVersion = Number(project.version || 1);
       }
-      if (!record.name || !record.leadUid) return showToast('프로젝트명과 담당자를 확인해 주세요.');
+      if (!record.name || !record.leadUid) return showToast('대분류명과 담당자를 확인해 주세요.');
       const saved = await runCollaborationMutation(
         () => collaborationApi(project ? 'PUT' : 'POST', project ? `/new-projects/${encodeURIComponent(project.id)}` : '/new-projects', record),
         project ? '프로젝트 담당자와 팀원을 저장했습니다.' : '신규 프로젝트를 만들었습니다.'
@@ -5616,6 +6354,7 @@
       await refreshStructuredProjects({ render: false, quiet: true }).catch(() => {});
       if (projectId) {
         selectedStructuredProjectId = projectId;
+        resetStructuredHierarchyExpansion(projectId);
         await refreshStructuredProjectDetail(projectId, { render: true }).catch(() => {});
       } else {
         selectedStructuredProjectId = '';
@@ -5634,7 +6373,7 @@
       : '';
     const managerField = isMedium ? `<label class="wide"><span>중분류 담당자</span><select name="managerUid" required><option value="">담당자 선택</option>${members.map(member => `<option value="${esc(member.uid)}" ${String(member.uid) === selectedManagerUid ? 'selected' : ''}>${esc(structuredProjectMemberLabel(member))}</option>`).join('')}</select><small class="structured-form-help">프로젝트 팀원 중 이 중분류를 관리할 담당자를 선택해 주세요.</small></label>` : '';
     openDetailModal(title, `<form class="collaboration-form" id="structuredCategoryForm">
-      <div class="collaboration-form-grid"><label class="wide"><span>${isMedium ? '중분류명' : '소분류명'}</span><input name="name" maxlength="160" required autofocus value="${esc(category?.name || '')}" placeholder="${isMedium ? '예: 콘텐츠 제작' : '예: 블로그 원고 제작'}"></label>${managerField}</div>
+      <div class="collaboration-form-grid"><label class="wide"><span>${isMedium ? '중분류명' : '소분류명'}</span><input name="name" maxlength="160" required autofocus value="${esc(category?.name || '')}" placeholder="${isMedium ? '예: 플랫폼' : '예: 신규 DB 콜 배정'}"></label>${managerField}</div>
       <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">${category ? '변경 저장' : '추가'}</button></div>
     </form>`, { locked: true });
     const form = document.getElementById('structuredCategoryForm');
@@ -5654,10 +6393,18 @@
       if (isMedium) record.managerUid = managerUid;
       const saved = await runCollaborationMutation(() => collaborationApi(category ? 'PUT' : 'POST', path, record), `${isMedium ? '중분류' : '소분류'}를 ${category ? '수정' : '추가'}했습니다.`);
       if (!saved) return;
+      const savedCategory = saved?.category || saved?.[isMedium ? 'medium' : 'small'] || saved;
+      if (!category) {
+        const createdId = String(savedCategory?.id || '');
+        openStructuredHierarchyPath(
+          project.id,
+          isMedium ? createdId : mediumId,
+          isMedium ? '' : createdId
+        );
+      }
       closeDetailModal();
       const refreshedProject = await refreshStructuredProjectDetail(project.id, { render: true }).catch(() => null);
       if (typeof onSaved === 'function') {
-        const savedCategory = saved?.category || saved?.[isMedium ? 'medium' : 'small'] || saved;
         onSaved({
           category: savedCategory && typeof savedCategory === 'object' ? savedCategory : null,
           project: refreshedProject || structuredProjectDetailState.project || project
@@ -5780,13 +6527,8 @@
     if (!canEdit && !canReassign) return showToast('업무를 등록하거나 재배정할 권한이 없습니다.');
     if (!editing && project?.status !== 'active') return showToast('진행 중인 프로젝트에만 업무를 배정할 수 있습니다.');
     const actorUid = String(currentUser?.uid || '');
-    const leadSelfAssignmentBlocked = quickAssign
-      && actorUid
-      && actorUid === String(project?.lead?.uid || '');
     const projectMembers = structuredProjectDirectory([], project);
-    const assignableMembers = leadSelfAssignmentBlocked
-      ? projectMembers.filter(member => String(member.uid) !== actorUid)
-      : projectMembers;
+    const hasAssignmentPair = projectMembers.length > 1;
     const quickMedium = quickAssign
       ? (Array.isArray(project?.mediumCategories) ? project.mediumCategories : [])
         .find(medium => String(medium.id) === String(mediumId))
@@ -5798,59 +6540,75 @@
     const filteredAssigneeUid = structuredBoardAssigneeFilter !== 'all'
       && structuredBoardAssigneeFilter !== 'unassigned'
       && projectMembers.some(member => String(member.uid) === String(structuredBoardAssigneeFilter))
-      && (!leadSelfAssignmentBlocked || String(structuredBoardAssigneeFilter) !== actorUid)
       ? String(structuredBoardAssigneeFilter)
       : '';
-    const selectedAssignee = String(task?.assignee?.uid || (quickAssign ? filteredAssigneeUid : ''));
     const currentActor = {
       uid: actorUid,
       name: String(userDoc?.name || currentUser?.displayName || '현재 사용자')
     };
     const originalAssigner = task?.assignedBy || currentActor;
     const originalReviewer = task?.reviewer || project?.lead || originalAssigner;
+    const selectedAssigner = String(originalAssigner?.uid || actorUid || project?.lead?.uid || projectMembers[0]?.uid || '');
+    const selectedAssignee = String(task?.assignee?.uid || (quickAssign && filteredAssigneeUid !== selectedAssigner ? filteredAssigneeUid : ''));
     openDetailModal(editing ? '체크리스트 업무 수정' : (quickAssign ? '체크리스트·담당자 배정' : '체크리스트 업무 토스'), `<form class="collaboration-form structured-task-form" id="structuredTaskForm" ${quickAssign ? 'data-structured-board-assign-form' : ''}>
-      ${quickAssign ? `<div class="structured-board-assign-intro"><span>2단계 · 업무 배정</span><strong>완료 기준과 담당자를 정해 체크리스트를 전달해 주세요.</strong><em>${esc(quickMedium?.name || '중분류')} <i aria-hidden="true">›</i> ${esc(quickSmall?.name || '소분류')}</em><small>업무 완료 후 지시자에게 검토 요청이 돌아옵니다.</small></div>${assignableMembers.length ? '' : '<div class="structured-board-assign-blocked"><strong>배정할 프로젝트 팀원이 없습니다.</strong><span>프로젝트 수정에서 담당자 외 팀원을 먼저 추가해 주세요.</span></div>'}` : ''}
+      ${quickAssign ? `<div class="structured-board-assign-intro"><span>2단계 · 업무 배정</span><strong>지시자·완료 기준·담당자를 정해 체크리스트를 전달해 주세요.</strong><em>${esc(quickMedium?.name || '중분류')} <i aria-hidden="true">›</i> ${esc(quickSmall?.name || '소분류')}</em><small>업무 완료 후 선택한 지시자에게 검토 요청이 돌아옵니다.</small></div>${hasAssignmentPair ? '' : '<div class="structured-board-assign-blocked"><strong>지시자와 담당자를 나눌 팀원이 부족합니다.</strong><span>프로젝트 설정에서 팀원을 한 명 이상 더 추가해 주세요.</span></div>'}` : ''}
       <div class="collaboration-form-grid">
         <label class="wide"><span>할 일</span><input name="title" maxlength="200" required value="${esc(task?.title || '')}" ${canEdit ? '' : 'disabled'} placeholder="업무 완료 기준이 드러나게 적어 주세요."></label>
-        <label><span>업무 담당자</span><select name="assigneeUid" required ${canReassign ? '' : 'disabled'}><option value="">담당자 선택</option>${structuredTaskMemberOptions(project, selectedAssignee, { disabledUid: leadSelfAssignmentBlocked ? actorUid : '' })}</select>${leadSelfAssignmentBlocked ? '<small class="structured-form-help warning">프로젝트 담당자는 본인 업무의 검토자가 될 수 없어 다른 팀원에게 배정해야 합니다.</small>' : ''}</label>
+        <label><span>업무 지시자</span><select name="assignedByUid" required ${canReassign ? '' : 'disabled'}><option value="">지시자 선택</option>${structuredTaskMemberOptions(project, selectedAssigner)}</select><small class="structured-form-help">프로젝트의 활성 팀원만 선택할 수 있으며, 완료 요청은 이 지시자에게 돌아옵니다.</small></label>
+        <label><span>업무 담당자</span><select name="assigneeUid" required ${canReassign ? '' : 'disabled'}><option value="">담당자 선택</option>${structuredTaskMemberOptions(project, selectedAssignee)}</select><small class="structured-form-help warning" data-structured-assignment-warning hidden>지시자와 담당자는 서로 달라야 합니다.</small></label>
         <label><span>업무 마감일</span><input name="dueDate" type="date" value="${esc(task?.dueDate || '')}" ${quickAssign ? 'required' : ''} ${canEdit ? '' : 'disabled'}></label>
         <label class="wide"><span>상세 내용</span><textarea name="description" rows="5" maxlength="5000" ${canEdit ? '' : 'disabled'} placeholder="필요 자료, 확인 항목, 결과물 형식을 적어 주세요.">${esc(task?.description || '')}</textarea></label>
       </div>
       <div class="structured-assignment-preview"><span><b>업무 지시자</b><em data-structured-assigner-preview>${esc(structuredProjectMemberName(originalAssigner))}</em></span><i>→</i><span><b>업무 담당자</b><em data-structured-assignee-preview>${esc(structuredProjectMemberName(task?.assignee, '선택 필요'))}</em></span><i>→</i><span><b>검토자</b><em data-structured-reviewer-preview>${esc(structuredProjectMemberName(originalReviewer))}</em></span></div>
-      <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit" ${quickAssign && !assignableMembers.length ? 'disabled' : ''}>${editing ? '업무 저장' : (quickAssign ? '담당자에게 배정' : '업무 토스')}</button></div>
+      <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit" ${!editing && !hasAssignmentPair ? 'disabled' : ''}>${editing ? '업무 저장' : (quickAssign ? '담당자에게 배정' : '업무 토스')}</button></div>
     </form>`, { locked: true });
     const form = document.getElementById('structuredTaskForm');
+    const assignerSelect = form.elements.assignedByUid;
     const assigneeSelect = form.elements.assigneeUid;
-    const renderAssignee = () => {
-      const option = assigneeSelect.options[assigneeSelect.selectedIndex];
-      const nextAssigneeUid = String(option?.value || '');
-      const assignmentUnchanged = editing && nextAssigneeUid === selectedAssignee;
-      const nextAssigner = assignmentUnchanged ? originalAssigner : currentActor;
-      const nextReviewer = assignmentUnchanged
-        ? originalReviewer
-        : (nextAssigneeUid && nextAssigneeUid === currentActor.uid ? (project?.lead || currentActor) : currentActor);
-      form.querySelector('[data-structured-assignee-preview]').textContent = option?.value ? option.textContent : '선택 필요';
-      form.querySelector('[data-structured-assigner-preview]').textContent = structuredProjectMemberName(nextAssigner);
-      form.querySelector('[data-structured-reviewer-preview]').textContent = structuredProjectMemberName(nextReviewer);
+    const renderAssignment = () => {
+      const assignerOption = assignerSelect.options[assignerSelect.selectedIndex];
+      const assigneeOption = assigneeSelect.options[assigneeSelect.selectedIndex];
+      const nextAssignerUid = String(assignerOption?.value || '');
+      const nextAssigneeUid = String(assigneeOption?.value || '');
+      const samePerson = Boolean(nextAssignerUid && nextAssigneeUid && nextAssignerUid === nextAssigneeUid);
+      [...assigneeSelect.options].forEach(option => {
+        option.disabled = Boolean(option.value && option.value === nextAssignerUid);
+      });
+      [...assignerSelect.options].forEach(option => {
+        option.disabled = Boolean(option.value && option.value === nextAssigneeUid);
+      });
+      const assignmentUnchanged = editing
+        && nextAssignerUid === selectedAssigner
+        && nextAssigneeUid === selectedAssignee;
+      form.querySelector('[data-structured-assignee-preview]').textContent = assigneeOption?.value ? assigneeOption.textContent : '선택 필요';
+      form.querySelector('[data-structured-assigner-preview]').textContent = assignerOption?.value ? assignerOption.textContent : '선택 필요';
+      form.querySelector('[data-structured-reviewer-preview]').textContent = assignmentUnchanged
+        ? structuredProjectMemberName(originalReviewer)
+        : (assignerOption?.value ? assignerOption.textContent : '선택 필요');
+      form.querySelector('[data-structured-assignment-warning]').hidden = !samePerson;
+      const submit = form.querySelector('button[type="submit"]');
+      if (submit) submit.disabled = (!editing && !hasAssignmentPair) || samePerson;
     };
-    assigneeSelect.addEventListener('change', renderAssignee);
-    renderAssignee();
+    assignerSelect.addEventListener('change', renderAssignment);
+    assigneeSelect.addEventListener('change', renderAssignment);
+    renderAssignment();
     form.querySelector('[data-collab-cancel]').addEventListener('click', () => closeDetailModal());
     form.addEventListener('submit', async event => {
       event.preventDefault();
       const data = new FormData(form);
       const record = {
-        title: canEdit ? String(data.get('title') || '').trim() : String(task?.title || ''),
-        description: canEdit ? String(data.get('description') || '').trim() : String(task?.description || ''),
-        dueDate: canEdit ? String(data.get('dueDate') || '') : String(task?.dueDate || ''),
-        assigneeUid: canReassign ? String(data.get('assigneeUid') || '') : String(task?.assignee?.uid || '')
+        assigneeUid: canReassign ? String(data.get('assigneeUid') || '') : String(task?.assignee?.uid || ''),
+        assignedByUid: canReassign ? String(data.get('assignedByUid') || '') : String(task?.assignedBy?.uid || '')
       };
-      if (editing) record.expectedVersion = Number(task?.workflowVersion ?? task?.version ?? 1);
-      if (!record.title || !record.assigneeUid) return showToast('할 일과 담당자를 확인해 주세요.');
-      if (quickAssign && !record.dueDate) return showToast('업무 마감일을 선택해 주세요.');
-      if (leadSelfAssignmentBlocked && record.assigneeUid === actorUid) {
-        return showToast('프로젝트 담당자는 본인 대신 다른 팀원에게 업무를 배정해 주세요.');
+      if (canEdit) {
+        record.title = String(data.get('title') || '').trim();
+        record.description = String(data.get('description') || '').trim();
+        record.dueDate = String(data.get('dueDate') || '');
       }
+      if (editing) record.expectedVersion = Number(task?.workflowVersion ?? task?.version ?? 1);
+      if (!(record.title || task?.title) || !record.assigneeUid || !record.assignedByUid) return showToast('할 일, 지시자, 담당자를 확인해 주세요.');
+      if (quickAssign && !record.dueDate) return showToast('업무 마감일을 선택해 주세요.');
+      if (record.assignedByUid === record.assigneeUid) return showToast('업무 지시자와 담당자는 서로 달라야 합니다.');
       const path = editing
         ? `/new-projects/${encodeURIComponent(project.id)}/tasks/${encodeURIComponent(task.id)}`
         : `/new-projects/${encodeURIComponent(project.id)}/mediums/${encodeURIComponent(mediumId)}/smalls/${encodeURIComponent(smallId)}/tasks`;
@@ -5859,6 +6617,7 @@
         editing ? '체크리스트 업무를 수정했습니다.' : (quickAssign ? '담당자에게 체크리스트를 배정했습니다.' : '담당자에게 체크리스트 업무를 토스했습니다.')
       );
       if (!saved) return;
+      if (!editing) openStructuredHierarchyPath(project.id, mediumId, smallId);
       if (quickAssign) {
         // 방금 배정한 카드가 기존 검색 조건에 가려지지 않도록 새 업무의
         // 실제 위치·담당자에 보드 필터를 맞춘 뒤 canonical 상세를 다시 읽는다.
@@ -6452,6 +7211,10 @@
     const pane = document.getElementById('salesSummaryPane');
     if (!pane) return;
 
+    if (salesSummary.status === 'private' || previewPersona) {
+      pane.innerHTML = '<div class="data-unavailable" data-report-preview-private><span class="data-unavailable-icon">▣</span><div><strong>계정 미리보기에서는 보고 매출을 불러오지 않습니다</strong><p>실제 로그인 계정으로 돌아오면 서버가 본인·팀 범위를 다시 확인합니다.</p></div></div>';
+      return;
+    }
     if (salesSummary.status === 'loading') {
       pane.innerHTML = '<p class="sales-state">운영 보고서에서 매출을 집계하는 중입니다…</p>';
       return;
@@ -6505,9 +7268,21 @@
   }
 
   async function loadSalesSummary(type) {
+    if (!currentUser || previewPersona || !canShowReportsView()) {
+      salesSummary = { key: '', status: 'private', data: null, error: '' };
+      salesSummaryCache.clear();
+      renderSalesSummaryPane();
+      return;
+    }
     const period = salesPeriodFor(type);
     if (!period) return;
-    const key = `${period.bucket}:${period.from}:${period.to}`;
+    const contextKey = [
+      String(currentUser.uid || ''),
+      String(activeWorkspaceSlug || ''),
+      String(workspaceAccessGeneration),
+      String(osAuthAccessGeneration)
+    ].join('|');
+    const key = `${contextKey}:${period.bucket}:${period.from}:${period.to}`;
 
     if (salesSummaryCache.has(key)) {
       salesSummary = { key, status: 'ready', data: salesSummaryCache.get(key), error: '' };
@@ -6519,7 +7294,14 @@
     renderSalesSummaryPane();
 
     try {
-      const data = await readOnlyApi(`/reports/sales-summary?bucket=${encodeURIComponent(period.bucket)}&from=${period.from}&to=${period.to}`);
+      const data = await readOnlyApi(`/peakos/reports/sales-summary?bucket=${encodeURIComponent(period.bucket)}&from=${period.from}&to=${period.to}`);
+      const currentContextKey = [
+        String(currentUser?.uid || ''),
+        String(activeWorkspaceSlug || ''),
+        String(workspaceAccessGeneration),
+        String(osAuthAccessGeneration)
+      ].join('|');
+      if (previewPersona || !currentUser || contextKey !== currentContextKey) return;
       salesSummaryCache.set(key, data);
       if (salesSummary.key !== key) return;
       salesSummary = { key, status: 'ready', data, error: '' };
@@ -6530,26 +7312,317 @@
     renderSalesSummaryPane();
   }
 
+  function validAttendanceMonth(value) {
+    const month = String(value || '');
+    return /^20\d{2}-(0[1-9]|1[0-2])$/.test(month) ? month : '';
+  }
+
+  function shiftAttendanceMonth(value, offset) {
+    const month = validAttendanceMonth(value) || koreaDateKey(new Date()).slice(0, 7);
+    const [year, monthNumber] = month.split('-').map(Number);
+    return new Date(Date.UTC(year, monthNumber - 1 + Number(offset || 0), 1))
+      .toISOString().slice(0, 7);
+  }
+
+  function attendancePreferredScope() {
+    const role = String(workspaceContext?.membership?.role || userDoc?.role || 'member');
+    return ['admin', 'manager', 'oversight'].includes(role) ? 'team' : 'self';
+  }
+
+  function attendanceContextKey() {
+    return [
+      osAuthAccessGeneration,
+      workspaceAccessGeneration,
+      activeWorkspaceSlug || '',
+      currentUser?.uid || '',
+      previewPersona || 'self',
+      attendanceMonth,
+      attendancePreferredScope()
+    ].join('|');
+  }
+
+  function attendanceContextIsCurrent(contextKey) {
+    return Boolean(currentUser
+      && !previewPersona
+      && activeView === 'reports'
+      && reportType === 'attendance'
+      && contextKey === attendanceContextKey());
+  }
+
+  function attendanceWritable() {
+    if (!currentUser || previewPersona || attendanceState.readOnly || attendanceMutationBusy) return false;
+    if (realUserDoc?.chat_only || realUserDoc?.external_calendar_only) return false;
+    if (workspaceContext?.membership?.role === 'oversight'
+      || workspaceContext?.permissions?.headquartersOversight === true) return false;
+    return !workspaceContext || workspaceContext?.permissions?.settlements === 'write';
+  }
+
+  function normalizeAttendancePayload(payload, expectedMonth, expectedScope) {
+    if (payload?.month !== expectedMonth
+      || payload?.scope !== expectedScope
+      || payload?.timeZone !== 'Asia/Seoul') {
+      const error = new Error('근태 응답의 월·범위를 확인할 수 없습니다.');
+      error.code = 'ATTENDANCE_RESPONSE_INVALID';
+      throw error;
+    }
+    const records = (Array.isArray(payload.records) ? payload.records : []).map(row => {
+      const date = String(row?.date || '');
+      const userUid = String(row?.userUid || '');
+      const checkIn = String(row?.checkIn || '');
+      const checkOut = row?.checkOut === null || row?.checkOut === undefined
+        ? null : String(row.checkOut);
+      if (!date.startsWith(`${expectedMonth}-`)
+        || !/^20\d{2}-\d{2}-\d{2}$/.test(date)
+        || !userUid
+        || !/^([01]\d|2[0-3]):[0-5]\d$/.test(checkIn)
+        || (checkOut !== null && !/^([01]\d|2[0-3]):[0-5]\d$/.test(checkOut))
+        || (expectedScope === 'self' && userUid !== String(currentUser?.uid || ''))) {
+        const error = new Error('근태 기록 응답을 확인할 수 없습니다.');
+        error.code = 'ATTENDANCE_RESPONSE_INVALID';
+        throw error;
+      }
+      const workedMinutes = row?.workedMinutes === null || row?.workedMinutes === undefined
+        ? null : Math.max(0, Math.round(Number(row.workedMinutes) || 0));
+      return {
+        id: String(row?.id || ''), userUid, userName: String(row?.userName || ''),
+        groupId: row?.groupId === null || row?.groupId === undefined ? '' : String(row.groupId),
+        date, checkIn, checkOut, workedMinutes,
+        isHoliday: row?.isHoliday === true, isLate: row?.isLate === true,
+        version: Math.max(1, Math.round(Number(row?.version) || 1))
+      };
+    });
+    const members = (Array.isArray(payload.members) ? payload.members : []).map(row => ({
+      uid: String(row?.uid || ''), name: String(row?.name || ''),
+      groupId: row?.groupId === null || row?.groupId === undefined ? '' : String(row.groupId),
+      role: String(row?.role || 'member')
+    })).filter(row => row.uid);
+    const summary = (Array.isArray(payload.summary) ? payload.summary : []).map(row => ({
+      uid: String(row?.uid || ''), name: String(row?.name || ''),
+      groupId: row?.groupId === null || row?.groupId === undefined ? '' : String(row.groupId),
+      role: String(row?.role || 'member'),
+      presentDays: Math.max(0, Math.round(Number(row?.presentDays) || 0)),
+      lateDays: Math.max(0, Math.round(Number(row?.lateDays) || 0)),
+      openDays: Math.max(0, Math.round(Number(row?.openDays) || 0)),
+      workedMinutes: Math.max(0, Math.round(Number(row?.workedMinutes) || 0))
+    })).filter(row => row.uid);
+    return {
+      month: expectedMonth, scope: expectedScope, records, members, summary,
+      canViewTeam: payload?.canViewTeam === true,
+      readOnly: payload?.readOnly === true
+    };
+  }
+
+  async function loadAttendanceMonth({ force = false } = {}) {
+    if (!currentUser || previewPersona) {
+      resetAttendanceState();
+      attendanceState.status = 'private';
+      if (activeView === 'reports' && reportType === 'attendance') renderPlannedModule('reports');
+      return false;
+    }
+    const month = validAttendanceMonth(attendanceMonth);
+    if (!month) return false;
+    const scope = attendancePreferredScope();
+    const contextKey = attendanceContextKey();
+    if (!force && attendanceState.status === 'ready'
+      && attendanceState.contextKey === contextKey
+      && attendanceState.month === month
+      && attendanceState.scope === scope) return true;
+    const generation = ++attendanceLoadGeneration;
+    attendanceState = {
+      status: 'loading', contextKey, month, scope, records: [], members: [], summary: [],
+      canViewTeam: scope === 'team', readOnly: true, error: '', code: ''
+    };
+    // renderReportsModule() 안에서 이 함수가 시작될 수 있다. 같은 호출 스택에서
+    // 다시 렌더하면 바깥/안쪽 renderPlannedModule이 동일 DOM에 리스너를 두 번
+    // 연결하므로, 현재 렌더의 바인딩이 끝난 다음 한 번만 갱신한다.
+    queueMicrotask(() => {
+      if (generation === attendanceLoadGeneration
+        && attendanceState.status === 'loading'
+        && attendanceContextIsCurrent(contextKey)) renderPlannedModule('reports');
+    });
+    try {
+      const payload = await callApi(
+        'GET',
+        `/peakos/attendance/month?month=${encodeURIComponent(month)}&scope=${encodeURIComponent(scope)}`,
+        undefined,
+        { headers: { 'X-PeakOS-Preview': '0' } }
+      );
+      if (generation !== attendanceLoadGeneration || !attendanceContextIsCurrent(contextKey)) return false;
+      const normalized = normalizeAttendancePayload(payload, month, scope);
+      attendanceState = {
+        status: 'ready', contextKey, ...normalized, error: '', code: ''
+      };
+      renderPlannedModule('reports');
+      return true;
+    } catch (error) {
+      if (generation !== attendanceLoadGeneration || !attendanceContextIsCurrent(contextKey)) return false;
+      attendanceState = {
+        status: 'error', contextKey, month, scope, records: [], members: [], summary: [],
+        canViewTeam: scope === 'team', readOnly: true,
+        error: error.message || '근태 기록을 불러오지 못했습니다.', code: error.code || ''
+      };
+      renderPlannedModule('reports');
+      return false;
+    }
+  }
+
+  function attendanceDuration(minutes) {
+    const total = Math.max(0, Math.round(Number(minutes) || 0));
+    const hours = Math.floor(total / 60);
+    const rest = total % 60;
+    if (!hours) return `${rest}분`;
+    return rest ? `${hours}시간 ${rest}분` : `${hours}시간`;
+  }
+
+  function attendanceStatusMeta(record) {
+    if (record.isHoliday) return { label: '휴무일', tone: 'muted' };
+    if (record.isLate) return { label: '지각', tone: 'warning' };
+    if (!record.checkOut) return { label: '근무 중', tone: 'live' };
+    return { label: '근무 완료', tone: 'done' };
+  }
+
+  function attendanceMonthLabel() {
+    const [year, month] = attendanceMonth.split('-').map(Number);
+    return `${year}년 ${month}월`;
+  }
+
+  function attendanceTodayCard(records) {
+    const today = koreaDateKey(new Date());
+    const currentMonth = today.slice(0, 7);
+    const selectedCurrent = attendanceMonth === currentMonth;
+    const mine = records.find(row => row.userUid === String(currentUser?.uid || '') && row.date === today);
+    if (!selectedCurrent) {
+      return `<article class="attendance-today-card quiet">
+        <span class="attendance-card-kicker">선택한 달</span>
+        <strong>${esc(attendanceMonthLabel())}</strong>
+        <p>출퇴근 등록은 오늘이 포함된 달에서만 할 수 있습니다.</p>
+        <button class="attendance-secondary-button" type="button" data-attendance-current-month>이번 달로 이동</button>
+      </article>`;
+    }
+    if (!mine) {
+      return `<article class="attendance-today-card">
+        <span class="attendance-card-kicker">TODAY · ${esc(formatDate(today, { month: 'long', day: 'numeric', weekday: 'short' }))}</span>
+        <strong>출근 전</strong><p>버튼을 누른 서버 시각이 한국 시간으로 기록됩니다.</p>
+        ${attendanceWritable()
+          ? '<button class="attendance-primary-button" type="button" data-attendance-action="check-in">출근하기</button>'
+          : '<span class="attendance-readonly-note">읽기 전용 · 출근 등록 불가</span>'}
+      </article>`;
+    }
+    const meta = attendanceStatusMeta(mine);
+    return `<article class="attendance-today-card active">
+      <span class="attendance-card-kicker">TODAY · ${esc(meta.label)}</span>
+      <div class="attendance-today-times"><span><small>출근</small><strong>${esc(mine.checkIn)}</strong></span><i>→</i><span><small>퇴근</small><strong>${esc(mine.checkOut || '근무 중')}</strong></span></div>
+      ${mine.checkOut
+        ? `<p>${esc(attendanceDuration(mine.workedMinutes))} 근무 · 서버 기록 완료</p>`
+        : '<p>퇴근 시각은 한 번만 기록되며 이후 덮어쓰지 않습니다.</p>'}
+      ${!mine.checkOut && attendanceWritable()
+        ? '<button class="attendance-primary-button checkout" type="button" data-attendance-action="check-out">퇴근하기</button>'
+        : ''}
+    </article>`;
+  }
+
+  function attendanceSelfTable(records) {
+    if (!records.length) return '<div class="attendance-empty"><span>◷</span><strong>이 달의 출근 기록이 없습니다</strong><small>출근을 등록하면 날짜별 기록이 여기에 쌓입니다.</small></div>';
+    return `<div class="attendance-table-wrap"><table class="attendance-table">
+      <thead><tr><th>날짜</th><th>출근</th><th>퇴근</th><th>근무시간</th><th>상태</th></tr></thead>
+      <tbody>${[...records].reverse().map(record => {
+        const meta = attendanceStatusMeta(record);
+        return `<tr><td><strong>${esc(formatDate(record.date, { month: 'long', day: 'numeric', weekday: 'short' }))}</strong></td><td>${esc(record.checkIn)}</td><td>${esc(record.checkOut || '—')}</td><td>${record.workedMinutes === null ? '집계 중' : esc(attendanceDuration(record.workedMinutes))}</td><td><span class="attendance-status ${esc(meta.tone)}">${esc(meta.label)}</span></td></tr>`;
+      }).join('')}</tbody>
+    </table></div>`;
+  }
+
+  function attendanceTeamTable(summary, records) {
+    if (!summary.length) return '<div class="attendance-empty"><span>♙</span><strong>조회할 구성원이 없습니다</strong><small>선택한 워크스페이스의 활성 구성원만 표시됩니다.</small></div>';
+    const today = koreaDateKey(new Date());
+    const todayByUid = new Map(records.filter(row => row.date === today).map(row => [row.userUid, row]));
+    return `<div class="attendance-table-wrap"><table class="attendance-table team">
+      <thead><tr><th>구성원</th><th>출근일</th><th>지각</th><th>누적 근무</th><th>오늘</th></tr></thead>
+      <tbody>${summary.map(row => {
+        const todayRecord = todayByUid.get(row.uid);
+        const meta = todayRecord ? attendanceStatusMeta(todayRecord) : { label: '미등록', tone: 'muted' };
+        return `<tr><td><strong>${esc(row.name || '이름 미등록')}</strong><small>${esc(row.role === 'historical' ? '과거 기록' : (row.groupId || '소속 미지정'))}</small></td><td>${esc(String(row.presentDays))}일</td><td>${row.lateDays ? `<strong class="attendance-late-count">${esc(String(row.lateDays))}회</strong>` : '0회'}</td><td>${esc(attendanceDuration(row.workedMinutes))}</td><td><span class="attendance-status ${esc(meta.tone)}">${esc(meta.label)}</span>${todayRecord ? `<small>${esc(todayRecord.checkIn)}${todayRecord.checkOut ? `–${esc(todayRecord.checkOut)}` : ''}</small>` : ''}</td></tr>`;
+      }).join('')}</tbody>
+    </table></div>`;
+  }
+
   function renderAttendanceReport() {
-    return `<section class="module-section">
-      <div class="module-section-head"><span><strong>출근보고서</strong><small>출근·퇴근 시간과 근무 기록을 확인합니다</small></span><span class="module-chip">근태 API 연결 전</span></div>
-      <div class="module-section-body" style="padding:0">
-        <table class="empty-table">
-          <thead><tr><th>이름</th><th>소속</th><th>출근</th><th>퇴근</th><th>근무시간</th><th>상태</th></tr></thead>
-          <tbody><tr><td class="empty-table-message" colspan="6">실제 출근 기록이 연결되면 계정 권한 범위에 맞춰 표시됩니다.</td></tr></tbody>
-        </table>
-      </div>
+    if (previewPersona || attendanceState.status === 'private') {
+      return `<section class="module-section attendance-module" data-attendance-state="private">
+        <div class="attendance-private"><span>▣</span><strong>계정 미리보기에서는 근태 자료를 요청하지 않습니다</strong><p>실제 로그인 계정으로 돌아오면 본인 또는 허용된 팀 범위의 기록만 서버에서 불러옵니다.</p></div>
+      </section>`;
+    }
+    const state = attendanceState;
+    const loading = state.status === 'idle' || state.status === 'loading';
+    const ownRecords = state.records.filter(row => row.userUid === String(currentUser?.uid || ''));
+    const presentDays = ownRecords.length;
+    const lateDays = ownRecords.filter(row => row.isLate).length;
+    const totalMinutes = ownRecords.reduce((sum, row) => sum + (row.workedMinutes || 0), 0);
+    return `<section class="module-section attendance-module" data-attendance-state="${esc(state.status)}">
+      <header class="attendance-head">
+        <div><span class="attendance-eyebrow"><i></i> PEAK OS / ATTENDANCE</span><h2>출근보고서</h2><p>한국 표준시 · 선택한 워크스페이스 기준</p></div>
+        <div class="attendance-month-control" aria-label="근태 조회 월">
+          <button type="button" data-attendance-month="-1" aria-label="이전 달">‹</button><strong>${esc(attendanceMonthLabel())}</strong><button type="button" data-attendance-month="1" aria-label="다음 달">›</button>
+        </div>
+      </header>
+      ${state.status === 'error'
+        ? `<div class="attendance-error" role="alert"><span>!</span><div><strong>근태 기록을 불러오지 못했습니다</strong><p>${esc(state.error)}</p></div><button type="button" data-attendance-retry>다시 시도</button></div>`
+        : loading
+          ? '<div class="attendance-loading" role="status"><span></span><strong>근태 기록을 불러오는 중입니다</strong></div>'
+          : `<div class="attendance-overview">
+              ${attendanceTodayCard(state.records)}
+              <div class="attendance-kpis" aria-label="나의 월 근태 요약">
+                <article><span>출근일</span><strong>${esc(String(presentDays))}<small>일</small></strong></article>
+                <article><span>지각</span><strong>${esc(String(lateDays))}<small>회</small></strong></article>
+                <article><span>누적 근무</span><strong>${esc(attendanceDuration(totalMinutes))}</strong></article>
+              </div>
+            </div>
+            <div class="attendance-list-head"><div><strong>${state.scope === 'team' ? '워크스페이스 근태 요약' : '나의 근태 기록'}</strong><small>${state.scope === 'team' ? '관리자·팀장·본사 열람 권한 범위' : '일반 구성원은 본인 기록만 조회'}</small></div><span class="attendance-scope ${state.readOnly ? 'readonly' : ''}">${state.readOnly ? '읽기 전용' : '실시간 연결'}</span></div>
+            ${state.scope === 'team'
+              ? attendanceTeamTable(state.summary, state.records)
+              : attendanceSelfTable(state.records)}`}
     </section>`;
   }
 
+  async function runAttendanceMutation(action, button) {
+    if (!['check-in', 'check-out'].includes(action) || !attendanceWritable()) return;
+    if (attendanceMonth !== koreaDateKey(new Date()).slice(0, 7)) {
+      showToast('출퇴근 등록은 이번 달 화면에서만 할 수 있습니다.');
+      return;
+    }
+    attendanceMutationBusy = true;
+    if (button) button.disabled = true;
+    try {
+      const result = await callApi(
+        'POST', `/peakos/attendance/${action}`, undefined,
+        { headers: { 'X-PeakOS-Preview': '0' } }
+      );
+      showToast(result?.alreadyRecorded
+        ? (action === 'check-in' ? '오늘 출근은 이미 등록되어 있습니다.' : '오늘 퇴근은 이미 등록되어 있습니다.')
+        : (action === 'check-in' ? '출근을 등록했습니다.' : '퇴근을 등록했습니다.'));
+      attendanceState.status = 'idle';
+      await loadAttendanceMonth({ force: true });
+    } catch (error) {
+      showToast(error.message || '근태 기록을 저장하지 못했습니다.');
+    } finally {
+      attendanceMutationBusy = false;
+      if (button?.isConnected) button.disabled = false;
+      if (activeView === 'reports' && reportType === 'attendance') renderPlannedModule('reports');
+    }
+  }
+
   function renderReportsModule() {
+    const salesReportsAvailable = !isWorkspaceRoute() || activeWorkspaceSlug === 'peak';
     const types = [
       ['attendance', '◷', '출근보고서', '출퇴근 및 근태'],
-      ['daily', '▤', '일일보고서', '일별 매출 지표'],
-      ['weekly', '▥', '주간보고서', '주간 매출 추이'],
-      ['monthly', '◫', '월말보고서', '월간 실적 결산'],
-      ['quarterly', '◇', '분기별보고서', '분기 성장 지표']
+      ...(salesReportsAvailable ? [
+        ['daily', '▤', '일일보고서', '일별 매출 지표'],
+        ['weekly', '▥', '주간보고서', '주간 매출 추이'],
+        ['monthly', '◫', '월말보고서', '월간 실적 결산'],
+        ['quarterly', '◇', '분기별보고서', '분기 성장 지표']
+      ] : [])
     ];
+    if (!salesReportsAvailable && reportType !== 'attendance') reportType = 'attendance';
     const selected = types.find(([key]) => key === reportType) || types[0];
     const period = salesPeriodFor(reportType);
     const content = reportType === 'attendance'
@@ -6564,8 +7637,12 @@
     moduleView.innerHTML = `
       ${moduleStatusbar(
         '보고서 모듈',
-        '출근 기록과 일일·주간·월말·분기별 매출 보고서를 한곳에서 관리합니다.',
-        reportType === 'attendance' ? '근태 API 연결 전' : '운영 보고서 연결 · 읽기 전용'
+        salesReportsAvailable
+          ? '출근 기록과 일일·주간·월말·분기별 매출 보고서를 한곳에서 관리합니다.'
+          : '선택한 지사의 출근 기록을 권한 범위 안에서 관리합니다.',
+        reportType === 'attendance'
+          ? (previewPersona ? '미리보기 · 근태 요청 안 함' : '실시간 근태 연결 · Asia/Seoul')
+          : '운영 보고서 연결 · 읽기 전용'
       )}
       <div class="report-layout">
         <nav class="report-type-list" aria-label="보고서 종류">
@@ -6573,9 +7650,15 @@
         </nav>
         ${content}
       </div>
-      <div class="module-security"><span>▣</span><span><strong>보고서 권한 기준</strong><br>대표는 전체 지사, 팀장은 소속 부서 전체와 본인, 일반 구성원은 본인 보고서만 조회합니다. 매출 집계도 같은 기준으로 서버에서 걸러 내려받습니다.</span></div>`;
+      <div class="module-security"><span>▣</span><span><strong>보고서 권한 기준</strong><br>${salesReportsAvailable
+        ? '대표는 전체 지사, 팀장은 소속 부서 전체와 본인, 일반 구성원은 본인 보고서만 조회합니다. 매출 집계도 같은 기준으로 서버에서 걸러 내려받습니다.'
+        : '팀장은 소속 부서, 일반 구성원은 본인, 본사 감독 계정은 선택한 지사 범위의 근태만 조회합니다. 지사 매출 보고서는 워크스페이스 이관 전까지 노출하지 않습니다.'}</span></div>`;
 
-    if (reportType !== 'attendance') {
+    if (reportType === 'attendance') {
+      if (currentUser && !previewPersona && ['idle', 'private'].includes(attendanceState.status)) {
+        loadAttendanceMonth().catch(() => {});
+      }
+    } else {
       renderSalesSummaryPane();
       loadSalesSummary(reportType);
     }
@@ -6754,11 +7837,16 @@
     clientCompanyDocumentSearchTimer = 0;
     companyDocumentLoadGeneration += 1;
     clientCompanyDocumentLoadGeneration += 1;
+    companyResourceLoadGeneration += 1;
     companyDocumentFolder = 'branches';
     companyDocumentState = { uid: '', status: 'idle', documents: [], error: '' };
     clientCompanyDocumentState = {
       uid: '', status: 'idle', documents: [], error: '', query: '', draftQuery: '',
       pagination: { page: 1, limit: CLIENT_COMPANY_DOCUMENT_LIMIT, total: 0, totalPages: 0 }
+    };
+    companyResourceState = {
+      contextKey: '', folder: '', status: 'idle', entries: [], documents: [],
+      evidenceDocuments: [], canWrite: false, error: ''
     };
     if (activeView === 'company') moduleView.replaceChildren();
   }
@@ -7112,6 +8200,392 @@
     if (!Number.isFinite(bytes) || bytes <= 0) return '크기 확인 필요';
     if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}MB`;
     return `${Math.ceil(bytes / 1024).toLocaleString('ko-KR')}KB`;
+  }
+
+  function companyResourceDefinition(view = activeView) {
+    return COMPANY_RESOURCE_FOLDERS.find(folder => folder.id === view) || null;
+  }
+
+  function companyResourceContextKey() {
+    return [String(currentUser?.uid || ''), String(activeWorkspaceSlug || ''),
+      String(workspaceAccessGeneration), String(osAuthAccessGeneration)].join('|');
+  }
+
+  function resetSelectedCompanyResource(folder = companyResourceDefinition()) {
+    companyResourceLoadGeneration += 1;
+    companyResourceState = {
+      contextKey: companyResourceContextKey(), folder: folder?.id || '', status: 'idle',
+      entries: [], documents: [], evidenceDocuments: [], canWrite: false, error: ''
+    };
+  }
+
+  function normalizeCompanyResourceEquipment(entry) {
+    const id = String(entry?.id || '').trim();
+    const rowVersion = Number(entry?.rowVersion);
+    if (!id || !Number.isSafeInteger(rowVersion) || rowVersion < 1) return null;
+    return {
+      id,
+      usedOn: validDateKey(entry?.usedOn) || '',
+      itemName: String(entry?.itemName || '').trim().slice(0, 160),
+      purpose: String(entry?.purpose || '').trim().slice(0, 500),
+      quantity: Number(entry?.quantity || 0),
+      usedByName: String(entry?.usedByName || '').trim().slice(0, 160),
+      memo: String(entry?.memo || '').trim().slice(0, 500),
+      status: String(entry?.status || '').trim(),
+      voidReason: String(entry?.voidReason || '').trim().slice(0, 500),
+      rowVersion,
+      recordedByName: String(entry?.recordedByName || '').trim().slice(0, 160)
+    };
+  }
+
+  function normalizeCompanyResourceDevelopmentCost(entry) {
+    const id = String(entry?.id || '').trim();
+    const rowVersion = Number(entry?.rowVersion);
+    if (!id || !Number.isSafeInteger(rowVersion) || rowVersion < 1) return null;
+    return {
+      id,
+      spentOn: validDateKey(entry?.spentOn) || '',
+      title: String(entry?.title || '').trim().slice(0, 180),
+      vendor: String(entry?.vendor || '').trim().slice(0, 160),
+      amountKrw: Number(entry?.amountKrw || 0),
+      memo: String(entry?.memo || '').trim().slice(0, 1000),
+      evidenceDocumentId: String(entry?.evidenceDocumentId || '').trim(),
+      evidenceTitle: String(entry?.evidenceTitle || '').trim().slice(0, 180),
+      status: String(entry?.status || '').trim(),
+      voidReason: String(entry?.voidReason || '').trim().slice(0, 500),
+      rowVersion,
+      recordedByName: String(entry?.recordedByName || '').trim().slice(0, 160)
+    };
+  }
+
+  function normalizeCompanyResourceDocument(document) {
+    const id = String(document?.id || '').trim();
+    const rowVersion = Number(document?.rowVersion);
+    const mimeType = String(document?.mimeType || '').trim().toLowerCase();
+    if (!id || !Number.isSafeInteger(rowVersion) || rowVersion < 1
+      || !['application/pdf', 'image/png', 'image/jpeg'].includes(mimeType)) return null;
+    return {
+      id,
+      title: String(document?.title || '').trim().slice(0, 180),
+      originalFilename: String(document?.originalFilename || '').trim().slice(0, 240),
+      category: String(document?.category || '').trim(),
+      mimeType,
+      sizeBytes: Number(document?.sizeBytes || 0),
+      revision: Number(document?.revision || 1),
+      status: String(document?.status || '').trim(),
+      archiveReason: String(document?.archiveReason || '').trim().slice(0, 500),
+      rowVersion,
+      uploadedByName: String(document?.uploadedByName || '').trim().slice(0, 160),
+      createdAt: String(document?.createdAt || '')
+    };
+  }
+
+  async function loadCompanyResourceModule({ force = false } = {}) {
+    const folder = companyResourceDefinition();
+    if (!folder || !canNavigateCompanyResource(folder.id)) return;
+    const contextKey = companyResourceContextKey();
+    if (!force && companyResourceState.contextKey === contextKey
+      && companyResourceState.folder === folder.id
+      && ['loading', 'ready'].includes(companyResourceState.status)) return;
+    const generation = ++companyResourceLoadGeneration;
+    companyResourceState = {
+      contextKey, folder: folder.id, status: 'loading', entries: [], documents: [],
+      evidenceDocuments: [], canWrite: false, error: ''
+    };
+    try {
+      let payload;
+      let evidencePayload = null;
+      if (folder.key === 'equipment-usage') {
+        payload = await readOnlyApi('/peakos/company-resources/equipment-usage?limit=100');
+      } else if (folder.key === 'development-costs') {
+        [payload, evidencePayload] = await Promise.all([
+          readOnlyApi('/peakos/company-resources/development-costs?limit=100'),
+          readOnlyApi('/peakos/company-resources/documents?category=DEVELOPMENT_COST_EVIDENCE&limit=100')
+        ]);
+      } else {
+        payload = await readOnlyApi(`/peakos/company-resources/documents?category=${encodeURIComponent(folder.category)}&limit=100`);
+      }
+      if (generation !== companyResourceLoadGeneration
+        || contextKey !== companyResourceContextKey()
+        || folder.id !== activeView || previewPersona) return;
+      const entries = folder.key === 'equipment-usage'
+        ? (Array.isArray(payload?.entries) ? payload.entries : []).map(normalizeCompanyResourceEquipment).filter(Boolean)
+        : (folder.key === 'development-costs'
+          ? (Array.isArray(payload?.entries) ? payload.entries : []).map(normalizeCompanyResourceDevelopmentCost).filter(Boolean)
+          : []);
+      const documents = folder.category
+        ? (Array.isArray(payload?.documents) ? payload.documents : []).map(normalizeCompanyResourceDocument).filter(Boolean)
+        : [];
+      const evidenceDocuments = folder.key === 'development-costs'
+        ? (Array.isArray(evidencePayload?.documents) ? evidencePayload.documents : []).map(normalizeCompanyResourceDocument).filter(Boolean)
+        : [];
+      const canWrite = payload?.capabilities?.canWrite === true
+        && (folder.key !== 'development-costs' || evidencePayload?.capabilities?.canWrite === true);
+      companyResourceState = {
+        contextKey, folder: folder.id, status: 'ready', entries, documents,
+        evidenceDocuments, canWrite, error: ''
+      };
+    } catch (error) {
+      if (generation !== companyResourceLoadGeneration
+        || contextKey !== companyResourceContextKey()
+        || folder.id !== activeView || previewPersona) return;
+      companyResourceState = {
+        contextKey, folder: folder.id, status: 'error', entries: [], documents: [],
+        evidenceDocuments: [], canWrite: false,
+        error: error.message || '회사 자료를 불러오지 못했습니다.'
+      };
+    } finally {
+      if (generation === companyResourceLoadGeneration
+        && folder.id === activeView && !previewPersona) renderPlannedModule(activeView);
+    }
+  }
+
+  function companyResourceTabsMarkup(activeFolder) {
+    const visibleFolders = COMPANY_RESOURCE_FOLDERS.filter(folder => canNavigateCompanyResource(folder.id));
+    return `<nav class="company-resource-tabs" aria-label="회사 자료 구분">${visibleFolders.map(folder => `
+      <button type="button" class="company-resource-tab ${folder.id === activeFolder.id ? 'active' : ''}"
+        data-company-resource-tab="${esc(folder.id)}" aria-current="${folder.id === activeFolder.id ? 'page' : 'false'}">
+        <span aria-hidden="true">${esc(folder.icon)}</span><span>${esc(folder.label)}</span>
+      </button>`).join('')}</nav>`;
+  }
+
+  function companyResourcePermissionMessage() {
+    if (previewPersona) {
+      return '<div class="data-unavailable" data-company-resources-state="preview-locked"><span class="data-unavailable-icon">▣</span><div><strong>계정 미리보기에서는 회사 자료를 열 수 없습니다</strong><p>실제 로그인 계정으로 돌아오면 서버가 선택 조직의 직접 권한을 다시 확인합니다.</p></div></div>';
+    }
+    if (companyResourceState.status === 'loading') {
+      return '<p class="sales-state" data-company-resources-state="loading">회사 자료 권한과 원장을 확인하고 있습니다.</p>';
+    }
+    if (companyResourceState.status === 'error') {
+      return `<div class="data-unavailable" data-company-resources-state="error"><span class="data-unavailable-icon">!</span><div><strong>회사 자료를 열 수 없습니다</strong><p>${esc(companyResourceState.error)}</p><button class="module-action" type="button" data-company-resource-refresh>다시 확인</button></div></div>`;
+    }
+    return '';
+  }
+
+  function companyResourceEditorMarkup(folder) {
+    if (!companyResourceState.canWrite) {
+      return '<p class="company-resource-readonly">열람 전용입니다. 서버에서 지정한 재무 담당자만 새 기록을 등록할 수 있습니다.</p>';
+    }
+    const today = koreaDateKey(new Date());
+    if (folder.key === 'equipment-usage') {
+      return `<details class="company-resource-editor" open><summary>비품 사용 기록 추가</summary>
+        <form class="company-resource-form" data-company-equipment-form>
+          <label><span>사용일</span><input type="date" name="usedOn" value="${esc(today)}" required></label>
+          <label><span>비품명</span><input name="itemName" maxlength="160" required placeholder="예: 노트북"></label>
+          <label><span>수량</span><input type="number" name="quantity" min="1" max="100000" step="1" value="1" required></label>
+          <label class="wide"><span>사용 목적</span><input name="purpose" minlength="2" maxlength="500" required placeholder="업무상 사용 목적"></label>
+          <label class="wide"><span>메모</span><textarea name="memo" rows="2" maxlength="500"></textarea></label>
+          <div class="company-resource-form-actions wide"><span>사용자는 현재 로그인 계정으로 서버에 기록됩니다.</span><button class="module-action primary" type="submit">기록 저장</button></div>
+        </form></details>`;
+    }
+    if (folder.key === 'development-costs') {
+      const options = companyResourceState.evidenceDocuments
+        .filter(document => document.status === 'ACTIVE')
+        .map(document => `<option value="${esc(document.id)}">${esc(document.title)} · v${esc(String(document.revision))}</option>`).join('');
+      return `<div class="company-resource-editor-grid">
+        <details class="company-resource-editor"><summary>개발비 증빙 업로드</summary>${companyResourceUploadForm('DEVELOPMENT_COST_EVIDENCE', '증빙 자료명')}</details>
+        <details class="company-resource-editor"><summary>개발비 기록 추가</summary>
+          <form class="company-resource-form" data-company-development-form>
+            <label><span>지출일</span><input type="date" name="spentOn" value="${esc(today)}" required></label>
+            <label><span>개발비 항목</span><input name="title" minlength="2" maxlength="180" required></label>
+            <label><span>지급처</span><input name="vendor" maxlength="160" required></label>
+            <label><span>금액</span><input type="number" name="amountKrw" min="1" max="1000000000000" step="1" required inputmode="numeric"></label>
+            <label class="wide"><span>증빙 원본</span><select name="evidenceDocumentId" required><option value="" selected disabled>${options ? '증빙 선택' : '먼저 증빙을 업로드해 주세요'}</option>${options}</select></label>
+            <label class="wide"><span>메모</span><textarea name="memo" rows="2" maxlength="1000"></textarea></label>
+            <div class="company-resource-form-actions wide"><span>활성 증빙 원본 없이는 저장할 수 없습니다.</span><button class="module-action primary" type="submit" ${options ? '' : 'disabled'}>기록 저장</button></div>
+          </form></details>
+      </div>`;
+    }
+    return `<details class="company-resource-editor"><summary>${esc(folder.label)} 업로드</summary>${companyResourceUploadForm(folder.category, '자료명')}</details>`;
+  }
+
+  function companyResourceUploadForm(category, label) {
+    return `<form class="company-resource-form" data-company-document-upload="${esc(category)}" enctype="multipart/form-data">
+      <label class="wide"><span>${esc(label)}</span><input name="title" maxlength="180" required></label>
+      <label class="wide"><span>보호 원본</span><input type="file" name="file" accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg" required></label>
+      <div class="company-resource-form-actions wide"><span>PDF·PNG·JPEG, 최대 20MB · 공개 URL에 저장하지 않습니다.</span><button class="module-action primary" type="submit">업로드</button></div>
+    </form>`;
+  }
+
+  function companyResourceRowsMarkup(folder) {
+    if (folder.key === 'equipment-usage') {
+      const rows = companyResourceState.entries.map(entry => `<tr data-company-equipment-row="${esc(entry.id)}">
+        <td>${esc(entry.usedOn)}</td><th scope="row">${esc(entry.itemName)}</th><td>${esc(String(entry.quantity))}</td>
+        <td>${esc(entry.usedByName)}</td><td>${esc(entry.purpose)}${entry.memo ? `<br><span class="sales-basis">${esc(entry.memo)}</span>` : ''}</td>
+        <td><span class="vendor-chip ${entry.status === 'ACTIVE' ? 'done' : ''}">${entry.status === 'ACTIVE' ? '사용 기록' : '취소됨'}</span>${entry.voidReason ? `<br><span class="sales-basis">${esc(entry.voidReason)}</span>` : ''}</td>
+        <td>${entry.status === 'ACTIVE' && companyResourceState.canWrite ? `<button class="module-action" type="button" data-company-equipment-void="${esc(entry.id)}" data-row-version="${esc(String(entry.rowVersion))}">기록 취소</button>` : ''}</td>
+      </tr>`).join('');
+      return rows ? `<div class="sales-table-scroll"><table class="empty-table"><thead><tr><th>사용일</th><th>비품</th><th>수량</th><th>사용자</th><th>목적·메모</th><th>상태</th><th>작업</th></tr></thead><tbody>${rows}</tbody></table></div>`
+        : '<p class="sales-state" data-company-resources-state="empty" data-company-resources-empty>등록된 비품 사용 내역이 없습니다.</p>';
+    }
+    if (folder.key === 'development-costs') {
+      const rows = companyResourceState.entries.map(entry => `<tr data-company-development-row="${esc(entry.id)}">
+        <td>${esc(entry.spentOn)}</td><th scope="row">${esc(entry.title)}</th><td>${esc(entry.vendor)}</td>
+        <td>₩${Number(entry.amountKrw || 0).toLocaleString('ko-KR')}</td><td>${esc(entry.evidenceTitle)}</td>
+        <td><span class="vendor-chip ${entry.status === 'ACTIVE' ? 'done' : ''}">${entry.status === 'ACTIVE' ? '유효' : '취소됨'}</span>${entry.voidReason ? `<br><span class="sales-basis">${esc(entry.voidReason)}</span>` : ''}</td>
+        <td>${entry.status === 'ACTIVE' && companyResourceState.canWrite ? `<button class="module-action" type="button" data-company-development-void="${esc(entry.id)}" data-row-version="${esc(String(entry.rowVersion))}">기록 취소</button>` : ''}</td>
+      </tr>`).join('');
+      const evidence = companyResourceDocumentsMarkup(companyResourceState.evidenceDocuments, '개발비 증빙');
+      return `${rows ? `<div class="sales-table-scroll"><table class="empty-table"><thead><tr><th>지출일</th><th>항목</th><th>지급처</th><th>금액</th><th>증빙</th><th>상태</th><th>작업</th></tr></thead><tbody>${rows}</tbody></table></div>`
+        : '<p class="sales-state" data-company-resources-state="empty" data-company-resources-empty>등록된 개발비가 없습니다.</p>'}
+        <div class="company-resource-evidence"><h3>개발비 증빙 원본</h3>${evidence}</div>`;
+    }
+    return companyResourceDocumentsMarkup(companyResourceState.documents, folder.label);
+  }
+
+  function companyResourceDocumentsMarkup(documents, emptyLabel) {
+    const rows = documents.map(document => `<tr data-company-document-row="${esc(document.id)}">
+      <th scope="row">${esc(document.title)}</th><td>${esc(document.originalFilename)}</td><td>v${esc(String(document.revision))}</td>
+      <td>${esc(companyDocumentSizeLabel(document.sizeBytes))}</td><td>${esc(document.uploadedByName)}</td>
+      <td><span class="vendor-chip ${document.status === 'ACTIVE' ? 'done' : ''}">${document.status === 'ACTIVE' ? '활성' : '보관'}</span></td>
+      <td><span class="company-resource-row-actions"><button class="module-action" type="button" data-company-resource-download="${esc(document.id)}">다운로드</button>${document.status === 'ACTIVE' && companyResourceState.canWrite ? `<button class="module-action" type="button" data-company-document-archive="${esc(document.id)}" data-row-version="${esc(String(document.rowVersion))}">보관</button>` : ''}</span></td>
+    </tr>`).join('');
+    return rows ? `<div class="sales-table-scroll"><table class="empty-table"><thead><tr><th>자료명</th><th>원본 파일</th><th>버전</th><th>크기</th><th>등록자</th><th>상태</th><th>작업</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : `<p class="sales-state" data-company-resources-state="empty" data-company-resources-empty>등록된 ${esc(emptyLabel)} 자료가 없습니다.</p>`;
+  }
+
+  async function runCompanyResourceMutation(button, request, successMessage) {
+    if (!companyResourceState.canWrite || previewPersona) return null;
+    const previous = button?.textContent;
+    if (button) {
+      button.disabled = true;
+      button.textContent = '처리 중…';
+    }
+    try {
+      const payload = await request();
+      showToast(successMessage);
+      resetSelectedCompanyResource();
+      renderPlannedModule(activeView);
+      return payload;
+    } catch (error) {
+      showToast(error.message || '회사 자료를 저장하지 못했습니다.');
+      return null;
+    } finally {
+      if (button?.isConnected) {
+        button.disabled = false;
+        button.textContent = previous;
+      }
+    }
+  }
+
+  async function downloadCompanyResourceDocument(button) {
+    const id = String(button?.dataset?.companyResourceDownload || '');
+    const document = [...companyResourceState.documents, ...companyResourceState.evidenceDocuments]
+      .find(item => item.id === id);
+    if (!document || previewPersona) return;
+    const previous = button.textContent;
+    button.disabled = true;
+    button.textContent = '확인 중…';
+    try {
+      const blob = await callApi('GET', `/peakos/company-resources/documents/${encodeURIComponent(id)}/content`, undefined, { responseType: 'blob' });
+      const objectUrl = URL.createObjectURL(blob);
+      const link = documentGlobalCreateDownloadLink(objectUrl, document.originalFilename);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      showToast('보호 원본을 다운로드했습니다.');
+    } catch (error) {
+      showToast(error.message || '보호 원본을 다운로드하지 못했습니다.');
+    } finally {
+      if (button.isConnected) {
+        button.disabled = false;
+        button.textContent = previous;
+      }
+    }
+  }
+
+  function documentGlobalCreateDownloadLink(objectUrl, filename) {
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = String(filename || 'company-resource')
+      .replace(/[\\/\u0000-\u001f\u007f]/g, '_').trim().slice(0, 180) || 'company-resource';
+    document.body.appendChild(link);
+    return link;
+  }
+
+  function bindCompanyResourceModule(folder) {
+    moduleView.querySelectorAll('[data-company-resource-tab]').forEach(button => button.addEventListener('click', () => {
+      activateView(button.dataset.companyResourceTab);
+    }));
+    moduleView.querySelector('[data-company-resource-refresh]')?.addEventListener('click', () => {
+      resetSelectedCompanyResource(folder);
+      renderPlannedModule(folder.id);
+    });
+    moduleView.querySelector('[data-company-equipment-form]')?.addEventListener('submit', event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const data = new FormData(form);
+      runCompanyResourceMutation(event.submitter, () => callApi('POST', '/peakos/company-resources/equipment-usage', {
+        usedOn: String(data.get('usedOn') || ''), itemName: String(data.get('itemName') || '').trim(),
+        purpose: String(data.get('purpose') || '').trim(), quantity: Number(data.get('quantity')),
+        memo: String(data.get('memo') || '').trim()
+      }), '비품 사용 기록을 저장했습니다.');
+    });
+    moduleView.querySelector('[data-company-development-form]')?.addEventListener('submit', event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const data = new FormData(form);
+      runCompanyResourceMutation(event.submitter, () => callApi('POST', '/peakos/company-resources/development-costs', {
+        spentOn: String(data.get('spentOn') || ''), title: String(data.get('title') || '').trim(),
+        vendor: String(data.get('vendor') || '').trim(), amountKrw: Number(data.get('amountKrw')),
+        evidenceDocumentId: String(data.get('evidenceDocumentId') || ''), memo: String(data.get('memo') || '').trim()
+      }), '개발비 기록을 저장했습니다.');
+    });
+    moduleView.querySelectorAll('[data-company-document-upload]').forEach(form => form.addEventListener('submit', event => {
+      event.preventDefault();
+      const body = new FormData(event.currentTarget);
+      body.set('category', event.currentTarget.dataset.companyDocumentUpload);
+      runCompanyResourceMutation(event.submitter, () => callApi('POST', '/peakos/company-resources/documents', body), '회사 자료를 보호 저장소에 등록했습니다.');
+    }));
+    moduleView.querySelectorAll('[data-company-equipment-void]').forEach(button => button.addEventListener('click', () => {
+      const reason = window.prompt('비품 사용 기록 취소 사유를 입력해 주세요.');
+      if (reason === null || String(reason).trim().length < 2) return;
+      runCompanyResourceMutation(button, () => callApi('POST', `/peakos/company-resources/equipment-usage/${encodeURIComponent(button.dataset.companyEquipmentVoid)}/void`, {
+        expectedVersion: Number(button.dataset.rowVersion), reason: String(reason).trim()
+      }), '비품 사용 기록을 취소했습니다.');
+    }));
+    moduleView.querySelectorAll('[data-company-development-void]').forEach(button => button.addEventListener('click', () => {
+      const reason = window.prompt('개발비 기록 취소 사유를 입력해 주세요.');
+      if (reason === null || String(reason).trim().length < 2) return;
+      runCompanyResourceMutation(button, () => callApi('POST', `/peakos/company-resources/development-costs/${encodeURIComponent(button.dataset.companyDevelopmentVoid)}/void`, {
+        expectedVersion: Number(button.dataset.rowVersion), reason: String(reason).trim()
+      }), '개발비 기록을 취소했습니다.');
+    }));
+    moduleView.querySelectorAll('[data-company-document-archive]').forEach(button => button.addEventListener('click', () => {
+      const reason = window.prompt('회사 자료 보관 사유를 입력해 주세요.');
+      if (reason === null || String(reason).trim().length < 2) return;
+      runCompanyResourceMutation(button, () => callApi('POST', `/peakos/company-resources/documents/${encodeURIComponent(button.dataset.companyDocumentArchive)}/archive`, {
+        expectedVersion: Number(button.dataset.rowVersion), reason: String(reason).trim()
+      }), '회사 자료를 보관 처리했습니다.');
+    }));
+    moduleView.querySelectorAll('[data-company-resource-download]').forEach(button => button.addEventListener('click', () => {
+      downloadCompanyResourceDocument(button);
+    }));
+  }
+
+  function renderCompanyResourceModule(view) {
+    const folder = companyResourceDefinition(view);
+    if (!folder) return;
+    const contextKey = companyResourceContextKey();
+    if (companyResourceState.contextKey !== contextKey || companyResourceState.folder !== folder.id) {
+      resetSelectedCompanyResource(folder);
+    }
+    if (!previewPersona && companyResourceState.status === 'idle') loadCompanyResourceModule();
+    const blocked = companyResourcePermissionMessage();
+    const ready = !previewPersona && companyResourceState.status === 'ready';
+    moduleView.innerHTML = `<div class="company-resources" data-company-resources-root data-company-resource-view="${esc(folder.id)}" data-company-resources-state="${esc(previewPersona ? 'preview-locked' : companyResourceState.status)}">
+      ${moduleStatusbar('영업 운영 · 회사 자료', '조직별 보호 저장소와 변경 이력을 서버 권한으로 관리합니다.', previewPersona ? '미리보기 잠금' : '서버 권한 확인')}
+      ${companyResourceTabsMarkup(folder)}
+      <section class="module-section company-resource-panel">
+        <div class="module-section-head"><span><strong>${esc(folder.label)}</strong><small>${esc(folder.description)}</small></span>${ready ? `<span class="module-chip ${companyResourceState.canWrite ? 'visible' : ''}">${companyResourceState.canWrite ? '등록 가능' : '열람 전용'}</span>` : ''}</div>
+        <div class="module-section-body">
+          ${blocked}
+          ${ready ? `${companyResourceEditorMarkup(folder)}<div class="company-resource-ledger">${companyResourceRowsMarkup(folder)}</div>` : ''}
+        </div>
+      </section>
+      <div class="module-security"><span>▣</span><span><strong>원본과 원장은 선택 조직 밖으로 공유되지 않습니다</strong><br>직접 구성원 UID·문서 권한·재무 capability를 서버가 매 요청 다시 확인하며, 미리보기와 본사 oversight는 차단합니다.</span></div>
+    </div>`;
+    bindCompanyResourceModule(folder);
   }
 
   function selectCompanyDocumentFolder(folder) {
@@ -7827,12 +9301,10 @@
     'expectedDepositAmount', 'memo', 'kind', 'refOf', 'supplier'
   ];
   const INTAKE_PAYMENT_FIELDS = ['paidAmount', 'payer', 'paidDate', 'paidMemo'];
-  const INTAKE_VENDOR_FIELDS = ['vendorPaid', 'vendorPaidDate', 'vendorBank', 'vendorMemo'];
 
   function intakeMutableFields(action) {
     if (action === 'business') return INTAKE_BUSINESS_FIELDS;
     if (action === 'payment') return canReviewFinanceRequests() ? INTAKE_PAYMENT_FIELDS : [];
-    if (action === 'vendor') return canReviewFinanceRequests() ? INTAKE_VENDOR_FIELDS : [];
     if (action === 'manager') return canSeeFinalSettlement() && !previewPersona ? ['manager'] : [];
     if (action === 'cost') return canSeeCompanyCost() ? ['cost'] : [];
     return [];
@@ -8201,6 +9673,17 @@
     return userDoc?.peakos_can_view_finance_operations === true;
   }
 
+  function canNavigateCompanyResource(view) {
+    const folder = COMPANY_RESOURCE_FOLDERS.find(item => item.id === view);
+    if (!folder || !currentUser || previewPersona) return false;
+    const capability = folder.key === 'equipment-usage'
+      ? canSeeFinanceOperations()
+      : canReviewFinanceRequests();
+    if (!capability) return false;
+    return !isWorkspaceRoute()
+      || (workspaceCanRead('documents') && workspaceApiIsScoped('/peakos/company-resources'));
+  }
+
   // 계정 미리보기는 실제 로그인 권한으로 금융 API를 호출하지 않는다.
   // 대신 대상 계정이 보게 될 메뉴 구조만 이름이 아닌 고정 정책 명단으로
   // 재현하고, 화면 본문은 별도의 읽기 전용 안내로 대체한다.
@@ -8249,6 +9732,20 @@
 
   function canUseFinanceRequests() {
     return !previewPersona && userDoc?.approved === true && userDoc?.is_active !== false;
+  }
+
+  function canUseCreditRequests() {
+    const account = realUserDoc || userDoc || {};
+    if (!isOsRoute() || !currentUser || !workspaceContext || previewPersona) return false;
+    if (account.approved !== true || account.is_active === false) return false;
+    if (isRestrictedCollaborationAccount() || workspaceIsOversight()) return false;
+    // 충전 요청 원장은 아직 Peak singleton이다. 지사는 workspace_id 이관 전까지
+    // fail-closed이며, 읽기 권한만 있는 direct membership도 요청을 만들 수 없다.
+    if (activeWorkspaceSlug !== 'peak' || !workspaceCanWrite('settlements')) return false;
+    const role = String(workspaceContext?.membership?.role || '');
+    if (!['admin', 'manager', 'member'].includes(role)) return false;
+    return String(account.group_type || '').trim() === 'sales'
+      || account.peakos_can_view_finance_operations === true;
   }
 
   function canSeeTaxBankingView(view) {
@@ -9234,7 +10731,21 @@
     });
   }
 
-  // 공급사 정산 — 수량이 맞는지 확인하고 지불액을 확정한다.
+  function newVendorReconciliationKey() {
+    const browserCrypto = globalThis.crypto;
+    if (typeof browserCrypto?.randomUUID === 'function') return browserCrypto.randomUUID();
+    if (typeof browserCrypto?.getRandomValues !== 'function') {
+      throw new Error('안전한 정산 재시도 키를 만들 수 없는 브라우저입니다. 브라우저를 업데이트해 주세요.');
+    }
+    const bytes = browserCrypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = [...bytes].map(value => value.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+
+  // 공급사 정산 — 브라우저 계산은 입력 안내에만 쓰고 서버가 현재
+  // workspace 전체 미지급 행의 수량·확정 원가·지급액을 다시 대사한다.
   function openVendorDialog(supplier) {
     if (!canReviewFinanceRequests() || previewPersona) {
       showToast('공급사 정산은 서버에서 승인된 재무 담당자만 처리할 수 있습니다.');
@@ -9244,6 +10755,9 @@
     if (!group) return;
     const open = group.openRows;
     const openQty = open.reduce((sum, row) => sum + vendorSemanticQty(row), 0);
+    const generation = intakeLoadGeneration;
+    const persona = previewPersona;
+    let idempotencyKey = '';
     if (open.length && !group.canSettle) {
       showToast(group.unknownOpen.length
         ? '원가가 비어 있는 양수 접수가 있어 공급사 정산을 확정할 수 없습니다.'
@@ -9303,7 +10817,7 @@
         <small class="paid-hint">어느 통장에서 나갔는지 고르세요.</small>
       </div>
       <div class="paid-field">
-        <label class="paid-label" for="vendorDate">지불일</label>
+        <label class="paid-label" for="vendorDate">지불일 <em class="paid-required">필수</em></label>
         <input class="paid-input" id="vendorDate" type="date" value="${esc(localDateKey(new Date()))}">
       </div>
       <div class="paid-field">
@@ -9339,28 +10853,80 @@
         return;
       }
       const amount = group.openDue;
-      const date = document.getElementById('vendorDate').value;
+      const dateInput = document.getElementById('vendorDate');
+      const date = dateInput.value;
       const bank = document.getElementById('vendorBank').value;
       const memo = memoInput.value.trim();
-      const changedRows = open.map(row => ({
-        ...row,
-        vendorPaid: true,
-        vendorPaidDate: date,
-        vendorBank: bank,
-        vendorMemo: memo
-      }));
+      if (!date) {
+        dateInput.focus();
+        showToast('공급사 지급일을 선택해 주세요.');
+        return;
+      }
       const saveButton = event.currentTarget;
       saveButton.disabled = true;
       saveButton.textContent = '서버 저장 중…';
-      const saved = await saveIntakeRows(changedRows, { action: 'vendor' });
-      if (!saved) {
+      try {
+        if (!intakeContextIsCurrent(generation, persona) || previewPersona
+            || !canReviewFinanceRequests()) return;
+        const rows = open.map(row => {
+          if (!Number.isInteger(row.rowVersion) || row.rowVersion < 1) {
+            throw Object.assign(new Error('최신 행 버전이 없어 공급사 대사를 확정할 수 없습니다.'), {
+              code: 'VENDOR_RECONCILIATION_VERSION_REQUIRED'
+            });
+          }
+          return { id: String(row.id), expectedRowVersion: Number(row.rowVersion) };
+        });
+        if (!idempotencyKey) idempotencyKey = newVendorReconciliationKey();
+        const result = await callApi('POST', '/peakos/vendor-reconciliations', {
+          idempotencyKey,
+          supplier,
+          deliveredQty: checked,
+          paidDate: date,
+          bank,
+          memo,
+          rows
+        });
+        if (!intakeContextIsCurrent(generation, persona) || previewPersona
+            || !canReviewFinanceRequests()) return;
+
+        let refreshed = false;
+        if (Array.isArray(result?.rows)) {
+          const savedRows = confirmedVersionedRows(result, open.length, '공급사 대사');
+          const originals = new Map(open.map(row => [String(row.id), row]));
+          const seen = new Set();
+          const responseMismatch = savedRows.some(row => {
+            const id = String(row.id);
+            if (!originals.has(id) || seen.has(id)) return true;
+            seen.add(id);
+            return false;
+          });
+          if (responseMismatch) {
+            throw new Error('서버 공급사 대사 결과의 접수 행이 요청과 일치하지 않습니다.');
+          }
+          applyCanonicalIntakeRows(savedRows.map(row => ({ ...originals.get(String(row.id)), ...row })));
+        } else {
+          // 동일 idempotency 응답 등 최소 배치 응답에도 완료 사실은 유지하고
+          // canonical 원장을 다시 읽어 화면만 동기화한다.
+          refreshed = await reloadIntakeAfterWriteFailure();
+        }
+        if (!intakeContextIsCurrent(generation, persona) || previewPersona) return;
         closeDetailModal();
         renderPlannedModule('final-settlement');
-        return;
+        const settledAmount = Number.isFinite(Number(result?.totalDue)) ? Number(result.totalDue) : amount;
+        const actorName = String(result?.completedByName || userDoc?.name || '현재 사용자');
+        showToast(`${actorName}님이 ${bank}에서 ${supplier}에 ${settledAmount.toLocaleString('ko-KR')}원을 지불한 수량 대사를 서버 확정했습니다.${result?.rows || refreshed ? '' : ' 최신 목록은 새로고침해 주세요.'}`);
+      } catch (error) {
+        if (!intakeContextIsCurrent(generation, persona) || previewPersona) return;
+        console.error('공급사 수량 대사 실패:', error.message);
+        const restored = await reloadIntakeAfterWriteFailure();
+        if (!intakeContextIsCurrent(generation, persona) || previewPersona) return;
+        closeDetailModal();
+        renderPlannedModule('final-settlement');
+        const conflict = error.status === 409
+          ? `${error.message} 최신 서버 목록으로 다시 불러왔습니다.`
+          : `공급사 대사를 확정하지 못했습니다. ${error.message}${restored ? ' 서버 목록으로 되돌렸습니다.' : ''}`;
+        showToast(conflict);
       }
-      closeDetailModal();
-      renderPlannedModule('final-settlement');
-      showToast(`${userDoc?.name || '현재 사용자'}님이 ${bank}에서 ${supplier}에 ${amount.toLocaleString('ko-KR')}원을 지불한 정산을 서버 저장했습니다.`);
     });
   }
 
@@ -9376,24 +10942,27 @@
     if (!groups.length) {
       return `<section class="module-section settlement-ledger-premium">
         <div class="module-section-head settlement-command-bar">
-          <span class="settlement-command-copy">
-            <span class="settlement-command-kicker"><i aria-hidden="true"></i> PERSONAL LEDGER</span>
-            <strong>내 개인정산서</strong>
-            <small>접수부터 입금 확인까지 한 화면에서 관리합니다</small>
-          </span>
-          <span class="settlement-command-side">
-            <span class="settlement-record-count"><small>조회 건수</small><strong>0</strong></span>
-            <span class="intake-head-right">
-              <button class="module-action" type="button" data-estimate-new>＋ 새 정산서</button>
+          <div class="settlement-command-row">
+            <span class="settlement-command-copy">
+              <span class="settlement-command-kicker"><i aria-hidden="true"></i> PERSONAL LEDGER</span>
+              <strong>내 개인정산서</strong>
+              <small>접수부터 입금 확인까지 한 화면에서 관리합니다</small>
             </span>
-          </span>
-        </div>
-        <div class="module-section-body">
+            <span class="settlement-command-side">
+              <span class="settlement-record-count"><small>조회 건수</small><strong>0</strong></span>
+              <span class="intake-head-right">
+                <button class="module-action settlement-api-status-link" type="button" data-open-monthly-platform-status>API 연동 현황</button>
+                <button class="module-action" type="button" data-estimate-new>＋ 새 정산서</button>
+              </span>
+            </span>
+          </div>
           <div class="settlement-control-deck">
             <div class="settlement-control-heading"><span>01</span><div><strong>조회 범위</strong><small>기간과 상세 조건을 조합해 원장을 빠르게 찾습니다</small></div></div>
             ${renderFinancePeriodFilter('settlement', '접수일 기준')}
             ${personalRows().length ? renderIntakeFilter() : ''}
           </div>
+        </div>
+        <div class="module-section-body">
           <div class="settlement-empty-state">
             <span class="settlement-empty-icon" aria-hidden="true">↗</span>
             <strong>${personalRows().length ? '조회 조건에 맞는 접수가 없습니다' : '첫 정산 업무를 시작해 보세요'}</strong>
@@ -9410,26 +10979,29 @@
 
     return `<section class="module-section settlement-ledger-premium">
       <div class="module-section-head settlement-command-bar">
-        <span class="settlement-command-copy">
-          <span class="settlement-command-kicker"><i aria-hidden="true"></i> PERSONAL LEDGER</span>
-          <strong>내 개인정산서</strong><small>${esc(userDoc?.name || '')} · ${intakeQueryActive()
-          ? `조회 ${shown.length}건 / 전체 ${personalRows().length}건`
-          : `접수 ${personalRows().length}건`}</small>
-        </span>
-        <span class="settlement-command-side">
-          <span class="settlement-record-count"><small>조회 건수</small><strong>${esc(String(shown.length))}</strong></span>
-          <span class="intake-head-right">
-            <button class="module-action" type="button" data-estimate-new>＋ 새 정산서</button>
-            <button class="module-action primary" type="button" data-estimate-open>정산서 발행</button>
+        <div class="settlement-command-row">
+          <span class="settlement-command-copy">
+            <span class="settlement-command-kicker"><i aria-hidden="true"></i> PERSONAL LEDGER</span>
+            <strong>내 개인정산서</strong><small>${esc(userDoc?.name || '')} · ${intakeQueryActive()
+            ? `조회 ${shown.length}건 / 전체 ${personalRows().length}건`
+            : `접수 ${personalRows().length}건`}</small>
           </span>
-        </span>
-      </div>
-      <div class="module-section-body">
+          <span class="settlement-command-side">
+            <span class="settlement-record-count"><small>조회 건수</small><strong>${esc(String(shown.length))}</strong></span>
+            <span class="intake-head-right">
+              <button class="module-action settlement-api-status-link" type="button" data-open-monthly-platform-status>API 연동 현황</button>
+              <button class="module-action" type="button" data-estimate-new>＋ 새 정산서</button>
+              <button class="module-action primary" type="button" data-estimate-open>정산서 발행</button>
+            </span>
+          </span>
+        </div>
         <div class="settlement-control-deck">
           <div class="settlement-control-heading"><span>01</span><div><strong>조회 범위</strong><small>기간과 상세 조건을 조합해 원장을 빠르게 찾습니다</small></div></div>
           ${renderFinancePeriodFilter('settlement', '접수일 기준')}
           ${renderIntakeFilter()}
         </div>
+      </div>
+      <div class="module-section-body">
         <div class="settlement-summary-block">
           <div class="settlement-block-heading">
             <span><i aria-hidden="true"></i><strong>정산 요약</strong><small>${esc(financePeriodLabel())}</small></span>
@@ -10533,6 +12105,431 @@
       <div class="module-security"><span>▣</span><span><strong>볼 수 있는 사람</strong><br>대표 · 손명아 실장 · 김대호 부장 · 박종원 부장 · 전현우 팀장. 예약최초건은 아직 일이 들어가지 않아 집계에서 빠집니다.</span></div>`;
   }
 
+  function commissionManagerRole() {
+    return String(workspaceContext?.membership?.role || userDoc?.role || '');
+  }
+
+  function canManageCommissionRules() {
+    return Boolean(currentUser)
+      && !previewPersona
+      && !workspaceIsOversight()
+      && workspaceCanWrite('settlements')
+      && ['admin', 'manager'].includes(commissionManagerRole());
+  }
+
+  function shiftCommissionDate(dateKey, offsetDays) {
+    const valid = validDateKey(dateKey);
+    if (!valid || !Number.isInteger(offsetDays)) return '';
+    const date = new Date(`${valid}T00:00:00.000Z`);
+    date.setUTCDate(date.getUTCDate() + offsetDays);
+    return date.toISOString().slice(0, 10);
+  }
+
+  function commissionEstimateRange() {
+    const requested = financePeriodBounds();
+    const today = koreaDateKey(new Date());
+    let from = validDateKey(requested.from);
+    let to = validDateKey(requested.to);
+    let limitedRange = false;
+    if (!from && !to) {
+      to = today;
+      from = shiftCommissionDate(to, -365);
+      limitedRange = true;
+    } else if (!from) {
+      from = shiftCommissionDate(to, -365);
+      limitedRange = true;
+    } else if (!to) {
+      to = shiftCommissionDate(from, 365);
+      limitedRange = true;
+    }
+    const span = (new Date(`${to}T00:00:00.000Z`) - new Date(`${from}T00:00:00.000Z`)) / 86400000;
+    if (span > 365) {
+      from = shiftCommissionDate(to, -365);
+      limitedRange = true;
+    }
+    return { from, to, limitedRange };
+  }
+
+  function commissionEstimateContextKey() {
+    const range = commissionEstimateRange();
+    return [
+      workspaceAccessGeneration, activeWorkspaceSlug || 'peak', currentUser?.uid || '',
+      previewPersona || 'self', activeView, range.from, range.to,
+      workspaceIsOversight() ? 'oversight' : 'direct'
+    ].join('|');
+  }
+
+  function commissionRuleContextKey() {
+    return [
+      workspaceAccessGeneration, activeWorkspaceSlug || 'peak', currentUser?.uid || '',
+      previewPersona || 'self', commissionManagerRole(), workspacePermission('settlements')
+    ].join('|');
+  }
+
+  function commissionErrorIgnored(error) {
+    return ['AUTH_CONTEXT_CHANGED', 'WORKSPACE_CONTEXT_CHANGED'].includes(String(error?.code || ''));
+  }
+
+  async function loadCommissionEstimates({ force = false } = {}) {
+    if (activeView !== 'settlement' || previewPersona || !currentUser || !workspaceCanRead('settlements')) return false;
+    const contextKey = commissionEstimateContextKey();
+    if (!force && commissionEstimateState.contextKey === contextKey
+      && ['loading', 'ready'].includes(commissionEstimateState.status)) return false;
+    const generation = ++commissionEstimateLoadGeneration;
+    const range = commissionEstimateRange();
+    commissionEstimateState = {
+      status: 'loading', contextKey, range: { from: range.from, to: range.to }, estimates: [],
+      truncated: false, limitedRange: range.limitedRange, error: '', code: ''
+    };
+    const query = new URLSearchParams({ from: range.from, to: range.to });
+    // 개인정산서에서는 manager/admin도 반드시 본인 UID를 명시한다. 본사
+    // oversight만 서버가 workspace 범위로 마스킹한 결과를 읽는다.
+    if (!workspaceIsOversight()) query.set('ownerUid', currentUser.uid);
+    try {
+      const data = await readOnlyApi(`/peakos/commission-estimates?${query.toString()}`);
+      if (generation !== commissionEstimateLoadGeneration
+        || contextKey !== commissionEstimateContextKey()
+        || activeView !== 'settlement' || previewPersona) return false;
+      commissionEstimateState = {
+        status: 'ready', contextKey,
+        range: data?.range && validDateKey(data.range.from) && validDateKey(data.range.to)
+          ? { from: data.range.from, to: data.range.to }
+          : { from: range.from, to: range.to },
+        estimates: Array.isArray(data?.estimates) ? data.estimates : [],
+        truncated: data?.truncated === true, limitedRange: range.limitedRange,
+        error: '', code: ''
+      };
+      renderPlannedModule('settlement');
+      return true;
+    } catch (error) {
+      if (generation !== commissionEstimateLoadGeneration
+        || contextKey !== commissionEstimateContextKey() || commissionErrorIgnored(error)) return false;
+      commissionEstimateState = {
+        status: 'error', contextKey, range: { from: range.from, to: range.to }, estimates: [],
+        truncated: false, limitedRange: range.limitedRange,
+        error: error.message || '예상 수당을 불러오지 못했습니다.', code: error.code || ''
+      };
+      if (activeView === 'settlement' && !previewPersona) renderPlannedModule('settlement');
+      return false;
+    }
+  }
+
+  async function loadCommissionRules({ force = false } = {}) {
+    if (activeView !== 'settlement' || !canManageCommissionRules()) return false;
+    const contextKey = commissionRuleContextKey();
+    if (!force && commissionRuleState.contextKey === contextKey
+      && ['loading', 'ready'].includes(commissionRuleState.status)) return false;
+    const generation = ++commissionRuleLoadGeneration;
+    commissionRuleState = { status: 'loading', contextKey, rules: [], error: '', code: '' };
+    try {
+      const data = await readOnlyApi('/peakos/commission-rules');
+      if (generation !== commissionRuleLoadGeneration
+        || contextKey !== commissionRuleContextKey()
+        || activeView !== 'settlement' || !canManageCommissionRules()) return false;
+      commissionRuleState = {
+        status: 'ready', contextKey, rules: Array.isArray(data?.rules) ? data.rules : [], error: '', code: ''
+      };
+      renderPlannedModule('settlement');
+      return true;
+    } catch (error) {
+      if (generation !== commissionRuleLoadGeneration
+        || contextKey !== commissionRuleContextKey() || commissionErrorIgnored(error)) return false;
+      commissionRuleState = {
+        status: 'error', contextKey, rules: [],
+        error: error.message || '수당 규칙을 불러오지 못했습니다.', code: error.code || ''
+      };
+      if (activeView === 'settlement' && canManageCommissionRules()) renderPlannedModule('settlement');
+      return false;
+    }
+  }
+
+  function ensureCommissionSettlementData() {
+    if (activeView !== 'settlement' || previewPersona || !currentUser) return;
+    const estimateContext = commissionEstimateContextKey();
+    if (commissionEstimateState.contextKey !== estimateContext
+      || !['loading', 'ready', 'error'].includes(commissionEstimateState.status)) {
+      void loadCommissionEstimates();
+    }
+    if (canManageCommissionRules()) {
+      const ruleContext = commissionRuleContextKey();
+      if (commissionRuleState.contextKey !== ruleContext
+        || !['loading', 'ready', 'error'].includes(commissionRuleState.status)) {
+        void loadCommissionRules();
+      }
+    }
+  }
+
+  function commissionPlatformLabel(value) {
+    return MONTHLY_SETTLEMENT_PLATFORMS.find(row => row.key === value)?.label || value || '전체 플랫폼';
+  }
+
+  function commissionStatusLabel(status) {
+    return ({
+      CALCULATED: '예상 수당', UNCONFIGURED: '규칙 미설정', RULE_OVERLAP: '규칙 충돌',
+      SOURCE_INELIGIBLE: '계산 제외', SOURCE_INCOMPLETE: '원본 확인 필요'
+    })[status] || '확인 필요';
+  }
+
+  function commissionPayoutBlockerLabel(code) {
+    return ({
+      SETTLEMENT_COMPLETION_UNCONFIRMED: '예상 · 지급확정 아님',
+      SUPPLIER_RECONCILIATION_INCOMPLETE: '공급사 대사·지급 확인 전',
+      COMMISSION_RULE_UNCONFIGURED: '수당 규칙 미설정',
+      COMMISSION_RULE_OVERLAP: '수당 규칙 충돌',
+      SOURCE_NOT_POSITIVE_PAYABLE_SALE: '환불·음수·미완료 판매 제외',
+      SOURCE_AMOUNT_INCOMPLETE: '원본 금액 확인 필요',
+      COMMISSION_AMOUNT_OUT_OF_RANGE: '산출 금액 확인 필요'
+    })[code] || '지급 조건 확인 필요';
+  }
+
+  function renderCommissionEstimateSection() {
+    if (previewPersona) {
+      return `<section class="module-section commission-estimate" data-commission-estimates data-state="private">
+        <div class="module-section-head"><span><strong>예상 수당</strong><small>영업이익과 별도로 승인된 수당 규칙으로 계산합니다</small></span><span class="module-chip restricted">미리보기 비공개</span></div>
+        <div class="module-section-body"><p class="sales-state">계정 미리보기에서는 실제 인증 계정의 수당 API를 요청하지 않습니다.</p></div>
+      </section>`;
+    }
+    const state = commissionEstimateState;
+    if (state.status === 'error') {
+      return `<section class="module-section commission-estimate" data-commission-estimates data-state="error">
+        <div class="module-section-head"><span><strong>예상 수당</strong><small>영업이익과 별도</small></span><button class="module-action" type="button" data-commission-estimate-retry>다시 조회</button></div>
+        <div class="module-section-body"><p class="sales-state">${esc(state.error || '예상 수당을 불러오지 못했습니다.')}</p></div>
+      </section>`;
+    }
+    if (state.status !== 'ready') {
+      return `<section class="module-section commission-estimate" data-commission-estimates data-state="loading">
+        <div class="module-section-head"><span><strong>예상 수당</strong><small>영업이익과 별도로 승인 규칙을 확인합니다</small></span><span class="module-chip">조회 중</span></div>
+        <div class="module-section-body"><p class="sales-state">수당 규칙과 공급사 대사 근거를 서버에서 확인하고 있습니다.</p></div>
+      </section>`;
+    }
+    const estimates = Array.isArray(state.estimates) ? state.estimates : [];
+    const calculated = estimates.filter(row => row?.status === 'CALCULATED'
+      && Number.isSafeInteger(Number(row.estimatedCommissionAmount)));
+    const total = calculated.reduce((sum, row) => sum + Number(row.estimatedCommissionAmount), 0);
+    const unconfigured = estimates.filter(row => row?.status === 'UNCONFIGURED').length;
+    const overlaps = estimates.filter(row => row?.status === 'RULE_OVERLAP').length;
+    const excluded = estimates.length - calculated.length - unconfigured - overlaps;
+    const range = state.range ? `${state.range.from} ~ ${state.range.to}` : financePeriodLabel();
+    const rows = estimates.map(row => {
+      const status = String(row?.status || '');
+      const isCalculated = status === 'CALCULATED' && Number.isSafeInteger(Number(row?.estimatedCommissionAmount));
+      const product = [row?.product?.a, row?.product?.b, row?.product?.c].filter(Boolean).join(' › ') || '상품 미지정';
+      const amount = isCalculated ? `₩${Number(row.estimatedCommissionAmount).toLocaleString('ko-KR')}` : '—';
+      const rate = isCalculated && Number.isSafeInteger(Number(row?.rateBasisPoints))
+        ? `${(Number(row.rateBasisPoints) / 100).toLocaleString('ko-KR', { maximumFractionDigits: 2 })}%`
+        : '—';
+      const blocker = Array.isArray(row?.payoutBlockers) && row.payoutBlockers.length
+        ? commissionPayoutBlockerLabel(row.payoutBlockers[0]) : '';
+      return `<tr data-commission-status="${esc(status)}">
+        <td>${esc(row?.businessDate || '—')}</td>
+        <td><strong>${esc(product)}</strong><small>${esc(commissionPlatformLabel(row?.platform))}</small></td>
+        <td><span class="commission-status ${esc(status.toLowerCase())}">${esc(commissionStatusLabel(status))}</span></td>
+        <td>${esc(rate)}</td>
+        <td class="money">${esc(amount)}</td>
+        <td>${isCalculated ? `<span class="commission-blocked">${esc(blocker || '예상 · 지급확정 아님')}</span>` : '—'}</td>
+      </tr>`;
+    }).join('');
+    return `<section class="module-section commission-estimate" data-commission-estimates data-state="ready">
+      <div class="module-section-head">
+        <span><strong>예상 수당</strong><small>${esc(range)} · 기존 영업이익과 별도 산출</small></span>
+        <span class="module-chip">예상 · 지급확정 아님</span>
+      </div>
+      <div class="module-section-body">
+        <div class="commission-kpis">
+          <article><small>예상 수당 합계</small><strong data-estimated-commission-total>₩${esc(total.toLocaleString('ko-KR'))}</strong><span>규칙이 정확히 1개 적용된 건만</span></article>
+          <article><small>지급 확정</small><strong>아님</strong><span>이번 릴리스는 예상 수당만 제공</span></article>
+          <article class="${unconfigured ? 'warning' : ''}"><small>규칙 미설정</small><strong>${esc(String(unconfigured))}건</strong><span>금액을 임의 계산하지 않음</span></article>
+          <article class="${overlaps ? 'danger' : ''}"><small>규칙 충돌</small><strong>${esc(String(overlaps))}건</strong><span>중복 규칙은 산출 차단</span></article>
+        </div>
+        <p class="commission-notice warning">예상 수당은 급여 지급 확정액이 아닙니다. 접수 원장과 완료 근거의 canonical 연결이 마련될 때까지 모든 지급 가능 판정을 차단합니다.</p>
+        ${state.limitedRange ? '<p class="commission-notice">전체·장기 조회는 안전한 서버 한도에 따라 최근 366일만 표시합니다.</p>' : ''}
+        ${state.truncated ? '<p class="commission-notice warning">결과가 500건을 넘어 일부만 표시합니다. 기간을 좁혀 주세요.</p>' : ''}
+        ${excluded ? `<p class="commission-notice">환불·음수·원본 미완료 등 계산 제외 ${esc(String(excluded))}건은 예상 수당 합계에 포함하지 않았습니다.</p>` : ''}
+        ${rows ? `<div class="sales-table-scroll commission-table"><table><thead><tr><th>일자</th><th>상품</th><th>상태</th><th>수당률</th><th>예상 수당</th><th>지급 조건</th></tr></thead><tbody>${rows}</tbody></table></div>`
+          : '<p class="sales-state">선택한 기간에 수당 산출 대상 판매가 없습니다.</p>'}
+      </div>
+    </section>`;
+  }
+
+  function commissionRuleScopeLabel(rule) {
+    const scope = rule?.scope || {};
+    const product = [scope.productA, scope.productB, scope.productC].filter(Boolean).join(' › ');
+    return [
+      scope.ownerUid ? `영업자 ${scope.ownerUid}` : '전체 영업자',
+      commissionPlatformLabel(scope.platform),
+      product || '전체 상품'
+    ].join(' · ');
+  }
+
+  function renderCommissionRuleManager() {
+    if (!canManageCommissionRules()) return '';
+    const state = commissionRuleState;
+    const platformOptions = MONTHLY_SETTLEMENT_PLATFORMS.map(row => `<option value="${esc(row.key)}" ${commissionRuleForm.scopePlatform === row.key ? 'selected' : ''}>${esc(row.label)}</option>`).join('');
+    const rows = state.status === 'ready' ? state.rules.map(rule => `<tr data-commission-rule="${esc(rule.seriesId || '')}" data-rule-status="${esc(rule.status || '')}">
+      <td><strong>${esc(commissionRuleScopeLabel(rule))}</strong><small>${esc(rule.reason || '')}</small></td>
+      <td>${esc(Number(rule.ratePercent || 0).toLocaleString('ko-KR', { maximumFractionDigits: 2 }))}%<small>${esc(String(rule.rateBasisPoints))}bp</small></td>
+      <td>${esc(rule.effectiveFrom || '—')} ~ ${esc(rule.effectiveTo || '계속')}</td>
+      <td><span class="commission-status ${esc(String(rule.status || '').toLowerCase())}">${esc(rule.status === 'DRAFT' ? '승인 대기' : (rule.status === 'APPROVED' ? '적용 중' : '종료'))}</span></td>
+      <td>${rule.status === 'DRAFT'
+        ? `<button class="module-action" type="button" data-commission-rule-action="approve" data-series-id="${esc(rule.seriesId)}" data-rule-version="${esc(String(rule.version))}" ${commissionRuleMutationBusy ? 'disabled' : ''}>승인</button>`
+        : (rule.status === 'APPROVED'
+          ? `<button class="module-action" type="button" data-commission-rule-action="end" data-series-id="${esc(rule.seriesId)}" data-rule-version="${esc(String(rule.version))}" ${commissionRuleMutationBusy ? 'disabled' : ''}>종료</button>` : '')}</td>
+    </tr>`).join('') : '';
+    return `<section class="module-section commission-rule-manager" data-commission-rule-manager data-state="${esc(state.status)}">
+      <div class="module-section-head"><span><strong>수당 규칙 관리</strong><small>관리자·매니저가 만든 초안은 승인 전까지 계산에 쓰이지 않습니다</small></span><span class="module-chip restricted">settlements:write</span></div>
+      <div class="module-section-body">
+        <form class="commission-rule-form" data-commission-rule-form>
+          <label><span>영업자 UID <small>비우면 전체</small></span><input name="scopeOwnerUid" value="${esc(commissionRuleForm.scopeOwnerUid)}" autocomplete="off"></label>
+          <label><span>플랫폼</span><select name="scopePlatform"><option value="">전체 플랫폼</option>${platformOptions}</select></label>
+          <label><span>대분류</span><input name="scopeProductA" value="${esc(commissionRuleForm.scopeProductA)}" placeholder="예: 매출"></label>
+          <label><span>중분류</span><input name="scopeProductB" value="${esc(commissionRuleForm.scopeProductB)}" placeholder="예: 플랫폼"></label>
+          <label><span>소분류</span><input name="scopeProductC" value="${esc(commissionRuleForm.scopeProductC)}" placeholder="예: 리뷰스페이스"></label>
+          <label><span>수당률 % <small>0.01%=1bp</small></span><input name="ratePercent" type="number" min="0" max="100" step="0.01" value="${esc(commissionRuleForm.ratePercent)}" required></label>
+          <label><span>적용 시작</span><input name="effectiveFrom" type="date" value="${esc(commissionRuleForm.effectiveFrom)}" required></label>
+          <label><span>적용 종료 <small>비우면 계속</small></span><input name="effectiveTo" type="date" value="${esc(commissionRuleForm.effectiveTo)}"></label>
+          <label class="wide"><span>설정 사유</span><input name="reason" value="${esc(commissionRuleForm.reason)}" minlength="8" maxlength="500" required placeholder="근거를 8자 이상 기록해 주세요"></label>
+          <button class="module-action primary" type="submit" ${commissionRuleMutationBusy ? 'disabled' : ''}>${commissionRuleMutationBusy ? '처리 중…' : '규칙 초안 만들기'}</button>
+        </form>
+        ${state.status === 'error' ? `<p class="sales-state">${esc(state.error)}</p><button class="module-action" type="button" data-commission-rule-retry>다시 조회</button>` : ''}
+        ${state.status === 'loading' || state.status === 'idle' ? '<p class="sales-state">현재 규칙을 확인하고 있습니다.</p>' : ''}
+        ${state.status === 'ready' ? (rows
+          ? `<div class="sales-table-scroll commission-rule-table"><table><thead><tr><th>적용 범위</th><th>수당률</th><th>적용 기간</th><th>상태</th><th>관리</th></tr></thead><tbody>${rows}</tbody></table></div>`
+          : '<p class="sales-state">등록된 수당 규칙이 없습니다. 규칙 미설정 판매는 금액을 계산하지 않습니다.</p>') : ''}
+      </div>
+    </section>`;
+  }
+
+  async function submitCommissionRuleForm(form) {
+    if (!canManageCommissionRules() || commissionRuleMutationBusy) return;
+    const data = new FormData(form);
+    commissionRuleForm = {
+      scopeOwnerUid: String(data.get('scopeOwnerUid') || '').trim(),
+      scopePlatform: String(data.get('scopePlatform') || '').trim(),
+      scopeProductA: String(data.get('scopeProductA') || '').trim(),
+      scopeProductB: String(data.get('scopeProductB') || '').trim(),
+      scopeProductC: String(data.get('scopeProductC') || '').trim(),
+      ratePercent: String(data.get('ratePercent') || '').trim(),
+      effectiveFrom: String(data.get('effectiveFrom') || '').trim(),
+      effectiveTo: String(data.get('effectiveTo') || '').trim(),
+      reason: String(data.get('reason') || '').replace(/\s+/g, ' ').trim()
+    };
+    const percent = Number(commissionRuleForm.ratePercent);
+    const basisPoints = Math.round(percent * 100);
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100
+      || !Number.isSafeInteger(basisPoints) || Math.abs((percent * 100) - basisPoints) > 0.000001) {
+      showToast('수당률은 0~100% 사이에서 소수 둘째 자리까지 입력해 주세요.');
+      return;
+    }
+    if (!validDateKey(commissionRuleForm.effectiveFrom)
+      || (commissionRuleForm.effectiveTo && !validDateKey(commissionRuleForm.effectiveTo))) {
+      showToast('수당 규칙 적용 날짜를 확인해 주세요.');
+      return;
+    }
+    if (commissionRuleForm.effectiveTo
+      && commissionRuleForm.effectiveTo <= commissionRuleForm.effectiveFrom) {
+      showToast('적용 종료일은 시작일보다 뒤여야 합니다.');
+      return;
+    }
+    if (commissionRuleForm.scopeProductB && !commissionRuleForm.scopeProductA) {
+      showToast('중분류를 지정하려면 대분류도 입력해 주세요.');
+      return;
+    }
+    if (commissionRuleForm.scopeProductC
+      && (!commissionRuleForm.scopeProductA || !commissionRuleForm.scopeProductB)) {
+      showToast('소분류를 지정하려면 대분류와 중분류도 입력해 주세요.');
+      return;
+    }
+    if (commissionRuleForm.reason.length < 8) {
+      showToast('수당 규칙 설정 사유를 8자 이상 입력해 주세요.');
+      return;
+    }
+    const contextKey = commissionRuleContextKey();
+    commissionRuleMutationBusy = true;
+    renderPlannedModule('settlement');
+    try {
+      await callApi('POST', '/peakos/commission-rules', {
+        scopeOwnerUid: commissionRuleForm.scopeOwnerUid || null,
+        scopePlatform: commissionRuleForm.scopePlatform || null,
+        scopeProductA: commissionRuleForm.scopeProductA || null,
+        scopeProductB: commissionRuleForm.scopeProductB || null,
+        scopeProductC: commissionRuleForm.scopeProductC || null,
+        rateBasisPoints: basisPoints,
+        effectiveFrom: commissionRuleForm.effectiveFrom,
+        effectiveTo: commissionRuleForm.effectiveTo || null,
+        reason: commissionRuleForm.reason
+      });
+      if (contextKey !== commissionRuleContextKey() || activeView !== 'settlement') return;
+      commissionRuleForm = {
+        scopeOwnerUid: '', scopePlatform: '', scopeProductA: '', scopeProductB: '', scopeProductC: '',
+        ratePercent: '', effectiveFrom: koreaDateKey(new Date()), effectiveTo: '', reason: ''
+      };
+      showToast('수당 규칙 초안을 만들었습니다. 승인 전에는 계산에 적용되지 않습니다.');
+      commissionRuleState.status = 'idle';
+    } catch (error) {
+      if (!commissionErrorIgnored(error)) showToast(error.message || '수당 규칙 초안을 만들지 못했습니다.');
+    } finally {
+      if (contextKey === commissionRuleContextKey()) {
+        commissionRuleMutationBusy = false;
+        await loadCommissionRules({ force: true });
+      }
+    }
+  }
+
+  async function runCommissionRuleAction(button) {
+    if (!canManageCommissionRules() || commissionRuleMutationBusy) return;
+    const action = String(button.dataset.commissionRuleAction || '');
+    const seriesId = String(button.dataset.seriesId || '');
+    const version = Number(button.dataset.ruleVersion);
+    const rule = commissionRuleState.rules.find(row => String(row.seriesId || '') === seriesId);
+    if (!['approve', 'end'].includes(action) || !seriesId || !Number.isSafeInteger(version) || !rule) return;
+    const reason = window.prompt(
+      action === 'approve' ? '승인 근거를 8자 이상 입력해 주세요.' : '종료 근거를 8자 이상 입력해 주세요.',
+      action === 'approve' ? '수당 계약 조건과 적용 범위를 확인함' : '수당 계약 조건 변경으로 기존 규칙 종료'
+    );
+    if (reason === null) return;
+    const cleanReason = String(reason).replace(/\s+/g, ' ').trim();
+    if (cleanReason.length < 8) {
+      showToast('수당 규칙 변경 사유를 8자 이상 입력해 주세요.');
+      return;
+    }
+    let effectiveTo = '';
+    if (action === 'end') {
+      const today = koreaDateKey(new Date());
+      const base = validDateKey(rule.effectiveFrom) && rule.effectiveFrom > today ? rule.effectiveFrom : today;
+      const entered = window.prompt('이 날짜부터 규칙을 적용하지 않습니다. 종료일을 입력해 주세요. (YYYY-MM-DD)', shiftCommissionDate(base, 1));
+      if (entered === null) return;
+      effectiveTo = validDateKey(String(entered).trim());
+      if (!effectiveTo || effectiveTo <= String(rule.effectiveFrom || '')) {
+        showToast('종료일은 적용 시작일보다 뒤여야 합니다.');
+        return;
+      }
+    }
+    const contextKey = commissionRuleContextKey();
+    commissionRuleMutationBusy = true;
+    renderPlannedModule('settlement');
+    try {
+      await callApi('POST', `/peakos/commission-rules/${encodeURIComponent(seriesId)}/${action}`, {
+        expectedVersion: version,
+        ...(action === 'end' ? { effectiveTo } : {}),
+        reason: cleanReason
+      });
+      if (contextKey !== commissionRuleContextKey() || activeView !== 'settlement') return;
+      showToast(action === 'approve' ? '수당 규칙을 승인했습니다.' : '수당 규칙을 종료했습니다.');
+      commissionRuleState.status = 'idle';
+      commissionEstimateState.status = 'idle';
+    } catch (error) {
+      if (!commissionErrorIgnored(error)) showToast(error.message || '수당 규칙 상태를 변경하지 못했습니다.');
+    } finally {
+      if (contextKey === commissionRuleContextKey()) {
+        commissionRuleMutationBusy = false;
+        await Promise.all([
+          loadCommissionRules({ force: true }),
+          loadCommissionEstimates({ force: true })
+        ]);
+      }
+    }
+  }
+
   function renderSettlementModule() {
 
     const teamSection = canSeeTeamSettlement() ? `
@@ -10569,27 +12566,11 @@
     }
 
     intakeContext = 'settlement';
-    const settlementDetail = canSeeTeamSettlement()
-      ? '시트접수와 하위 계정 정산서를 관리합니다.'
-      : '로그인한 영업자의 개인정산 범위만 표시합니다.';
     moduleView.innerHTML = `
       <div class="personal-settlement-experience">
-        <header class="module-statusbar personal-settlement-hero">
-          <span class="personal-settlement-hero-main">
-            <span class="personal-settlement-mark" aria-hidden="true"><i>₩</i></span>
-            <span class="personal-settlement-hero-copy">
-              <small>PEAK FINANCE · PERSONAL WORKSPACE</small>
-              <strong>개인 정산서</strong>
-              <span>${esc(settlementDetail)}</span>
-            </span>
-          </span>
-          <span class="personal-settlement-hero-state">
-            <span><i aria-hidden="true"></i><small>DATA SOURCE</small><strong>운영 서버 기준</strong></span>
-            <span><small>ACCESS</small><strong>${esc(currentOrgRank())}</strong></span>
-            <span class="module-plan-badge">서버 저장 · 기간 조회</span>
-          </span>
-        </header>
         ${renderIntakeLedger()}
+        ${renderCommissionEstimateSection()}
+        ${renderCommissionRuleManager()}
         ${renderIntakeForm()}
         ${teamSection}
         <div class="module-security personal-settlement-security"><span>▣</span><span><strong>현재 적용 권한: ${esc(currentOrgRank())}</strong><br>${canSeeCompanyCost()
@@ -10600,6 +12581,7 @@
         ? ' 하위 계정 정산서도 열 수 있습니다.'
         : ''}</span></div>
       </div>`;
+    ensureCommissionSettlementData();
   }
 
   // 김지홍 월보장, 박우진 월관리, 김대호 직접실행은 표준 정산서로 안 담긴다.
@@ -10635,6 +12617,87 @@
   let monthlyForm = { editId: '', view: '', parentId: '', date: '', client: '', a: '', b: '', c: '', qty: '', amount: '', period: '', memo: '' };
   let finalExecutionState = { status: 'idle', rows: [], error: '' };
   let finalExecutionFilter = { from: '', to: '', view: '' };
+  const SETTLEMENT_COMPLETION_CONCURRENCY = 4;
+  const SETTLEMENT_COMPLETION_RULES = Object.freeze({
+    DIRECT_EXECUTION_8TH: Object.freeze({ label: '직접실행 8회차 완료', kind: 'issue' }),
+    MONTHLY_GUARANTEE_25D: Object.freeze({ label: '월보장 25일 노출 완료', kind: 'exposure' }),
+    PER_ITEM_24H: Object.freeze({ label: '건바이 24시간 노출 완료', kind: 'exposure' }),
+    MONTHLY_MANAGEMENT_30D: Object.freeze({ label: '월관리 30일 완료', kind: 'service' })
+  });
+  let finalExecutionLoadGeneration = 0;
+  let settlementCompletionLoadGeneration = 0;
+  let settlementCompletionStates = new Map();
+  let settlementCompletionModalGeneration = 0;
+  let settlementCompletionModalSourceId = '';
+
+  function settlementCompletionContextKey() {
+    return [
+      String(currentUser?.uid || ''),
+      activeWorkspaceSlug || 'legacy-peak',
+      String(workspaceAccessGeneration),
+      String(previewPersona || '')
+    ].join('|');
+  }
+
+  function resetSettlementCompletionState() {
+    finalExecutionLoadGeneration += 1;
+    settlementCompletionLoadGeneration += 1;
+    settlementCompletionStates = new Map();
+    settlementCompletionModalGeneration += 1;
+    settlementCompletionModalSourceId = '';
+  }
+
+  function settlementCompletionRole() {
+    return String(isWorkspaceRoute()
+      ? workspaceContext?.membership?.role
+      : userDoc?.role || '').trim();
+  }
+
+  function canManageSettlementCompletion() {
+    return !previewPersona && !workspaceIsOversight()
+      && (!isWorkspaceRoute() || workspaceCanWrite('settlements'))
+      && ['admin', 'manager'].includes(settlementCompletionRole());
+  }
+
+  function canReopenSettlementCompletion() {
+    return canManageSettlementCompletion() && settlementCompletionRole() === 'admin';
+  }
+
+  async function loadSettlementCompletionStates(rows) {
+    const sales = [...new Map((Array.isArray(rows) ? rows : [])
+      .filter(row => row?.kind === 'sale' && row.id)
+      .map(row => [String(row.id), row])).values()];
+    const generation = ++settlementCompletionLoadGeneration;
+    const contextKey = settlementCompletionContextKey();
+    settlementCompletionStates = new Map(sales.map(row => [String(row.id), { status: 'loading' }]));
+    if (!sales.length || previewPersona || !canSeeFinalExecutionSettlement()) return;
+
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < sales.length) {
+        const row = sales[cursor++];
+        const id = String(row.id);
+        let state;
+        try {
+          const data = await readOnlyApi(`/peakos/settlement-completion/${encodeURIComponent(id)}`);
+          state = { status: 'ready', data };
+        } catch (error) {
+          if (['AUTH_CONTEXT_CHANGED', 'WORKSPACE_CONTEXT_CHANGED'].includes(String(error?.code || ''))) return;
+          state = { status: 'error', error: error.message || '완료 상태를 불러오지 못했습니다.', code: error.code || '' };
+        }
+        if (generation !== settlementCompletionLoadGeneration
+          || contextKey !== settlementCompletionContextKey()) return;
+        settlementCompletionStates.set(id, state);
+      }
+    };
+    await Promise.all(Array.from(
+      { length: Math.min(SETTLEMENT_COMPLETION_CONCURRENCY, sales.length) },
+      () => worker()
+    ));
+    if (generation === settlementCompletionLoadGeneration
+      && contextKey === settlementCompletionContextKey()
+      && activeView === 'final-execution-settlement') renderPlannedModule(activeView);
+  }
 
   async function loadMonthlyDraft() {
     monthlyDraft = {};
@@ -10654,18 +12717,27 @@
 
   async function loadFinalExecutionSettlement() {
     if (!canSeeFinalExecutionSettlement()) {
+      resetSettlementCompletionState();
       finalExecutionState = { status: 'idle', rows: [], error: '' };
       return;
     }
+    const generation = ++finalExecutionLoadGeneration;
+    const contextKey = settlementCompletionContextKey();
     finalExecutionState = { status: 'loading', rows: [], error: '' };
     try {
       const payload = await readOnlyApi('/peakos/final-execution');
+      if (generation !== finalExecutionLoadGeneration
+        || contextKey !== settlementCompletionContextKey()) return;
+      const rows = Array.isArray(payload?.rows) ? payload.rows : [];
       finalExecutionState = {
         status: 'ready',
-        rows: Array.isArray(payload?.rows) ? payload.rows : [],
+        rows,
         error: ''
       };
+      await loadSettlementCompletionStates(rows);
     } catch (error) {
+      if (generation !== finalExecutionLoadGeneration
+        || contextKey !== settlementCompletionContextKey()) return;
       finalExecutionState = { status: 'error', rows: [], error: error.message || '자료를 불러오지 못했습니다.' };
     }
   }
@@ -10739,7 +12811,11 @@
     } catch (error) {
       console.error('정산 저장 실패:', error.message);
       const restored = await reloadMonthlyAfterWriteFailure(view);
-      showToast(error.status === 409
+      showToast(error.code === 'SETTLEMENT_COMPLETION_SOURCE_LOCKED'
+        ? '정산 완료 또는 동결된 원본입니다. 관리자가 정산을 재개한 뒤 수정해 주세요.'
+        : error.code === 'SETTLEMENT_COMPLETION_SOURCE_ATTACHED'
+          ? '완료 근거가 연결된 원본의 정산 규칙은 바꿀 수 없습니다.'
+          : error.status === 409
         ? '다른 작업자가 먼저 수정했습니다. 최신 월별 정산 자료를 다시 불러왔습니다.'
         : error.status === 404
           ? '이미 삭제된 월별 정산 행입니다. 다시 만들지 않고 서버 목록을 새로 불러왔습니다.'
@@ -10767,7 +12843,11 @@
     } catch (error) {
       console.error('정산 삭제 실패:', error.message);
       const restored = await reloadMonthlyAfterWriteFailure(view);
-      showToast(error.status === 409
+      showToast(error.code === 'SETTLEMENT_COMPLETION_SOURCE_LOCKED'
+        ? '정산 완료 또는 동결된 원본입니다. 관리자가 정산을 재개한 뒤 삭제해 주세요.'
+        : error.code === 'SETTLEMENT_COMPLETION_SOURCE_ATTACHED'
+          ? '완료 근거와 감사 이력이 연결된 원본은 삭제할 수 없습니다.'
+          : error.status === 409
         ? (/실행|child|parent/i.test(String(error.message || ''))
           ? '붙어 있는 실행 건을 먼저 삭제한 뒤 매출 건을 삭제해 주세요.'
           : '다른 작업자가 먼저 수정한 행이라 삭제하지 않았습니다. 최신 자료를 불러왔습니다.')
@@ -11049,6 +13129,240 @@
     return total;
   }
 
+  function settlementCompletionKstParts(value) {
+    const date = value ? new Date(value) : null;
+    if (!date || !Number.isFinite(date.getTime())) return null;
+    return Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+    }).formatToParts(date).map(part => [part.type, part.value]));
+  }
+
+  function settlementCompletionKstInput(value) {
+    const part = settlementCompletionKstParts(value);
+    return part ? `${part.year}-${part.month}-${part.day}T${part.hour}:${part.minute}` : '';
+  }
+
+  function settlementCompletionKstLabel(value) {
+    const part = settlementCompletionKstParts(value);
+    return part ? `${part.year}.${part.month}.${part.day} ${part.hour}:${part.minute} KST` : '미입력';
+  }
+
+  function settlementCompletionInputIso(value) {
+    const text = String(value || '').trim();
+    if (!text) return null;
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(text)) return null;
+    const date = new Date(`${text}:00+09:00`);
+    return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+  }
+
+  function settlementCompletionEvidenceSummary(data) {
+    const evidence = data?.evidence || {};
+    if (data?.ruleCode === 'DIRECT_EXECUTION_8TH') {
+      const count = evidence.completedIssueCount === null || evidence.completedIssueCount === undefined
+        ? '완료 회차 미입력' : `${Number(evidence.completedIssueCount).toLocaleString('ko-KR')}회 완료`;
+      return `${count} · 8회차 완료 ${settlementCompletionKstLabel(evidence.eighthIssueCompletedAt)}`;
+    }
+    if (['MONTHLY_GUARANTEE_25D', 'PER_ITEM_24H'].includes(data?.ruleCode)) {
+      return `노출 ${settlementCompletionKstLabel(evidence.exposureStartedAt)} → ${settlementCompletionKstLabel(evidence.exposureCompletedAt)}`;
+    }
+    if (data?.ruleCode === 'MONTHLY_MANAGEMENT_30D') {
+      return `서비스 ${settlementCompletionKstLabel(evidence.serviceStartedAt)} → ${settlementCompletionKstLabel(evidence.serviceCompletedAt)}`;
+    }
+    return '완료 규칙을 확인할 수 없습니다.';
+  }
+
+  function settlementCompletionStatusMeta(state) {
+    if (!state || state.status === 'loading') return { label: '확인 중', tone: 'restricted', icon: '…' };
+    if (state.status === 'error') return { label: '조회 실패', tone: 'danger', icon: '!' };
+    const data = state.data || {};
+    if (data.status === 'FROZEN') return { label: '최종 동결', tone: 'restricted', icon: '■' };
+    if (data.status === 'COMPLETED') return { label: '정산 완료', tone: 'live', icon: '✓' };
+    if (data.eligibility?.eligible === true) return { label: '완료 가능', tone: 'warning', icon: '○' };
+    return { label: '근거 대기', tone: 'warning', icon: '○' };
+  }
+
+  function settlementCompletionReasonSummary(data) {
+    if (data?.status === 'FROZEN') {
+      return `${data.lifecycle?.frozenByName || '관리자'} · ${data.lifecycle?.freezeReason || '동결 사유 기록됨'}`;
+    }
+    if (data?.status === 'COMPLETED') {
+      return `${data.lifecycle?.completedByName || '관리자'} · ${data.lifecycle?.completionReason || '완료 사유 기록됨'}`;
+    }
+    const reasons = Array.isArray(data?.eligibility?.reasons) ? data.eligibility.reasons : [];
+    return reasons.map(item => item?.message).filter(Boolean).join(' · ')
+      || (data?.eligibility?.eligible ? '완료 조건을 충족했습니다. 관리자가 명시적으로 완료해야 합니다.' : '완료 근거를 입력해 주세요.');
+  }
+
+  function renderSettlementCompletionPanel(sale) {
+    const id = String(sale?.id || '');
+    const state = settlementCompletionStates.get(id) || { status: 'loading' };
+    const meta = settlementCompletionStatusMeta(state);
+    const chip = meta.tone === 'danger'
+      ? `<span class="bank-status danger">${esc(meta.label)}</span>`
+      : `<span class="module-chip ${esc(meta.tone)}">${esc(meta.label)}</span>`;
+    const data = state.data;
+    const ruleLabel = data?.eligibility?.ruleLabel
+      || SETTLEMENT_COMPLETION_RULES[data?.ruleCode]?.label
+      || '정산 완료 조건';
+    const detail = state.status === 'error'
+      ? state.error
+      : state.status === 'ready'
+        ? `${settlementCompletionEvidenceSummary(data)} · ${settlementCompletionReasonSummary(data)}`
+        : '서버에서 완료 근거와 잠금 상태를 확인하고 있습니다.';
+    const button = state.status === 'ready'
+      ? `<button class="module-action" type="button" data-settlement-completion-open="${esc(id)}">${canManageSettlementCompletion() ? '근거 · 완료 관리' : '완료 상태 보기'}</button>`
+      : state.status === 'error'
+        ? `<button class="module-action" type="button" data-settlement-completion-retry="${esc(id)}">다시 확인</button>`
+        : '';
+    return `<div class="module-security" data-settlement-completion-source="${esc(id)}" data-settlement-completion-status="${esc(data?.status || state.status.toUpperCase())}">
+      <span aria-hidden="true">${esc(meta.icon)}</span><span><strong>${chip} ${esc(ruleLabel)}</strong><br>${esc(detail)}</span>${button}
+    </div>`;
+  }
+
+  function settlementCompletionSource(sourceId) {
+    return finalExecutionState.rows.find(row => row.kind === 'sale' && String(row.id) === String(sourceId)) || null;
+  }
+
+  async function refreshSettlementCompletionSource(sourceId) {
+    const id = String(sourceId || '');
+    const generation = settlementCompletionLoadGeneration;
+    const contextKey = settlementCompletionContextKey();
+    try {
+      const data = await readOnlyApi(`/peakos/settlement-completion/${encodeURIComponent(id)}`);
+      if (generation !== settlementCompletionLoadGeneration
+        || contextKey !== settlementCompletionContextKey()) return null;
+      settlementCompletionStates.set(id, { status: 'ready', data });
+      return data;
+    } catch (error) {
+      if (generation === settlementCompletionLoadGeneration
+        && contextKey === settlementCompletionContextKey()) {
+        settlementCompletionStates.set(id, {
+          status: 'error', error: error.message || '완료 상태를 불러오지 못했습니다.', code: error.code || ''
+        });
+      }
+      return null;
+    }
+  }
+
+  function settlementCompletionEvidenceFields(data) {
+    const evidence = data?.evidence || {};
+    if (data?.ruleCode === 'DIRECT_EXECUTION_8TH') {
+      return `<label><span>완료 회차</span><input name="completedIssueCount" type="number" min="0" max="1000000" step="1" inputmode="numeric" value="${esc(evidence.completedIssueCount ?? '')}" placeholder="예: 8"></label>
+        <label><span>8회차 완료 시각 (KST)</span><input name="eighthIssueCompletedAt" type="datetime-local" value="${esc(settlementCompletionKstInput(evidence.eighthIssueCompletedAt))}"></label>`;
+    }
+    const service = data?.ruleCode === 'MONTHLY_MANAGEMENT_30D';
+    const startKey = service ? 'serviceStartedAt' : 'exposureStartedAt';
+    const endKey = service ? 'serviceCompletedAt' : 'exposureCompletedAt';
+    const label = service ? '서비스' : '노출';
+    return `<label><span>${label} 시작 (KST)</span><input name="${startKey}" type="datetime-local" value="${esc(settlementCompletionKstInput(evidence[startKey]))}"></label>
+      <label><span>${label} 완료 (KST)</span><input name="${endKey}" type="datetime-local" value="${esc(settlementCompletionKstInput(evidence[endKey]))}"></label>`;
+  }
+
+  function settlementCompletionEvidenceFromForm(form, ruleCode) {
+    const data = new FormData(form);
+    if (ruleCode === 'DIRECT_EXECUTION_8TH') {
+      const count = String(data.get('completedIssueCount') || '').trim();
+      return {
+        completedIssueCount: count === '' ? null : Number(count),
+        eighthIssueCompletedAt: settlementCompletionInputIso(data.get('eighthIssueCompletedAt'))
+      };
+    }
+    if (ruleCode === 'MONTHLY_MANAGEMENT_30D') {
+      return {
+        serviceStartedAt: settlementCompletionInputIso(data.get('serviceStartedAt')),
+        serviceCompletedAt: settlementCompletionInputIso(data.get('serviceCompletedAt'))
+      };
+    }
+    return {
+      exposureStartedAt: settlementCompletionInputIso(data.get('exposureStartedAt')),
+      exposureCompletedAt: settlementCompletionInputIso(data.get('exposureCompletedAt'))
+    };
+  }
+
+  async function runSettlementCompletionMutation(sourceId, operation, form, button, modalGeneration) {
+    if (!canManageSettlementCompletion() || previewPersona) return;
+    const id = String(sourceId || '');
+    const state = settlementCompletionStates.get(id);
+    const current = state?.status === 'ready' ? state.data : null;
+    if (!current || settlementCompletionModalSourceId !== id
+      || modalGeneration !== settlementCompletionModalGeneration) return;
+    const reason = String(new FormData(form).get('reason') || '').replace(/\s+/g, ' ').trim();
+    if (reason.length < 8) return showToast('변경 사유를 8자 이상 입력해 주세요.');
+    if (button) button.disabled = true;
+    const contextKey = settlementCompletionContextKey();
+    try {
+      const payload = operation === 'evidence'
+        ? await callApi('PUT', `/peakos/settlement-completion/${encodeURIComponent(id)}/evidence`, {
+          expectedVersion: Number(current.rowVersion), reason,
+          evidence: settlementCompletionEvidenceFromForm(form, current.ruleCode)
+        })
+        : await callApi('POST', `/peakos/settlement-completion/${encodeURIComponent(id)}/${operation}`, {
+          expectedVersion: Number(current.rowVersion), reason
+        });
+      if (contextKey !== settlementCompletionContextKey()
+        || settlementCompletionModalSourceId !== id
+        || modalGeneration !== settlementCompletionModalGeneration) return;
+      settlementCompletionStates.set(id, { status: 'ready', data: payload });
+      if (activeView === 'final-execution-settlement') renderPlannedModule(activeView);
+      showToast({ evidence: '완료 근거를 저장했습니다.', complete: '정산 완료로 처리했습니다.', freeze: '정산을 최종 동결했습니다.', reopen: '정산을 다시 열었습니다.' }[operation]);
+      openSettlementCompletionModal(id);
+    } catch (error) {
+      if (Number(error?.status) === 409) {
+        await refreshSettlementCompletionSource(id);
+        if (activeView === 'final-execution-settlement') renderPlannedModule(activeView);
+        showToast(`상태가 먼저 변경되었습니다. 최신 완료 상태를 다시 불러왔습니다. ${error.message}`);
+        if (settlementCompletionModalSourceId === id
+          && modalGeneration === settlementCompletionModalGeneration) openSettlementCompletionModal(id);
+        return;
+      }
+      showToast(error.message || '정산 완료 상태를 저장하지 못했습니다.');
+    } finally {
+      if (button?.isConnected) button.disabled = false;
+    }
+  }
+
+  function openSettlementCompletionModal(sourceId) {
+    const id = String(sourceId || '');
+    const source = settlementCompletionSource(id);
+    const state = settlementCompletionStates.get(id);
+    if (!source || state?.status !== 'ready') return showToast('완료 상태를 다시 확인해 주세요.');
+    const data = state.data;
+    const writable = canManageSettlementCompletion();
+    const reopenable = canReopenSettlementCompletion();
+    const ruleLabel = data.eligibility?.ruleLabel || SETTLEMENT_COMPLETION_RULES[data.ruleCode]?.label || '정산 완료 조건';
+    const open = data.status === 'OPEN';
+    const actions = writable
+      ? `${open ? `<button class="primary" type="submit" data-settlement-completion-save>근거 저장</button><button type="button" data-settlement-completion-action="complete" ${data.tracked && data.eligibility?.eligible ? '' : 'disabled'}>정산 완료</button>` : ''}
+        ${data.status === 'COMPLETED' ? '<button type="button" data-settlement-completion-action="freeze">최종 동결</button>' : ''}
+        ${reopenable && ['COMPLETED', 'FROZEN'].includes(data.status) ? '<button class="danger" type="button" data-settlement-completion-action="reopen">정산 재개</button>' : ''}`
+      : '';
+    const reasonField = writable && (open || data.status === 'COMPLETED' || (reopenable && data.status === 'FROZEN'))
+      ? '<label class="wide"><span>변경 사유 (8자 이상)</span><textarea name="reason" rows="3" minlength="8" maxlength="500" required autocomplete="off" placeholder="근거 확인 내용과 상태 변경 사유를 남겨 주세요."></textarea></label>'
+      : '';
+    openDetailModal(`${source.client || '업체 미입력'} · 정산 완료`, `<form class="collaboration-form" data-settlement-completion-modal="${esc(id)}" autocomplete="off">
+      <div class="module-security"><span aria-hidden="true">i</span><span><strong>${esc(ruleLabel)} · ${esc(settlementCompletionStatusMeta(state).label)}</strong><br>${esc(settlementCompletionReasonSummary(data))}</span></div>
+      <div class="collaboration-form-grid">
+        ${writable && open ? settlementCompletionEvidenceFields(data) : `<div class="module-security"><span aria-hidden="true">▣</span><span><strong>기록된 완료 근거</strong><br>${esc(settlementCompletionEvidenceSummary(data))}</span></div>`}
+        ${reasonField}
+      </div>
+      <div class="collaboration-form-actions"><span>현재 버전 v${esc(String(data.rowVersion))} · 자동 완료 없음</span><button type="button" data-settlement-completion-cancel>닫기</button>${actions}</div>
+    </form>`, { locked: writable });
+    settlementCompletionModalSourceId = id;
+    const modalGeneration = ++settlementCompletionModalGeneration;
+    const form = document.querySelector('[data-settlement-completion-modal]');
+    form?.querySelector('[data-settlement-completion-cancel]')?.addEventListener('click', () => closeDetailModal());
+    form?.addEventListener('submit', event => {
+      event.preventDefault();
+      const submitter = event.submitter || form.querySelector('[data-settlement-completion-save]');
+      runSettlementCompletionMutation(id, 'evidence', form, submitter, modalGeneration);
+    });
+    form?.querySelectorAll('[data-settlement-completion-action]').forEach(button => button.addEventListener('click', () => {
+      runSettlementCompletionMutation(id, button.dataset.settlementCompletionAction, form, button, modalGeneration);
+    }));
+    window.requestAnimationFrame(() => form?.querySelector('input, textarea')?.focus());
+  }
+
   function renderFinalExecutionSettlementModule() {
     if (!canSeeFinalExecutionSettlement()) {
       moduleView.innerHTML = `
@@ -11100,6 +13414,7 @@
               <span class="monthly-title"><strong>${esc(group.sale.client || '업체 미입력')}</strong><small>${esc(group.sale.date)} · ${esc(group.sale.a)} › ${esc(group.sale.b)} › ${esc(group.sale.c)}${group.sale.period ? ` · ${esc(group.sale.period)}` : ''}</small></span>
               <span class="monthly-sums"><span>판매 <strong>${esc(group.sales.toLocaleString('ko-KR'))}</strong></span><span>실행 <strong>${esc(group.cost.toLocaleString('ko-KR'))}</strong></span><span>영업이익 <strong class="profit">${esc(group.profit.toLocaleString('ko-KR'))}</strong></span></span>
             </div>
+            ${renderSettlementCompletionPanel(group.sale)}
             ${group.runs.length ? `<div class="sales-table-scroll"><table class="sales-table monthly-table">
               <thead><tr><th scope="col">실행일</th><th scope="col">실행 상품</th><th scope="col">실행가</th><th scope="col">수량</th><th scope="col">실행 공급가액</th><th scope="col">구동 기간</th><th scope="col">특이사항</th></tr></thead>
               <tbody>${group.runs.map(run => `<tr><td>${esc(run.date)}</td><th scope="row">${esc(run.b)} › ${esc(run.c)}</th><td>${esc(Number(run.amount || 0).toLocaleString('ko-KR'))}</td><td>${esc(Number(run.qty || 0).toLocaleString('ko-KR'))}</td><td class="monthly-minus">-${esc(((Number(run.amount) || 0) * (Number(run.qty) || 0)).toLocaleString('ko-KR'))}</td><td>${run.period ? esc(run.period) : '<span class="ledger-memo-empty">—</span>'}</td><td class="ledger-memo">${run.memo ? esc(run.memo) : '<span class="ledger-memo-empty">—</span>'}</td></tr>`).join('')}</tbody>
@@ -11114,7 +13429,7 @@
     }).join('');
 
     moduleView.innerHTML = `
-      ${moduleStatusbar('최종실행정산서', '월보장·월관리·직접실행 정산서를 원본 그대로 실시간 취합합니다.', '읽기 전용')}
+      ${moduleStatusbar('최종실행정산서', '원본 손익과 서버 검증 완료 조건을 함께 확인합니다.', canManageSettlementCompletion() ? '완료 관리' : '읽기 전용')}
       <section class="module-section">
         <div class="module-section-head"><span><strong>취합 조건</strong><small>매출 일자와 정산서 종류로 조회합니다</small></span><span class="module-chip restricted">지정 4계정 전용</span></div>
         <div class="module-section-body">
@@ -11133,7 +13448,7 @@
       </section>
       ${orphans.length ? `<div class="module-security"><span>i</span><span><strong>이관 이전 매출 연결 실행건 ${esc(String(orphans.length))}건</strong><br>조회 범위 이전의 원본 매출은 가져오지 않고 실행비만 별도 표시하며, 실행비 합계와 최종 영업이익에는 포함했습니다.</span></div>` : ''}
       ${sourceMarkup}
-      <div class="module-security"><span>▣</span><span><strong>${esc(FINAL_EXECUTION_SETTLEMENT_VIEWERS.join(' · '))}만 볼 수 있습니다</strong><br>이 화면은 읽기 전용이며 원본 수정은 각 담당자의 월보장·월관리·직접실행 정산서에서만 가능합니다.</span></div>`;
+      <div class="module-security"><span>▣</span><span><strong>${esc(FINAL_EXECUTION_SETTLEMENT_VIEWERS.join(' · '))}만 볼 수 있습니다</strong><br>원본 수정은 각 담당자 정산서에서만 하며, 완료 근거 저장·완료·동결은 direct manager/admin만 가능합니다. 근거만으로 자동 완료되지 않습니다.</span></div>`;
   }
 
   // 입금체크 — 개인정산서에 흩어진 입금 상태를 한 화면에 모은다.
@@ -11346,7 +13661,9 @@
   }
 
   async function loadCreditDraft() {
-    if (!canSeeFinanceOperations()) {
+    const canLoadCredit = canUseCreditRequests()
+      || (!previewPersona && canSeeFinanceOperations());
+    if (!canLoadCredit) {
       creditDraft = [];
       creditRequests = [];
       creditRequestScope = 'mine';
@@ -11413,6 +13730,13 @@
   }
 
   function renderCreditModule() {
+    if (!canUseCreditRequests() && (previewPersona || !canSeeFinanceOperations())) {
+      moduleView.innerHTML = `<section class="sales-db-denied" data-credit-request-denied>
+        <span aria-hidden="true">▣</span><h1>충전 요청을 열 수 없습니다</h1>
+        <p>Peak 직속 영업 구성원의 실제 계정과 정산 쓰기 권한이 필요합니다. 계정 미리보기와 본사 열람 모드에서는 요청할 수 없습니다.</p>
+      </section>`;
+      return;
+    }
     const allClients = creditByClient();
     const currentPoint = allClients.reduce((sum, item) => sum + item.point, 0);
     const ledgerRows = creditDraft.filter(row => inFinancePeriod(row.date));
@@ -11431,7 +13755,7 @@
       && (creditRequestScope === 'all' || String(row.requesterUid || '') === String(currentUser?.uid || ''));
 
     const requestMarkup = `
-      <section class="module-section">
+      <section class="module-section" data-credit-request-form>
         <div class="module-section-head">
           <span><strong>충전금 요청</strong><small>입금할 통장과 입금자명·금액을 먼저 등록합니다</small></span>
           <span class="module-chip live">${creditRequestScope === 'all' ? '전체 요청 검토' : '내 요청'}</span>
@@ -11740,6 +14064,398 @@
     return safe ? `<a class="finance-evidence-link" href="${esc(safe)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>` : '';
   }
 
+  function financeRequestById(id) {
+    const requestId = String(id || '');
+    return financeRequestState.requests.find(row => String(financeValue(row, 'id')) === requestId) || null;
+  }
+
+  function financeRequestVersion(row) {
+    const version = Number(financeValue(row, 'version'));
+    return Number.isSafeInteger(version) && version >= 1 ? version : 0;
+  }
+
+  function taxInvoiceEvidenceActionLabel(action) {
+    return ({
+      ISSUE: '발급 증빙',
+      CORRECTION: '정정 증빙',
+      REPLACEMENT: '교체 증빙'
+    })[String(action || '').toUpperCase()] || '증빙';
+  }
+
+  function taxInvoiceLocalDateTimeValue(date = new Date()) {
+    const value = date instanceof Date ? date : new Date(date);
+    if (!Number.isFinite(value.getTime())) return '';
+    return new Date(value.getTime() - (value.getTimezoneOffset() * 60 * 1000)).toISOString().slice(0, 16);
+  }
+
+  async function downloadTaxInvoiceEvidence(requestId, evidence) {
+    const evidenceId = String(evidence?.id || '').trim();
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidPattern.test(evidenceId) || !uuidPattern.test(String(requestId || ''))) {
+      throw new Error('증빙 식별자를 확인할 수 없습니다.');
+    }
+    const blob = await callApi(
+      'GET',
+      `/peakos/finance-requests/${encodeURIComponent(requestId)}/invoice-evidence/${encodeURIComponent(evidenceId)}/content`,
+      undefined,
+      { responseType: 'blob' }
+    );
+    if (!(blob instanceof Blob) || blob.size < 1) throw new Error('증빙 원본을 다운로드하지 못했습니다.');
+    const fallbackExtension = evidence?.mimeType === 'application/pdf'
+      ? 'pdf'
+      : (evidence?.mimeType === 'image/png' ? 'png' : 'jpg');
+    const filename = String(evidence?.originalFilename || `tax-invoice-evidence-${evidenceId}.${fallbackExtension}`)
+      .normalize('NFKC')
+      .replace(/[^\p{L}\p{N}._ -]/gu, '_')
+      .slice(0, 140) || `tax-invoice-evidence.${fallbackExtension}`;
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    anchor.rel = 'noopener';
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  }
+
+  async function openTaxInvoiceEvidenceHistory(request) {
+    const requestId = String(financeValue(request, 'id') || '');
+    if (!requestId || !canUseFinanceRequests()) return;
+    openDetailModal('세금계산서 발급 증빙 이력', `
+      <section class="refund-deposit-gate" data-tax-invoice-evidence-modal data-tax-invoice-evidence-history="${esc(requestId)}">
+        <div class="refund-deposit-state" role="status" aria-live="polite">
+          <strong>보호된 증빙 이력을 불러오고 있습니다</strong>
+          <p>요청자에게는 발급번호·공급자번호·문서식별자를 마스킹해 표시합니다.</p>
+        </div>
+      </section>`);
+    try {
+      const payload = await readOnlyApi(`/peakos/finance-requests/${encodeURIComponent(requestId)}/invoice-evidence`);
+      const bodySlot = document.getElementById('readonlyModalBody');
+      const modal = document.getElementById('readonlyDetailModal');
+      const marker = bodySlot?.querySelector('[data-tax-invoice-evidence-history]');
+      if (modal?.hidden || !marker || marker.dataset.taxInvoiceEvidenceHistory !== requestId) return;
+      if (String(payload?.request?.id || '') !== requestId) throw new Error('증빙 이력의 요청 식별자가 일치하지 않습니다.');
+      const rows = Array.isArray(payload?.evidence) ? payload.evidence : [];
+      const masked = payload?.masked === true;
+      bodySlot.innerHTML = `<section class="refund-deposit-gate" data-tax-invoice-evidence-modal data-tax-invoice-evidence-history="${esc(requestId)}">
+        <div class="module-security"><span>🔒</span><span><strong>이 화면은 외부 전자세금계산서 발행 기능이 아닙니다.</strong><br>외부에서 발급된 원본과 식별 메타데이터를 검증해 등록한 이력만 표시합니다.</span></div>
+        ${masked ? '<p class="sales-basis">요청자 열람: 민감 식별정보는 마스킹되며 원본 파일은 지정된 재무 검토자만 열람합니다.</p>' : ''}
+        ${rows.length ? `<div class="finance-request-list">
+          ${rows.map(row => `<article class="finance-request-card" data-tax-invoice-evidence-row="${esc(String(row?.id || ''))}">
+            <div class="finance-request-head"><span><strong>${esc(taxInvoiceEvidenceActionLabel(row?.action))} · ${esc(String(row?.invoiceStatus || ''))}</strong><small>리비전 ${esc(String(row?.revision || '-'))} · ${esc(formatDate(row?.createdAt, { dateStyle: 'medium', timeStyle: 'short' }))}</small></span><span class="bank-status done">등록 완료</span></div>
+            <dl class="finance-request-meta">
+              <div><dt>발급번호</dt><dd>${esc(String(row?.invoiceNumber || '-'))}</dd></div>
+              <div><dt>발급일시</dt><dd>${esc(formatDate(row?.issuedAt, { dateStyle: 'medium', timeStyle: 'short' }))}</dd></div>
+              <div><dt>공급자번호</dt><dd>${esc(String(row?.supplierRegistrationNumber || '-'))}</dd></div>
+              <div><dt>문서 식별자</dt><dd>${esc(String(row?.documentIdentifier || '-'))}</dd></div>
+              ${row?.correctionReason ? `<div><dt>정정 사유</dt><dd>${esc(String(row.correctionReason))}</dd></div>` : ''}
+              <div><dt>파일</dt><dd>${esc(String(row?.mimeType || '-'))} · ${esc(Math.max(0, Number(row?.sizeBytes || 0)).toLocaleString('ko-KR'))} bytes</dd></div>
+              <div><dt>등록자</dt><dd>${esc(String(row?.registeredByName || '-'))}</dd></div>
+            </dl>
+            ${row?.protectedOriginalAvailable ? `<div class="finance-request-actions"><button class="module-action" type="button" data-tax-invoice-evidence-download="${esc(String(row?.id || ''))}">보호 원본 다운로드</button></div>` : ''}
+          </article>`).join('')}
+        </div>` : '<p class="sales-state">등록된 발급 증빙 이력이 없습니다.</p>'}
+        <div class="collaboration-form-actions"><span></span><button type="button" data-tax-invoice-evidence-close>닫기</button></div>
+      </section>`;
+      bodySlot.querySelector('[data-tax-invoice-evidence-close]')?.addEventListener('click', () => closeDetailModal());
+      bodySlot.querySelectorAll('[data-tax-invoice-evidence-download]').forEach(button => button.addEventListener('click', async () => {
+        const evidence = rows.find(row => String(row?.id || '') === String(button.dataset.taxInvoiceEvidenceDownload || ''));
+        if (!evidence) return;
+        button.disabled = true;
+        try {
+          await downloadTaxInvoiceEvidence(requestId, evidence);
+          showToast('보호된 세금계산서 원본을 다운로드했습니다.');
+        } catch (error) {
+          showToast(`원본을 다운로드하지 못했습니다. ${error.message}`);
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+      }));
+    } catch (error) {
+      const bodySlot = document.getElementById('readonlyModalBody');
+      const marker = bodySlot?.querySelector('[data-tax-invoice-evidence-history]');
+      if (!marker || marker.dataset.taxInvoiceEvidenceHistory !== requestId) return;
+      bodySlot.innerHTML = `<section class="refund-deposit-gate" data-tax-invoice-evidence-modal data-tax-invoice-evidence-history="${esc(requestId)}"><div class="refund-deposit-state danger" role="alert"><strong>증빙 이력을 불러오지 못했습니다</strong><p>${esc(error.message)}</p></div><div class="collaboration-form-actions"><span></span><button type="button" data-tax-invoice-evidence-close>닫기</button></div></section>`;
+      bodySlot.querySelector('[data-tax-invoice-evidence-close]')?.addEventListener('click', () => closeDetailModal());
+    }
+  }
+
+  function openTaxInvoiceEvidenceRegistration(request, targetStatus) {
+    if (!canReviewFinanceRequests() || previewPersona) {
+      showToast('발급 증빙은 지정된 재무 검토자만 등록할 수 있습니다.');
+      return;
+    }
+    const requestId = String(financeValue(request, 'id') || '');
+    const expectedVersion = financeRequestVersion(request);
+    const invoiceStatus = String(targetStatus || '').toUpperCase();
+    if (!requestId || !expectedVersion || !['ISSUED', 'CORRECTED'].includes(invoiceStatus)) {
+      showToast('최신 계산서 요청 상태를 확인해 주세요.');
+      return;
+    }
+    const replacing = Boolean(financeValue(request, 'currentInvoiceEvidenceId', 'current_invoice_evidence_id'))
+      && String(financeValue(request, 'invoiceStatus', 'invoice_status')).toUpperCase() === invoiceStatus;
+    const title = replacing
+      ? '세금계산서 보호 증빙 교체'
+      : (invoiceStatus === 'CORRECTED' ? '세금계산서 정정 증빙 등록' : '세금계산서 발급 증빙 등록');
+    openDetailModal(title, `<form class="refund-deposit-gate" data-tax-invoice-evidence-modal data-tax-invoice-evidence-form="${esc(requestId)}">
+      <div class="module-security"><span>🔒</span><span><strong>증빙 등록은 외부 세금계산서 발행 API가 아닙니다.</strong><br>이미 외부에서 발급된 PDF·PNG·JPEG 원본과 발급 메타데이터를 보호 저장소에 등록합니다.</span></div>
+      <div class="finance-request-fields">
+        <label class="intake-field"><span>발급번호</span><input name="invoiceNumber" type="text" minlength="8" maxlength="40" autocomplete="off" placeholder="영문·숫자·하이픈, 숫자 6자 이상" required></label>
+        <label class="intake-field"><span>발급일시</span><input name="issuedAt" type="datetime-local" value="${esc(taxInvoiceLocalDateTimeValue())}" required></label>
+        <label class="intake-field"><span>공급자 사업자등록번호</span><input name="supplierRegistrationNumber" type="text" inputmode="numeric" maxlength="12" autocomplete="off" placeholder="10자리" required></label>
+        <label class="intake-field finance-field-wide"><span>문서 식별자</span><input name="documentIdentifier" type="text" minlength="4" maxlength="120" autocomplete="off" placeholder="플랫폼 문서ID 또는 내부 추적키" required></label>
+        ${invoiceStatus === 'CORRECTED' ? '<label class="intake-field finance-field-full"><span>정정 사유</span><textarea name="correctionReason" minlength="4" maxlength="500" rows="3" required></textarea></label>' : ''}
+        <label class="intake-field finance-field-full"><span>발급 원본 파일 (10MB 이하)</span><input name="document" type="file" accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg" required><small>PDF·PNG·JPEG 원본만 허용하며, 서버가 실제 파일 형식·크기·체크섬을 다시 검증합니다.</small></label>
+      </div>
+      <p class="refund-deposit-inline-error" data-tax-invoice-evidence-error role="alert" aria-live="polite"></p>
+      <div class="collaboration-form-actions"><span></span><button type="button" data-tax-invoice-evidence-cancel>취소</button><button class="primary" type="submit" data-tax-invoice-evidence-submit>${replacing ? '보호 증빙 교체' : '발급 증빙 등록'}</button></div>
+    </form>`, { locked: true });
+    const form = document.querySelector(`[data-tax-invoice-evidence-form="${requestId}"]`);
+    form?.querySelector('[data-tax-invoice-evidence-cancel]')?.addEventListener('click', () => closeDetailModal());
+    form?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const submit = form.querySelector('[data-tax-invoice-evidence-submit]');
+      const errorSlot = form.querySelector('[data-tax-invoice-evidence-error]');
+      const file = form.elements.document?.files?.[0];
+      const supplierNumber = String(form.elements.supplierRegistrationNumber?.value || '').replace(/\D/g, '');
+      const issuedAt = new Date(String(form.elements.issuedAt?.value || ''));
+      if (!file || !['application/pdf', 'image/png', 'image/jpeg'].includes(String(file.type || '').toLowerCase())) {
+        if (errorSlot) errorSlot.textContent = 'PDF, PNG, JPEG 발급 원본을 선택해 주세요.';
+        return;
+      }
+      if (file.size < 1 || file.size > 10 * 1024 * 1024) {
+        if (errorSlot) errorSlot.textContent = '발급 원본 파일은 10MB 이하여야 합니다.';
+        return;
+      }
+      if (!/^\d{10}$/.test(supplierNumber) || !Number.isFinite(issuedAt.getTime())) {
+        if (errorSlot) errorSlot.textContent = '발급일시와 10자리 공급자 사업자등록번호를 확인해 주세요.';
+        return;
+      }
+      const formData = new FormData();
+      formData.append('expectedVersion', String(expectedVersion));
+      formData.append('invoiceStatus', invoiceStatus);
+      formData.append('invoiceNumber', String(form.elements.invoiceNumber?.value || '').trim());
+      formData.append('issuedAt', issuedAt.toISOString());
+      formData.append('supplierRegistrationNumber', supplierNumber);
+      formData.append('documentIdentifier', String(form.elements.documentIdentifier?.value || '').trim());
+      formData.append('correctionReason', String(form.elements.correctionReason?.value || '').trim());
+      formData.append('document', file, file.name);
+      submit.disabled = true;
+      submit.textContent = '검증·보호 저장 중…';
+      if (errorSlot) errorSlot.textContent = '';
+      const sourceView = activeView;
+      const sourcePage = Number(financeRequestState.pagination?.page || 1);
+      try {
+        const result = await callApi('POST', `/peakos/finance-requests/${encodeURIComponent(requestId)}/invoice-evidence`, formData);
+        if (result?.registrationOnly !== true || result?.externalIssuancePerformed !== false
+          || String(result?.request?.id || '') !== requestId) {
+          throw new Error('서버가 증빙 등록 결과를 확정하지 못했습니다.');
+        }
+        closeDetailModal({ restoreFocus: false });
+        await loadFinanceRequests({ quiet: true, view: sourceView, page: sourcePage });
+        if (activeView === sourceView) renderPlannedModule(sourceView);
+        showToast(replacing ? '기존 이력을 보존하고 보호 증빙을 교체했습니다.' : '외부 발급 세금계산서의 보호 증빙을 등록했습니다.');
+      } catch (error) {
+        if (Number(error?.status) === 409) {
+          closeDetailModal({ restoreFocus: false });
+          await loadFinanceRequests({ quiet: true, view: sourceView, page: sourcePage });
+          if (activeView === sourceView) renderPlannedModule(sourceView);
+          showToast(`증빙을 등록하지 못했습니다. ${error.message} 최신 요청에서 다시 시도해 주세요.`);
+          return;
+        }
+        if (submit.isConnected) {
+          submit.disabled = false;
+          submit.textContent = replacing ? '보호 증빙 교체' : '발급 증빙 등록';
+        }
+        if (errorSlot?.isConnected) errorSlot.textContent = error?.message || '증빙을 등록하지 못했습니다.';
+      }
+    });
+  }
+
+  function financeRequestIsRefund(row) {
+    return ['REFUND_CLIENT', 'REFUND_MISTAKEN'].includes(String(financeValue(row, 'kind')).toUpperCase());
+  }
+
+  function financeRefundAccountLabel(accountId) {
+    return PUBLIC_REFUND_ACCOUNTS.find(([id]) => id === String(accountId || ''))?.[1] || '입금 통장';
+  }
+
+  function financeRefundDepositConfirmation(row) {
+    if (!financeRequestIsRefund(row) || String(financeValue(row, 'status')).toUpperCase() !== 'COMPLETED') return '';
+    const confirmedAt = financeValue(row, 'refundDepositConfirmedAt', 'refund_deposit_confirmed_at');
+    const confirmedBy = financeValue(row, 'refundDepositConfirmedByName', 'refund_deposit_confirmed_by_name');
+    const transactionId = financeValue(row, 'bankTransactionId', 'bank_transaction_id');
+    if (!confirmedAt || !confirmedBy || !transactionId) return '';
+    return `<div><dt>입금 확인</dt><dd>${esc(confirmedBy)} · ${esc(formatDate(confirmedAt, { dateStyle: 'medium', timeStyle: 'short' }))}<br><span class="finance-deposit-reference">연결 거래 #${esc(transactionId)}</span></dd></div>`;
+  }
+
+  function refundDepositModalError(request, error, query = '') {
+    const requestId = String(financeValue(request, 'id'));
+    const message = error?.message || '입금 거래를 불러오지 못했습니다.';
+    const body = document.getElementById('readonlyModalBody');
+    if (!body) return;
+    body.innerHTML = `<section class="refund-deposit-gate" data-refund-deposit-modal="${esc(requestId)}">
+      <div class="refund-deposit-state danger" role="alert">
+        <strong>입금 내역을 확인하지 못했습니다</strong>
+        <p>${esc(message)}</p>
+      </div>
+      <div class="collaboration-form-actions">
+        <span></span>
+        <button type="button" data-refund-deposit-cancel>닫기</button>
+        <button class="primary" type="button" data-refund-deposit-retry>다시 조회</button>
+      </div>
+    </section>`;
+    body.querySelector('[data-refund-deposit-cancel]')?.addEventListener('click', () => closeDetailModal());
+    body.querySelector('[data-refund-deposit-retry]')?.addEventListener('click', () => {
+      openRefundDepositCompletion(request, { query, page: 1 });
+    });
+  }
+
+  async function openRefundDepositCompletion(request, { query = '', page = 1, restoreFocusTo = null } = {}) {
+    if (!canReviewFinanceRequests() || previewPersona) {
+      showToast('환불 입금 확인은 지정된 재무 담당자만 처리할 수 있습니다.');
+      return;
+    }
+    const requestId = String(financeValue(request, 'id'));
+    const requestStatus = String(financeValue(request, 'status')).toUpperCase();
+    if (!requestId || !financeRequestIsRefund(request) || !['APPROVED', 'PROCESSING'].includes(requestStatus)) {
+      showToast('승인 또는 처리 중인 환불 요청만 입금 확인 후 완료할 수 있습니다.');
+      return;
+    }
+    const normalizedQuery = String(query || '').trim().slice(0, 120);
+    const normalizedPage = Number.isSafeInteger(Number(page)) && Number(page) >= 1 ? Number(page) : 1;
+    openDetailModal('환불 완료 · 입금 거래 확인', `<section class="refund-deposit-gate" data-refund-deposit-modal="${esc(requestId)}">
+      <div class="refund-deposit-state" role="status" aria-live="polite">
+        <strong>같은 워크스페이스의 입금 거래를 확인하고 있습니다</strong>
+        <p>은행 연동으로 검증된 입금 중 이 환불에 연결할 수 있는 거래만 불러옵니다.</p>
+      </div>
+    </section>`, { locked: true, restoreFocusTo });
+    const generation = refundDepositCandidateLoadGeneration;
+    const params = new URLSearchParams({ page: String(normalizedPage), limit: '50' });
+    if (normalizedQuery) params.set('q', normalizedQuery);
+
+    try {
+      const payload = await readOnlyApi(`/peakos/finance-requests/${encodeURIComponent(requestId)}/refund-deposits?${params.toString()}`);
+      const modal = document.getElementById('readonlyDetailModal');
+      const body = document.getElementById('readonlyModalBody');
+      if (generation !== refundDepositCandidateLoadGeneration || modal?.hidden || !body) return;
+      const canonicalRequest = payload?.request || {};
+      if (String(financeValue(canonicalRequest, 'id')) !== requestId) {
+        throw new Error('환불 요청 확인 결과가 일치하지 않습니다.');
+      }
+      const expectedVersion = financeRequestVersion(canonicalRequest);
+      if (!expectedVersion) throw new Error('요청 버전을 확인할 수 없습니다. 새로고침 후 다시 시도해 주세요.');
+      const deposits = Array.isArray(payload?.deposits) ? payload.deposits : [];
+      const rawPagination = payload?.pagination || {};
+      const currentPage = Math.max(1, Number(rawPagination.page || normalizedPage) || 1);
+      const totalPages = Math.max(0, Number(rawPagination.totalPages ?? rawPagination.total_pages ?? 0) || 0);
+      const total = Math.max(0, Number(rawPagination.total || deposits.length) || 0);
+      const requestAmount = Number(financeValue(canonicalRequest, 'amountVat', 'amount_vat') || 0);
+      const requestAccount = financeValue(canonicalRequest, 'sourceAccountId', 'source_account_id');
+
+      body.innerHTML = `<section class="refund-deposit-gate" data-refund-deposit-modal="${esc(requestId)}">
+        <div class="refund-deposit-summary">
+          <span><small>환불 요청</small><strong>${esc(financeValue(request, 'clientName', 'client_name') || '업체 미입력')}</strong></span>
+          <span><small>환불 금액</small><strong>${esc(requestAmount.toLocaleString('ko-KR'))}원</strong></span>
+          <span><small>입금받았던 통장</small><strong>${esc(financeRefundAccountLabel(requestAccount))}</strong></span>
+        </div>
+        <form class="refund-deposit-search" data-refund-deposit-search>
+          <label for="refundDepositQuery">입금자명·적요 검색</label>
+          <div><input id="refundDepositQuery" type="search" maxlength="120" value="${esc(normalizedQuery)}" placeholder="입금자명 또는 적요"><button class="module-action" type="submit">검색</button></div>
+        </form>
+        <div class="refund-deposit-results-head"><strong>연결 가능한 입금 ${esc(total.toLocaleString('ko-KR'))}건</strong><small>은행 연동 · 같은 통장 · 환불액 이상 · 미사용 거래만 표시</small></div>
+        ${deposits.length ? `<fieldset class="refund-deposit-list">
+          <legend>이 환불의 원입금 거래를 선택하세요</legend>
+          ${deposits.map(deposit => {
+            const depositId = String(deposit?.id || '');
+            const amount = Number(deposit?.amount || 0);
+            const title = String(deposit?.counterpartyName || deposit?.summary || '입금자명 없음');
+            const summary = String(deposit?.summary || '').trim();
+            return `<label class="refund-deposit-option">
+              <input type="radio" name="refundDepositTransaction" value="${esc(depositId)}" data-refund-deposit-option>
+              <span><strong>${esc(title)}</strong><small>${esc(formatDate(deposit?.transactionAt, { dateStyle: 'medium', timeStyle: 'short' }))} · ${esc(financeRefundAccountLabel(deposit?.accountId))}${summary && summary !== title ? ` · ${esc(summary)}` : ''}</small></span>
+              <b>+${esc(amount.toLocaleString('ko-KR'))}원</b>
+            </label>`;
+          }).join('')}
+        </fieldset>` : `<div class="refund-deposit-state"><strong>연결 가능한 입금이 없습니다</strong><p>입금받았던 통장, 입금액, 은행 연동 상태를 확인하거나 검색어를 지워 다시 조회해 주세요.</p></div>`}
+        ${totalPages > 1 ? `<div class="refund-deposit-pagination" aria-label="입금 거래 페이지">
+          <button class="module-action" type="button" data-refund-deposit-page="${esc(String(Math.max(1, currentPage - 1)))}" ${currentPage <= 1 ? 'disabled' : ''}>이전</button>
+          <span>${esc(String(currentPage))} / ${esc(String(totalPages))}</span>
+          <button class="module-action" type="button" data-refund-deposit-page="${esc(String(Math.min(totalPages, currentPage + 1)))}" ${currentPage >= totalPages ? 'disabled' : ''}>다음</button>
+        </div>` : ''}
+        <label class="refund-deposit-confirm ${deposits.length ? '' : 'disabled'}">
+          <input type="checkbox" data-refund-deposit-confirm ${deposits.length ? '' : 'disabled'}>
+          <span><strong>선택한 거래가 이 환불의 실제 원입금임을 확인합니다</strong><small>한 입금 거래는 한 건의 완료 환불에만 연결되며 완료 후 변경할 수 없습니다.</small></span>
+        </label>
+        <p class="refund-deposit-inline-error" data-refund-deposit-error role="alert" aria-live="polite"></p>
+        <div class="collaboration-form-actions">
+          <span></span>
+          <button type="button" data-refund-deposit-cancel>취소</button>
+          <button class="primary" type="button" data-refund-deposit-complete disabled>입금 연결 후 환불 완료</button>
+        </div>
+      </section>`;
+
+      const completeButton = body.querySelector('[data-refund-deposit-complete]');
+      const confirmation = body.querySelector('[data-refund-deposit-confirm]');
+      const inlineError = body.querySelector('[data-refund-deposit-error]');
+      const selectedTransactionId = () => String(body.querySelector('[data-refund-deposit-option]:checked')?.value || '');
+      const syncCompletionButton = () => {
+        if (completeButton) completeButton.disabled = !(selectedTransactionId() && confirmation?.checked);
+      };
+      body.querySelectorAll('[data-refund-deposit-option]').forEach(input => input.addEventListener('change', syncCompletionButton));
+      confirmation?.addEventListener('change', syncCompletionButton);
+      body.querySelector('[data-refund-deposit-cancel]')?.addEventListener('click', () => closeDetailModal());
+      body.querySelector('[data-refund-deposit-search]')?.addEventListener('submit', event => {
+        event.preventDefault();
+        const nextQuery = String(body.querySelector('#refundDepositQuery')?.value || '');
+        openRefundDepositCompletion(request, { query: nextQuery, page: 1 });
+      });
+      body.querySelectorAll('[data-refund-deposit-page]').forEach(button => button.addEventListener('click', () => {
+        openRefundDepositCompletion(request, { query: normalizedQuery, page: Number(button.dataset.refundDepositPage) });
+      }));
+      completeButton?.addEventListener('click', async () => {
+        const bankTransactionId = selectedTransactionId();
+        if (!bankTransactionId || !confirmation?.checked) {
+          syncCompletionButton();
+          return;
+        }
+        completeButton.disabled = true;
+        completeButton.textContent = '환불 완료 처리 중…';
+        if (inlineError) inlineError.textContent = '';
+        const completionView = activeView;
+        const completionPage = Number(financeRequestState.pagination?.page || 1);
+        try {
+          await callApi('PATCH', `/peakos/finance-requests/${encodeURIComponent(requestId)}`, {
+            status: 'COMPLETED',
+            expectedVersion,
+            bankTransactionId
+          });
+          closeDetailModal({ restoreFocus: false });
+          await loadFinanceRequests({ quiet: true, view: completionView, page: completionPage });
+          if (activeView === completionView) renderPlannedModule(completionView);
+          showToast('입금 거래를 연결하고 환불 요청을 완료했습니다.');
+        } catch (error) {
+          if (Number(error?.status) === 409) {
+            closeDetailModal({ restoreFocus: false });
+            await loadFinanceRequests({ quiet: true, view: completionView, page: completionPage });
+            if (activeView === completionView) renderPlannedModule(completionView);
+            showToast(`환불을 완료하지 못했습니다. ${error.message} 최신 내역에서 다시 선택해 주세요.`);
+            return;
+          }
+          completeButton.disabled = false;
+          completeButton.textContent = '입금 연결 후 환불 완료';
+          if (inlineError) inlineError.textContent = error?.message || '환불 완료 처리를 저장하지 못했습니다.';
+        }
+      });
+      syncCompletionButton();
+    } catch (error) {
+      const modal = document.getElementById('readonlyDetailModal');
+      if (generation !== refundDepositCandidateLoadGeneration || modal?.hidden) return;
+      refundDepositModalError(request, error, normalizedQuery);
+    }
+  }
+
   function financeStatusActions(statusKey, id) {
     if (!canReviewFinanceRequests()) return '';
     const actionMap = {
@@ -11769,13 +14485,16 @@
     ).join('');
   }
 
-  function financeInvoiceAction(invoiceStatus, requestStatus, id) {
+  function financeInvoiceAction(invoiceStatus, requestStatus, id, currentEvidenceId = '') {
     if (!canReviewFinanceRequests() || ['REJECTED', 'CANCELLED'].includes(requestStatus)) return '';
     if (['REQUESTED', 'PROCESSING'].includes(invoiceStatus)) {
-      return `<button class="module-action" type="button" data-finance-invoice-status="ISSUED" data-finance-id="${esc(id)}">계산서 발행완료</button>`;
+      return `<button class="module-action" type="button" data-finance-invoice-evidence="ISSUED" data-finance-id="${esc(id)}">발급 증빙 등록</button>`;
     }
     if (invoiceStatus === 'CORRECTION_REQUESTED') {
-      return `<button class="module-action" type="button" data-finance-invoice-status="CORRECTED" data-finance-id="${esc(id)}">계산서 정정완료</button>`;
+      return `<button class="module-action" type="button" data-finance-invoice-evidence="CORRECTED" data-finance-id="${esc(id)}">정정 증빙 등록</button>`;
+    }
+    if (currentEvidenceId && ['ISSUED', 'CORRECTED'].includes(invoiceStatus)) {
+      return `<button class="module-action" type="button" data-finance-invoice-evidence="${esc(invoiceStatus)}" data-finance-id="${esc(id)}">보호 증빙 교체</button>`;
     }
     if (['FAILED', 'CANCELLED'].includes(invoiceStatus)) {
       return `<button class="module-action" type="button" data-finance-invoice-status="REQUESTED" data-finance-id="${esc(id)}">계산서 재요청</button>`;
@@ -11793,6 +14512,7 @@
         const status = FINANCE_REQUEST_STATUS[statusKey] || [statusKey, 'muted'];
         const invoiceRequested = Boolean(financeValue(row, 'invoiceRequested', 'invoice_requested'));
         const invoiceStatus = String(financeValue(row, 'invoiceStatus', 'invoice_status') || (invoiceRequested ? 'REQUESTED' : 'NOT_REQUESTED')).toUpperCase();
+        const currentEvidenceId = String(financeValue(row, 'currentInvoiceEvidenceId', 'current_invoice_evidence_id') || '');
         const amount = Number(financeValue(row, 'amountVat', 'amount_vat') || 0);
         const requester = String(financeValue(row, 'requesterName', 'requester_name') || '요청자');
         const isOwner = String(financeValue(row, 'requesterUid', 'requester_uid')) === String(userDoc?.uid || '');
@@ -11802,7 +14522,7 @@
         const evidence = [
           financeEvidenceLink(financeValue(row, 'evidenceUrl', 'evidence_url'), '요청 증빙'),
           financeEvidenceLink(financeValue(row, 'businessRegistrationUrl', 'business_registration_url'), '사업자등록증'),
-          financeEvidenceLink(financeValue(row, 'invoiceEvidenceUrl', 'invoice_evidence_url'), '계산서 증빙')
+          financeEvidenceLink(financeValue(row, 'invoiceEvidenceUrl', 'invoice_evidence_url'), '과거 계산서 참고 링크(완료 근거 아님)')
         ].filter(Boolean).join(' · ');
         return `<article class="finance-request-card" data-finance-request-row="${esc(id)}">
           <div class="finance-request-head">
@@ -11816,12 +14536,15 @@
             ${financeValue(row, 'email') ? `<div><dt>이메일</dt><dd>${esc(financeValue(row, 'email'))}</dd></div>` : ''}
             ${payeeMarkup}
             ${invoiceRequested ? `<div><dt>계산서 요청</dt><dd><span class="vendor-chip ${['ISSUED', 'CORRECTED'].includes(invoiceStatus) ? 'done' : ''}">${esc(FINANCE_INVOICE_STATUS[invoiceStatus] || invoiceStatus)}</span></dd></div>` : ''}
+            ${currentEvidenceId ? '<div><dt>발급 증빙</dt><dd><span class="vendor-chip done">보호 원본·메타데이터 연결됨</span></dd></div>' : ''}
             ${evidence ? `<div><dt>첨부·증빙</dt><dd>${evidence}</dd></div>` : ''}
             ${financeValue(row, 'processedAt', 'processed_at') ? `<div><dt>처리완료</dt><dd>${esc(formatDate(financeValue(row, 'processedAt', 'processed_at'), { dateStyle: 'medium', timeStyle: 'short' }))}</dd></div>` : ''}
+            ${financeRefundDepositConfirmation(row)}
           </dl>
           <div class="finance-request-actions">
             ${financeStatusActions(statusKey, id)}
-            ${invoiceRequested ? financeInvoiceAction(invoiceStatus, statusKey, id) : ''}
+            ${invoiceRequested ? financeInvoiceAction(invoiceStatus, statusKey, id, currentEvidenceId) : ''}
+            ${currentEvidenceId ? `<button class="module-action" type="button" data-finance-evidence-history="${esc(id)}">발급 증빙 이력</button>` : ''}
             ${canCancel ? `<button class="module-action" type="button" data-finance-cancel="${esc(id)}">요청 취소</button>` : ''}
           </div>
         </article>`;
@@ -12694,6 +15417,7 @@
       autoReconciliationEnabled: false,
       canSync: false,
       canViewBalances: false,
+      connection: { status: 'DISABLED', code: 'IBK_COLLECTOR_DISABLED' },
       accounts: [],
       transactions: [],
       summary: { total: 0, depositTotal: null, withdrawalTotal: null, unmatchedCount: 0 },
@@ -12767,6 +15491,23 @@
     return row?.[camel] ?? row?.[snake] ?? null;
   }
 
+  function bankConnectionCopy(connection = {}) {
+    const status = String(connection.status || '').toUpperCase();
+    const lastSuccess = connection.lastSuccessfulSyncAt
+      ? ` · 최근 성공 ${bankDate(connection.lastSuccessfulSyncAt)}`
+      : '';
+    const copies = {
+      HEALTHY: { label: '자동 연결 정상', tone: 'live', title: 'IBK 잔액 자동 연결이 정상입니다', detail: `등록 계좌의 최신 잔액과 거래내역을 주기적으로 받고 있습니다${lastSuccess}.` },
+      READY: { label: '연결 준비 완료', tone: 'live', title: 'IBK 조회 연결 준비가 완료되었습니다', detail: `수동 조회 또는 다음 자동 실행에서 최신 잔액을 확인할 수 있습니다${lastSuccess}.` },
+      MANUAL_ONLY: { label: '수동 조회만', tone: 'restricted', title: '자동 동기화가 꺼져 있습니다', detail: `수집기와 계좌는 연결됐지만 자동 실행이 비활성화되어 있습니다${lastSuccess}.` },
+      WAITING_FIRST_SYNC: { label: '첫 동기화 필요', tone: 'restricted', title: '연결은 됐지만 아직 잔액을 받지 못했습니다', detail: '재무 담당자가 지금 동기화를 실행하거나 다음 자동 실행을 기다려 주세요.' },
+      STALE: { label: '갱신 지연', tone: 'restricted', title: '통장 잔액 갱신이 지연되고 있습니다', detail: `마지막 성공 이후 30분 이상 지났거나 최근 조회가 실패했습니다${lastSuccess}.` },
+      BLOCKED: { label: '설정 확인 필요', tone: 'restricted', title: 'IBK 연결 설정을 확인해야 합니다', detail: '계좌 매핑·조회 자격정보·승인된 보안 자산 중 하나가 준비되지 않았습니다.' },
+      DISABLED: { label: '조회 수집기 미설정', tone: 'restricted', title: 'IBK 조회 수집기가 비활성화되어 있습니다', detail: '서버 운영 설정에서 조회 전용 수집기와 자동 동기화를 활성화해야 합니다.' }
+    };
+    return copies[status] || copies[connection.collectorEnabled ? 'READY' : 'DISABLED'];
+  }
+
   async function loadBankData() {
     if (!canSeeBankLedger()) return;
     if (bankLoadPromise) return bankLoadPromise;
@@ -12791,6 +15532,9 @@
         autoReconciliationEnabled: accountPayload?.autoReconciliationEnabled === true,
         canSync: accountPayload?.canSync === true,
         canViewBalances: accountPayload?.canViewBalances === true,
+        connection: accountPayload?.connection && typeof accountPayload.connection === 'object'
+          ? accountPayload.connection
+          : { status: accountPayload?.collectorConfigured === true ? 'READY' : 'DISABLED' },
         accounts: Array.isArray(accountPayload?.accounts) ? accountPayload.accounts : [],
         transactions: Array.isArray(transactionPayload?.transactions) ? transactionPayload.transactions : [],
         summary: {
@@ -12896,6 +15640,7 @@
       bankSelectedAccountId = String(syncAccounts[0]?.id || '');
     }
     const syncAvailable = bankData.collectorConfigured && bankData.canSync && Boolean(bankSelectedAccountId);
+    const connectionCopy = bankConnectionCopy(bankData.connection);
 
     const accountCards = accounts.map(row => {
       return `<article class="bank-account-card" data-bank-account="${esc(row.id)}">
@@ -12981,7 +15726,7 @@
     }).join('');
 
     moduleView.innerHTML = `<div class="bank-ledger" data-bank-ledger>
-      ${moduleStatusbar('통장별 거래내역', '일반 직원은 매출·리뷰·리워드 3계좌, 지정 재무 담당자는 전체 5계좌를 조회합니다.', '조회 전용')}
+      ${moduleStatusbar('통장별 거래내역', '일반 직원은 매출·리뷰·리워드 3계좌, 지정 재무 담당자는 전체 5계좌를 조회합니다.', connectionCopy.label)}
       ${renderFinancePeriodFilter('bank', '한국시간 거래일 기준 · 잔액 카드는 현재 잔액')}
 
       <section class="bank-kpis" aria-label="통장 거래 요약">
@@ -12995,11 +15740,13 @@
         ? '<div class="module-security"><span>✓</span><span><strong>자동 입금확인 정책이 활성화되어 있습니다</strong><br>안정 거래번호가 있는 입금만 검증 규칙을 통과한 뒤 자동 처리합니다.</span></div>'
         : '<div class="module-security"><span>!</span><span><strong>조회·동기화만 운영 중입니다</strong><br>IBK 공식 거래번호가 확인될 때까지 자동 입금확인과 충전금 승인은 안전상 보류합니다.</span></div>'}
 
+      <div class="module-security" data-bank-connection-health="${esc(String(bankData.connection?.status || 'DISABLED').toLowerCase())}"><span>${connectionCopy.tone === 'live' ? '✓' : '!'}</span><span><strong>${esc(connectionCopy.title)}</strong><br>${esc(connectionCopy.detail)}</span></div>
+
       <section class="module-section">
         <div class="module-section-head bank-section-head">
           <span><strong>${bankData.canViewBalances ? '계좌와 최근 잔액' : '조회 계좌'}</strong><small>계좌번호는 모든 화면에서 일부만 표시합니다${bankData.canViewBalances ? '' : ' · 잔액은 지정 재무 담당자만 열람합니다'}</small></span>
           <div class="bank-section-actions">
-            <span class="module-chip ${bankData.collectorConfigured ? 'live' : 'restricted'}">${bankData.collectorConfigured ? '조회 수집기 연결됨' : '조회 수집기 미설정'}</span>
+            <span class="module-chip ${connectionCopy.tone}">${esc(connectionCopy.label)}</span>
             <span class="module-chip ${bankData.autoReconciliationEnabled ? 'live' : 'restricted'}">${bankData.autoReconciliationEnabled ? '자동 확인 사용' : '자동 확인 보류'}</span>
             ${syncAccounts.length > 1 && bankData.collectorConfigured && bankData.canSync ? `<label class="bank-sync-select"><span>동기화 통장</span><select data-bank-sync-account>${syncAccounts.map(row => `<option value="${esc(row.id)}" ${String(row.id) === bankSelectedAccountId ? 'selected' : ''}>${esc(row.displayName || '등록 통장')}</option>`).join('')}</select></label>` : ''}
             <button class="module-action bank-sync-button" type="button" data-bank-sync="${esc(bankSelectedAccountId)}" ${syncAvailable && !bankSyncingAccountId ? '' : 'disabled'} ${syncAvailable ? '' : 'hidden'}>${bankSyncingAccountId ? '동기화 중…' : '지금 동기화'}</button>
@@ -13148,25 +15895,477 @@
       </section>`;
   }
 
-  function renderPlatformModule() {
-    moduleView.innerHTML = `
-      ${moduleStatusbar('플랫폼 통합 모듈', '각 플랫폼 API를 연결해 정산 내역을 한 화면에서 비교·확인합니다.')}
-      <section class="module-section">
-        <div class="module-section-head"><span><strong>API 통합 정산 흐름</strong><small>플랫폼별 원본 내역을 표준 정산 항목으로 변환합니다</small></span><span class="module-chip">API 목록 확정 전</span></div>
-        <div class="module-section-body">
-          <div class="integration-flow">
-            <div class="integration-node"><span class="module-card-icon">⌘</span><strong>플랫폼 API</strong><small>승인된 각 플랫폼의 매출·수수료·지급 내역 수집</small></div>
-            <div class="integration-arrow">→</div>
-            <div class="integration-node primary"><span class="module-card-icon">P</span><strong>통합 정산 엔진</strong><small>항목 표준화, 중복 확인, 정산 기간 매칭</small></div>
-            <div class="integration-arrow">→</div>
-            <div class="integration-node"><span class="module-card-icon green">▥</span><strong>통합 정산 화면</strong><small>플랫폼·영업자·지사별 정산 결과 비교</small></div>
+  function validMonthlySettlementMonth(value) {
+    const month = String(value || '');
+    return /^20\d{2}-(0[1-9]|1[0-2])$/.test(month) ? month : '';
+  }
+
+  function shiftMonthlySettlementMonth(value, offset) {
+    const month = validMonthlySettlementMonth(value) || koreaDateKey(new Date()).slice(0, 7);
+    const [year, monthNumber] = month.split('-').map(Number);
+    const shifted = new Date(Date.UTC(year, monthNumber - 1 + Number(offset || 0), 1));
+    return shifted.toISOString().slice(0, 7);
+  }
+
+  function monthlySettlementContextKey() {
+    return [
+      osAuthAccessGeneration,
+      workspaceAccessGeneration,
+      activeWorkspaceSlug || '',
+      currentUser?.uid || '',
+      previewPersona || 'self',
+      monthlySettlementMonth
+    ].join('|');
+  }
+
+  function nullableMonthlySettlementNumber(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function normalizeMonthlySettlementStatus(value) {
+    const status = String(value || '').trim().toLowerCase();
+    if (['ready', 'available'].includes(status)) return 'ready';
+    if (status === 'partial') return 'partial';
+    if (status === 'no_data') return 'no_data';
+    if (status === 'never_imported') return 'never_imported';
+    if (status === 'not_covered') return 'not_covered';
+    if (status === 'not_connected') return 'not_connected';
+    if (['error', 'sync_error'].includes(status)) return 'error';
+    return 'missing';
+  }
+
+  function monthlySettlementStatusMeta(status) {
+    return ({
+      ready: { label: '정상', tone: 'green', detail: '수집 완료' },
+      partial: { label: '확인 필요', tone: 'amber', detail: '수집 범위 또는 영업자 이름 연결 확인' },
+      no_data: { label: '거래 없음', tone: 'green', detail: '선택 월 수집 완료 · 거래 0건' },
+      never_imported: { label: '수집 전', tone: 'amber', detail: '연결 후 첫 자료 수집 대기' },
+      not_covered: { label: '선택 월 미수집', tone: 'amber', detail: '다른 기간 수집 이력만 있음' },
+      not_connected: { label: '연동 전', tone: 'neutral', detail: '플랫폼 API 연결 전' },
+      error: { label: '동기화 오류', tone: 'red', detail: '마지막 수집 실패' },
+      missing: { label: '응답 확인', tone: 'red', detail: '플랫폼 상태 응답 누락' }
+    })[status] || { label: '상태 확인', tone: 'red', detail: '수집 상태 확인 필요' };
+  }
+
+  function normalizeMonthlySettlementSourceState(value) {
+    const state = String(value || '').trim().toLowerCase();
+    return ['live', 'draft', 'paid', 'unknown'].includes(state) ? state : 'unknown';
+  }
+
+  function monthlySettlementSourceMeta(row) {
+    const state = normalizeMonthlySettlementSourceState(row?.sourceState);
+    if (state === 'paid' && row?.sourceChangedAfterSettlement === true) {
+      return { label: '지급 확정 후 변동 확인', tone: 'red' };
+    }
+    return ({
+      live: { label: '실시간 잠정', tone: 'amber' },
+      draft: { label: '잠정 정산', tone: 'amber' },
+      paid: { label: '지급 확정', tone: 'green' },
+      unknown: { label: '확정 상태 미제공', tone: 'neutral' }
+    })[state];
+  }
+
+  function monthlySettlementProfitBasisLabel(value, providerKey) {
+    const basis = String(value || '').trim().toLowerCase();
+    if (basis === 'reward_distributor_margin') return '영업자 마진';
+    if (basis === 'review_spread_profit') return '매출 - 영업자단가';
+    if (basis === 'unavailable' || providerKey === 'keywordmaster') return '영업이익 API 미제공';
+    return '플랫폼 정산 기준';
+  }
+
+  function normalizeMonthlySettlementPayload(payload, expectedMonth) {
+    const ownerUid = String(payload?.owner?.uid || '').trim();
+    if (payload?.scope !== 'self'
+      || payload?.month !== expectedMonth
+      || !ownerUid
+      || ownerUid !== String(currentUser?.uid || '')) {
+      const error = new Error('본인 월 정산 응답의 범위를 확인할 수 없습니다.');
+      error.code = 'MONTHLY_SETTLEMENT_RESPONSE_INVALID';
+      throw error;
+    }
+    const suppliedPlatforms = new Map(
+      (Array.isArray(payload.platforms) ? payload.platforms : [])
+        .map(row => [String(row?.key || '').trim(), row])
+        .filter(([key]) => key)
+    );
+    const normalizeTotals = source => ({
+      sales: nullableMonthlySettlementNumber(source?.sales),
+      profit: nullableMonthlySettlementNumber(source?.profit),
+      transactionCount: nullableMonthlySettlementNumber(source?.transactionCount)
+    });
+    const platforms = MONTHLY_SETTLEMENT_PLATFORMS.map(platform => {
+      const source = suppliedPlatforms.get(platform.key);
+      return {
+        key: platform.key,
+        label: platform.label,
+        ...normalizeTotals(source),
+        status: source ? normalizeMonthlySettlementStatus(source.status || source.dataState) : 'missing',
+        dataState: source ? normalizeMonthlySettlementStatus(source.dataState || source.status) : 'missing',
+        coverageState: String(source?.coverage?.state || ''),
+        lastImportedAt: source?.lastImportedAt || null,
+        sourceState: normalizeMonthlySettlementSourceState(source?.sourceState),
+        sourceChangedAfterSettlement: source?.sourceChangedAfterSettlement === true,
+        profitBasis: String(source?.profitBasis || '')
+      };
+    });
+    // `platformTotal` is the current explicit non-overlapping server name.
+    // Keep the short-lived `platformCollectedTotal` alias during roll-forward.
+    const totalSource = payload.platformTotal || payload.platformCollectedTotal || {};
+    const total = normalizeTotals(totalSource);
+    const rowSalesProviderCount = platforms.filter(row => row.sales !== null).length;
+    const rowProfitProviderCount = platforms.filter(row => row.profit !== null).length;
+    const transactionRows = platforms.filter(row => row.transactionCount !== null);
+    const explicitTransactionCount = nullableMonthlySettlementNumber(totalSource.transactionCount);
+    const providerCount = nullableMonthlySettlementNumber(totalSource.providerCount);
+    const salesProviderCount = nullableMonthlySettlementNumber(totalSource.salesProviderCount);
+    const profitProviderCount = nullableMonthlySettlementNumber(totalSource.profitProviderCount);
+    const transactionProviderCount = nullableMonthlySettlementNumber(totalSource.transactionProviderCount);
+    return {
+      scope: 'self',
+      month: expectedMonth,
+      timezone: String(payload.timezone || 'Asia/Seoul'),
+      owner: { uid: ownerUid, name: String(payload.owner?.name || userDoc?.name || '내 계정') },
+      personal: normalizeTotals(payload.personal),
+      platformTotal: {
+        ...total,
+        transactionCount: explicitTransactionCount !== null
+          ? explicitTransactionCount
+          : (transactionRows.length
+            ? transactionRows.reduce((sum, row) => sum + row.transactionCount, 0)
+            : null),
+        providerCount: providerCount === null ? MONTHLY_SETTLEMENT_PLATFORMS.length : providerCount,
+        salesProviderCount: salesProviderCount === null ? rowSalesProviderCount : salesProviderCount,
+        profitProviderCount: profitProviderCount === null ? rowProfitProviderCount : profitProviderCount,
+        transactionProviderCount: transactionProviderCount === null
+          ? transactionRows.length
+          : transactionProviderCount,
+        complete: totalSource.complete === true
+      },
+      platforms,
+      generatedAt: payload.generatedAt || null
+    };
+  }
+
+  function monthlySettlementTimestamp(value, fallback = '수집 이력 없음') {
+    if (!value) return fallback;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return fallback;
+    return new Intl.DateTimeFormat('ko-KR', {
+      timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric',
+      hour: 'numeric', minute: '2-digit'
+    }).format(date);
+  }
+
+  function monthlySettlementAmount(value, fallback = '확인 필요') {
+    return value === null
+      ? `<strong class="monthly-settlement-unavailable">${esc(fallback)}</strong>`
+      : `<strong>${esc(formatWon(value))}</strong>`;
+  }
+
+  function monthlySettlementCount(value, fallback = '건수 확인 필요') {
+    return value === null ? fallback : `${Math.max(0, Math.round(value)).toLocaleString('ko-KR')}건`;
+  }
+
+  async function loadPersonalMonthlySettlement({ force = false } = {}) {
+    if (!canAccessPersonalMonthlySettlementData()) {
+      resetMonthlySettlementState();
+      monthlySettlementState.status = previewPersona ? 'private' : 'forbidden';
+      if (activeView === 'monthly-settlement') renderMonthlySettlementModule();
+      return false;
+    }
+    const month = validMonthlySettlementMonth(monthlySettlementMonth);
+    if (!month) return false;
+    const contextKey = monthlySettlementContextKey();
+    if (!force && monthlySettlementState.status === 'ready'
+      && monthlySettlementState.contextKey === contextKey
+      && monthlySettlementState.month === month) return true;
+    const generation = ++monthlySettlementLoadGeneration;
+    monthlySettlementState = {
+      status: 'loading', contextKey, month, data: null, error: '', code: ''
+    };
+    if (activeView === 'monthly-settlement') renderMonthlySettlementModule();
+    try {
+      const payload = await readOnlyApi(`/peakos/monthly-settlement/self?month=${encodeURIComponent(month)}`);
+      if (generation !== monthlySettlementLoadGeneration
+        || contextKey !== monthlySettlementContextKey()
+        || !canAccessPersonalMonthlySettlementData()) return false;
+      const data = normalizeMonthlySettlementPayload(payload, month);
+      monthlySettlementState = {
+        status: 'ready', contextKey, month, data, error: '', code: ''
+      };
+      if (activeView === 'monthly-settlement') renderMonthlySettlementModule();
+      return true;
+    } catch (error) {
+      if (generation !== monthlySettlementLoadGeneration
+        || contextKey !== monthlySettlementContextKey()
+        || !canAccessPersonalMonthlySettlementData()) return false;
+      monthlySettlementState = {
+        status: 'error', contextKey, month, data: null,
+        error: error.message || '월 정산을 불러오지 못했습니다.', code: error.code || ''
+      };
+      if (activeView === 'monthly-settlement') renderMonthlySettlementModule();
+      return false;
+    }
+  }
+
+  function monthlySettlementHeader({
+    stateLabel = '', stateTone = 'neutral', generatedAt = null, showPlatformShortcut = false
+  } = {}) {
+    const currentMonth = koreaDateKey(new Date()).slice(0, 7);
+    const selectedIsCurrent = monthlySettlementMonth >= currentMonth;
+    const [year, month] = monthlySettlementMonth.split('-').map(Number);
+    return `<header class="monthly-settlement-header">
+      <div class="monthly-settlement-heading">
+        <span class="monthly-settlement-eyebrow"><i aria-hidden="true"></i> PEAK OS / MY SETTLEMENT</span>
+        <h1>월 정산</h1>
+        <p>개인 정산과 플랫폼별 수집 결과를 내 계정 기준으로 확인합니다.</p>
+      </div>
+      <div class="monthly-settlement-header-meta">
+        ${stateLabel ? `<span class="monthly-settlement-sync ${esc(stateTone)}" role="status"><i aria-hidden="true"></i>${esc(stateLabel)}</span>` : ''}
+        ${showPlatformShortcut ? '<button class="monthly-settlement-api-shortcut" type="button" data-monthly-settlement-platform-jump>API 연동 현황</button>' : ''}
+        <span>${generatedAt ? `${esc(monthlySettlementTimestamp(generatedAt))} 조회 · 잠정` : '본인 전용 · 잠정 조회'}</span>
+      </div>
+      <nav class="monthly-settlement-month-nav" aria-label="정산 월 이동">
+        <button type="button" data-monthly-settlement-prev aria-label="이전 달">‹</button>
+        <strong aria-live="polite">${esc(String(year))}년 ${esc(String(month))}월</strong>
+        <button type="button" data-monthly-settlement-next aria-label="다음 달" ${selectedIsCurrent ? 'disabled' : ''}>›</button>
+        <button class="monthly-settlement-current" type="button" data-monthly-settlement-today ${selectedIsCurrent ? 'disabled' : ''}>이번 달</button>
+      </nav>
+    </header>`;
+  }
+
+  function monthlySettlementStateMarkup(kind, title, detail, { action = false } = {}) {
+    return `<section class="monthly-settlement-state ${esc(kind)}" data-monthly-settlement-message="${esc(kind)}" role="status">
+      <span aria-hidden="true">${kind === 'error' ? '!' : (kind === 'private' ? '▣' : '…')}</span>
+      <strong>${esc(title)}</strong>
+      <p>${esc(detail)}</p>
+      ${action ? '<button type="button" data-monthly-settlement-refresh>다시 조회</button>' : ''}
+    </section>`;
+  }
+
+  function renderMonthlySettlementModule() {
+    if (!canShowPersonalMonthlySettlementView()) {
+      moduleView.innerHTML = `<div class="monthly-settlement" data-monthly-settlement data-monthly-settlement-state="forbidden">
+        ${monthlySettlementHeader({ stateLabel: '접근 제한', stateTone: 'red' })}
+        ${monthlySettlementStateMarkup('error', '월 정산을 볼 수 없습니다', '승인된 실제 OS 계정의 본인 자료만 열람할 수 있습니다.')}
+      </div>`;
+      wireMonthlySettlementControls();
+      return;
+    }
+    if (previewPersona) {
+      moduleView.innerHTML = `<div class="monthly-settlement" data-monthly-settlement data-monthly-settlement-state="private" data-monthly-settlement-scope="preview">
+        ${monthlySettlementHeader({ stateLabel: '데이터 비공개', stateTone: 'neutral' })}
+        ${monthlySettlementStateMarkup('private', '계정 미리보기에서는 월 정산을 불러오지 않습니다', '실제 로그인 계정의 매출·영업이익·플랫폼 정산이 다른 사람 화면에 섞이지 않도록 요청을 차단했습니다.')}
+      </div>`;
+      wireMonthlySettlementControls();
+      return;
+    }
+    const contextKey = monthlySettlementContextKey();
+    if (monthlySettlementState.contextKey && monthlySettlementState.contextKey !== contextKey) {
+      resetMonthlySettlementState();
+    }
+    if (monthlySettlementState.status === 'idle') {
+      moduleView.innerHTML = `<div class="monthly-settlement" data-monthly-settlement data-monthly-settlement-state="loading" data-monthly-settlement-scope="self">
+        ${monthlySettlementHeader({ stateLabel: '불러오는 중', stateTone: 'amber' })}
+        ${monthlySettlementStateMarkup('loading', '내 월 정산을 불러오고 있습니다', '개인 정산과 플랫폼 수집 상태를 확인하는 중입니다.')}
+      </div>`;
+      wireMonthlySettlementControls();
+      Promise.resolve().then(() => loadPersonalMonthlySettlement());
+      return;
+    }
+    if (monthlySettlementState.status === 'loading') {
+      moduleView.innerHTML = `<div class="monthly-settlement" data-monthly-settlement data-monthly-settlement-state="loading" data-monthly-settlement-scope="self">
+        ${monthlySettlementHeader({ stateLabel: '불러오는 중', stateTone: 'amber' })}
+        ${monthlySettlementStateMarkup('loading', '내 월 정산을 불러오고 있습니다', '개인 정산과 플랫폼 수집 상태를 확인하는 중입니다.')}
+      </div>`;
+      wireMonthlySettlementControls();
+      return;
+    }
+    if (monthlySettlementState.status === 'error' || !monthlySettlementState.data) {
+      const schemaPending = monthlySettlementState.code === 'MONTHLY_SETTLEMENT_SCHEMA_NOT_READY';
+      moduleView.innerHTML = `<div class="monthly-settlement" data-monthly-settlement data-monthly-settlement-state="${schemaPending ? 'pending' : 'error'}" data-monthly-settlement-scope="self">
+        ${monthlySettlementHeader({ stateLabel: schemaPending ? '준비 중' : '조회 실패', stateTone: schemaPending ? 'amber' : 'red' })}
+        ${monthlySettlementStateMarkup(schemaPending ? 'pending' : 'error', schemaPending ? '월 정산 저장소를 준비하고 있습니다' : '월 정산을 불러오지 못했습니다', monthlySettlementState.error || '잠시 후 다시 조회해 주세요.', { action: true })}
+      </div>`;
+      wireMonthlySettlementControls();
+      return;
+    }
+
+    const data = monthlySettlementState.data;
+    const partialPlatforms = data.platforms.filter(row => row.status === 'partial');
+    const issuePlatforms = data.platforms.filter(row => ['error', 'missing'].includes(row.status));
+    const collectedPlatforms = data.platforms.filter(row => (
+      row.coverageState === 'complete'
+      || ['ready', 'no_data'].includes(row.dataState)
+      || ['ready', 'no_data'].includes(row.status)
+    ));
+    const salesProviderCount = Math.max(0, Math.min(5, Number(data.platformTotal.salesProviderCount) || 0));
+    const profitProviderCount = Math.max(0, Math.min(5, Number(data.platformTotal.profitProviderCount) || 0));
+    const transactionProviderCount = Math.max(0, Math.min(5, Number(data.platformTotal.transactionProviderCount) || 0));
+    const platformFallback = data.platforms.every(row => row.status === 'not_connected')
+      ? '연동 전'
+      : (data.platforms.some(row => row.status === 'not_covered') ? '선택 월 미수집' : '수집 대기');
+    // 합계가 숫자 0이어도 실제로 포함된 provider가 하나도 없으면 0원 실적이
+    // 아니다. provider coverage와 함께 받은 금액만 화면에 노출한다.
+    const visiblePlatformTotal = {
+      sales: salesProviderCount ? data.platformTotal.sales : null,
+      profit: profitProviderCount ? data.platformTotal.profit : null,
+      transactionCount: transactionProviderCount
+        ? data.platformTotal.transactionCount
+        : null
+    };
+    const dataState = issuePlatforms.length || partialPlatforms.length || collectedPlatforms.length < 5
+      ? 'partial'
+      : 'ready';
+    const syncLabel = dataState === 'ready'
+      ? '5개 플랫폼 합계 반영'
+      : `${Math.max(salesProviderCount, profitProviderCount)}/5개 합계 반영`;
+    const coverageLabel = `매출 ${salesProviderCount}/5 · 이익 ${profitProviderCount}/5`;
+    const personalExpanded = monthlySettlementExpanded.personal;
+    const platformsExpanded = monthlySettlementExpanded.platforms;
+    const platformRows = data.platforms.map(row => {
+      const meta = monthlySettlementStatusMeta(row.status);
+      const sourceMeta = monthlySettlementSourceMeta(row);
+      const profitBasis = monthlySettlementProfitBasisLabel(row.profitBasis, row.key);
+      const sourceStateVisible = row.coverageState === 'complete'
+        || ['ready', 'no_data'].includes(row.dataState);
+      const statusTone = sourceMeta.tone === 'red' ? 'red' : meta.tone;
+      return `<tr data-monthly-settlement-platform="${esc(row.key)}" data-monthly-settlement-platform-state="${esc(row.status)}" data-monthly-settlement-platform-data-state="${esc(row.dataState)}" data-monthly-settlement-source-state="${esc(row.sourceState)}">
+        <th scope="row" data-label="플랫폼"><span class="monthly-settlement-platform-name"><i aria-hidden="true"></i><strong>${esc(row.label)}</strong></span></th>
+        <td data-label="매출">${row.sales !== null ? monthlySettlementAmount(row.sales) : '<span class="monthly-settlement-dash">—</span>'}</td>
+        <td data-label="영업이익">${row.profit !== null ? monthlySettlementAmount(row.profit) : '<span class="monthly-settlement-dash">—</span>'}<small>${esc(profitBasis)}</small></td>
+        <td data-label="건수"><span>${esc(row.transactionCount !== null ? monthlySettlementCount(row.transactionCount) : '—')}</span></td>
+        <td data-label="수집 상태"><span class="monthly-settlement-status ${esc(statusTone)}" data-monthly-settlement-sync-state="${esc(row.status)}"><i aria-hidden="true"></i>${esc(meta.label)}</span><small>${esc(meta.detail)}${sourceStateVisible ? ` · ${esc(sourceMeta.label)}` : ''}</small></td>
+        <td data-label="마지막 수집"><span>${esc(monthlySettlementTimestamp(row.lastImportedAt, row.status === 'not_connected' ? '연동 전' : '수집 이력 없음'))}</span></td>
+      </tr>`;
+    }).join('');
+
+    moduleView.innerHTML = `<div class="monthly-settlement" data-monthly-settlement data-monthly-settlement-state="${esc(dataState)}" data-monthly-settlement-scope="self" data-monthly-settlement-month="${esc(data.month)}">
+      ${monthlySettlementHeader({
+        stateLabel: syncLabel,
+        stateTone: dataState === 'ready' ? 'green' : 'amber',
+        generatedAt: data.generatedAt,
+        showPlatformShortcut: true
+      })}
+      <section class="monthly-settlement-kpis" aria-label="월 정산 핵심 지표">
+        <article data-monthly-settlement-kpi="personal-sales"><span>개인 정산 매출</span>${monthlySettlementAmount(data.personal.sales, '자료 없음')}<small>${esc(monthlySettlementCount(data.personal.transactionCount, '정산 건수 미도착'))}</small></article>
+        <article data-monthly-settlement-kpi="personal-profit"><span>개인 정산 영업이익</span>${monthlySettlementAmount(data.personal.profit, '자료 없음')}<small>판매액 - 영업자 공급가액</small></article>
+        <article data-monthly-settlement-kpi="platform-sales"><span>수집된 플랫폼 매출</span>${monthlySettlementAmount(visiblePlatformTotal.sales, platformFallback)}<small>${esc(monthlySettlementCount(visiblePlatformTotal.transactionCount, '플랫폼 건수 미도착'))}</small></article>
+        <article data-monthly-settlement-kpi="platform-profit"><span>수집된 플랫폼 영업이익</span>${monthlySettlementAmount(visiblePlatformTotal.profit, platformFallback)}<small>${esc(coverageLabel)}</small></article>
+      </section>
+      <div class="monthly-settlement-boundary" role="note"><span aria-hidden="true">i</span><p><strong>실시간 잠정 조회이며, 개인 정산과 플랫폼 합계는 서로 더하지 않습니다.</strong><small>월 마감·승인 전에는 원장 수정이나 환불 수집으로 금액이 바뀔 수 있습니다. 같은 거래가 두 원장에 함께 포함될 수 있어 각각 분리하며, 영업자 연결 대기 거래는 본인 합계에 포함되지 않을 수 있습니다.</small></p></div>
+
+      <section class="monthly-settlement-section" data-monthly-settlement-section="personal">
+        <button class="monthly-settlement-section-toggle" type="button" data-monthly-settlement-toggle="personal" aria-expanded="${personalExpanded ? 'true' : 'false'}" aria-controls="monthlySettlementPersonalBody">
+          <span><i aria-hidden="true">₩</i><span><strong>개인 정산</strong><small>OS 개인 정산 원장 · 본인 자료만 표시</small></span></span><em>${personalExpanded ? '접기' : '펼치기'}</em>
+        </button>
+        <div class="monthly-settlement-section-body" id="monthlySettlementPersonalBody" ${personalExpanded ? '' : 'hidden'}>
+          <dl class="monthly-settlement-personal-grid">
+            <div><dt>정산 매출</dt><dd>${monthlySettlementAmount(data.personal.sales, '자료 없음')}</dd></div>
+            <div><dt>영업이익</dt><dd>${monthlySettlementAmount(data.personal.profit, '자료 없음')}</dd></div>
+            <div><dt>정산 건수</dt><dd><strong>${esc(monthlySettlementCount(data.personal.transactionCount, '자료 없음'))}</strong></dd></div>
+          </dl>
+          <p class="monthly-settlement-formula">개인 정산 영업이익은 현재 원장 기준으로 판매액에서 영업자 공급가액을 뺀 값입니다.</p>
+        </div>
+      </section>
+
+      <section class="monthly-settlement-section" data-monthly-settlement-section="platforms">
+        <button class="monthly-settlement-section-toggle" type="button" data-monthly-settlement-toggle="platforms" aria-expanded="${platformsExpanded ? 'true' : 'false'}" aria-controls="monthlySettlementPlatformsBody">
+          <span><i aria-hidden="true">⌘</i><span><strong>플랫폼별 정산</strong><small>고정 5개 플랫폼 · API 수집 상태 포함</small></span></span><em>${platformsExpanded ? '접기' : '펼치기'}</em>
+        </button>
+        <div class="monthly-settlement-section-body platform" id="monthlySettlementPlatformsBody" ${platformsExpanded ? '' : 'hidden'}>
+          <div class="monthly-settlement-platform-total" data-monthly-settlement-platform-total aria-label="플랫폼 합계">
+            <span>수집된 플랫폼 합계</span><p><b>매출</b>${monthlySettlementAmount(visiblePlatformTotal.sales, platformFallback)}</p><p><b>영업이익</b>${monthlySettlementAmount(visiblePlatformTotal.profit, platformFallback)}</p><small>${esc(monthlySettlementCount(visiblePlatformTotal.transactionCount, '건수 미도착'))}</small>
+          </div>
+          <div class="monthly-settlement-table-scroll">
+            <table class="monthly-settlement-table" data-monthly-settlement-platforms>
+              <thead><tr><th>플랫폼</th><th>매출</th><th>영업이익</th><th>건수</th><th>수집 상태</th><th>마지막 수집</th></tr></thead>
+              <tbody>${platformRows}</tbody>
+            </table>
           </div>
         </div>
       </section>
-      <section class="module-grid two">
-        ${moduleCard({ icon: '＋', title: '플랫폼 연결 관리', description: '연동할 플랫폼, API 인증 방식, 수집 주기와 담당자를 등록합니다.', footer: '연동 대상 전달 필요', action: '연결 구조 보기' })}
-        ${moduleCard({ icon: '✓', tone: 'green', title: '정산 검증', description: '플랫폼 원본 합계와 내부 정산 합계를 비교해 차이를 검토합니다.', footer: '검증 규칙 확정 필요', action: '검증 항목 보기' })}
-      </section>`;
+      <footer class="monthly-settlement-footer"><span>▣</span><p><strong>${esc(data.owner.name)} 본인 전용</strong><small>다른 영업자의 정산, 회사 원가와 회사 영업이익은 이 화면과 API 응답에 포함하지 않습니다.</small></p><button type="button" data-monthly-settlement-refresh>새로고침</button></footer>
+    </div>`;
+    wireMonthlySettlementControls();
+    if (monthlySettlementFocusPlatforms) {
+      monthlySettlementFocusPlatforms = false;
+      revealMonthlySettlementPlatforms();
+    }
+  }
+
+  function revealMonthlySettlementPlatforms() {
+    monthlySettlementExpanded.platforms = true;
+    const toggle = moduleView.querySelector('[data-monthly-settlement-toggle="platforms"]');
+    const bodyId = toggle?.getAttribute('aria-controls');
+    const sectionBody = bodyId ? document.getElementById(bodyId) : null;
+    if (!toggle || !sectionBody) return;
+    toggle.setAttribute('aria-expanded', 'true');
+    sectionBody.hidden = false;
+    const label = toggle.querySelector(':scope > em');
+    if (label) label.textContent = '접기';
+    window.requestAnimationFrame(() => {
+      toggle.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      toggle.focus({ preventScroll: true });
+    });
+  }
+
+  function wireMonthlySettlementControls() {
+    const currentMonth = koreaDateKey(new Date()).slice(0, 7);
+    const move = nextMonth => {
+      const month = validMonthlySettlementMonth(nextMonth);
+      if (!month || month > currentMonth || month === monthlySettlementMonth) return;
+      monthlySettlementMonth = month;
+      resetMonthlySettlementState();
+      renderMonthlySettlementModule();
+    };
+    moduleView.querySelector('[data-monthly-settlement-prev]')?.addEventListener('click', () => {
+      move(shiftMonthlySettlementMonth(monthlySettlementMonth, -1));
+    });
+    moduleView.querySelector('[data-monthly-settlement-next]')?.addEventListener('click', () => {
+      move(shiftMonthlySettlementMonth(monthlySettlementMonth, 1));
+    });
+    moduleView.querySelector('[data-monthly-settlement-today]')?.addEventListener('click', () => move(currentMonth));
+    moduleView.querySelectorAll('[data-monthly-settlement-refresh]').forEach(button => button.addEventListener('click', () => {
+      if (!canAccessPersonalMonthlySettlementData()) return;
+      loadPersonalMonthlySettlement({ force: true });
+    }));
+    moduleView.querySelector('[data-monthly-settlement-platform-jump]')?.addEventListener('click', () => {
+      revealMonthlySettlementPlatforms();
+    });
+    moduleView.querySelectorAll('[data-monthly-settlement-toggle]').forEach(button => button.addEventListener('click', () => {
+      const key = button.dataset.monthlySettlementToggle;
+      if (!Object.prototype.hasOwnProperty.call(monthlySettlementExpanded, key)) return;
+      monthlySettlementExpanded[key] = !monthlySettlementExpanded[key];
+      const expanded = monthlySettlementExpanded[key];
+      button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      const bodyId = button.getAttribute('aria-controls');
+      const sectionBody = bodyId ? document.getElementById(bodyId) : null;
+      if (sectionBody) sectionBody.hidden = !expanded;
+      const label = button.querySelector(':scope > em');
+      if (label) label.textContent = expanded ? '접기' : '펼치기';
+    }));
+  }
+
+  function renderPlatformModule() {
+    const canOpenPersonalStatus = canAccessPersonalMonthlySettlementData();
+    moduleView.innerHTML = `
+      ${moduleStatusbar('플랫폼 API 안내', 'API 키는 화면에 노출하지 않으며 실제 수집 결과는 개인 월 정산에서 확인합니다.', '영업 운영 → 월 정산')}
+      <section class="module-section">
+        <div class="module-section-head"><span><strong>API 연동 현황 보는 곳</strong><small>영업 운영 → 월 정산 → 플랫폼별 정산</small></span><span class="module-chip">실제 서버 응답 기준</span></div>
+        <div class="module-section-body">
+          <div class="platform-api-location" role="note">
+            <span class="platform-api-location-icon" aria-hidden="true">⌘</span>
+            <span><strong>연결 상태·수집 상태·마지막 수집 시각은 월 정산에서 확인합니다.</strong><small>리워드스페이스, 리뷰스페이스, 키워드마스터, 브랜드오토스페이스, 리뷰플로우의 서버 응답을 로그인한 본인 범위로만 표시합니다.</small></span>
+            ${canOpenPersonalStatus
+              ? '<button class="module-action primary" type="button" data-open-monthly-platform-status>월 정산에서 API 현황 보기</button>'
+              : '<span class="module-chip">승인된 본인 계정에서 확인</span>'}
+          </div>
+        </div>
+      </section>
+      <div class="module-security"><span>▣</span><span><strong>API 키와 비밀값은 이 화면에서 조회하거나 수정하지 않습니다</strong><br>플랫폼별 숫자와 상태는 월 정산 API가 전달한 값만 표시하며, 연결되지 않은 플랫폼을 정상 또는 0원으로 표시하지 않습니다.</span></div>`;
   }
 
   function renderSaasModule() {
@@ -13201,9 +16400,606 @@
     </div>`;
   }
 
+  const SALES_LEAD_STATUS_META = Object.freeze({
+    new: Object.freeze({ label: '신규', tone: 'neutral' }),
+    contacted: Object.freeze({ label: '연락 완료', tone: 'info' }),
+    follow_up: Object.freeze({ label: '후속 연락', tone: 'amber' }),
+    won: Object.freeze({ label: '성사', tone: 'green' }),
+    lost: Object.freeze({ label: '실패', tone: 'red' }),
+    do_not_call: Object.freeze({ label: '연락 금지', tone: 'red' })
+  });
+  const SALES_LEAD_CHANNEL_LABELS = Object.freeze({ phone: '전화', field: '현장', online: '온라인' });
+  const SALES_LEAD_SOURCE_LABELS = Object.freeze({ manual: '직접 등록', referral: '소개', inbound: '인바운드', other: '기타' });
+  const SALES_CALL_DISPOSITION_LABELS = Object.freeze({
+    connected: '통화 연결', no_answer: '부재중', busy: '통화 중', callback: '재통화 요청',
+    interested: '관심', won: '성사', lost: '실패', do_not_call: '연락 금지'
+  });
+
+  function salesLeadContextKey() {
+    return [
+      workspaceAccessGeneration,
+      activeWorkspaceSlug || '',
+      currentUser?.uid || '',
+      osAuthAccessGeneration,
+      previewPersona || 'self'
+    ].join('|');
+  }
+
+  function salesLeadContextIsCurrent(contextKey) {
+    return Boolean(currentUser
+      && !previewPersona
+      && canSeeSalesDatabase()
+      && contextKey === salesLeadContextKey());
+  }
+
+  async function salesLeadApi(method, suffix = '', payload) {
+    const normalizedMethod = String(method || 'GET').toUpperCase();
+    if (previewPersona || !canSeeSalesDatabase()) {
+      const error = new Error(previewPersona
+        ? '계정 미리보기에서는 영업 DB를 조회하지 않습니다.'
+        : '영업 DB 열람 권한이 없습니다.');
+      error.code = previewPersona ? 'SALES_PREVIEW_DATA_HIDDEN' : 'SALES_ROLE_FORBIDDEN';
+      throw error;
+    }
+    if (normalizedMethod !== 'GET' && !salesDatabaseWritable()) {
+      const error = new Error(workspaceIsOversight()
+        ? '본사 열람 모드에서는 영업 DB를 수정할 수 없습니다.'
+        : '영업 DB 편집 권한을 확인해 주세요.');
+      error.code = workspaceIsOversight() ? 'SALES_OVERSIGHT_READ_ONLY' : 'WORKSPACE_WRITE_FORBIDDEN';
+      throw error;
+    }
+    const contextKey = salesLeadContextKey();
+    const result = await callApi(
+      normalizedMethod,
+      `/peakos/sales-leads${String(suffix || '')}`,
+      payload,
+      { headers: { 'X-PeakOS-Preview': '0' } }
+    );
+    if (!salesLeadContextIsCurrent(contextKey)) {
+      const error = new Error('로그인 또는 워크스페이스가 바뀌어 이전 영업 DB 응답을 폐기했습니다.');
+      error.code = 'AUTH_CONTEXT_CHANGED';
+      throw error;
+    }
+    return result;
+  }
+
+  function salesLeadQueryString() {
+    const query = new URLSearchParams();
+    if (salesLeadFilters.q) query.set('q', salesLeadFilters.q);
+    if (salesLeadFilters.status !== 'all') query.set('status', salesLeadFilters.status);
+    if (salesLeadFilters.ownerUid !== 'all') query.set('ownerUid', salesLeadFilters.ownerUid);
+    if (salesLeadFilters.includeArchived) query.set('includeArchived', 'true');
+    query.set('limit', String(salesLeadState.limit || 50));
+    query.set('offset', String(salesLeadState.offset || 0));
+    return query.toString();
+  }
+
+  async function refreshSalesLeads({ offset = salesLeadState.offset || 0 } = {}) {
+    if (!canSeeSalesDatabase() || previewPersona) return false;
+    const contextKey = salesLeadContextKey();
+    const generation = ++salesLeadLoadGeneration;
+    salesLeadState = {
+      ...salesLeadState, status: 'loading', contextKey, offset: Math.max(0, Number(offset) || 0), error: ''
+    };
+    if (activeView === 'sales-db') renderSalesDatabase();
+    try {
+      const [summary, collection, ownerPayload] = await Promise.all([
+        salesLeadApi('GET', '/summary'),
+        salesLeadApi('GET', `?${salesLeadQueryString()}`),
+        salesLeadApi('GET', '/owners')
+      ]);
+      if (generation !== salesLeadLoadGeneration || !salesLeadContextIsCurrent(contextKey)) return false;
+      salesLeadState = {
+        status: 'ready', contextKey,
+        readOnly: collection?.readOnly === true || summary?.readOnly === true,
+        piiAccess: String(collection?.piiAccess || 'masked'),
+        detailPiiAccess: String(collection?.detailPiiAccess || 'masked'),
+        leads: Array.isArray(collection?.leads) ? collection.leads : [],
+        total: Math.max(0, Number(collection?.total) || 0),
+        limit: Math.max(1, Number(collection?.limit) || 50),
+        offset: Math.max(0, Number(collection?.offset) || 0),
+        summary: summary && typeof summary === 'object' ? summary : null,
+        owners: Array.isArray(ownerPayload) ? ownerPayload : (Array.isArray(ownerPayload?.owners) ? ownerPayload.owners : []),
+        error: ''
+      };
+      if (activeView === 'sales-db') renderSalesDatabase();
+      return true;
+    } catch (error) {
+      if (generation !== salesLeadLoadGeneration || !salesLeadContextIsCurrent(contextKey)) return false;
+      salesLeadState = {
+        ...salesLeadState, status: 'error', contextKey,
+        leads: [], total: 0, summary: null, owners: [],
+        error: error.message || '영업 DB를 불러오지 못했습니다.'
+      };
+      if (activeView === 'sales-db') renderSalesDatabase();
+      return false;
+    }
+  }
+
+  async function openSalesLeadDetail(leadId, trigger = null) {
+    const id = String(leadId || '').trim();
+    if (!id || !canSeeSalesDatabase() || previewPersona) return;
+    selectedSalesLeadId = id;
+    selectedSalesLeadTrigger = trigger instanceof HTMLElement ? trigger : null;
+    const contextKey = salesLeadContextKey();
+    const generation = ++salesLeadDetailLoadGeneration;
+    salesLeadDetailState = {
+      status: 'loading', contextKey, leadId: id, readOnly: salesLeadState.readOnly,
+      piiAccess: 'masked', lead: null, calls: [], error: ''
+    };
+    renderSalesDatabase();
+    try {
+      const payload = await salesLeadApi('GET', `/${encodeURIComponent(id)}`);
+      if (generation !== salesLeadDetailLoadGeneration
+        || selectedSalesLeadId !== id
+        || !salesLeadContextIsCurrent(contextKey)) return;
+      salesLeadDetailState = {
+        status: 'ready', contextKey, leadId: id,
+        readOnly: payload?.readOnly === true,
+        piiAccess: String(payload?.piiAccess || 'masked'),
+        lead: payload?.lead || null,
+        calls: Array.isArray(payload?.calls) ? payload.calls : [],
+        error: ''
+      };
+      renderSalesDatabase();
+      window.requestAnimationFrame(() => moduleView.querySelector('[data-sales-lead-drawer]')?.focus());
+    } catch (error) {
+      if (generation !== salesLeadDetailLoadGeneration
+        || selectedSalesLeadId !== id
+        || !salesLeadContextIsCurrent(contextKey)) return;
+      salesLeadDetailState = {
+        status: 'error', contextKey, leadId: id, readOnly: true,
+        piiAccess: 'masked', lead: null, calls: [],
+        error: error.message || '리드 상세를 불러오지 못했습니다.'
+      };
+      renderSalesDatabase();
+    }
+  }
+
+  function closeSalesLeadDetail({ restoreFocus = true } = {}) {
+    const previousId = selectedSalesLeadId;
+    salesLeadDetailLoadGeneration += 1;
+    selectedSalesLeadId = '';
+    salesLeadDetailState = {
+      status: 'idle', contextKey: salesLeadContextKey(), leadId: '', readOnly: true,
+      piiAccess: 'masked', lead: null, calls: [], error: ''
+    };
+    if (activeView === 'sales-db') renderSalesDatabase();
+    if (!restoreFocus) {
+      selectedSalesLeadTrigger = null;
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      const fallback = [...moduleView.querySelectorAll('[data-sales-lead-open]')]
+        .find(button => String(button.dataset.salesLeadOpen || '') === previousId);
+      (selectedSalesLeadTrigger?.isConnected ? selectedSalesLeadTrigger : fallback)?.focus();
+      selectedSalesLeadTrigger = null;
+    });
+  }
+
+  function salesLeadDate(value, { includeTime = true } = {}) {
+    if (!value) return '미정';
+    return formatDate(value, includeTime
+      ? { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }
+      : { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  function salesLeadDateTimeLocal(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
+  }
+
+  function salesLeadIso(value) {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  }
+
+  function salesLeadStatusChip(status) {
+    const meta = SALES_LEAD_STATUS_META[status] || SALES_LEAD_STATUS_META.new;
+    return `<span class="sales-lead-status ${esc(meta.tone)}">${esc(meta.label)}</span>`;
+  }
+
+  function salesLeadOwnerOptions() {
+    const byUid = new Map();
+    const add = user => {
+      const uid = String(user?.uid || user?.id || '').trim();
+      if (!uid) return;
+      byUid.set(uid, String(user?.name || user?.displayName || uid).trim() || uid);
+    };
+    // 서버가 승인·활성·동일 워크스페이스 조건을 canonical하게 계산한
+    // owner directory만 선택지로 사용한다. 협업 전체 디렉터리는 섞지 않는다.
+    (Array.isArray(salesLeadState.owners) ? salesLeadState.owners : []).forEach(add);
+    return [...byUid.entries()]
+      .map(([uid, name]) => ({ uid, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+  }
+
+  function renderSalesLeadDrawer() {
+    if (!selectedSalesLeadId) return '';
+    const state = salesLeadDetailState;
+    if (state.status === 'loading') {
+      return `<div class="sales-lead-drawer-backdrop" data-sales-lead-close></div>
+        <aside class="sales-lead-drawer" data-sales-lead-drawer role="dialog" aria-modal="true" aria-labelledby="salesLeadDrawerTitle" tabindex="-1">
+          <header><div><small>LEAD DETAIL</small><h2 id="salesLeadDrawerTitle">리드 상세</h2></div><button type="button" data-sales-lead-close aria-label="상세 닫기">×</button></header>
+          <div class="sales-lead-drawer-state"><span class="os-auth-spinner" aria-hidden="true"></span><strong>보호된 연락처를 불러오는 중입니다</strong></div>
+        </aside>`;
+    }
+    if (state.status === 'error' || !state.lead) {
+      return `<div class="sales-lead-drawer-backdrop" data-sales-lead-close></div>
+        <aside class="sales-lead-drawer" data-sales-lead-drawer role="dialog" aria-modal="true" aria-labelledby="salesLeadDrawerTitle" tabindex="-1">
+          <header><div><small>LEAD DETAIL</small><h2 id="salesLeadDrawerTitle">리드 상세</h2></div><button type="button" data-sales-lead-close aria-label="상세 닫기">×</button></header>
+          <div class="sales-lead-drawer-state error"><strong>상세를 불러오지 못했습니다</strong><p>${esc(state.error)}</p><button class="sales-db-button secondary" type="button" data-sales-lead-retry>다시 조회</button></div>
+        </aside>`;
+    }
+    const lead = state.lead;
+    const contact = lead.contact || {};
+    const writable = salesDatabaseWritable() && !state.readOnly && !lead.archived;
+    const masked = state.piiAccess !== 'full' || contact.redacted === true;
+    const calls = Array.isArray(state.calls) ? state.calls : [];
+    return `<div class="sales-lead-drawer-backdrop" data-sales-lead-close></div>
+      <aside class="sales-lead-drawer" data-sales-lead-drawer role="dialog" aria-modal="true" aria-labelledby="salesLeadDrawerTitle" tabindex="-1">
+        <header>
+          <div><small>LEAD DETAIL · v${esc(String(lead.version || 1))}</small><h2 id="salesLeadDrawerTitle">${esc(lead.companyName || '업체명 없음')}</h2></div>
+          <button type="button" data-sales-lead-close aria-label="${esc(lead.companyName || '리드')} 상세 닫기">×</button>
+        </header>
+        <div class="sales-lead-drawer-scroll">
+          <section class="sales-lead-detail-hero">
+            <div>${salesLeadStatusChip(lead.status)}${lead.archived ? '<span class="sales-lead-status neutral">보관됨</span>' : ''}</div>
+            <p>${esc(SALES_LEAD_CHANNEL_LABELS[lead.channel] || lead.channel || '채널 미정')} · ${esc(SALES_LEAD_SOURCE_LABELS[lead.source] || lead.source || '유입 미정')} · 담당 ${esc(lead.owner?.name || '미지정')}</p>
+          </section>
+          <section class="sales-lead-private ${masked ? 'masked' : ''}" aria-label="연락처 정보">
+            <div class="sales-lead-section-title"><span><strong>연락처</strong><small>${masked ? '본사 열람 모드에서는 마스킹됩니다' : '상세 화면에서만 복호화됩니다'}</small></span><span class="sales-pii-chip">${masked ? 'MASKED' : 'DETAIL ONLY'}</span></div>
+            <dl>
+              <div><dt>담당자명</dt><dd>${esc(masked ? '비공개' : (contact.contactName || '미입력'))}</dd></div>
+              <div><dt>전화번호</dt><dd data-sales-lead-phone>${masked
+                ? esc(contact.phoneMasked || '***-****-****')
+                : `<span class="sales-lead-phone-actions"><a href="tel:${esc(String(contact.phone || '').replace(/[^0-9+]/g, ''))}" data-sales-lead-call-link>${esc(contact.phone || '미입력')}</a><button type="button" data-sales-lead-phone-copy="${esc(contact.phone || '')}">복사</button></span>`}</dd></div>
+              <div><dt>주소</dt><dd>${esc(masked ? '비공개' : (contact.address || '미입력'))}</dd></div>
+              <div><dt>메모</dt><dd>${esc(masked ? '비공개' : (contact.memo || '미입력'))}</dd></div>
+            </dl>
+          </section>
+          <section class="sales-lead-detail-grid" aria-label="영업 일정">
+            <article><span>다음 연락</span><strong>${esc(salesLeadDate(lead.nextFollowupAt))}</strong></article>
+            <article><span>최근 통화</span><strong>${esc(salesLeadDate(lead.lastContactAt))}</strong></article>
+            <article><span>등록자</span><strong>${esc(lead.createdBy?.name || '확인 불가')}</strong></article>
+            <article><span>최근 수정</span><strong>${esc(salesLeadDate(lead.updatedAt))}</strong></article>
+          </section>
+          ${writable ? `<div class="sales-lead-detail-actions">
+            <button class="sales-db-button primary" type="button" data-sales-lead-call>+ 콜 기록</button>
+            <button class="sales-db-button secondary" type="button" data-sales-lead-edit>수정</button>
+            <button class="sales-db-button danger-ghost" type="button" data-sales-lead-archive>보관</button>
+          </div>` : `<div class="sales-lead-readonly-note"><span aria-hidden="true">▣</span><span><strong>읽기 전용</strong><br>본사 열람 모드에서는 상세 PII와 변경 기능을 제공하지 않습니다.</span></div>`}
+          <section class="sales-lead-call-section">
+            <div class="sales-lead-section-title"><span><strong>콜 히스토리</strong><small>최근 기록부터 최대 200건</small></span><span>${esc(String(calls.length))}건</span></div>
+            ${calls.length ? `<ol>${calls.map(call => `<li>
+              <div><span class="sales-call-disposition ${['lost', 'do_not_call'].includes(call.disposition) ? 'red' : (['won', 'interested'].includes(call.disposition) ? 'green' : (call.disposition === 'callback' ? 'amber' : 'neutral'))}">${esc(SALES_CALL_DISPOSITION_LABELS[call.disposition] || call.disposition || '통화')}</span><time>${esc(salesLeadDate(call.occurredAt))}</time></div>
+              <strong>${esc(call.actor?.name || '담당자')}</strong>
+              <p>${esc(call.noteRedacted ? '본사 열람 모드에서 메모가 가려졌습니다.' : (call.note || '메모 없음'))}</p>
+              <small>${call.durationSeconds === null || call.durationSeconds === undefined ? '통화 시간 미입력' : `${esc(String(call.durationSeconds))}초`} ${call.nextFollowupAt ? `· 다음 연락 ${esc(salesLeadDate(call.nextFollowupAt))}` : ''}</small>
+            </li>`).join('')}</ol>` : '<p class="sales-lead-empty">아직 등록된 콜 기록이 없습니다.</p>'}
+          </section>
+        </div>
+      </aside>`;
+  }
+
+  function renderSalesDatabase() {
+    if (!moduleView) return;
+    if (previewPersona || !canSeeSalesDatabase()) {
+      // 미리보기와 비영업 계정은 이 분기에서 fetch를 예약하지 않는다.
+      moduleView.innerHTML = `<section class="sales-db-denied" data-sales-db-state="denied">
+        <span aria-hidden="true">▣</span><h1>영업 DB를 열 수 없습니다</h1>
+        <p>영업 구성원 또는 선택 워크스페이스 관리자 권한이 필요합니다. 계정 미리보기에서는 데이터 요청도 보내지 않습니다.</p>
+      </section>`;
+      return;
+    }
+    const contextKey = salesLeadContextKey();
+    if (salesLeadState.contextKey !== contextKey || salesLeadState.status === 'idle') {
+      salesLeadState = { ...salesLeadState, status: 'loading', contextKey, leads: [], total: 0, summary: null, owners: [], error: '' };
+      Promise.resolve().then(() => refreshSalesLeads({ offset: 0 }));
+    }
+    const state = salesLeadState;
+    const summary = state.summary || { total: 0, statuses: {}, followUps: {} };
+    const statuses = summary.statuses || {};
+    const followUps = summary.followUps || {};
+    const ownerOptions = salesLeadOwnerOptions();
+    if (salesLeadFilters.ownerUid !== 'all' && !ownerOptions.some(owner => owner.uid === salesLeadFilters.ownerUid)) {
+      salesLeadFilters.ownerUid = 'all';
+    }
+    const start = state.total ? state.offset + 1 : 0;
+    const end = Math.min(state.total, state.offset + state.leads.length);
+    const hasPrevious = state.offset > 0;
+    const hasNext = state.offset + state.limit < state.total;
+    const readOnly = state.readOnly || workspaceIsOversight();
+    const workspaceName = workspaceContext?.workspace?.name || '선택 워크스페이스';
+    moduleView.innerHTML = `<div class="sales-db" data-sales-db-root data-sales-db-state="${esc(state.status)}">
+      <header class="sales-db-header">
+        <div><span class="sales-db-eyebrow">SALES CRM · ${esc(workspaceName)}</span><h1>영업 DB</h1><p>콜 대상과 후속 연락을 워크스페이스별로 안전하게 관리합니다.</p></div>
+        <div class="sales-db-header-actions">
+          ${readOnly ? '<span class="sales-db-readonly">▣ 본사 열람 · 마스킹</span>' : '<span class="sales-db-private">연락처는 상세에서만 표시</span>'}
+          <button class="sales-db-button secondary" type="button" data-sales-db-refresh>새로고침</button>
+          ${salesDatabaseWritable() && !readOnly ? '<button class="sales-db-button primary" type="button" data-sales-lead-create>+ 신규 리드</button>' : ''}
+        </div>
+      </header>
+      <section class="sales-db-kpis" aria-label="영업 현황">
+        <article><span>전체 리드</span><strong>${esc(Number(summary.total || 0).toLocaleString('ko-KR'))}</strong><small>보관 제외</small></article>
+        <article class="amber"><span>후속 연락</span><strong>${esc(Number(statuses.follow_up || 0).toLocaleString('ko-KR'))}</strong><small>오늘 ${esc(String(followUps.today || 0))} · 지연 ${esc(String(followUps.overdue || 0))}</small></article>
+        <article class="green"><span>성사</span><strong>${esc(Number(statuses.won || 0).toLocaleString('ko-KR'))}</strong><small>전환 완료</small></article>
+        <article class="red"><span>실패 · 연락 금지</span><strong>${esc(Number((statuses.lost || 0) + (statuses.do_not_call || 0)).toLocaleString('ko-KR'))}</strong><small>실패 ${esc(String(statuses.lost || 0))} · DNC ${esc(String(statuses.do_not_call || 0))}</small></article>
+      </section>
+      <section class="sales-db-board">
+        <form class="sales-db-filters" data-sales-db-filter-form>
+          <label class="sales-db-search"><span>업체명 검색</span><input type="search" name="q" value="${esc(salesLeadFilters.q)}" placeholder="업체명" autocomplete="off" aria-label="업체명 검색"></label>
+          <label><span>상태</span><select name="status"><option value="all">전체 상태</option>${Object.entries(SALES_LEAD_STATUS_META).map(([value, meta]) => `<option value="${esc(value)}" ${salesLeadFilters.status === value ? 'selected' : ''}>${esc(meta.label)}</option>`).join('')}</select></label>
+          <label><span>담당자</span><select name="ownerUid"><option value="all">전체 담당자</option>${ownerOptions.map(owner => `<option value="${esc(owner.uid)}" ${salesLeadFilters.ownerUid === owner.uid ? 'selected' : ''}>${esc(owner.name)}</option>`).join('')}</select></label>
+          <label class="sales-db-archive-filter"><input type="checkbox" name="includeArchived" ${salesLeadFilters.includeArchived ? 'checked' : ''}><span>보관 포함</span></label>
+          <button class="sales-db-button primary" type="submit">조회</button>
+          <button class="sales-db-button secondary" type="button" data-sales-db-filter-reset>초기화</button>
+        </form>
+        <div class="sales-db-list-head"><div><strong>리드 목록</strong><span>${esc(String(start))}–${esc(String(end))} / ${esc(Number(state.total || 0).toLocaleString('ko-KR'))}건</span></div><span>목록 연락처는 항상 마스킹됩니다</span></div>
+        ${state.status === 'loading' ? '<div class="sales-db-state"><span class="os-auth-spinner" aria-hidden="true"></span><strong>영업 리드를 불러오는 중입니다</strong></div>'
+          : state.status === 'error' ? `<div class="sales-db-state error"><strong>영업 DB를 불러오지 못했습니다</strong><p>${esc(state.error)}</p><button class="sales-db-button secondary" type="button" data-sales-db-refresh>다시 조회</button></div>`
+          : state.leads.length ? `<div class="sales-lead-list" role="list">
+            <div class="sales-lead-row sales-lead-columns" aria-hidden="true"><span>업체</span><span>마스킹 연락처</span><span>상태</span><span>담당자</span><span>다음 연락</span><span>최근 통화</span></div>
+            ${state.leads.map(lead => `<button class="sales-lead-row ${lead.archived ? 'archived' : ''}" type="button" role="listitem" data-sales-lead-open="${esc(lead.id)}">
+              <span class="sales-lead-company"><strong>${esc(lead.companyName || '업체명 없음')}</strong><small>${esc(SALES_LEAD_CHANNEL_LABELS[lead.channel] || lead.channel || '채널 미정')} · ${esc(SALES_LEAD_SOURCE_LABELS[lead.source] || lead.source || '유입 미정')}${lead.archived ? ' · 보관됨' : ''}</small></span>
+              <span class="sales-lead-phone">${esc(lead.contact?.phoneMasked || '***-****-****')}</span>
+              <span>${salesLeadStatusChip(lead.status)}</span>
+              <span class="sales-lead-owner">${esc(lead.owner?.name || '미지정')}</span>
+              <span>${esc(salesLeadDate(lead.nextFollowupAt))}</span>
+              <span>${esc(salesLeadDate(lead.lastContactAt))}</span>
+            </button>`).join('')}
+          </div>` : '<div class="sales-db-state empty"><strong>조건에 맞는 리드가 없습니다</strong><p>신규 리드를 등록하거나 검색 조건을 바꿔 보세요.</p></div>'}
+        ${state.status === 'ready' && (hasPrevious || hasNext) ? `<nav class="sales-db-pagination" aria-label="영업 리드 페이지">
+          <button class="sales-db-button secondary" type="button" data-sales-db-page="${Math.max(0, state.offset - state.limit)}" ${hasPrevious ? '' : 'disabled'}>이전</button>
+          <span>${esc(String(Math.floor(state.offset / state.limit) + 1))}페이지</span>
+          <button class="sales-db-button secondary" type="button" data-sales-db-page="${state.offset + state.limit}" ${hasNext ? '' : 'disabled'}>다음</button>
+        </nav>` : ''}
+      </section>
+      ${renderSalesLeadDrawer()}
+    </div>`;
+    bindSalesDatabaseEvents();
+  }
+
+  function bindSalesDatabaseEvents() {
+    moduleView.querySelectorAll('[data-sales-db-refresh]').forEach(button => button.addEventListener('click', () => {
+      refreshSalesLeads({ offset: salesLeadState.offset });
+    }));
+    moduleView.querySelector('[data-sales-db-filter-form]')?.addEventListener('submit', event => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const query = String(form.get('q') || '').trim().slice(0, 160);
+      if (query.replace(/\D/g, '').length >= 8) {
+        showToast('전화번호는 검색할 수 없습니다. 업체명으로만 검색해 주세요.');
+        return;
+      }
+      salesLeadFilters = {
+        q: query,
+        status: SALES_LEAD_STATUS_META[String(form.get('status') || '')] ? String(form.get('status')) : 'all',
+        ownerUid: String(form.get('ownerUid') || 'all'),
+        includeArchived: form.get('includeArchived') === 'on'
+      };
+      refreshSalesLeads({ offset: 0 });
+    });
+    moduleView.querySelector('[data-sales-db-filter-reset]')?.addEventListener('click', () => {
+      salesLeadFilters = { q: '', status: 'all', ownerUid: 'all', includeArchived: false };
+      refreshSalesLeads({ offset: 0 });
+    });
+    moduleView.querySelectorAll('[data-sales-db-page]').forEach(button => button.addEventListener('click', () => {
+      refreshSalesLeads({ offset: Number(button.dataset.salesDbPage) || 0 });
+    }));
+    moduleView.querySelectorAll('[data-sales-lead-open]').forEach(button => button.addEventListener('click', () => {
+      openSalesLeadDetail(button.dataset.salesLeadOpen, button);
+    }));
+    moduleView.querySelectorAll('[data-sales-lead-close]').forEach(button => button.addEventListener('click', () => closeSalesLeadDetail()));
+    moduleView.querySelector('[data-sales-lead-drawer]')?.addEventListener('keydown', event => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      closeSalesLeadDetail();
+    });
+    moduleView.querySelector('[data-sales-lead-retry]')?.addEventListener('click', () => openSalesLeadDetail(selectedSalesLeadId));
+    moduleView.querySelector('[data-sales-lead-phone-copy]')?.addEventListener('click', async event => {
+      const button = event.currentTarget;
+      const phone = String(button.dataset.salesLeadPhoneCopy || '');
+      if (!phone || salesLeadDetailState.piiAccess !== 'full' || salesLeadDetailState.lead?.contact?.redacted === true) return;
+      try {
+        await navigator.clipboard.writeText(phone);
+        showToast('전화번호를 복사했습니다.');
+      } catch (error) {
+        showToast('브라우저에서 복사를 허용한 뒤 다시 시도해 주세요.');
+      }
+    });
+    moduleView.querySelector('[data-sales-lead-create]')?.addEventListener('click', event => openSalesLeadEditor(null, event.currentTarget));
+    moduleView.querySelector('[data-sales-lead-edit]')?.addEventListener('click', event => openSalesLeadEditor(salesLeadDetailState.lead, event.currentTarget));
+    moduleView.querySelector('[data-sales-lead-call]')?.addEventListener('click', event => openSalesCallEditor(salesLeadDetailState.lead, event.currentTarget));
+    moduleView.querySelector('[data-sales-lead-archive]')?.addEventListener('click', archiveSelectedSalesLead);
+  }
+
+  async function runSalesLeadMutation(action, button, successMessage) {
+    if (collaborationMutationBusy) {
+      showToast('앞선 저장이 끝난 뒤 다시 시도해 주세요.');
+      return null;
+    }
+    collaborationMutationBusy = true;
+    const controls = button?.closest('form')?.querySelectorAll('input, select, textarea, button') || [];
+    controls.forEach(control => { control.disabled = true; });
+    try {
+      const result = await action();
+      if (successMessage) showToast(successMessage);
+      return result;
+    } catch (error) {
+      showToast(error.message || '영업 DB 변경 내용을 저장하지 못했습니다.');
+      if (error.status === 409 || error.code === 'SALES_VERSION_CONFLICT') {
+        const leadId = selectedSalesLeadId;
+        if (leadId) Promise.resolve().then(() => openSalesLeadDetail(leadId));
+      }
+      return null;
+    } finally {
+      collaborationMutationBusy = false;
+      controls.forEach(control => { control.disabled = false; });
+    }
+  }
+
+  async function salesLeadEditorUsers() {
+    if (salesLeadState.owners.length) return salesLeadOwnerOptions();
+    try {
+      const payload = await salesLeadApi('GET', '/owners');
+      salesLeadState.owners = Array.isArray(payload) ? payload : (Array.isArray(payload?.owners) ? payload.owners : []);
+    } catch (error) {
+      showToast(error.message || '영업 담당자 목록을 불러오지 못했습니다.');
+    }
+    return salesLeadOwnerOptions();
+  }
+
+  function closeSalesLeadModal({ restoreFocus = false } = {}) {
+    const modalBody = document.getElementById('readonlyModalBody');
+    if (!modalBody?.querySelector('[data-sales-lead-modal]')) return;
+    closeDetailModal({ restoreFocus });
+    // 연락처 입력값과 통화 메모가 숨겨진 모달 DOM에 남지 않도록 즉시 폐기한다.
+    modalBody.replaceChildren();
+  }
+
+  async function openSalesLeadEditor(lead = null, trigger = null) {
+    if (!salesDatabaseWritable() || (lead && salesLeadDetailState.piiAccess !== 'full')) {
+      showToast('이 계정에서는 영업 리드 연락처를 등록하거나 수정할 수 없습니다.');
+      return;
+    }
+    const editing = Boolean(lead?.id);
+    const contact = lead?.contact || {};
+    const contextKey = salesLeadContextKey();
+    const owners = await salesLeadEditorUsers();
+    if (activeView !== 'sales-db' || !salesLeadContextIsCurrent(contextKey)
+      || !salesDatabaseWritable() || previewPersona) return;
+    if (!owners.length) {
+      showToast('선택할 수 있는 영업 담당자가 없습니다. 워크스페이스 구성원을 확인해 주세요.');
+      return;
+    }
+    const requestedOwnerUid = String(lead?.owner?.uid || currentUser?.uid || '');
+    const ownerUid = owners.some(owner => owner.uid === requestedOwnerUid) ? requestedOwnerUid : '';
+    openDetailModal(editing ? '영업 리드 수정' : '신규 영업 리드', `<form class="collaboration-form sales-lead-form" data-sales-lead-modal id="salesLeadEditorForm">
+      <div class="sales-lead-form-intro"><span aria-hidden="true">☎</span><div><strong>${editing ? '보호된 리드 정보 수정' : '새 콜 대상 등록'}</strong><p>전화번호와 연락처 메모는 암호화되며 목록에는 끝 네 자리만 표시됩니다.</p></div></div>
+      <div class="collaboration-form-grid">
+        <label class="wide"><span>업체명 <b>필수</b></span><input name="companyName" value="${esc(lead?.companyName || '')}" maxlength="240" required autocomplete="organization"></label>
+        <label><span>연락 담당자</span><input name="contactName" value="${esc(contact.contactName || '')}" maxlength="240" autocomplete="name"></label>
+        <label><span>전화번호 <b>필수</b></span><input name="phone" value="${esc(contact.phone || '')}" inputmode="tel" maxlength="30" required autocomplete="tel" placeholder="010-0000-0000"></label>
+        <label><span>상담 채널</span><select name="channel">${Object.entries(SALES_LEAD_CHANNEL_LABELS).map(([value, label]) => `<option value="${esc(value)}" ${(lead?.channel || 'phone') === value ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></label>
+        <label><span>유입 경로</span><select name="source">${Object.entries(SALES_LEAD_SOURCE_LABELS).map(([value, label]) => `<option value="${esc(value)}" ${(lead?.source || 'manual') === value ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></label>
+        <label><span>영업 상태</span><select name="status">${Object.entries(SALES_LEAD_STATUS_META).map(([value, meta]) => `<option value="${esc(value)}" ${(lead?.status || 'new') === value ? 'selected' : ''}>${esc(meta.label)}</option>`).join('')}</select></label>
+        <label><span>담당자</span><select name="ownerUid" required>${ownerUid ? '' : '<option value="" selected disabled>담당자 선택</option>'}${owners.map(owner => `<option value="${esc(owner.uid)}" ${owner.uid === ownerUid ? 'selected' : ''}>${esc(owner.name)}</option>`).join('')}</select></label>
+        <label><span>다음 연락 일시</span><input type="datetime-local" name="nextFollowupAt" value="${esc(salesLeadDateTimeLocal(lead?.nextFollowupAt || ''))}"></label>
+        <label class="wide"><span>주소</span><input name="address" value="${esc(contact.address || '')}" maxlength="2000" autocomplete="street-address"></label>
+        <label class="wide"><span>연락처 메모</span><textarea name="memo" rows="4" maxlength="20000" placeholder="통화 전 확인할 내용, 관심 상품 등을 적어 주세요.">${esc(contact.memo || '')}</textarea></label>
+      </div>
+      <div class="collaboration-form-actions"><span>${editing ? `현재 버전 v${esc(String(lead.version || 1))}` : '중복 전화번호는 서버에서 차단됩니다.'}</span><button type="button" data-sales-lead-modal-cancel>취소</button><button class="primary" type="submit">${editing ? '변경 저장' : '리드 등록'}</button></div>
+    </form>`, { locked: true });
+    const form = document.getElementById('salesLeadEditorForm');
+    form?.querySelector('[data-sales-lead-modal-cancel]')?.addEventListener('click', () => closeSalesLeadModal());
+    form?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const submitter = event.submitter;
+      const data = new FormData(event.currentTarget);
+      const record = {
+        companyName: String(data.get('companyName') || '').trim(),
+        contactName: String(data.get('contactName') || '').trim(),
+        phone: String(data.get('phone') || '').trim(),
+        address: String(data.get('address') || '').trim(),
+        memo: String(data.get('memo') || '').trim(),
+        channel: String(data.get('channel') || 'phone'),
+        source: String(data.get('source') || 'manual'),
+        status: String(data.get('status') || 'new'),
+        nextFollowupAt: salesLeadIso(String(data.get('nextFollowupAt') || '')),
+        ownerUid: String(data.get('ownerUid') || currentUser?.uid || '')
+      };
+      if (editing) record.expectedVersion = Number(lead.version);
+      const result = await runSalesLeadMutation(
+        () => salesLeadApi(editing ? 'PATCH' : 'POST', editing ? `/${encodeURIComponent(lead.id)}` : '', record),
+        submitter,
+        editing ? '영업 리드를 수정했습니다.' : '신규 영업 리드를 등록했습니다.'
+      );
+      if (!result?.lead) return;
+      closeSalesLeadModal({ restoreFocus: false });
+      const leadId = result.lead.id;
+      const shouldReopen = editing && selectedSalesLeadId === leadId;
+      if (shouldReopen) closeSalesLeadDetail({ restoreFocus: false });
+      await refreshSalesLeads({ offset: editing ? salesLeadState.offset : 0 });
+      if (shouldReopen) openSalesLeadDetail(leadId, trigger);
+    });
+    window.requestAnimationFrame(() => form?.querySelector('input[name="companyName"]')?.focus());
+  }
+
+  function openSalesCallEditor(lead, trigger = null) {
+    if (!salesDatabaseWritable() || !lead?.id || lead.archived) {
+      showToast('이 리드에는 콜 기록을 추가할 수 없습니다.');
+      return;
+    }
+    openDetailModal('콜 기록 추가', `<form class="collaboration-form sales-lead-form" data-sales-lead-modal id="salesCallEditorForm">
+      <div class="sales-lead-form-intro amber"><span aria-hidden="true">↗</span><div><strong>${esc(lead.companyName || '영업 리드')} 통화 기록</strong><p>통화 결과를 저장하면 리드 버전과 최근 통화 시각이 함께 갱신됩니다.</p></div></div>
+      <div class="collaboration-form-grid">
+        <label><span>통화 결과 <b>필수</b></span><select name="disposition" required>${Object.entries(SALES_CALL_DISPOSITION_LABELS).map(([value, label]) => `<option value="${esc(value)}">${esc(label)}</option>`).join('')}</select></label>
+        <label><span>통화 일시 <b>필수</b></span><input type="datetime-local" name="occurredAt" value="${esc(salesLeadDateTimeLocal(new Date()))}" required></label>
+        <label><span>통화 시간(초)</span><input type="number" name="durationSeconds" min="0" max="86400" step="1" inputmode="numeric" placeholder="예: 180"></label>
+        <label><span>리드 상태</span><select name="leadStatus"><option value="">현재 상태 유지</option>${Object.entries(SALES_LEAD_STATUS_META).map(([value, meta]) => `<option value="${esc(value)}">${esc(meta.label)}</option>`).join('')}</select></label>
+        <label class="wide"><span>다음 연락 일시</span><input type="datetime-local" name="nextFollowupAt" value="${esc(salesLeadDateTimeLocal(lead.nextFollowupAt || ''))}"></label>
+        <label class="wide"><span>통화 메모</span><textarea name="note" rows="5" maxlength="20000" placeholder="대화 내용과 다음 행동을 기록해 주세요."></textarea></label>
+      </div>
+      <div class="collaboration-form-actions"><span>현재 버전 v${esc(String(lead.version || 1))}</span><button type="button" data-sales-lead-modal-cancel>취소</button><button class="primary" type="submit">콜 기록 저장</button></div>
+    </form>`, { locked: true });
+    const form = document.getElementById('salesCallEditorForm');
+    form?.querySelector('[data-sales-lead-modal-cancel]')?.addEventListener('click', () => closeSalesLeadModal());
+    form?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const submitter = event.submitter;
+      const data = new FormData(event.currentTarget);
+      const durationRaw = String(data.get('durationSeconds') || '').trim();
+      const record = {
+        disposition: String(data.get('disposition') || ''),
+        occurredAt: salesLeadIso(String(data.get('occurredAt') || '')),
+        durationSeconds: durationRaw === '' ? null : Number(durationRaw),
+        note: String(data.get('note') || '').trim(),
+        nextFollowupAt: salesLeadIso(String(data.get('nextFollowupAt') || '')),
+        expectedVersion: Number(lead.version)
+      };
+      const leadStatus = String(data.get('leadStatus') || '');
+      if (leadStatus) record.leadStatus = leadStatus;
+      const result = await runSalesLeadMutation(
+        () => salesLeadApi('POST', `/${encodeURIComponent(lead.id)}/calls`, record),
+        submitter,
+        '콜 기록을 저장했습니다.'
+      );
+      if (!result?.lead) return;
+      closeSalesLeadModal({ restoreFocus: false });
+      closeSalesLeadDetail({ restoreFocus: false });
+      await refreshSalesLeads({ offset: salesLeadState.offset });
+      openSalesLeadDetail(lead.id, trigger);
+    });
+    window.requestAnimationFrame(() => form?.querySelector('select[name="disposition"]')?.focus());
+  }
+
+  async function archiveSelectedSalesLead(event) {
+    const lead = salesLeadDetailState.lead;
+    if (!salesDatabaseWritable() || !lead?.id || lead.archived) return;
+    if (!window.confirm(`${lead.companyName || '이 리드'}을(를) 보관하시겠습니까? 삭제되지 않으며 '보관 포함'에서 다시 확인할 수 있습니다.`)) return;
+    const button = event?.currentTarget;
+    if (button) button.disabled = true;
+    const result = await runSalesLeadMutation(
+      () => salesLeadApi('POST', `/${encodeURIComponent(lead.id)}/archive`, { expectedVersion: Number(lead.version) }),
+      button,
+      '영업 리드를 보관했습니다.'
+    );
+    if (!result?.archived) {
+      if (button) button.disabled = false;
+      return;
+    }
+    closeSalesLeadDetail({ restoreFocus: false });
+    await refreshSalesLeads({ offset: 0 });
+  }
+
   function renderPlannedModule(view) {
     if (previewPersona) {
-      const financePreview = FINANCE_OPERATION_VIEWS.includes(view)
+      const financePreview = view !== 'reports' && FINANCE_OPERATION_VIEWS.includes(view)
         && canNavigateFinanceOperation(view);
       const taxPreview = (TAX_BANKING_PUBLIC_VIEWS.includes(view) || PURCHASE_TAX_VIEWS.includes(view))
         && canNavigateTaxBankingView(view);
@@ -13216,7 +17012,9 @@
     if (view === 'documents') renderDocumentsModule();
     if (view === 'services') renderServicesModule();
     if (view === 'company') renderCompanyModule();
+    if (COMPANY_RESOURCE_FOLDERS.some(folder => folder.id === view)) renderCompanyResourceModule(view);
     if (view === 'organization') renderOrganizationModule();
+    if (view === 'monthly-settlement') renderMonthlySettlementModule();
     if (view === 'settlement') renderSettlementModule();
     if (view === 'final-settlement') renderFinalSettlementModule();
     if (view === 'final-execution-settlement') renderFinalExecutionSettlementModule();
@@ -13240,8 +17038,49 @@
       reportType = button.dataset.reportType;
       renderPlannedModule('reports');
     }));
+    moduleView.querySelectorAll('[data-attendance-month]').forEach(button => button.addEventListener('click', () => {
+      attendanceMonth = shiftAttendanceMonth(attendanceMonth, Number(button.dataset.attendanceMonth));
+      attendanceState.status = 'idle';
+      renderPlannedModule('reports');
+    }));
+    moduleView.querySelector('[data-attendance-current-month]')?.addEventListener('click', () => {
+      attendanceMonth = koreaDateKey(new Date()).slice(0, 7);
+      attendanceState.status = 'idle';
+      renderPlannedModule('reports');
+    });
+    moduleView.querySelector('[data-attendance-retry]')?.addEventListener('click', () => {
+      attendanceState.status = 'idle';
+      loadAttendanceMonth({ force: true }).catch(() => {});
+    });
+    moduleView.querySelectorAll('[data-attendance-action]').forEach(button => button.addEventListener('click', () => {
+      runAttendanceMutation(button.dataset.attendanceAction, button);
+    }));
     moduleView.querySelector('[data-open-permissions]')?.addEventListener('click', () => activateView('permissions'));
+    moduleView.querySelectorAll('[data-open-monthly-platform-status]').forEach(button => button.addEventListener('click', () => {
+      if (!canAccessPersonalMonthlySettlementData()) {
+        showToast('API 연동 현황은 승인된 실제 계정의 월 정산에서 확인할 수 있습니다.');
+        return;
+      }
+      monthlySettlementExpanded.platforms = true;
+      monthlySettlementFocusPlatforms = true;
+      activateView('monthly-settlement');
+    }));
     moduleView.querySelectorAll('[data-vendor-settle]').forEach(button => button.addEventListener('click', () => openVendorDialog(button.dataset.vendorSettle)));
+    moduleView.querySelector('[data-commission-estimate-retry]')?.addEventListener('click', () => {
+      commissionEstimateState.status = 'idle';
+      void loadCommissionEstimates({ force: true });
+    });
+    moduleView.querySelector('[data-commission-rule-retry]')?.addEventListener('click', () => {
+      commissionRuleState.status = 'idle';
+      void loadCommissionRules({ force: true });
+    });
+    moduleView.querySelector('[data-commission-rule-form]')?.addEventListener('submit', event => {
+      event.preventDefault();
+      void submitCommissionRuleForm(event.currentTarget);
+    });
+    moduleView.querySelectorAll('[data-commission-rule-action]').forEach(button => button.addEventListener('click', () => {
+      void runCommissionRuleAction(button);
+    }));
 
     moduleView.querySelector('[data-final-assign]')?.addEventListener('click', openAssignDialog);
     moduleView.querySelector('[data-cost-fill]')?.addEventListener('click', openCostDialog);
@@ -13346,6 +17185,16 @@
       renderPlannedModule('final-execution-settlement');
       await loadFinalExecutionSettlement();
       if (activeView === 'final-execution-settlement') renderPlannedModule('final-execution-settlement');
+    }));
+    moduleView.querySelectorAll('[data-settlement-completion-open]').forEach(button => button.addEventListener('click', () => {
+      openSettlementCompletionModal(button.dataset.settlementCompletionOpen);
+    }));
+    moduleView.querySelectorAll('[data-settlement-completion-retry]').forEach(button => button.addEventListener('click', async () => {
+      const sourceId = String(button.dataset.settlementCompletionRetry || '');
+      settlementCompletionStates.set(sourceId, { status: 'loading' });
+      renderPlannedModule('final-execution-settlement');
+      await refreshSettlementCompletionSource(sourceId);
+      if (activeView === 'final-execution-settlement') renderPlannedModule(activeView);
     }));
 
     moduleView.querySelector('[data-monthly-add]')?.addEventListener('click', async event => {
@@ -13672,8 +17521,26 @@
     }));
     moduleView.querySelectorAll('[data-finance-status]').forEach(button => button.addEventListener('click', async () => {
       if (!canReviewFinanceRequests()) return;
+      const requestId = String(button.dataset.financeId || '');
+      const request = financeRequestById(requestId);
+      const expectedVersion = financeRequestVersion(request);
+      if (!request || !expectedVersion) {
+        showToast('최신 요청 버전을 확인할 수 없습니다. 새로고침 후 다시 시도해 주세요.');
+        await loadFinanceRequests({ view: activeView, page: Number(financeRequestState.pagination?.page || 1) });
+        if (FINANCE_REQUEST_VIEWS.includes(activeView)) renderPlannedModule(activeView);
+        return;
+      }
       const nextStatus = String(button.dataset.financeStatus || '').toUpperCase();
       let processingNote = '';
+      if (nextStatus === 'COMPLETED' && financeRequestIsRefund(request)) {
+        button.disabled = true;
+        try {
+          await openRefundDepositCompletion(request, { restoreFocusTo: button });
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+        return;
+      }
       if (nextStatus === 'COMPLETED' && !confirm('이 요청을 처리 완료로 확정할까요? 완료 후에는 되돌릴 수 없습니다.')) return;
       if (nextStatus === 'REJECTED') {
         const reason = prompt('반려 사유를 입력해 주세요. 요청자에게 처리 이력으로 남습니다.', '');
@@ -13687,55 +17554,95 @@
       }
       button.disabled = true;
       try {
-        await callApi('PATCH', `/peakos/finance-requests/${encodeURIComponent(button.dataset.financeId)}`, {
+        await callApi('PATCH', `/peakos/finance-requests/${encodeURIComponent(requestId)}`, {
           status: nextStatus,
+          expectedVersion,
           ...(processingNote ? { processingNote } : {})
         });
         await loadFinanceRequests({ quiet: true, view: activeView, page: Number(financeRequestState.pagination?.page || 1) });
         renderPlannedModule(activeView);
         showToast('요청 처리 상태를 반영했습니다.');
       } catch (error) {
+        if (Number(error?.status) === 409) {
+          await loadFinanceRequests({ quiet: true, view: activeView, page: Number(financeRequestState.pagination?.page || 1) });
+          if (FINANCE_REQUEST_VIEWS.includes(activeView)) renderPlannedModule(activeView);
+          showToast(`처리 상태를 저장하지 못했습니다. ${error.message} 최신 내역에서 다시 시도해 주세요.`);
+          return;
+        }
         button.disabled = false;
         showToast(`처리 상태를 저장하지 못했습니다. ${error.message}`);
       }
     }));
     moduleView.querySelectorAll('[data-finance-cancel]').forEach(button => button.addEventListener('click', async () => {
+      const requestId = String(button.dataset.financeCancel || '');
+      const request = financeRequestById(requestId);
+      const expectedVersion = financeRequestVersion(request);
+      if (!request || !expectedVersion) {
+        showToast('최신 요청 버전을 확인할 수 없습니다. 새로고침 후 다시 시도해 주세요.');
+        return;
+      }
       if (!confirm('이 요청을 취소할까요? 취소 이력은 장부에 남으며 되돌릴 수 없습니다.')) return;
       button.disabled = true;
       try {
-        await callApi('DELETE', `/peakos/finance-requests/${encodeURIComponent(button.dataset.financeCancel)}`);
+        await callApi('DELETE', `/peakos/finance-requests/${encodeURIComponent(requestId)}`, { expectedVersion });
         await loadFinanceRequests({ quiet: true, view: activeView, page: Number(financeRequestState.pagination?.page || 1) });
         renderPlannedModule(activeView);
         showToast('대기 중인 요청을 취소했습니다.');
       } catch (error) {
+        if (Number(error?.status) === 409) {
+          await loadFinanceRequests({ quiet: true, view: activeView, page: Number(financeRequestState.pagination?.page || 1) });
+          if (FINANCE_REQUEST_VIEWS.includes(activeView)) renderPlannedModule(activeView);
+          showToast(`요청을 취소하지 못했습니다. ${error.message} 최신 내역에서 다시 시도해 주세요.`);
+          return;
+        }
         button.disabled = false;
         showToast(`요청을 취소하지 못했습니다. ${error.message}`);
       }
     }));
+    moduleView.querySelectorAll('[data-finance-invoice-evidence]').forEach(button => button.addEventListener('click', () => {
+      if (!canReviewFinanceRequests()) return;
+      const requestId = String(button.dataset.financeId || '');
+      const request = financeRequestById(requestId);
+      if (!request || !financeRequestVersion(request)) {
+        showToast('최신 요청 버전을 확인할 수 없습니다. 새로고침 후 다시 시도해 주세요.');
+        return;
+      }
+      openTaxInvoiceEvidenceRegistration(request, String(button.dataset.financeInvoiceEvidence || ''));
+    }));
+    moduleView.querySelectorAll('[data-finance-evidence-history]').forEach(button => button.addEventListener('click', () => {
+      const request = financeRequestById(String(button.dataset.financeEvidenceHistory || ''));
+      if (request) void openTaxInvoiceEvidenceHistory(request);
+    }));
     moduleView.querySelectorAll('[data-finance-invoice-status]').forEach(button => button.addEventListener('click', async () => {
       if (!canReviewFinanceRequests()) return;
+      const requestId = String(button.dataset.financeId || '');
+      const request = financeRequestById(requestId);
+      const expectedVersion = financeRequestVersion(request);
+      if (!request || !expectedVersion) {
+        showToast('최신 요청 버전을 확인할 수 없습니다. 새로고침 후 다시 시도해 주세요.');
+        return;
+      }
       const nextInvoiceStatus = String(button.dataset.financeInvoiceStatus || '').toUpperCase();
-      let evidenceUrl = '';
       if (['ISSUED', 'CORRECTED'].includes(nextInvoiceStatus)) {
-        const evidence = prompt('권한이 제한된 계산서 이미지 또는 플랫폼 문서 링크를 입력해 주세요.', '');
-        if (evidence === null) return;
-        evidenceUrl = financeSafeUrl(evidence);
-        if (!evidenceUrl) {
-          showToast('HTTPS 계산서 증빙 링크를 입력해야 완료 처리할 수 있습니다.');
-          return;
-        }
-        if (!confirm(nextInvoiceStatus === 'CORRECTED' ? '계산서 정정완료로 확정할까요?' : '계산서 발행완료로 확정할까요?')) return;
+        showToast('발급·정정 완료는 발급번호와 보호 원본 파일을 증빙 등록 화면에서 함께 등록해야 합니다.');
+        return;
       }
       button.disabled = true;
       try {
-        await callApi('PATCH', `/peakos/finance-requests/${encodeURIComponent(button.dataset.financeId)}`, {
+        await callApi('PATCH', `/peakos/finance-requests/${encodeURIComponent(requestId)}`, {
           invoiceStatus: nextInvoiceStatus,
-          ...(evidenceUrl ? { invoiceEvidenceUrl: evidenceUrl } : {})
+          expectedVersion
         });
         await loadFinanceRequests({ quiet: true, view: activeView, page: Number(financeRequestState.pagination?.page || 1) });
         renderPlannedModule(activeView);
-        showToast('계산서 처리완료로 반영했습니다.');
+        showToast('계산서 요청 상태를 반영했습니다.');
       } catch (error) {
+        if (Number(error?.status) === 409) {
+          await loadFinanceRequests({ quiet: true, view: activeView, page: Number(financeRequestState.pagination?.page || 1) });
+          if (FINANCE_REQUEST_VIEWS.includes(activeView)) renderPlannedModule(activeView);
+          showToast(`계산서 상태를 저장하지 못했습니다. ${error.message} 최신 내역에서 다시 시도해 주세요.`);
+          return;
+        }
         button.disabled = false;
         showToast(`계산서 상태를 저장하지 못했습니다. ${error.message}`);
       }
@@ -13766,6 +17673,10 @@
       input.addEventListener(eventName, () => { creditRequestForm[key] = input.value; });
     });
     moduleView.querySelector('[data-credit-request-submit]')?.addEventListener('click', async event => {
+      if (!canUseCreditRequests()) {
+        showToast('실제 Peak 직속 영업 계정에서만 충전을 요청할 수 있습니다.');
+        return;
+      }
       const form = creditRequestForm;
       const requiredText = [form.client, form.depositorName, form.product, form.vendor];
       if (requiredText.some(value => !String(value || '').trim())) {
@@ -13807,6 +17718,10 @@
       }
     });
     moduleView.querySelectorAll('[data-credit-request-cancel]').forEach(button => button.addEventListener('click', async () => {
+      if (!canUseCreditRequests()) {
+        showToast('이 계정에서는 충전 요청을 취소할 수 없습니다.');
+        return;
+      }
       if (!confirm('입금 대기 중인 충전 요청을 취소할까요?')) return;
       button.disabled = true;
       try {
@@ -14326,32 +18241,59 @@
       showToast('이 워크스페이스에서 사용할 수 없는 탭입니다.');
       view = workspaceLandingView();
     }
+    if (view === 'sales-db' && !canSeeSalesDatabase()) {
+      showToast('영업 구성원 또는 선택 워크스페이스 관리자만 영업 DB를 볼 수 있습니다.');
+      view = workspaceLandingView();
+    }
+    if (view === 'monthly-settlement' && !canShowPersonalMonthlySettlementView()) {
+      showToast('월 정산은 승인된 실제 OS 계정의 본인 자료만 볼 수 있습니다.');
+      view = workspaceLandingView();
+    }
     // 상위 메뉴 권한이 있더라도 지정되지 않은 개인 전용 정산서로는 들어가지 못한다.
     if (MONTHLY_TABS[view] && !canSeeMonthly(view)) {
       showToast('이 정산서의 열람 권한이 없습니다.');
       view = canSeeSalesOperations() ? 'settlement' : 'dashboard';
     }
+    if (previewPersona && COMPANY_RESOURCE_FOLDERS.some(folder => folder.id === view)) {
+      showToast('계정 미리보기에서는 회사 자료를 열 수 없습니다.');
+      view = 'calendar';
+    }
+    if (COMPANY_RESOURCE_FOLDERS.some(folder => folder.id === view)
+      && !canNavigateCompanyResource(view)) {
+      showToast('이 회사 자료 탭의 열람 권한이 없습니다.');
+      view = workspaceLandingView();
+    }
     // 숨겨진 버튼을 강제로 누르거나 오래된 링크로 접근해도 재무 화면을
     // 렌더링하지 않는다. 서버 capability가 false/누락이면 항상 fail closed한다.
-    if (FINANCE_OPERATION_VIEWS.includes(view) && !canNavigateFinanceOperation(view)) {
+    if (FINANCE_OPERATION_VIEWS.includes(view)
+      && view !== 'reports'
+      && !(view === 'credit' && canUseCreditRequests())
+      && !canNavigateFinanceOperation(view)) {
       showToast('재무 · 운영 탭의 열람 권한이 없습니다.');
       view = previewPersona ? 'calendar' : 'dashboard';
     }
     // 아직 공개하지 않은 화면은 주소로 들어와도 막는다.
-    const creditRequestAllowed = view === 'credit' && canNavigateFinanceOperation(view);
+    const creditRequestAllowed = view === 'credit'
+      && (canUseCreditRequests() || canNavigateFinanceOperation(view));
+    const salesDatabaseAllowed = view === 'sales-db' && canSeeSalesDatabase();
+    const monthlySettlementAllowed = view === 'monthly-settlement' && canShowPersonalMonthlySettlementView();
+    const reportsAllowed = view === 'reports' && canShowReportsView();
     const salesOperationAllowed = SALES_OPERATION_VIEWS.includes(view) && canSeeSalesOperations();
     const specialSettlementAllowed = Boolean(MONTHLY_TABS[view]) && canSeeMonthly(view);
     const taxBankingAllowed = canNavigateTaxBankingView(view);
+    const companyResourceAllowed = canNavigateCompanyResource(view);
     const workspaceCoreAllowed = isWorkspaceRoute() && activeWorkspaceSlug !== 'peak'
       && [
-        'settlement', 'final-settlement', 'final-execution-settlement',
+        'monthly-settlement', 'settlement', 'final-settlement', 'final-execution-settlement',
         'monthly-guarantee', 'monthly-manage', 'direct-execution',
         'company', 'documents'
       ].includes(view)
       && workspaceCanAccessView(view);
     if (!canSeePeakosTabs() && !LIVE_PARAGON_VIEWS.includes(view)
       && view !== 'permissions' && !creditRequestAllowed && !salesOperationAllowed
-      && !specialSettlementAllowed && !taxBankingAllowed && !workspaceCoreAllowed) {
+      && !salesDatabaseAllowed && !monthlySettlementAllowed && !reportsAllowed
+      && !specialSettlementAllowed && !taxBankingAllowed && !workspaceCoreAllowed
+      && !companyResourceAllowed) {
       view = 'dashboard';
     }
     if (isWorkspaceRoute() && !workspaceCanAccessView(view)) view = workspaceLandingView();
@@ -14369,7 +18311,27 @@
     }
     // 체크 선택은 현재 화면에서만 유효하다. 다른 탭의 숨겨진 접수가
     // 묶음 입금 처리에 섞이지 않도록 화면을 떠날 때 반드시 비운다.
-    if (view !== activeView) intakeSelection = [];
+    if (view !== activeView) {
+      intakeSelection = [];
+      if (activeView === 'settlement' || view === 'settlement') {
+        // 탭을 떠난 사이 도착한 수당 응답은 같은 workspace로 되돌아와도
+        // 재사용하지 않는다. 다시 들어올 때 현재 기간·권한으로 새로 읽는다.
+        commissionEstimateLoadGeneration += 1;
+        commissionRuleLoadGeneration += 1;
+        if (view === 'settlement') {
+          commissionEstimateState.status = 'idle';
+          commissionEstimateState.contextKey = '';
+          commissionRuleState.status = 'idle';
+          commissionRuleState.contextKey = '';
+        }
+      }
+    }
+    if (activeView === 'sales-db' && view !== 'sales-db') {
+      // 상세 응답과 편집 폼에는 전체 연락처가 있을 수 있으므로 다른 화면의
+      // 숨겨진 DOM이나 상태 객체에 남겨 두지 않는다.
+      closeSalesLeadDetail({ restoreFocus: false });
+      closeSalesLeadModal({ restoreFocus: false });
+    }
     activeView = view;
     if (view !== 'chat') closeChatRoom();
     body.classList.toggle('calendar-workspace', view === 'calendar');
@@ -14377,20 +18339,22 @@
     body.classList.toggle('org-workspace', view === 'organization');
     // 정산은 접수 칸이 한 줄에 들어가야 해서 전체 폭을 쓴다
     body.classList.toggle('settlement-workspace', view === 'settlement' || view === 'final-settlement');
+    body.classList.toggle('sales-db-workspace', view === 'sales-db');
+    body.classList.toggle('monthly-settlement-workspace', view === 'monthly-settlement');
     const isPlannedModule = Object.prototype.hasOwnProperty.call(PLANNED_MODULES, view);
-    if (isPlannedModule) renderPlannedModule(view);
+    if (view === 'sales-db') renderSalesDatabase();
+    else if (isPlannedModule) renderPlannedModule(view);
     if (view === 'dashboard') renderDashboard();
     if (view === 'calendar') renderCalendar();
     if (view === 'todo') {
       renderTodo();
       const selectedTodoDate = validDateKey(todoSelectedDate) || koreaDateKey(new Date());
-      const selectedTodoYear = Number(selectedTodoDate.slice(0, 4));
-      const hasSelectedDay = todoDayState.status === 'ready'
+      const hasSelectedDay = ['loading', 'ready', 'refreshing'].includes(todoDayState.status)
         && todoDayState.contextKey === collaborationEventContextKey()
         && todoDayState.date === selectedTodoDate;
       if (!previewPersona && collaborationAccess().events
-        && !hasSelectedDay && eventLoadedYear !== selectedTodoYear) {
-        refreshTodoDateEvents(selectedTodoDate).catch(error => {
+        && !hasSelectedDay) {
+        refreshTodoDate(selectedTodoDate).catch(error => {
           showToast(`할 일 조회 실패: ${error.message}`);
         });
       }
@@ -14418,7 +18382,7 @@
     newProjectsView.hidden = view !== 'new-projects';
     moduleView.hidden = !isPlannedModule;
     permissionsView.hidden = view !== 'permissions';
-    const labels = { dashboard: '대시보드', calendar: '캘린더', chat: '채팅', todo: '할 일', review: '프로젝트', 'new-projects': '신규 프로젝트', permissions: '조직 및 권한', ...PLANNED_MODULES };
+    const labels = { dashboard: '대시보드', calendar: '캘린더', chat: '채팅', todo: '할 일', review: '기존 프로젝트', 'new-projects': '신규 프로젝트', permissions: '조직 및 권한', ...PLANNED_MODULES };
     pageCrumb.textContent = labels[view] || '피크마케팅';
     document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === view));
     const activeNav = document.querySelector(`.app-sidebar .nav-item[data-view="${view}"]`);
@@ -14645,6 +18609,8 @@
         throw new Error('추가 인증 세션이 만료되었습니다.');
       }
       renderAllLiveViews();
+      await consumeTodoDirectiveDeepLink();
+      await consumeStructuredProjectDeepLink();
       startCollaborationPolling();
       if (!currentUser
         || currentUser.uid !== loadUid

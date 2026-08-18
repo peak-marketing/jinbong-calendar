@@ -1,5 +1,28 @@
 import { test, expect, type Download, type Page } from '@playwright/test';
+import * as fs from 'fs';
+import * as path from 'path';
 import { createPeakosStore, handlePeakos, installFirebaseStub, installPeakosStub } from './helpers';
+
+const ROOT = path.resolve(__dirname, '../..');
+
+async function serveOsShell(page: Page) {
+  const html = fs.readFileSync(path.join(ROOT, 'business-os-preview.html'));
+  const js = fs.readFileSync(path.join(ROOT, 'business-os-preview.js'));
+  const css = fs.readFileSync(path.join(ROOT, 'business-os-live.css'));
+  await page.route('**/os/**', route => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname === '/os/' || pathname === '/os/login' || /^\/os\/w\/[a-z0-9-]+\/?$/.test(pathname)) {
+      return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
+    }
+    if (pathname === '/os/business-os-preview.js') {
+      return route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: js });
+    }
+    if (pathname === '/os/business-os-live.css') {
+      return route.fulfill({ status: 200, contentType: 'text/css; charset=utf-8', body: css });
+    }
+    return route.continue();
+  });
+}
 
 
 // 접수 폼은 기본으로 접혀 있다. 폼을 쓰는 테스트는 먼저 펼친다.
@@ -89,6 +112,34 @@ test.describe('Business OS read-only operating data', () => {
           body: JSON.stringify(peakStore.intake),
         });
       }
+      if (rawPathname === '/peakos/todos' && request.method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            date,
+            timeZone: 'Asia/Seoul',
+            readOnly: false,
+            capabilities: { create: true, edit: true, reorder: true, archive: true },
+            items: [{
+              id: '00000000-0000-4000-8000-000000000101',
+              title: 'PEAK OS 오늘 독립 업무',
+              date,
+              startTime: '15:00',
+              endTime: '',
+              category: '개발 업무',
+              memo: 'PEAK OS 전용 저장소 설명',
+              done: false,
+              sortOrder: 10,
+              version: 1,
+              ownerUid: 'e2e-test-user',
+              ownerName: 'E2E',
+              createdAt: `${date}T00:00:00.000Z`,
+              updatedAt: `${date}T00:00:00.000Z`,
+            }],
+          }),
+        });
+      }
       if (!rawPathname.startsWith('/peakos/collaboration') && handlePeakos(peakStore, route)) return;
       apiMethods.push({ method: request.method(), path: rawPathname });
       const pathname = rawPathname.replace(/^\/peakos\/collaboration/, '') || '/';
@@ -167,7 +218,7 @@ test.describe('Business OS read-only operating data', () => {
           { uid: 'e2e-test-user', name: 'E2E', email: 'e2e@test.local', group_name: '개발팀' },
           { uid: 'user-kdh', name: '김대호', email: 'kdh@test.local', group_name: '본사 영업팀' },
         ];
-      } else if (pathname === '/reports/sales-summary') {
+      } else if (pathname === '/peakos/reports/sales-summary') {
         salesSummaryQueries.push(new URL(request.url()).search);
         payload = {
           from: '2026-06-01',
@@ -225,19 +276,22 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('.nav-item[data-view="invoice"]')).toBeVisible();
     await page.locator('#sidebarTabSearch').fill('');
     await expect(page.locator('[data-nav-cluster="tax-banking"]')).toHaveClass(/closed/);
-    await expect(page.locator('#dashboardView')).toContainText('오늘 운영 업무');
+    await expect(page.locator('#dashboardView')).toContainText('PEAK OS 오늘 독립 업무');
+    await expect(page.locator('#dashboardView')).not.toContainText('파라곤에 저장된 설명');
     await expect(page.locator('#dashboardView [data-dashboard-finance-state="empty"]')).toHaveCount(1);
     await expect(page.locator('#dashboardView')).toContainText('이번 달 매출 데이터가 없습니다');
     await expect(page.locator('#dashboardView')).not.toContainText('₩ 4,820만');
 
     await page.locator('[data-nav-cluster="main"] > .nav-cluster-toggle').click();
     await page.locator('.nav-item[data-view="todo"]').click();
-    await expect(page.locator('#todoView')).toContainText('오늘 운영 업무');
+    await expect(page.locator('#todoView')).toContainText('PEAK OS 오늘 독립 업무');
+    await expect(page.locator('#todoView')).not.toContainText('파라곤에 저장된 설명');
     await expect(page.locator('#todoView .todo-task-check').first()).toBeEnabled();
     await expect(page.locator('#todoView')).not.toContainText('현재 계정에 허용된 오늘 업무를 조회합니다');
 
     await page.locator('.nav-item[data-view="calendar"]').click();
     await expect(page.locator('#calendarView')).toContainText('오늘 운영 업무');
+    await expect(page.locator('#calendarView')).not.toContainText('PEAK OS 오늘 독립 업무');
     await expect(page.locator('#calendarMonthLabel')).toHaveText(`${year}년 ${month}월`);
     await expect(page.locator('#homeCalendarAgenda .agenda-date span')).toContainText(`${year}년 ${month}월 ${day}일`);
     await expect(page.locator('#homeCalendarAgenda .agenda-day-stats')).toContainText('내 일정');
@@ -275,28 +329,11 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('[data-project-id="project-live-1"]')).toBeVisible();
 
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
-    await page.locator('.nav-item[data-view="reports"]').click();
-    await expect(page.locator('#moduleView')).toContainText('출근보고서');
-    await expect(page.locator('#moduleView')).toContainText('분기별보고서');
-    await expect(page.locator('#moduleView .sales-chart')).toHaveCount(0);
-
-    // 주간보고서: 운영 보고서 매출이 실제 숫자로 표시되어야 한다
-    await page.locator('[data-report-type="weekly"]').click();
-    await expect(page.locator('#moduleView .sales-chart')).toHaveCount(1);
-    await expect(page.locator('#moduleView')).not.toContainText('매출 데이터 연결 후 표시');
-    await expect(page.locator('#moduleView .sales-kpi').first()).toContainText('3,684만원');
-    await expect(page.locator('#moduleView .sales-kpi').first()).toContainText('36,839,260원');
-    await expect(page.locator('#moduleView .sales-change')).toContainText('+22.8%');
-    await expect(page.locator('#moduleView .sales-table tbody tr').first()).toContainText('박종원');
-    await expect(page.locator('#moduleView .sales-table tbody tr').first()).toContainText('22,903,740');
-    await expect(page.locator('#moduleView .sales-table tbody tr')).toHaveCount(2);
-    await expect(page.locator('#moduleView .sales-table tfoot')).toContainText('36,839,260');
-    await expect(page.locator('#moduleView .sales-bar-label').first()).toHaveText('7/13~7/19');
-    await expect(page.locator('#moduleView')).toContainText('리워드');
-    await expect(page.locator('#moduleView .sales-basis')).toContainText('수금액·미수잔액은 제외');
-    expect(salesSummaryQueries.length).toBeGreaterThan(0);
-    expect(salesSummaryQueries[0]).toContain('bucket=week');
-    expect(salesSummaryQueries[0]).toMatch(/from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/);
+    // 보고서·근태는 2차 인증과 direct workspace context를 모두 가진
+    // /os/w/:slug 경로에서만 연다. Legacy shell에서는 메뉴와 protected
+    // sales-summary 요청이 모두 닫혀 있어야 한다.
+    await expect(page.locator('.nav-item[data-view="reports"]')).toBeHidden();
+    expect(salesSummaryQueries).toHaveLength(0);
 
     await page.locator('[data-nav-cluster="company"] > .nav-cluster-toggle').click();
     await page.locator('.nav-item[data-view="documents"]').click();
@@ -448,7 +485,8 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#moduleView')).toContainText('발행 대상');
 
     await page.locator('.nav-item[data-view="platform"]').click();
-    await expect(page.locator('#moduleView')).toContainText('API 통합 정산 흐름');
+    await expect(page.locator('#moduleView')).toContainText('API 연동 현황 보는 곳');
+    await expect(page.locator('#moduleView')).toContainText('영업 운영 → 월 정산 → 플랫폼별 정산');
 
     await page.locator('[data-nav-cluster="tools"] .nav-cluster-toggle').click();
     await page.locator('.nav-item[data-view="saas"]').click();
@@ -875,6 +913,17 @@ test.describe('Business OS read-only operating data', () => {
   test('settles suppliers only when the quantity matches', async ({ page }) => {
     await installFirebaseStub(page);
     await installPeakosStub(page, { name: '김대호', uid: 'e2e-test-user', role: 'manager', group_name: '본사 경영지원팀' });
+    const reconciliationRequests: any[] = [];
+    const legacyVendorPatches: any[] = [];
+    page.on('request', request => {
+      if (request.url().includes('/api/peakos/vendor-reconciliations') && request.method() === 'POST') {
+        reconciliationRequests.push(request.postDataJSON());
+      }
+      if (request.url().includes('/api/peakos/intake') && request.method() === 'PATCH') {
+        const payload = request.postDataJSON();
+        if (payload?.action === 'vendor') legacyVendorPatches.push(payload);
+      }
+    });
 
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -947,6 +996,19 @@ test.describe('Business OS read-only operating data', () => {
     await vendorRow.locator('[data-vendor-settle]').click();
     await expect(page.locator('#vendorBank')).toHaveValue('리워드스페이스통장');
     await expect(page.locator('.final-day-table .vendor-chip.done')).toHaveCount(2);
+    expect(legacyVendorPatches).toHaveLength(0);
+    expect(reconciliationRequests).toHaveLength(1);
+    expect(reconciliationRequests[0]).toMatchObject({
+      supplier: '키지애드 (50)',
+      deliveredQty: 50,
+      bank: '리워드스페이스통장',
+      memo: '국민은행에서 송금 완료',
+    });
+    expect(reconciliationRequests[0].idempotencyKey).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    );
+    expect(reconciliationRequests[0].rows).toHaveLength(2);
+    expect(reconciliationRequests[0].rows.every((row: any) => Number(row.expectedRowVersion) >= 1)).toBe(true);
   });
 
   // 최종정산서에는 당일접수·예약건 작업·환불·예약건환불만 올라간다.
@@ -1830,7 +1892,8 @@ test.describe('Business OS read-only operating data', () => {
     await expect(day).toContainText('공급사 미정산 200,000');
 
     const total = page.locator('.final-total');
-    await expect(total).toContainText('전체 합계');
+    // 최종정산서는 실사용 기본값인 이번 달 기간 필터로 처음 열린다.
+    await expect(total).toContainText('조회 합계');
     await expect(total).toContainText('영업자이익 120,000');
     await expect(total).toContainText('회사이익 150,000');
     await expect(total).toContainText('공급사 미정산 300,000');
@@ -2155,23 +2218,46 @@ test.describe('Business OS read-only operating data', () => {
 
   test('shows no invented amounts when the account has no sales rows', async ({ page }) => {
     await installFirebaseStub(page);
+    await serveOsShell(page);
     // 보고서 탭 권한은 유지하되 매출 자료만 비어 있는 계정으로 검증한다.
     const peakStore = createPeakosStore('전현우');
 
     await page.route('**/api/**', route => {
-      if (handlePeakos(peakStore, route)) return;
-      const pathname = new URL(route.request().url()).pathname.replace(/^\/api/, '');
+      const requestUrl = new URL(route.request().url());
+      const rawPathname = requestUrl.pathname.replace(/^\/api/, '');
+      const pathname = rawPathname.replace(/^\/peakos\/collaboration/, '') || '/';
       let payload: unknown = [];
-      if (pathname === '/users/me') {
+      if (rawPathname === '/os-auth/session') {
+        payload = { required: true, verified: true, expiresInSeconds: 3600 };
+      } else if (rawPathname === '/os/workspaces') {
+        payload = {
+          default_slug: 'peak',
+          workspaces: [{ id: 'ws_peak', slug: 'peak', name: '피크마케팅 본사', kind: 'headquarters', role: 'manager' }],
+        };
+      } else if (rawPathname === '/os/workspaces/peak/context') {
+        payload = {
+          workspace: { id: 'ws_peak', slug: 'peak', name: '피크마케팅 본사', kind: 'headquarters' },
+          membership: { role: 'manager' },
+          permissions: {
+            calendar: 'write', chat: 'write', projects: 'write', settlements: 'write',
+            documents: 'read', sales: 'read', headquartersOversight: false,
+          },
+        };
+      } else if (!rawPathname.startsWith('/peakos/collaboration')
+          && rawPathname !== '/peakos/reports/sales-summary'
+          && handlePeakos(peakStore, route)) {
+        return;
+      } else if (pathname === '/users/me') {
         payload = {
           uid: 'e2e-test-user', name: '전현우', role: 'manager', approved: true, is_active: true,
-          group_name: '본사 경영지원팀', peakos_can_view_finance_operations: true,
+          group_id: 'support-team', group_name: '본사 경영지원팀', group_type: 'support',
+          peakos_can_view_finance_operations: true,
         };
       } else if (pathname === '/chat-rooms/unread') {
         payload = {};
       } else if (pathname === '/projects') {
         payload = { canManageAll: false, projects: [] };
-      } else if (pathname === '/reports/sales-summary') {
+      } else if (pathname === '/peakos/reports/sales-summary') {
         payload = {
           from: '2026-06-01',
           to: '2026-07-26',
@@ -2188,7 +2274,7 @@ test.describe('Business OS read-only operating data', () => {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
     });
 
-    await page.goto('/business-os-preview.html');
+    await page.goto('/os/w/peak');
     await expect(page.locator('#authGate')).toBeHidden();
     await page.locator('[data-nav-cluster="finance"] .nav-cluster-toggle').click();
     await page.locator('.nav-item[data-view="reports"]').click();
