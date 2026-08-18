@@ -16770,3 +16770,38 @@ html body #moduleView .platform-api-location .module-action { min-height: 44px; 
   .structured-task-viewbar,
   .structured-medium-category { max-width: 920px; }
 }
+
+/* ── 계층 목록을 한 줄짜리 리스트로 ──────────────────
+   "업무 중분류"·"업무 소분류" 같은 접두 라벨과 줄바꿈을 걷어내고
+   이름·요약·담당자를 한 줄에 놓는다. */
+.structured-medium-title > span:first-child,
+.structured-small-category > header > div:first-child > span:first-child { display: none; }
+
+.structured-medium-title {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  grid-template-columns: none;
+}
+.structured-medium-head h2 { font-size: 14px; white-space: nowrap; }
+.structured-medium-title > small { grid-column: auto; white-space: nowrap; }
+.structured-medium-head { padding: 7px 14px; gap: 10px; }
+
+/* 담당자도 한 줄 */
+.structured-medium-manager {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  border-left: 0;
+  padding-left: 14px;
+}
+.structured-medium-manager > span { display: none; }
+.structured-medium-manager-name { font-size: 10px; }
+.structured-medium-manager > small { padding: 2px 6px; }
+
+.structured-small-category > header { padding: 6px 14px; }
+.structured-small-category > header strong { font-size: 11px; }
+
+/* 업무도 한 줄로 — 설명이 줄을 새로 만들지 않게 */
+.structured-task-main > p { flex: 0 1 auto; max-width: 280px; }
