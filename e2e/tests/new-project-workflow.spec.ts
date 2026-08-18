@@ -886,6 +886,15 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await openNewProjects(page);
     await page.locator('[data-structured-project-open="board-quick-assign-project"]').click();
 
+    // 사이드바 접기 — 넓게 보려면 왼쪽 메뉴를 접을 수 있어야 한다.
+    const sidebarToggle = page.locator('[data-sidebar-toggle]');
+    await expect(sidebarToggle).toBeVisible();
+    await expect(page.locator('.app')).not.toHaveClass(/sidebar-collapsed/);
+    await sidebarToggle.click();
+    await expect(page.locator('.app')).toHaveClass(/sidebar-collapsed/);
+    await sidebarToggle.click();
+    await expect(page.locator('.app')).not.toHaveClass(/sidebar-collapsed/);
+
     // 분할 보기: 왼쪽에서 소분류를 고르면 오른쪽에 그 소분류 업무만 펼쳐진다.
     await page.locator('[data-structured-task-view="split"]').click();
     const splitItems = page.locator('[data-structured-split-small]');

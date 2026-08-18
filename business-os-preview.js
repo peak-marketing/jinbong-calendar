@@ -76,6 +76,34 @@
   });
   updateThemeToggle();
 
+  // 사이드바 접기 — 버튼을 JS로 만들어 넣는다.
+  // 배포 시 HTML은 복사하지 않으므로 마크업을 JS가 들고 있어야 실서비스에 반영된다.
+  const OS_SIDEBAR_STORAGE_KEY = 'peakos-sidebar-collapsed';
+  const appShell = document.querySelector('.app');
+  const breadcrumbs = document.querySelector('.topbar .breadcrumbs');
+  if (appShell && breadcrumbs && !breadcrumbs.querySelector('[data-sidebar-toggle]')) {
+    const sidebarToggle = document.createElement('button');
+    sidebarToggle.className = 'icon-button sidebar-toggle';
+    sidebarToggle.type = 'button';
+    sidebarToggle.dataset.sidebarToggle = '';
+    sidebarToggle.textContent = '\u25e7';
+    const applySidebarCollapsed = collapsed => {
+      appShell.classList.toggle('sidebar-collapsed', collapsed);
+      sidebarToggle.setAttribute('aria-pressed', collapsed ? 'true' : 'false');
+      sidebarToggle.setAttribute('aria-label', collapsed ? '메뉴 펼치기' : '메뉴 접기');
+      sidebarToggle.setAttribute('title', collapsed ? '메뉴 펼치기' : '메뉴 접기');
+    };
+    let storedCollapsed = false;
+    try { storedCollapsed = window.localStorage.getItem(OS_SIDEBAR_STORAGE_KEY) === '1'; } catch (_) {}
+    applySidebarCollapsed(storedCollapsed);
+    sidebarToggle.addEventListener('click', () => {
+      const next = !appShell.classList.contains('sidebar-collapsed');
+      try { window.localStorage.setItem(OS_SIDEBAR_STORAGE_KEY, next ? '1' : '0'); } catch (_) {}
+      applySidebarCollapsed(next);
+    });
+    breadcrumbs.insertBefore(sidebarToggle, breadcrumbs.firstChild);
+  }
+
   let auth;
   let currentUser = null;
   let userDoc = null;

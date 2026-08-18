@@ -16766,10 +16766,7 @@ html body #moduleView .platform-api-location .module-action { min-height: 44px; 
    왼쪽 업무 내용과 오른쪽 버튼 사이가 텅 비어 시선이 끊긴다.
    계층 카드만 폭을 묶어 한 덩어리로 읽히게 한다.
    보드 보기(칸반)는 칼럼이 필요하므로 제외한다. */
-@media (min-width: 1180px) {
-  .structured-task-viewbar,
-  .structured-medium-category { max-width: 920px; }
-}
+/* 폭 제한은 해제했다 — 행이 충분히 촘촘해져 넓게 써도 읽힌다. */
 
 /* ── 계층 목록을 한 줄짜리 리스트로 ──────────────────
    "업무 중분류"·"업무 소분류" 같은 접두 라벨과 줄바꿈을 걷어내고
@@ -16877,4 +16874,12 @@ html body #moduleView .platform-api-location .module-action { min-height: 44px; 
 }
 @media (max-width: 900px) {
   .structured-split { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── 사이드바 접기 ───────────────────────────────── */
+.sidebar-toggle { display: none; }
+@media (min-width: 761px) {
+  .sidebar-toggle { position: relative; z-index: 41; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+  .app.sidebar-collapsed { grid-template-columns: 0 minmax(0, 1fr); }
+  .app.sidebar-collapsed > .app-sidebar { display: none; }
 }
