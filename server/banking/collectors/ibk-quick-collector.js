@@ -339,11 +339,86 @@ function runWorker({ request, environment, workerPath, workerTimeoutMs, spawnImp
   });
 }
 
+// This preflight deliberately performs no network request and never returns
+// credential values. It validates the same secret loader and pin parser used
+// by the live collector, then exposes only operational metadata that is safe
+// to show to an authenticated OS user.
+function inspectIbkQuickReadiness(options = {}) {
+  const enabled = options.enabled === true;
+  const runtimeEnv = options.runtimeEnv || process.env;
+  const schedulerEnabled = runtimeEnv.PEAKOS_IBK_SCHEDULER_ENABLED === 'true';
+  const base = {
+    collectorEnabled: enabled,
+    schedulerEnabled,
+    credentialsReady: false,
+    pinReady: false,
+    configuredAccountCount: 0,
+    configuredAccounts: Object.freeze([]),
+  };
+  if (!enabled) {
+    return Object.freeze({
+      ...base,
+      ready: false,
+      status: 'DISABLED',
+      code: 'IBK_COLLECTOR_DISABLED',
+    });
+  }
+
+  try {
+    normalizePinAllowlist(runtimeEnv.PEAKOS_IBK_TRANSKEY_JS_SHA256);
+  } catch (error) {
+    return Object.freeze({
+      ...base,
+      ready: false,
+      status: 'BLOCKED',
+      code: error instanceof IbkCollectorError ? error.code : 'IBK_CONFIGURATION_ERROR',
+    });
+  }
+
+  const secretPath = options.secretPath || options.secretsPath || DEFAULT_SECRET_PATH;
+  const loadConfig = options.loadConfig || loadIbkAccountConfig;
+  try {
+    const registry = loadConfig({ secretPath });
+    const configuredAccounts = Object.freeze(registry.publicAccounts.map(account => Object.freeze({
+      id: account.id,
+      accountNumberMasked: account.accountNumberMasked,
+    })));
+    const configuredIds = configuredAccounts.map(account => String(account.id || '')).sort();
+    const expectedIds = [...IBK_ACCOUNT_IDS].sort();
+    if (JSON.stringify(configuredIds) !== JSON.stringify(expectedIds)
+      || configuredAccounts.some(account => !exactMaskedAccount(account.accountNumberMasked))) {
+      fail('IBK_CONFIGURATION_ERROR');
+    }
+    return Object.freeze({
+      ...base,
+      ready: true,
+      status: schedulerEnabled ? 'READY' : 'MANUAL_ONLY',
+      code: schedulerEnabled ? null : 'IBK_SCHEDULER_DISABLED',
+      credentialsReady: true,
+      pinReady: true,
+      configuredAccountCount: configuredAccounts.length,
+      configuredAccounts,
+    });
+  } catch (error) {
+    const code = typeof error?.code === 'string' && /^IBK_[A-Z0-9_]{1,72}$/.test(error.code)
+      ? error.code
+      : 'IBK_CONFIGURATION_ERROR';
+    return Object.freeze({
+      ...base,
+      ready: false,
+      status: 'BLOCKED',
+      code,
+      pinReady: true,
+    });
+  }
+}
+
 function createIbkQuickCollector(options = {}) {
   if (options.enabled !== true) return null;
   const secretPath = options.secretPath || options.secretsPath || DEFAULT_SECRET_PATH;
   const workerPath = path.resolve(options.workerPath || DEFAULT_WORKER_PATH);
   const runtimeEnv = options.runtimeEnv || process.env;
+  const loadConfig = options.loadConfig || loadIbkAccountConfig;
   const spawnImpl = options.spawnImpl || spawn;
   const workerTimeoutOverride = options.workerTimeoutMs ?? options.processTimeoutMs;
   if (!path.isAbsolute(secretPath) || typeof spawnImpl !== 'function') fail('IBK_CONFIGURATION_ERROR');
@@ -352,7 +427,7 @@ function createIbkQuickCollector(options = {}) {
     fail('IBK_CONFIGURATION_ERROR');
   }
 
-  return async function collectIbkQuick({ account, from = null, to = null, requestId = null } = {}) {
+  async function collectIbkQuick({ account, from = null, to = null, requestId = null } = {}) {
     const accountId = String(account?.id || '');
     if (!IBK_ACCOUNT_ID_SET.has(accountId) || account?.provider !== 'IBK_QUICK') {
       fail('IBK_ACCOUNT_NOT_CONFIGURED');
@@ -361,7 +436,7 @@ function createIbkQuickCollector(options = {}) {
     let registry;
     let credentials;
     try {
-      registry = loadIbkAccountConfig({ secretPath });
+      registry = loadConfig({ secretPath });
       credentials = registry.getCredentials(accountId);
       registry = null;
     } catch {
@@ -414,7 +489,18 @@ function createIbkQuickCollector(options = {}) {
       spawnImpl,
       sensitiveValues,
     });
-  };
+  }
+
+  Object.defineProperty(collectIbkQuick, 'getReadiness', {
+    enumerable: false,
+    value: () => inspectIbkQuickReadiness({
+      enabled: true,
+      secretPath,
+      runtimeEnv,
+      loadConfig,
+    }),
+  });
+  return collectIbkQuick;
 }
 
 module.exports = {
@@ -424,6 +510,7 @@ module.exports = {
   IbkCollectorError,
   buildWorkerEnvironment,
   createIbkQuickCollector,
+  inspectIbkQuickReadiness,
   normalizePinAllowlist,
   normalizeWorkerResult,
   redactSensitiveText,

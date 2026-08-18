@@ -26,6 +26,7 @@ const TAX_PURCHASE_ACCOUNT_ID_SET = new Set(TAX_PURCHASE_ACCOUNT_IDS);
 const TAX_PURCHASE_SCOPE = 'tax-purchase';
 const ACCOUNT_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{1,79}$/i;
 const ISO_TIMESTAMP_WITH_ZONE_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/i;
+const DEFAULT_BANK_HEALTH_STALE_MS = 30 * 60 * 1000;
 
 class BankValidationError extends Error {
   constructor(message, code = 'BANK_INVALID_REQUEST') {
@@ -279,6 +280,138 @@ function isTaxPurchaseAccountId(accountId) {
   return TAX_PURCHASE_ACCOUNT_ID_SET.has(String(accountId || '').trim());
 }
 
+function comparableMaskedAccount(value) {
+  return String(value || '').replace(/[xX•●]/g, '*').replace(/\s+/g, '');
+}
+
+function resolveCollectorReadiness(collector) {
+  if (!collector) {
+    return Object.freeze({
+      ready: false,
+      status: 'DISABLED',
+      code: 'IBK_COLLECTOR_DISABLED',
+      collectorEnabled: false,
+      schedulerEnabled: false,
+      credentialsReady: false,
+      pinReady: false,
+      configuredAccountCount: 0,
+      configuredAccounts: Object.freeze([]),
+    });
+  }
+  if (typeof collector.getReadiness !== 'function') {
+    // Custom collectors used by tests and future official APIs can opt into
+    // richer metadata. Their absence must not expose internals or break sync.
+    return Object.freeze({
+      ready: true,
+      status: 'READY',
+      code: null,
+      collectorEnabled: true,
+      schedulerEnabled: null,
+      credentialsReady: null,
+      pinReady: null,
+      configuredAccountCount: null,
+      configuredAccounts: Object.freeze([]),
+    });
+  }
+  try {
+    const readiness = collector.getReadiness();
+    if (!readiness || typeof readiness !== 'object') throw new Error('invalid readiness');
+    return readiness;
+  } catch {
+    return Object.freeze({
+      ready: false,
+      status: 'BLOCKED',
+      code: 'IBK_CONFIGURATION_ERROR',
+      collectorEnabled: true,
+      schedulerEnabled: false,
+      credentialsReady: false,
+      pinReady: false,
+      configuredAccountCount: 0,
+      configuredAccounts: Object.freeze([]),
+    });
+  }
+}
+
+function buildBankConnectionHealth({
+  collector,
+  accounts,
+  now = new Date(),
+  staleAfterMs = DEFAULT_BANK_HEALTH_STALE_MS,
+} = {}) {
+  const readiness = resolveCollectorReadiness(collector);
+  const rows = Array.isArray(accounts) ? accounts : [];
+  const activeRows = rows.filter(row => row?.is_active !== false);
+  const configuredAccounts = Array.isArray(readiness.configuredAccounts)
+    ? readiness.configuredAccounts
+    : [];
+  const configuredById = new Map(configuredAccounts.map(row => [String(row.id || ''), row]));
+  const mappingKnown = configuredById.size > 0;
+  const connectedAccountCount = mappingKnown
+    ? activeRows.reduce((count, row) => {
+      const configured = configuredById.get(String(row.id || ''));
+      return count + (configured
+        && comparableMaskedAccount(configured.accountNumberMasked)
+          === comparableMaskedAccount(row.account_number_masked) ? 1 : 0);
+    }, 0)
+    : activeRows.length;
+  const synchronizedRows = activeRows.filter(row => {
+    const timestamp = new Date(row.last_sync_succeeded_at || '');
+    return !Number.isNaN(timestamp.getTime());
+  });
+  const syncTimes = synchronizedRows.map(row => new Date(row.last_sync_succeeded_at).getTime());
+  const latestSyncMs = syncTimes.length ? Math.max(...syncTimes) : null;
+  const oldestSyncMs = syncTimes.length ? Math.min(...syncTimes) : null;
+  const nowMs = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  const safeNowMs = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const dataFresh = activeRows.length > 0
+    && synchronizedRows.length === activeRows.length
+    && Number.isFinite(oldestSyncMs)
+    && safeNowMs - oldestSyncMs <= staleAfterMs;
+  const errorAccountCount = activeRows.filter(row => Boolean(row.last_sync_error)).length;
+
+  let status = 'HEALTHY';
+  let code = null;
+  if (!readiness.collectorEnabled) {
+    status = 'DISABLED';
+    code = readiness.code || 'IBK_COLLECTOR_DISABLED';
+  } else if (readiness.ready !== true) {
+    status = 'BLOCKED';
+    code = readiness.code || 'IBK_CONFIGURATION_ERROR';
+  } else if (mappingKnown && connectedAccountCount !== activeRows.length) {
+    status = 'BLOCKED';
+    code = 'IBK_ACCOUNT_MAPPING_INCOMPLETE';
+  } else if (!activeRows.length || synchronizedRows.length !== activeRows.length) {
+    status = 'WAITING_FIRST_SYNC';
+    code = 'IBK_FIRST_SYNC_REQUIRED';
+  } else if (!dataFresh || errorAccountCount > 0) {
+    status = 'STALE';
+    code = errorAccountCount > 0 ? 'IBK_RECENT_SYNC_FAILED' : 'IBK_SYNC_STALE';
+  } else if (readiness.schedulerEnabled === false) {
+    status = 'MANUAL_ONLY';
+    code = 'IBK_SCHEDULER_DISABLED';
+  }
+
+  return Object.freeze({
+    status,
+    code,
+    collectorEnabled: readiness.collectorEnabled === true,
+    schedulerEnabled: readiness.schedulerEnabled === true,
+    credentialsReady: readiness.credentialsReady === true,
+    pinReady: readiness.pinReady === true,
+    databaseReady: true,
+    configuredAccountCount: Number.isInteger(readiness.configuredAccountCount)
+      ? readiness.configuredAccountCount
+      : null,
+    visibleAccountCount: activeRows.length,
+    connectedAccountCount,
+    synchronizedAccountCount: synchronizedRows.length,
+    errorAccountCount,
+    lastSuccessfulSyncAt: latestSyncMs === null ? null : new Date(latestSyncMs).toISOString(),
+    oldestSuccessfulSyncAt: oldestSyncMs === null ? null : new Date(oldestSyncMs).toISOString(),
+    staleAfterMinutes: Math.round(staleAfterMs / 60_000),
+  });
+}
+
 function publicSyncRun(row) {
   return {
     id: String(row.id),
@@ -300,9 +433,13 @@ function publicSyncRun(row) {
 }
 
 async function ensurePeakosBankInfrastructure(pool) {
-  const migrationPath = path.join(__dirname, '..', 'migrations', '20260806_peakos_banking.sql');
-  const sql = fs.readFileSync(migrationPath, 'utf8');
-  await pool.query(sql);
+  const migrationPaths = [
+    path.join(__dirname, '..', 'migrations', '20260806_peakos_banking.sql'),
+    path.join(__dirname, '..', 'migrations', '20260817_peakos_bank_workspace_merge.sql'),
+  ];
+  for (const migrationPath of migrationPaths) {
+    await pool.query(fs.readFileSync(migrationPath, 'utf8'));
+  }
 }
 
 function normalizeAuditContext(context) {
@@ -765,6 +902,7 @@ function registerPeakosBanking({
         });
       }
       res.set('Cache-Control', 'no-store');
+      const connection = buildBankConnectionHealth({ collector, accounts: visibleRows });
       res.json({
         accounts: visibleRows.map(row => ({
           ...publicAccount(row, { includeBalance: showBalances }),
@@ -779,6 +917,7 @@ function registerPeakosBanking({
         canSync: Boolean(collector) && visibleRows.some(row => canOperateAccount(req, row.id, syncAllowed)),
         canManage: visibleRows.some(row => canOperateAccount(req, row.id, manageAllowed)),
         canImport: importAllowed && visibleRows.some(row => canOperateAccount(req, row.id, manageAllowed)),
+        connection,
       });
     } catch (error) {
       console.error('peakos bank account read error:', safeErrorMessage(error));
@@ -1164,6 +1303,7 @@ function registerPeakosBanking({
 
 module.exports = {
   BankSyncError,
+  buildBankConnectionHealth,
   ensurePeakosBankInfrastructure,
   maskAccountNumber,
   normalizeBankTransaction,

@@ -22,6 +22,11 @@
 - `POST /api/peakos/bank/accounts/:accountId/import` — 명시적 허용 전까지 기본 비활성화
 - `POST /api/peakos/bank/accounts/:accountId/sync` — 수집기가 명시적으로 연결된 경우만 작동
 
+계좌 목록 응답의 `connection`은 비밀값 없이 `HEALTHY`, `READY`,
+`MANUAL_ONLY`, `WAITING_FIRST_SYNC`, `STALE`, `BLOCKED`, `DISABLED` 중 하나를
+반환한다. 화면은 이 값을 사용해 단순한 “연결됨” 표시 대신 계좌 매핑, 첫
+동기화, 30분 이상 갱신 지연, 최근 실패를 구분한다.
+
 `PEAKOS_IBK_ENABLED`가 정확히 `true`가 아니면 수집기 팩토리가 `null`을 반환하고 동기화 API는 `BANK_COLLECTOR_NOT_CONFIGURED`로 거절된다. 파일 가져오기 기능인 `allowImport`도 `false`이다.
 
 ## IBK 빠른조회 worker 연결
@@ -106,6 +111,20 @@ node --test \
 
 승인한 해시핀을 런타임에만 주입한 조회 전용 `dry-run`은 DB를 쓰지 않으며 거래 총건수, 안정 키·보조 키 건수, 조회기간, 빈 결과 여부만 출력한다. 실패 시에도 위에서 정한 allowlist 오류 코드만 출력한다.
 
+은행 요청보다 먼저 실행하는 오프라인 배포 preflight는 플래그, 승인 핀,
+전용 secret loader와 다섯 계좌 ID만 확인한다. 네트워크와 DB를 사용하지 않고
+마스킹 계좌번호조차 출력하지 않는다.
+
+```bash
+cd /root/workspaces/jinbong-calendar-business-os/server
+node banking/ibk-preflight.js
+```
+
+`ok:true`, `networkRequestPerformed:false`, `configuredAccountCount:5`를 확인한
+뒤에만 아래 live-read를 실행한다. live-read 역시 송금·이체·DB 쓰기를 하지
+않지만 실제 은행 조회이므로 운영 담당자가 승인한 핀과 조회 대상 계좌를
+확인한 경우에만 실행한다.
+
 ```bash
 cd /root/workspaces/jinbong-calendar-business-os/server
 PEAKOS_IBK_TRANSKEY_JS_SHA256='<approved-sha256>' \
@@ -119,7 +138,54 @@ PEAKOS_IBK_TRANSKEY_JS_SHA256='<approved-sha256>' \
 - 다섯 계좌 모두 조회 전용 실제 `dry-run`과 운영 원장 최초 동기화를 통과했다. 검증 출력은 건수·조회기간·빈 결과 여부만 포함했고 원문 응답은 저장·출력하지 않았다.
 - 실제 거래 객체의 필드명만 제한적으로 검사했지만 은행이 보장하는 거래 순번 후보는 발견되지 않았다. 따라서 해당 거래 키는 `providerKeyStable=false`를 유지하며 자동 입금매칭 대상에서 제외한다.
 - 현재 자식 worker는 웹 서버와 같은 OS 사용자로 실행되므로 프로세스 분리는 방어선일 뿐, 운영용 보안 경계로 보지 않는다.
-- 운영에서는 다섯 통장 원장과 10분 자동동기화를 활성화했다. `PEAKOS_BANK_AUTO_MATCH_MAX_AGE_DAYS=0`을 유지해 정산서 입금확인·충전금 승인은 수행하지 않는다.
+- 기존 `calendar-api` 운영 프로세스에는 다섯 통장 조회와 10분 스케줄러가
+  활성화되어 있었다. Business OS 전용 web이 가리키는 API upstream이 실제로
+  기동되어 있는지는 별도 배포 readiness 항목이며, upstream 502를 수집기
+  미연동으로 오인하면 안 된다.
+- 2026-08-17 canonical 병합 직후 `calendar_db`는 계좌 5개, 거래
+  367건, sync run 1,260건이며 FK·workspace·중복 검증을 통과했다.
+  병합한 최신 성공 sync가 2026-08-08이었기 때문에 첫 판정은
+  `STALE`이었고, 병합 성공을 현재 잔액 조회 성공으로 간주하지
+  않았다. 이후 14:20 UTC 기존 scheduler가 5계좌 모두 성공하여
+  sync run 1,265건·거래 370건이 되었고, DB-only readiness는 `HEALTHY`로
+  전환되었다. 수동 live-read는 실행하지 않았다.
+- Business OS API를 별도 포트로 기동할 때는 IBK 세 변수뿐 아니라 OS 이메일
+  인증 HMAC, 금융·영업 암호화 키, UID 권한표와 DB readiness를 같은 프로세스에
+  주입해야 한다. 하나라도 빠져 서버가 기동하지 않으면 통장 API도 모두 502다.
+- `PEAKOS_BANK_AUTO_MATCH_MAX_AGE_DAYS=0`을 유지해 정산서 입금확인·충전금
+  승인은 수행하지 않는다. “읽기 전용 해제”는 통장 조회 수집기에 이체 권한을
+  추가한다는 뜻으로 해석하지 않는다.
+
+## canonical DB 병합
+
+기존 `calendar_business_os` 원장을 `calendar_db`로 옮길 때는
+`peakos-bank-canonical-merge.js`만 사용한다. 기본 실행은 읽기 전용
+preflight이며, 다섯 계좌의 ID·활성 상태·마스킹 번호, 거래 자연키, 동기화
+request ID, 대상 workspace 충돌만 검사한다. 거래 금액·잔액·상대방·감사
+내용은 출력하지 않는다.
+
+```bash
+cd /root/workspaces/jinbong-calendar-business-os/server
+node banking/peakos-bank-canonical-merge.js
+```
+
+preflight가 성공하고 DB 백업·점검창이 확인된 경우에만 명시적으로 적용한다.
+
+```bash
+node banking/peakos-bank-canonical-merge.js --apply
+```
+
+적용 모드는 target serializable transaction과 전용 advisory lock을
+먼저 획득한 뒤, **같은 transaction 안에서**
+`20260817_peakos_bank_workspace_merge.sql`과 병합을 순서대로 처리한다.
+source는 repeatable-read/read-only다. 식별 기준은 계좌 ID, `(account ID, provider
+transaction key)`, sync `request_id`, legacy allocation/audit source key다. 따라서
+같은 명령을 다시 실행하면 중복이 생기지 않으며, 같은 키의 금액·구분·시각이
+달라진 경우 전체 transaction을 중단한다. 대상 bank root는 모두
+`workspace_id='ws_peak'` NOT NULL 및 workspace/composite FK로 보강된다.
+운영 `--apply`는 예정된 source 건수
+`5/367/1260/0/1302`(계좌/거래/run/배분/감사)가 하나라도 다르면
+모든 쓰기 전에 중단하고 rollback한다.
 
 ## 수집기 입력 계약
 

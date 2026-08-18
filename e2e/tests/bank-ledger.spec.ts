@@ -322,6 +322,7 @@ async function installBankLedgerScenario(
     collectorConfigured?: boolean;
     autoReconciliationEnabled?: boolean;
     canViewBalances?: boolean;
+    connection?: Record<string, unknown>;
     transactions?: any[];
     syncRuns?: any[];
   } = {},
@@ -359,6 +360,12 @@ async function installBankLedgerScenario(
     collectorConfigured: bankOverrides.collectorConfigured ?? false,
     autoReconciliationEnabled: bankOverrides.autoReconciliationEnabled ?? false,
     canViewBalances,
+    connection: bankOverrides.connection ?? {
+      status: bankOverrides.collectorConfigured === true ? 'READY' : 'DISABLED',
+      collectorEnabled: bankOverrides.collectorConfigured === true,
+      schedulerEnabled: false,
+      lastSuccessfulSyncAt: null,
+    },
     transactions,
     syncRuns,
   };
@@ -395,6 +402,72 @@ async function openBankLedger(page: Page, fromHiddenNavigation = false) {
 }
 
 test.describe('PEAK OS bank ledger', () => {
+  test('shows the authenticated server-side IBK connection health without exposing credentials', async ({ page }) => {
+    await installBankLedgerScenario(page, {
+      name: '김대호',
+      role: 'admin',
+      group_name: '본사 경영지원팀',
+    }, {
+      collectorConfigured: true,
+      connection: {
+        status: 'HEALTHY',
+        code: null,
+        collectorEnabled: true,
+        schedulerEnabled: true,
+        credentialsReady: true,
+        pinReady: true,
+        databaseReady: true,
+        configuredAccountCount: 5,
+        visibleAccountCount: 5,
+        connectedAccountCount: 5,
+        synchronizedAccountCount: 5,
+        errorAccountCount: 0,
+        lastSuccessfulSyncAt: '2026-08-17T12:50:00.000Z',
+      },
+    });
+
+    const ledger = await openBankLedger(page);
+    const health = ledger.locator('[data-bank-connection-health="healthy"]');
+    await expect(health).toBeVisible();
+    await expect(health).toContainText('IBK 잔액 자동 연결이 정상입니다');
+    await expect(ledger.locator('.module-chip', { hasText: '자동 연결 정상' })).toBeVisible();
+    await expect(ledger).not.toContainText('PEAKOS_IBK_TRANSKEY_JS_SHA256');
+    await expect(ledger).not.toContainText('PEAKOS_IBK_IDENTITY_NUMBER');
+  });
+
+  test('marks imported balances as stale until a new bank read succeeds', async ({ page }) => {
+    await installBankLedgerScenario(page, {
+      name: '김대호',
+      role: 'admin',
+      group_name: '본사 경영지원팀',
+    }, {
+      collectorConfigured: true,
+      connection: {
+        status: 'STALE',
+        code: 'IBK_SYNC_STALE',
+        collectorEnabled: true,
+        schedulerEnabled: true,
+        credentialsReady: true,
+        pinReady: true,
+        databaseReady: true,
+        configuredAccountCount: 5,
+        visibleAccountCount: 5,
+        connectedAccountCount: 5,
+        synchronizedAccountCount: 5,
+        errorAccountCount: 0,
+        lastSuccessfulSyncAt: '2026-08-08T10:40:06.612Z',
+      },
+    });
+
+    const ledger = await openBankLedger(page);
+    const health = ledger.locator('[data-bank-connection-health="stale"]');
+    await expect(health).toBeVisible();
+    await expect(health).toContainText('통장 잔액 갱신이 지연되고 있습니다');
+    await expect(health).toContainText('마지막 성공 이후 30분 이상');
+    await expect(health).toContainText('최근 성공');
+    await expect(ledger.locator('.module-chip', { hasText: '갱신 지연' })).toBeVisible();
+  });
+
   test('admin sees masked accounts, deposits, withdrawals and sync history from GET stubs', async ({ page }) => {
     const requests = await installBankLedgerScenario(page, {
       name: '김대호',
@@ -621,7 +694,7 @@ test.describe('PEAK OS bank ledger', () => {
       await expect(ledger).not.toContainText(account.accountNumber);
     }
 
-    await expect(ledger.getByText('조회 수집기 미설정', { exact: true })).toBeVisible();
+    await expect(ledger.locator('.module-chip', { hasText: '조회 수집기 미설정' })).toBeVisible();
     await expect(page.locator('[data-bank-sync]')).toBeHidden();
 
     const safety = await page.evaluate(() => {
