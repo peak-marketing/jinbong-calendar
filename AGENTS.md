@@ -12,7 +12,38 @@
 | `calendar-api` | — | `/var/www/jinbong-calendar/server` | `calendar_db` | 중지됨 (구 운영) |
 | `calendar-redesign-api` | 4110 | `jinbong-calendar-redesign` | `calendar_redesign` | 별건 |
 
-nginx `paragon-info.kr` → **4190**. 즉 이 저장소의 `business-os-preview.js`가 곧 실서비스 화면입니다.
+### 화면과 API가 서로 다른 곳에서 나갑니다 — 가장 헷갈리는 지점
+
+```
+paragon-info.kr/os/   →  /var/www/jinbong-calendar/os/   (nginx가 정적 파일 직접 서빙)
+paragon-info.kr/api/  →  127.0.0.1:4120                  (이 저장소의 server/)
+```
+
+**화면 파일(`business-os-live.css`, `business-os-preview.js`)을 이 저장소에서 고치면 실서비스에 반영되지 않습니다.**
+최종 목적지는 `/var/www/jinbong-calendar/os/` 입니다. 반영하려면:
+
+```bash
+# 1) 백업 (필수)
+STAMP="작업이름-$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p /var/www/jinbong-calendar/.deploy-backups/$STAMP
+cp /var/www/jinbong-calendar/os/{business-os-live.css,business-os-preview.js,index.html}    /var/www/jinbong-calendar/.deploy-backups/$STAMP/
+
+# 2) 반영
+cp business-os-live.css   /var/www/jinbong-calendar/os/
+cp business-os-preview.js /var/www/jinbong-calendar/os/
+
+# 3) 캐시 버전 갱신 (os/index.html 쪽도 반드시)
+sed -i 's/v=이전값/v=새값/g' /var/www/jinbong-calendar/os/index.html
+```
+
+nginx가 파일을 직접 읽으므로 **서버 재기동은 필요 없습니다.**
+반영 후에는 반드시 실제 URL로 확인하세요 — 개발용 4190은 실서비스가 아닙니다.
+
+```bash
+curl -sk https://paragon-info.kr/os/ | grep -oE '\?v=[a-z0-9-]+'
+```
+
+`/var/www` 쓰기는 사람 승인이 필요합니다. 승인 없이 배포하지 마세요.
 "프리뷰"라는 이름에 속지 마세요. 실사용자 데이터를 다룹니다.
 
 **데이터베이스**
