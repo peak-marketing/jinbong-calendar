@@ -890,8 +890,14 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     const sidebarToggle = page.locator('[data-sidebar-toggle]');
     await expect(sidebarToggle).toBeVisible();
     await expect(page.locator('.app')).not.toHaveClass(/sidebar-collapsed/);
+    const pageWidth = async () => await page.evaluate(
+      () => Math.round((document.querySelector('.page') as HTMLElement).getBoundingClientRect().width));
+    const openWidth = await pageWidth();
     await sidebarToggle.click();
     await expect(page.locator('.app')).toHaveClass(/sidebar-collapsed/);
+    // 접으면 본문이 넓어져야 한다. 사이드바를 display:none 하면 본문이
+    // 0px 열로 밀려 폭이 사라진 적이 있어 폭까지 확인한다.
+    expect(await pageWidth()).toBeGreaterThan(openWidth);
     await sidebarToggle.click();
     await expect(page.locator('.app')).not.toHaveClass(/sidebar-collapsed/);
 

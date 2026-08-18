@@ -16880,6 +16880,8 @@ html body #moduleView .platform-api-location .module-action { min-height: 44px; 
 .sidebar-toggle { display: none; }
 @media (min-width: 761px) {
   .sidebar-toggle { position: relative; z-index: 41; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
-  .app.sidebar-collapsed { grid-template-columns: 0 minmax(0, 1fr); }
+  /* 사이드바를 display:none 하면 그리드 항목에서 빠져 본문이 1열(0px)로 밀린다.
+     접힐 때는 아예 1열 그리드로 바꿔 본문이 전체 폭을 갖게 한다. */
+  .app.sidebar-collapsed { grid-template-columns: minmax(0, 1fr); }
   .app.sidebar-collapsed > .app-sidebar { display: none; }
 }
