@@ -16732,3 +16732,32 @@ html body #moduleView .platform-api-location .module-action { min-height: 44px; 
 }
 .structured-assignment-flow b { font-size: 9px; font-weight: 800; }
 .structured-task-history { margin-top: 4px; }
+
+/* 업무 한 건을 2줄로 접는다 — 배지+제목이 한 줄,
+   지시·담당·검토와 처리 이력이 그 아래 한 줄. */
+.structured-task-row { padding: 7px 14px; align-items: center; }
+.structured-task-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+.structured-task-main > .structured-task-meta { order: 0; gap: 5px; }
+.structured-task-main > strong { order: 1; margin-top: 0; flex: 1 1 120px; }
+.structured-task-main > p {
+  order: 2;
+  flex: 1 1 100%;
+  margin-top: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.structured-assignment-flow { order: 3; flex: 1 1 auto; margin-top: 0; }
+.structured-task-history { order: 4; margin-top: 0; }
+/* 워크플로 버전(v3)은 이력에서 확인한다 — 행에서는 뺀다 */
+.structured-task-meta > span:last-child { display: none; }
+/* 체크박스도 행 높이에 맞춘다 — 모바일은 44px 터치 영역을 지켜야 하므로 제외 */
+@media (min-width: 701px) {
+  .structured-task-check { width: 26px; height: 26px; }
+  .structured-task-row { grid-template-columns: 30px minmax(0, 1fr) auto; }
+}
