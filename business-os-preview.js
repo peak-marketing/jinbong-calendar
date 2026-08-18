@@ -5903,7 +5903,7 @@
       <button class="structured-task-check ${checked ? 'checked' : ''}" type="button" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" ${canSubmit ? `data-work-item-submit="${esc(task.id)}"` : 'disabled'} aria-label="${esc(task.title || '업무')} ${esc(canSubmit ? submitLabel : STRUCTURED_TASK_STATUS[status])}">${status === 'done' ? '✓' : status === 'review' ? '↗' : status === 'revision' ? '!' : ''}</button>
       <div class="structured-task-main">
         <div class="structured-task-meta">${structuredTaskStatusBadge(status)}${projectDeadlineBadge(task.dueDate, status)}<span>v${Number(task.workflowVersion ?? task.version ?? 1)}</span></div>
-        <strong>${esc(task.title || '업무명 없음')}</strong>
+        <strong data-structured-task-detail="${esc(task.id)}" role="button" tabindex="0">${esc(task.title || '업무명 없음')}</strong>
         ${task.description ? `<p>${esc(task.description)}</p>` : ''}
         <div class="structured-assignment-flow"><span><b>지시</b>${esc(assignedBy)}</span><i aria-hidden="true">→</i><span><b>담당</b>${esc(assignee)}</span><i aria-hidden="true">→</i><span><b>검토</b>${esc(reviewer)}</span></div>
         ${status === 'revision' && task.revisionReason ? `<div class="structured-revision-reason"><b>수정 요청 사유</b><span>${esc(task.revisionReason)}</span></div>` : ''}
@@ -6000,6 +6000,42 @@
 
   // 분할 보기: 왼쪽에 소분류 목록, 오른쪽에 그 소분류의 업무만 펼친다.
   // 계층 보기를 그대로 두고 별도 모드로 붙여 기존 동작을 건드리지 않는다.
+  // 업무 상세 — 담당·기한·분류·내용·이력을 한 화면에 정리해 보여준다.
+  function openStructuredTaskDetail(taskId) {
+    const project = structuredProjectDetailState?.project;
+    if (!project) return;
+    const record = structuredProjectTaskRecords(project)
+      .find(item => String(item.task?.id) === String(taskId));
+    if (!record) return showToast('업무를 찾을 수 없습니다.');
+    const { task, medium, small } = record;
+    const status = STRUCTURED_TASK_STATUS[task.status] ? task.status : 'todo';
+    const assignedBy = structuredProjectMemberName(task.assignedBy, '지시자 미지정');
+    const assignee = structuredProjectMemberName(task.assignee, '담당자 미지정');
+    const reviewer = structuredProjectMemberName(task.reviewer, assignedBy);
+    const person = (label, name) => `<div class="task-detail-person"><span>${esc(label)}</span><strong>${esc(name)}</strong></div>`;
+    const row = (label, value) => `<div class="task-detail-row"><span>${esc(label)}</span><div>${value}</div></div>`;
+    const history = Array.isArray(task.history) ? task.history : [];
+    const historyMarkup = history.length
+      ? history.slice().reverse().map(item => {
+        const actionLabel = { submit: '검토 요청', resubmit: '재검토 요청', approve: '승인', request_revision: '수정 요청', request: '검토 요청', revision: '수정 요청' }[item.action] || item.action || '상태 변경';
+        const actor = structuredProjectMemberName(item.actor, item.actorName || item.actor_name || '처리자');
+        const createdAt = item.createdAt || item.created_at;
+        return `<li><b>${esc(actionLabel)}</b><em>${esc(actor)}${createdAt ? ` · ${esc(formatDate(createdAt, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}` : ''}</em>${item.note ? `<small>${esc(item.note)}</small>` : ''}</li>`;
+      }).join('')
+      : '<li class="empty">아직 처리 이력이 없습니다.</li>';
+    openDetailModal(task.title || '업무', `<div class="task-detail">
+      <div class="task-detail-people">${person('업무 지시', assignedBy)}${person('업무 담당', assignee)}${person('검토', reviewer)}</div>
+      ${row('기한', task.dueDate ? `${esc(formatDate(task.dueDate, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' }))}${projectDeadlineBadge(task.dueDate, status)}` : '<span class="task-detail-muted">마감일 없음</span>')}
+      ${row('분류', `<span class="task-detail-tag">${esc(project.name || '대분류')}</span><span class="task-detail-tag">${esc(medium?.name || '중분류')}</span><span class="task-detail-tag">${esc(small?.name || '소분류')}</span>`)}
+      ${row('진행 상태', `${structuredTaskStatusBadge(status)}<span class="task-detail-muted">v${Number(task.workflowVersion ?? task.version ?? 1)}</span>`)}
+      ${status === 'revision' && task.revisionReason ? row('수정 요청 사유', `<span class="task-detail-revision">${esc(task.revisionReason)}</span>`) : ''}
+      <div class="task-detail-section"><h4>내용</h4><p>${task.description ? esc(task.description) : '<span class="task-detail-muted">등록된 내용이 없습니다.</span>'}</p></div>
+      <div class="task-detail-section"><h4>처리 이력 ${history.length}건</h4><ul class="task-detail-history">${historyMarkup}</ul></div>
+      <div class="collaboration-form-actions"><span></span><span></span><button type="button" data-collab-cancel>닫기</button></div>
+    </div>`);
+    document.querySelector('[data-collab-cancel]')?.addEventListener('click', () => closeDetailModal());
+  }
+
   function structuredProjectSplit(project) {
     const mediums = Array.isArray(project?.mediumCategories) ? project.mediumCategories : [];
     const entries = [];
@@ -6245,6 +6281,14 @@
       structuredExpandedSmallIds.clear();
       renderStructuredProjectDetail();
       window.requestAnimationFrame(() => newProjectsView.querySelector('[data-structured-hierarchy-collapse-all]')?.focus());
+    });
+    newProjectsView.querySelectorAll('[data-structured-task-detail]').forEach(node => {
+      node.addEventListener('click', () => openStructuredTaskDetail(node.dataset.structuredTaskDetail));
+      node.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        openStructuredTaskDetail(node.dataset.structuredTaskDetail);
+      });
     });
     newProjectsView.querySelectorAll('[data-structured-split-small]').forEach(button => button.addEventListener('click', () => {
       structuredSplitSmallId = String(button.dataset.structuredSplitSmall || '');

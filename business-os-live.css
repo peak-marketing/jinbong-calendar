@@ -16885,3 +16885,55 @@ html body #moduleView .platform-api-location .module-action { min-height: 44px; 
   .app.sidebar-collapsed { grid-template-columns: minmax(0, 1fr); }
   .app.sidebar-collapsed > .app-sidebar { display: none; }
 }
+
+/* ── 업무 상세 패널 ─────────────────────────────── */
+.task-detail { display: grid; gap: 14px; min-width: 0; }
+.task-detail-people {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+.task-detail-person {
+  border: 1px solid #dbe6ed;
+  border-radius: 10px;
+  padding: 8px 11px;
+  background: #f8fbfd;
+}
+.task-detail-person > span { display: block; color: #8a9aa5; font-size: 9px; font-weight: 850; }
+.task-detail-person > strong { display: block; margin-top: 3px; color: #24475e; font-size: 12px; }
+.task-detail-row {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+.task-detail-row > span { color: #7d95a5; font-size: 10px; font-weight: 850; }
+.task-detail-row > div { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; color: #24475e; font-size: 11px; font-weight: 700; }
+.task-detail-tag {
+  border: 1px solid #cfe2ee;
+  border-radius: 99px;
+  padding: 3px 9px;
+  background: #eef7fc;
+  color: #2b6d94;
+  font-size: 10px;
+  font-weight: 800;
+}
+.task-detail-muted { color: #94a3ae; font-size: 10px; font-weight: 700; }
+.task-detail-revision { color: #a4565c; font-size: 11px; font-weight: 750; }
+.task-detail-section { border-top: 1px solid #e9eff3; padding-top: 12px; }
+.task-detail-section > h4 { margin: 0 0 7px; color: #7d95a5; font-size: 10px; font-weight: 850; }
+.task-detail-section > p { margin: 0; color: #34586f; font-size: 12px; line-height: 1.7; white-space: pre-wrap; }
+.task-detail-history { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.task-detail-history > li {
+  display: grid;
+  gap: 2px;
+  border-left: 2px solid #cfe2ee;
+  padding: 2px 0 2px 10px;
+}
+.task-detail-history b { color: #24475e; font-size: 11px; }
+.task-detail-history em { color: #8a9aa5; font-size: 9px; font-style: normal; }
+.task-detail-history small { color: #6d8393; font-size: 10px; }
+.task-detail-history > li.empty { border-left-color: #e4edf2; color: #94a3ae; font-size: 10px; }
+/* 제목을 눌러 상세를 연다 */
+.structured-task-main > strong[data-structured-task-detail] { cursor: pointer; }
+.structured-task-main > strong[data-structured-task-detail]:hover { text-decoration: underline; }

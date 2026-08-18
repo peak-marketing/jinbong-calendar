@@ -893,6 +893,17 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('.structured-split-nav')).toBeVisible();
     await expect(page.locator('.structured-split-detail')).toBeVisible();
 
+    // 업무 제목을 누르면 담당·기한·분류·내용·이력이 정리된 상세가 열린다.
+    await page.locator('[data-structured-task-detail]').first().click();
+    const taskDetail = page.locator('.task-detail');
+    await expect(taskDetail).toBeVisible();
+    await expect(taskDetail).toContainText('업무 지시');
+    await expect(taskDetail).toContainText('업무 담당');
+    await expect(taskDetail.locator('.task-detail-tag')).toHaveCount(3);
+    await expect(taskDetail).toContainText('처리 이력');
+    await taskDetail.getByRole('button', { name: '닫기', exact: true }).click();
+    await expect(taskDetail).toBeHidden();
+
     await page.locator('[data-structured-task-view="hierarchy"]').click();
 
     // 사이드바 접기 — 넓게 보려면 왼쪽 메뉴를 접을 수 있어야 한다.
