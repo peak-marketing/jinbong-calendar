@@ -599,7 +599,7 @@ body.chat-window-mode .chat-input-bar { padding: 10px 12px calc(var(--safe-botto
       <div class="sidebar-item" onclick="navTo('report')"><span class="icon">📄</span>보고서</div>
       <div class="sidebar-item" onclick="navTo('idea')"><span class="icon">💡</span>아이디어</div>
       <div class="sidebar-item" onclick="navTo('notice')"><span class="icon">📢</span>공지사항<span id="sidebarNoticeBadge" class="sidebar-badge" style="display:none"></span></div>
-      <div class="sidebar-item" onclick="navTo('request')"><span class="icon">🛠</span>수정요청</div>
+      <div class="sidebar-item" onclick="navTo('request')"><span class="icon">🛠</span>개발수정요청</div>
       <div class="sidebar-item" onclick="navTo('more')"><span class="icon">⋯</span>더보기</div>
     </div>
     <div class="sidebar-user" onclick="toggleUserMenu()">
@@ -627,7 +627,7 @@ body.chat-window-mode .chat-input-bar { padding: 10px 12px calc(var(--safe-botto
     <button class="mob-tab" onclick="navTo('report')"><span class="mob-icon">📄</span>보고서</button>
     <button class="mob-tab" onclick="navTo('idea')"><span class="mob-icon">💡</span>아이디어</button>
     <button class="mob-tab" onclick="navTo('notice')"><span class="mob-icon">📢</span>공지<span id="mobNoticeBadge" class="mob-badge" style="display:none"></span></button>
-    <button class="mob-tab" onclick="navTo('request')"><span class="mob-icon">🛠</span>요청</button>
+    <button class="mob-tab" onclick="navTo('request')"><span class="mob-icon">🛠</span>개발요청</button>
     <button class="mob-tab" onclick="navTo('more')"><span class="mob-icon">⋯</span>더보기</button>
   </div>
 </nav>
@@ -709,7 +709,7 @@ const PAGE_BROWSER_TITLES = {
   report: '보고서',
   idea: '아이디어',
   notice: '공지사항',
-  request: '수정요청',
+  request: '개발수정요청',
   more: '더보기'
 };
 let swUpdateAvailable = false;
@@ -1053,7 +1053,7 @@ function buildChatMessageHtml(msg, dividerHtml = '') {
         const data = JSON.parse(msg.text.replace('[EVENT_SHARE]',''));
         bubble += `<div style="background:var(--bg4);border:1px solid var(--border);border-radius:8px;padding:8px;margin-top:2px">
           <div style="font-size:12px;font-weight:600">📅 ${esc(data.title)}</div>
-          <div style="font-size:10px;color:var(--text3);margin-top:2px">${data.date}${data.endDate ? ' ~ ' + data.endDate : ''}${data.time ? ' ' + data.time : ''}</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px">${esc(data.date || '')}${data.endDate ? ' ~ ' + esc(data.endDate) : ''}${data.time ? ' ' + esc(eventTimeRangeLabel(data.time, data.endTime)) : ''}</div>
           ${data.memo ? `<div style="font-size:10px;color:var(--text3);margin-top:2px">📝 ${esc(data.memo.split('\n')[0])}</div>` : ''}
         </div>`;
       } catch (e) {
@@ -2184,6 +2184,7 @@ function mapEventRecord(record = {}) {
     title: record.title,
     date: record.date,
     time: record.time || '',
+    endTime: record.endTime !== undefined ? record.endTime : (record.end_time || ''),
     url: record.url || '',
     memo: record.memo || '',
     todoCat: record.todoCat !== undefined ? record.todoCat : (record.todo_cat || null),
@@ -2201,6 +2202,21 @@ function mapEventRecord(record = {}) {
     sortOrder: record.sortOrder !== undefined ? record.sortOrder : (record.sort_order || 0),
     createdAt: record.createdAt !== undefined ? record.createdAt : record.created_at
   };
+}
+
+function eventTimeRangeLabel(startValue, endValue) {
+  const startTime = String(startValue || '').slice(0, 5);
+  const endTime = String(endValue || '').slice(0, 5);
+  if (!startTime) return '';
+  return endTime ? `${startTime} ~ ${endTime}` : startTime;
+}
+
+function eventTimeRangeValidationMessage(startValue, endValue) {
+  const startTime = String(startValue || '').slice(0, 5);
+  const endTime = String(endValue || '').slice(0, 5);
+  if (endTime && !startTime) return '종료 시간을 정하려면 시작 시간을 먼저 입력해 주세요.';
+  if (startTime && endTime && endTime <= startTime) return '종료 시간은 시작 시간보다 뒤여야 합니다.';
+  return '';
 }
 
 const checklistItemsCache = {};
@@ -2816,7 +2832,7 @@ function renderPage(keepScroll) {
     case 'report': title.textContent = '📄 보고서'; renderReportPage(body, right); break;
     case 'idea': title.textContent = '💡 아이디어'; renderIdeaPage(body, right); break;
     case 'notice': title.textContent = '📢 공지사항'; renderNoticePage(body, right); break;
-    case 'request': title.textContent = '🛠 수정요청'; renderServiceRequestPage(body, right); break;
+    case 'request': title.textContent = '🛠 개발수정요청'; renderServiceRequestPage(body, right); break;
     case 'more': title.textContent = '⋯ 더보기'; renderMorePage(body); break;
   }
   syncDocumentTitle();
@@ -3025,7 +3041,7 @@ function renderTeamEvSection(teamEvs) {
         <div onclick="openEventDetail('${e.id}')" style="cursor:pointer">
           <div style="display:flex;align-items:flex-start;gap:6px">
             <div style="flex:1;font-size:13px;font-weight:600;${titleStyle}">${t.icon} ${esc(e.title)} ${renderCarriedTodoBadge(e)}${cl&&cl.total>0?` <span style="font-size:10px;color:${cl.completed===cl.total?'var(--green)':'var(--yellow)'}">(${cl.completed}/${cl.total})</span>`:''}</div>
-            ${e.time?`<span style="font-size:10px;color:var(--text3)">${e.time}</span>`:''}
+            ${e.time?`<span style="font-size:10px;color:var(--text3)">${esc(eventTimeRangeLabel(e.time, e.endTime))}</span>`:''}
           </div>
           ${renderCarriedTodoMeta(e)}
           ${e.memo?`<div style="font-size:10px;color:var(--text3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📝 ${esc(e.memo.split('\\n')[0])}</div>`:''}
@@ -3046,7 +3062,7 @@ function renderProjectMeetingSection(projectMeetings) {
     ${projectMeetings.map(e => `<div class="ev-item" onclick="openProjectFromCalendar('${e.projectId}')" style="flex-direction:column;align-items:stretch;padding:10px;margin-bottom:6px;background:rgba(90,167,255,0.12);border:1px solid rgba(90,167,255,0.22);border-left:3px solid var(--blue);border-radius:10px;cursor:pointer">
       <div style="display:flex;align-items:flex-start;gap:6px">
         <div style="flex:1;font-size:13px;font-weight:750;line-height:1.4">📅 ${esc(e.title)}</div>
-        ${e.time ? `<span style="font-size:10px;color:var(--text3)">${esc(e.time)}</span>` : ''}
+        ${e.time ? `<span style="font-size:10px;color:var(--text3)">${esc(eventTimeRangeLabel(e.time, e.endTime))}</span>` : ''}
       </div>
       <div style="font-size:10px;color:var(--text3);margin-top:4px">프로젝트 연결 일정${e.ownerName ? ' · ' + esc(e.ownerName) : ''}</div>
       ${e.memo ? `<div style="font-size:10px;color:var(--text3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📝 ${esc(e.memo.split('\\n')[0])}</div>` : ''}
@@ -3136,7 +3152,7 @@ function renderEvSection(dayEvs, sectionTitle) {
       <div style="display:flex;align-items:center;gap:6px">
         <div class="ev-color" style="background:${t.color}"></div>
         <div style="flex:1;font-size:13px;font-weight:600">${t.icon} ${esc(e.title)}${cl&&cl.total>0?` <span style="font-size:10px;color:${cl.completed===cl.total?'var(--green)':'var(--yellow)'}">(${cl.completed}/${cl.total})</span>`:''}</div>
-        ${e.time?`<span style="font-size:10px;color:var(--text3)">${e.time}</span>`:''}
+        ${e.time?`<span style="font-size:10px;color:var(--text3)">${esc(eventTimeRangeLabel(e.time, e.endTime))}</span>`:''}
       </div>
       ${e.endDate?`<div style="font-size:10px;color:var(--text3);margin-top:3px;padding-left:10px">📅 ${e.date} ~ ${e.endDate}</div>`:''}
       ${e.memo?`<div style="font-size:11px;color:var(--text3);margin-top:3px;padding-left:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📝 ${esc(e.memo.split('\\n')[0])}</div>`:''}
@@ -3254,7 +3270,7 @@ function evItemHtml(e, options = {}) {
       <div class="ev-title ${e.done?'ev-done':''}">${t.icon} ${esc(e.title)} ${renderCarriedTodoBadge(e)} ${clBadge}${e.scope==='team'?'<span style="background:var(--red-bg);color:var(--red);font-size:9px;padding:1px 5px;border-radius:4px;margin-left:4px">팀</span>':''}</div>
       ${renderCarriedTodoMeta(e)}${dateMeta}${dateRange}${memoPreview}
     </div>
-    ${e.time?`<div class="ev-time">${e.time}</div>`:''}
+    ${e.time?`<div class="ev-time">${esc(eventTimeRangeLabel(e.time, e.endTime))}</div>`:''}
   </div>`;
 }
 
@@ -3292,7 +3308,7 @@ function groupEventsByOwner(evs) {
 
 function eventDateMeta(e) {
   const dateLabel = e?.date ? e.date.slice(5) : '';
-  const timeLabel = e?.time ? ` ${e.time}` : '';
+  const timeLabel = e?.time ? ` ${eventTimeRangeLabel(e.time, e.endTime)}` : '';
   return dateLabel || timeLabel ? `<div style="font-size:10px;color:var(--text3);margin-top:2px">📅 ${dateLabel}${timeLabel}</div>` : '';
 }
 
@@ -3672,7 +3688,7 @@ async function renderWeeklyInline(body, prefix) {
           const chatLink = matchRoom3 ? `<span onclick="event.stopPropagation();openChatRoomById('${matchRoom3.id}')" style="font-size:9px;color:var(--blue);cursor:pointer;margin-left:4px">💬</span>` : '';
           h += `<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;font-size:12px;${e.done?'text-decoration:line-through;opacity:0.5':''}">
             <span>${t.icon}</span><span style="flex:1">${esc(e.title)}${owner}${chatLink}</span>
-            ${e.time?`<span style="color:var(--text3);font-size:10px">${e.time}</span>`:''}
+            ${e.time?`<span style="color:var(--text3);font-size:10px">${esc(eventTimeRangeLabel(e.time, e.endTime))}</span>`:''}
           </div>`;
         });
       } else h += '<div style="padding:4px 8px;font-size:12px;color:var(--text3)">없음</div>';
@@ -3857,9 +3873,10 @@ async function openImportEvents(date) {
     available.forEach((e, idx) => {
       const t = allTypes[e.type] || {icon:'📌'};
       const time = e.time || '';
+      const endTime = e.endTime !== undefined ? e.endTime : (e.end_time || '');
       h += `<div class="room-item" onclick="importEventByIndex('${date}',${idx})">
         <div style="width:32px;height:32px;border-radius:8px;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:16px">${t.icon}</div>
-        <div style="flex:1"><div style="font-size:13px;font-weight:600">${esc(e.title)}</div><div style="font-size:10px;color:var(--text3)">${e.date}${time?' · '+time:''}</div></div>
+        <div style="flex:1"><div style="font-size:13px;font-weight:600">${esc(e.title)}</div><div style="font-size:10px;color:var(--text3)">${e.date}${time?' · '+esc(eventTimeRangeLabel(time, endTime)):''}</div></div>
         <span style="color:var(--blue);font-size:12px">+ 추가</span>
       </div>`;
     });
@@ -3871,18 +3888,23 @@ async function openImportEvents(date) {
 function importEventByIndex(date, idx) {
   const e = window._importAvailable[idx];
   if (!e) return;
-  importEventToTimetable(date, e.id, e.title, e.time || '');
+  importEventToTimetable(date, e.id, e.title, e.time || '', e.endTime !== undefined ? e.endTime : (e.end_time || ''));
 }
 
-async function importEventToTimetable(date, eventId, title, time) {
+async function importEventToTimetable(date, eventId, title, time, eventEndTime = '') {
   // 시간이 있으면 그 시간 사용, 없으면 기본값
   let startTime = '09:00', endTime = '09:30';
   if (time && time.includes(':')) {
     startTime = time.slice(0, 5);
-    // 종료시간은 시작시간 + 30분
-    const [hh, mm] = startTime.split(':').map(Number);
-    const endMin = mm + 30;
-    endTime = String(hh + Math.floor(endMin / 60)).padStart(2, '0') + ':' + String(endMin % 60).padStart(2, '0');
+    const canonicalEnd = String(eventEndTime || '').slice(0, 5);
+    if (canonicalEnd && canonicalEnd > startTime) {
+      endTime = canonicalEnd;
+    } else {
+      // 종료 시간이 없는 기존 단일 일정만 시작 + 30분으로 가져옵니다.
+      const [hh, mm] = startTime.split(':').map(Number);
+      const endMin = mm + 30;
+      endTime = String(hh + Math.floor(endMin / 60)).padStart(2, '0') + ':' + String(endMin % 60).padStart(2, '0');
+    }
   }
   try {
     await api('POST', '/timetable', { date, startTime, endTime, title, eventId });
@@ -7495,7 +7517,7 @@ async function renderProjectPage(body, right) {
     right.innerHTML = `<button onclick="selectedProjectId=null;selectedProject=null;selectedProjectTaskId=null;renderPage()" class="btn btn-dark">← 목록</button>
       <button onclick="openProjectModal()" class="btn btn-red">+ 프로젝트</button>
       ${selectedProject.canManage ? `<button onclick="openProjectModal(selectedProject)" class="btn btn-dark">수정</button>` : ''}
-      ${projectSubTab === 'tasks' ? `<button onclick="openProjectTaskModal()" class="btn btn-red">+ 업무</button>` : ''}
+      ${projectSubTab === 'tasks' && selectedProject.canCreateTasks ? `<button onclick="openProjectTaskModal()" class="btn btn-red">+ 업무</button>` : ''}
       ${projectSubTab === 'updates' ? `<button onclick="openProjectUpdateModal()" class="btn btn-red">+ 진행사항</button>` : ''}
       ${projectSubTab === 'schedule' ? `<button onclick="openProjectMeetingModal()" class="btn btn-red">+ 회의일정</button>` : ''}`;
     if (selectedProjectTaskId && !(selectedProject.tasks || []).some(t => String(t.id) === String(selectedProjectTaskId))) {
@@ -7581,8 +7603,15 @@ function renderProjectTaskRow(task) {
   const myAssignment = completion.assignees.find(
     assignee => currentUser && String(assignee.uid) === String(currentUser.uid)
   );
+  const isSingleAssignee = !!(
+    currentUser
+    && task.assignee_uid
+    && String(task.assignee_uid) === String(currentUser.uid)
+  );
   const checked = isAllAssignees ? !!myAssignment?.completed : ['review', 'done'].includes(task.status);
-  const canToggle = !isAllAssignees || !!myAssignment;
+  const canToggle = isAllAssignees
+    ? (task.permissions?.canComplete ?? (!!myAssignment && ['todo', 'doing'].includes(task.status)))
+    : (task.permissions?.canRequestReview ?? (isSingleAssignee && ['todo', 'doing'].includes(task.status)));
   const toggleAction = isAllAssignees
     ? `toggleProjectTaskCompletion('${task.id}', ${checked ? 'false' : 'true'})`
     : `updateProjectTaskStatus('${task.id}', '${checked ? 'doing' : 'review'}')`;
@@ -7599,7 +7628,7 @@ function renderProjectTaskRow(task) {
       </div>` : ''}
       ${renderProjectTaskActions(task)}
     </div>
-    <button onclick="event.stopPropagation();openProjectTaskModal('${task.id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px">수정</button>
+    ${(task.permissions?.canEdit ?? selectedProject?.canDirectTasks ?? selectedProject?.canManage) ? `<button onclick="event.stopPropagation();openProjectTaskModal('${task.id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px">수정</button>` : ''}
   </div>`;
 }
 
@@ -7609,12 +7638,12 @@ function renderProjectTaskActions(task) {
     (task.assignee_uid && String(task.assignee_uid) === String(currentUser.uid))
     || completion.assignees.some(assignee => String(assignee.uid) === String(currentUser.uid))
   );
-  const canManage = !!selectedProject?.canManage;
+  const canReview = task.permissions?.canReview ?? !!selectedProject?.canManage;
   const buttons = [];
   if (isAssignee && task.assignment_mode !== 'all' && !['review', 'done'].includes(task.status)) {
     buttons.push(`<button onclick="event.stopPropagation();updateProjectTaskStatus('${task.id}', 'review')" style="border:1px solid rgba(248,214,109,0.45);background:rgba(248,214,109,0.12);color:var(--yellow);border-radius:8px;padding:5px 8px;font-size:11px;font-weight:800;cursor:pointer;font-family:inherit">검토요청</button>`);
   }
-  if (canManage && task.status === 'review') {
+  if (canReview && task.status === 'review') {
     buttons.push(`<button onclick="event.stopPropagation();updateProjectTaskStatus('${task.id}', 'done')" style="border:1px solid rgba(74,222,128,0.45);background:rgba(74,222,128,0.12);color:var(--green);border-radius:8px;padding:5px 8px;font-size:11px;font-weight:800;cursor:pointer;font-family:inherit">완료 처리</button>`);
     buttons.push(`<button onclick="event.stopPropagation();updateProjectTaskStatus('${task.id}', 'doing')" style="border:1px solid var(--line);background:var(--bg3);color:var(--text2);border-radius:8px;padding:5px 8px;font-size:11px;font-weight:800;cursor:pointer;font-family:inherit">다시 진행</button>`);
   }
@@ -7764,7 +7793,7 @@ function renderProjectSchedule(project) {
     </div>
     ${(project.events || []).map(ev => `<div style="padding:10px 0;border-bottom:1px solid var(--line)">
       <div style="font-size:13px;font-weight:750">${esc(ev.title)}</div>
-      <div style="font-size:11px;color:var(--text3);margin-top:4px">${esc(ev.date || '')} ${esc(ev.time || '')} · ${ev.scope === 'team' ? '팀 공유' : '개인'}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">${esc(ev.date || '')} ${esc(eventTimeRangeLabel(ev.time, ev.endTime))} · ${ev.scope === 'team' ? '팀 공유' : '개인'}</div>
       ${ev.memo ? `<div style="font-size:12px;color:var(--text3);white-space:pre-wrap;line-height:1.5;margin-top:5px">${esc(ev.memo)}</div>` : ''}
       <button class="day-action-btn" onclick="goToProjectEventDate('${esc(ev.date || '')}', '${ev.id}')" style="margin-top:8px">캘린더에서 보기</button>
     </div>`).join('') || '<div class="card-meta">아직 연결된 일정이 없습니다.</div>'}
@@ -7864,19 +7893,31 @@ async function deleteProject(id) {
 
 async function openProjectTaskModal(taskId = null) {
   const task = selectedProject?.tasks?.find(t => String(t.id) === String(taskId));
-  const members = selectedProject?.members || [];
+  const canDirectTasks = selectedProject?.canDirectTasks ?? (selectedProject?.canManage === true);
+  if (task && !(task.permissions?.canEdit ?? canDirectTasks)) return alert('업무 수정 권한이 없습니다');
+  if (!task && !selectedProject?.canCreateTasks) return alert('업무 등록 권한이 없습니다');
+  const allMembers = selectedProject?.members || [];
+  const members = canDirectTasks
+    ? allMembers
+    : allMembers.filter(member => currentUser && String(member.uid) === String(currentUser.uid));
   const isAllAssignees = task?.assignment_mode === 'all';
+  const assignmentLocked = Boolean(task && ['review', 'done'].includes(task.status));
+  const availableStatuses = task
+    ? Object.entries(PROJECT_TASK_STATUS)
+    : Object.entries(PROJECT_TASK_STATUS).filter(([value]) => canDirectTasks
+      ? ['todo', 'doing', 'hold'].includes(value)
+      : value === 'todo');
   const h = `<div class="modal-title">${task ? '업무 수정' : '업무 추가'}</div>
     <div class="form-group"><label class="form-label">업무명</label><input class="form-input" id="projectTaskTitle" value="${esc(task?.title || '')}" placeholder="예: 메인 화면 문구 정리"></div>
     <div class="form-group"><label class="form-label">설명</label><textarea class="form-input" id="projectTaskDescription" rows="4">${esc(task?.description || '')}</textarea></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="form-group"><label class="form-label">담당자</label><select class="form-input" id="projectTaskAssignee"><option value="">미지정</option><option value="__all__" ${isAllAssignees?'selected':''}>모두 (프로젝트 참여자 전원)</option>${members.map(m => `<option value="${esc(m.uid)}" ${!isAllAssignees && task?.assignee_uid===m.uid?'selected':''}>${esc(m.name)}</option>`).join('')}</select></div>
-      <div class="form-group"><label class="form-label">상태</label><select class="form-input" id="projectTaskStatus">${Object.entries(PROJECT_TASK_STATUS).map(([value, meta]) => `<option value="${value}" ${task?.status===value?'selected':''}>${meta.label}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label">담당자</label><select class="form-input" id="projectTaskAssignee" required ${assignmentLocked ? 'disabled' : ''}>${canDirectTasks ? `<option value="">담당자 선택</option><option value="__all__" ${isAllAssignees?'selected':''}>모두 (프로젝트 참여자 전원)</option>` : ''}${members.map(m => `<option value="${esc(m.uid)}" ${(!task && !canDirectTasks) || (!isAllAssignees && task?.assignee_uid===m.uid)?'selected':''}>${esc(m.name)}${!canDirectTasks ? ' (나)' : ''}</option>`).join('')}</select>${assignmentLocked ? '<div class="card-meta" style="margin-top:5px">검토 요청·완료 상태에서는 담당자 이력을 변경할 수 없습니다.</div>' : ''}</div>
+      <div class="form-group"><label class="form-label">상태</label><select class="form-input" id="projectTaskStatus" ${!task && !canDirectTasks ? 'disabled' : ''}>${availableStatuses.map(([value, meta]) => `<option value="${value}" ${task?.status===value || (!task && value==='todo')?'selected':''}>${meta.label}</option>`).join('')}</select></div>
     </div>
-    <div class="form-group"><label class="form-label">마감일</label><input type="date" class="form-input" id="projectTaskDue" value="${esc(task?.due_date || '')}"></div>
+    <div class="form-group"><label class="form-label">마감일 <span style="color:var(--red)">필수</span></label><input type="date" class="form-input" id="projectTaskDue" value="${esc(task?.due_date || '')}" required></div>
     <div style="display:flex;gap:8px">
       <button class="btn btn-dark" onclick="closeModal()" style="flex:1">취소</button>
-      ${task ? `<button class="btn btn-dark" onclick="deleteProjectTask('${task.id}')" style="flex:1;color:var(--red)">삭제</button>` : ''}
+      ${task && (task.permissions?.canDelete ?? canDirectTasks) ? `<button class="btn btn-dark" onclick="deleteProjectTask('${task.id}')" style="flex:1;color:var(--red)">삭제</button>` : ''}
       <button class="btn btn-red" onclick="saveProjectTask(${task ? `'${task.id}'` : 'null'})" style="flex:1">저장</button>
     </div>`;
   openModal(h);
@@ -7884,6 +7925,9 @@ async function openProjectTaskModal(taskId = null) {
 
 async function saveProjectTask(taskId = null) {
   if (!selectedProjectId) return;
+  const canDirectTasks = selectedProject?.canDirectTasks ?? (selectedProject?.canManage === true);
+  const existingTask = selectedProject?.tasks?.find(task => String(task.id) === String(taskId));
+  const assignmentLocked = Boolean(existingTask && ['review', 'done'].includes(existingTask.status));
   const assigneeValue = document.getElementById('projectTaskAssignee')?.value || '';
   const body = {
     title: document.getElementById('projectTaskTitle')?.value?.trim(),
@@ -7893,7 +7937,18 @@ async function saveProjectTask(taskId = null) {
     status: document.getElementById('projectTaskStatus')?.value || 'todo',
     dueDate: document.getElementById('projectTaskDue')?.value || ''
   };
+  if (!taskId && !canDirectTasks) {
+    body.assigneeMode = 'single';
+    body.assigneeUid = String(currentUser?.uid || '');
+    body.status = 'todo';
+  }
+  if (assignmentLocked) {
+    delete body.assigneeMode;
+    delete body.assigneeUid;
+  }
   if (!body.title) return alert('업무명을 입력하세요');
+  if (!assignmentLocked && !body.assigneeUid && body.assigneeMode !== 'all') return alert('담당자를 선택하세요');
+  if (!body.dueDate) return alert('업무 마감일을 지정하세요');
   const saved = taskId
     ? await api('PUT', `/projects/${selectedProjectId}/tasks/${taskId}`, body)
     : await api('POST', `/projects/${selectedProjectId}/tasks`, body);
@@ -8106,7 +8161,7 @@ function renderServiceRequestCard(req) {
 async function renderServiceRequestPage(body, right) {
   const isActiveRender = createPageRenderGuard('request', body);
   right.innerHTML = `<button onclick="openNewServiceRequestModal()" class="btn btn-red">+ 요청</button>`;
-  body.innerHTML = '<div style="color:var(--text3);font-size:13px">수정 요청을 불러오는 중...</div>';
+  body.innerHTML = '<div style="color:var(--text3);font-size:13px">개발수정요청을 불러오는 중...</div>';
   try {
     const data = await api('GET', '/service-requests');
     if (!isActiveRender()) return;
@@ -8125,8 +8180,8 @@ async function renderServiceRequestPage(body, right) {
       all: serviceRequests.length
     };
     let h = `<div class="card" style="margin-bottom:16px">
-      <div class="card-title">피크마케팅 서비스 상품 개발 수정 요청</div>
-      <div class="card-meta">리뷰스페이스, 키워드마스터, 접수 UI 같은 서비스 수정 요청을 여기에 남기면 담당자가 상태를 업데이트합니다.</div>
+      <div class="card-title">피크마케팅 개발수정요청</div>
+      <div class="card-meta">리뷰스페이스, 키워드마스터, 접수 UI 같은 서비스 개발수정요청을 여기에 남기면 담당자가 상태를 업데이트합니다.</div>
       <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px">
         <div style="background:var(--bg3);border-radius:8px;padding:10px"><div style="font-size:11px;color:var(--text3)">진행중</div><div style="font-size:22px;font-weight:800;color:var(--yellow)">${counts.open}</div></div>
         <div style="background:var(--bg3);border-radius:8px;padding:10px"><div style="font-size:11px;color:var(--text3)">완료</div><div style="font-size:22px;font-weight:800;color:var(--green)">${counts.done}</div></div>
@@ -8153,7 +8208,7 @@ async function openNewServiceRequestModal() {
   serviceRequestDraftAttachments = [];
   let bookmarks = [];
   try { bookmarks = await api('GET', '/bookmarks'); } catch(e) {}
-  const h = `<div class="modal-title">🛠 수정 요청 등록</div>
+  const h = `<div class="modal-title">🛠 개발수정요청 등록</div>
     <div class="form-group"><label class="form-label">서비스</label><select class="form-input" id="srProduct">${serviceRequestProductOptions(bookmarks)}</select></div>
     <div class="form-group"><label class="form-label">제목</label><input class="form-input" id="srTitle" placeholder="예: 리뷰스페이스 정산 화면 버튼 추가"></div>
     <div class="form-group"><label class="form-label">요청 내용</label><textarea class="form-input" id="srContent" rows="7" placeholder="어떤 화면에서 무엇을 어떻게 수정하면 좋을지 적어주세요."></textarea></div>
@@ -8206,7 +8261,7 @@ async function openServiceRequestDetail(id) {
 	  const managers = serviceRequestCanManage ? await ensureServiceRequestManagersLoaded() : [];
 	  const meta = serviceRequestStatusMeta(req.status);
 	  serviceRequestDraftAttachments = getImageAttachments(req).map(att => ({ ...att }));
-	  let h = `<div class="modal-title">🛠 수정 요청</div>
+	  let h = `<div class="modal-title">🛠 개발수정요청</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
       <span style="font-size:11px;font-weight:700;color:${meta.color};background:var(--bg3);border-radius:999px;padding:4px 8px">${meta.label}</span>
       <span style="font-size:11px;color:var(--text3);background:var(--bg3);border-radius:999px;padding:4px 8px">${esc(req.product_name || '기타')}</span>
@@ -8276,7 +8331,7 @@ async function saveServiceRequest(id) {
 }
 
 async function deleteServiceRequest(id) {
-  if (!confirm('이 수정 요청을 삭제할까요?')) return;
+  if (!confirm('이 개발수정요청을 삭제할까요?')) return;
   await api('DELETE', '/service-requests/' + id);
   serviceRequests = serviceRequests.filter(r => r.id !== id);
   closeModal();
@@ -8355,7 +8410,7 @@ async function openServiceRequestManagerModal() {
   ]);
   const managed = new Set(managers.map(m => m.uid));
   const selectable = users.filter(u => !managed.has(u.uid));
-  const h = `<div class="modal-title">🛠 수정요청 담당자 관리</div>
+  const h = `<div class="modal-title">🛠 개발수정요청 담당자 관리</div>
     <div class="form-group"><label class="form-label">담당자 추가</label><select class="form-input" id="srManagerUser">
       <option value="">선택</option>
       ${selectable.map(u => `<option value="${esc(u.uid)}">${esc(u.name || u.email || u.uid)}</option>`).join('')}
@@ -8492,7 +8547,7 @@ async function openEventDetail(id, options = {}) {
   // 날짜
   h += `<div style="padding:10px;border-radius:8px;background:var(--bg3);margin-bottom:8px">
     <div style="font-size:11px;color:var(--text3);margin-bottom:4px">📅 날짜</div>
-    <div style="font-size:13px">${ev.date}${ev.endDate?' ~ '+ev.endDate:''}${ev.time?' '+ev.time:''}</div>
+    <div style="font-size:13px">${ev.date}${ev.endDate?' ~ '+ev.endDate:''}${ev.time?' '+esc(eventTimeRangeLabel(ev.time, ev.endTime)):''}</div>
     ${ev.reminder ? `<div style="font-size:11px;color:var(--text3);margin-top:4px">🔔 ${getEventReminderLabel(ev.reminder)}${ev.time ? ' 푸시 알림' : ' (시간 지정 시 발송)'}</div>` : ''}</div>`;
 
   // 카테고리 변경 (할일만)
@@ -8628,7 +8683,7 @@ async function shareEventToChat(eventId) {
 async function sendEventToRoom(roomId, eventId) {
   const ev = events.find(e=>e.id===eventId);
   if (!ev) return;
-  const shareData = {type:ev.type,title:ev.title,date:ev.date,endDate:ev.endDate,time:ev.time,memo:ev.memo};
+  const shareData = {type:ev.type,title:ev.title,date:ev.date,endDate:ev.endDate,time:ev.time,endTime:ev.endTime,memo:ev.memo};
   await api('POST','/chat-rooms/'+roomId+'/messages',{text:'[EVENT_SHARE]'+JSON.stringify(shareData)});
   closeModal();
   alert('공유 완료!');
@@ -8701,7 +8756,7 @@ function showShareIdeas() {
 async function quickShareEvent(eventId) {
   const ev = events.find(e=>e.id===eventId);
   if (!ev||!currentRoomId) return;
-  const shareData = {type:ev.type,title:ev.title,date:ev.date,endDate:ev.endDate,time:ev.time,memo:ev.memo};
+  const shareData = {type:ev.type,title:ev.title,date:ev.date,endDate:ev.endDate,time:ev.time,endTime:ev.endTime,memo:ev.memo};
   await api('POST','/chat-rooms/'+currentRoomId+'/messages',{text:'[EVENT_SHARE]'+JSON.stringify(shareData)});
   closeModal(); await fetchRoomMessages();
 }
@@ -8765,7 +8820,7 @@ async function createChatForEvent(eventId) {
     try { chatUnreadCounts = await api('GET','/chat-rooms/unread'); } catch(e) { chatUnreadCounts = {}; }
 
     // 채팅방에 일정 정보 자동 전송
-    const shareData = {type:ev.type,title:ev.title,date:ev.date,endDate:ev.endDate,time:ev.time,memo:ev.memo};
+    const shareData = {type:ev.type,title:ev.title,date:ev.date,endDate:ev.endDate,time:ev.time,endTime:ev.endTime,memo:ev.memo};
     await api('POST','/chat-rooms/'+room.id+'/messages',{text:'[EVENT_SHARE]'+JSON.stringify(shareData)});
 
     closeModal();
@@ -9070,7 +9125,8 @@ function openAddEvent() {
     <div class="form-group"><label class="form-label">제목</label><input class="form-input" id="evTitle" placeholder="제목"></div>
     <div class="form-group"><label class="form-label">날짜</label><input class="form-input" type="date" id="evDate" value="${selectedDate||todayStr()}"></div>
     <div class="form-group"><label class="form-label">마감일 (선택)</label><input class="form-input" type="date" id="evEndDate"></div>
-    <div class="form-group"><label class="form-label">시간 (선택)</label><input class="form-input" type="time" id="evTime"></div>
+    <div class="form-group"><label class="form-label">시작 시간 (선택)</label><input class="form-input" type="time" id="evTime"></div>
+    <div class="form-group"><label class="form-label">종료 시간 (선택)</label><input class="form-input" type="time" id="evEndTime"></div>
     <div class="form-group"><label class="form-label">리마인더</label><select class="form-input" id="evReminder">${renderEventReminderOptions()}</select><div style="font-size:11px;color:var(--text3);margin-top:4px">시간을 지정한 일정만 PC/모바일 푸시가 발송됩니다.</div></div>
     <div class="form-group"><label class="form-label">메모 (선택)</label><textarea class="form-input" id="evMemo" rows="2" style="resize:none"></textarea></div>
     <div class="form-group" id="todoCatGroup" style="display:none"><label class="form-label">카테고리</label><div style="display:flex;flex-wrap:wrap;gap:6px">
@@ -9209,6 +9265,10 @@ async function saveNewEvent() {
   const title=document.getElementById('evTitle').value.trim();
   const date=document.getElementById('evDate').value;
   if(!title||!date) return alert('제목과 날짜 필수');
+  const startTime = document.getElementById('evTime').value;
+  const endTime = document.getElementById('evEndTime').value;
+  const rangeError = eventTimeRangeValidationMessage(startTime, endTime);
+  if (rangeError) return alert(rangeError);
   const reminder = getValidatedEventReminderValue();
   if (reminder === undefined) return;
   if (isExternalCalendarOnlyUser() && evScope === 'team') return alert('외부 캘린더 계정은 본인 일정만 등록할 수 있습니다.');
@@ -9219,7 +9279,8 @@ async function saveNewEvent() {
   const newEvent = normalizeCreatedTodoEventRecord(await api('POST','/events',{
     type:selType, title, date,
     endDate:document.getElementById('evEndDate')?.value||null,
-    time:document.getElementById('evTime').value,
+    time:startTime,
+    endTime,
     memo:document.getElementById('evMemo').value.trim(),
     todoCat:selType==='todo'?selCat:null,
     reminder,
@@ -10036,7 +10097,8 @@ async function editEventModal(id) {
     <div class="form-group"><label class="form-label">제목</label><input class="form-input" id="evTitle" value="${esc(ev.title)}" placeholder="제목"></div>
     <div class="form-group"><label class="form-label">시작일</label><input class="form-input" type="date" id="evDate" value="${ev.date}"></div>
     <div class="form-group"><label class="form-label">마감일 (선택)</label><input class="form-input" type="date" id="evEndDate" value="${ev.endDate||''}"></div>
-    <div class="form-group"><label class="form-label">시간 (선택)</label><input class="form-input" type="time" id="evTime" value="${ev.time||''}"></div>
+    <div class="form-group"><label class="form-label">시작 시간 (선택)</label><input class="form-input" type="time" id="evTime" value="${esc(String(ev.time || '').slice(0, 5))}"></div>
+    <div class="form-group"><label class="form-label">종료 시간 (선택)</label><input class="form-input" type="time" id="evEndTime" value="${esc(String(ev.endTime || '').slice(0, 5))}"></div>
     <div class="form-group"><label class="form-label">리마인더</label><select class="form-input" id="evReminder">${renderEventReminderOptions(ev.reminder || '')}</select><div style="font-size:11px;color:var(--text3);margin-top:4px">시간을 지정한 일정만 PC/모바일 푸시가 발송됩니다.</div></div>
     <div class="form-group"><label class="form-label">메모 (선택)</label><textarea class="form-input" id="evMemo" rows="2" style="resize:none">${esc(ev.memo||'')}</textarea></div>
     <div class="form-group" id="todoCatGroup" style="display:${selType==='todo'?'':'none'}"><label class="form-label">카테고리</label><div style="display:flex;flex-wrap:wrap;gap:6px">
@@ -10060,6 +10122,10 @@ async function updateEvent(id) {
   const title = document.getElementById('evTitle').value.trim();
   const date = document.getElementById('evDate').value;
   if (!title||!date) return alert('제목과 날짜 필수');
+  const startTime = document.getElementById('evTime').value;
+  const endTime = document.getElementById('evEndTime').value;
+  const rangeError = eventTimeRangeValidationMessage(startTime, endTime);
+  if (rangeError) return alert(rangeError);
   const reminder = getValidatedEventReminderValue();
   if (reminder === undefined) return;
   if (isExternalCalendarOnlyUser() && evScope === 'team') return alert('외부 캘린더 계정은 본인 일정만 등록할 수 있습니다.');
@@ -10067,7 +10133,8 @@ async function updateEvent(id) {
   const updated = await api('PUT','/events/'+id,{
     type:selType, title, date,
     endDate:document.getElementById('evEndDate')?.value||null,
-    time:document.getElementById('evTime').value,
+    time:startTime,
+    endTime,
     memo:document.getElementById('evMemo').value.trim(),
     todoCat:selType==='todo'?selCat:null,
     reminder,
