@@ -732,6 +732,68 @@ function registerPeakosNewProjectRoutes({
     }
   });
 
+  // 내 업무 — 신규 프로젝트에서 나에게 배정된 업무만 모은다.
+  // 기존 파라곤 프로젝트와 섞지 않으려고 별도 경로로 둔다.
+  // ':id' 라우트보다 먼저 등록해야 'my-tasks'가 프로젝트 ID로 잡히지 않는다.
+  app.get(`${NEW_PROJECT_BASE_PATH}/my-tasks`, ...readMiddlewares, async (req, res) => {
+    try {
+      const context = createContext(req, { peakWorkspaceId, isPortfolioViewer, isPortfolioCreator });
+      if (context.isPreview) {
+        return res.json({ readOnly: true, tasks: [] });
+      }
+      const result = await pool.query(
+        `SELECT t.id, t.title, t.description, t.status, t.due_date, t.sort_order,
+                t.assigned_by_uid, t.assigned_by_name_snapshot,
+                t.reviewer_uid, t.reviewer_name_snapshot, t.version,
+                t.review_requested_at, t.status_changed_at, t.created_at,
+                t.project_id, t.medium_category_id, t.small_category_id,
+                t.attachments,
+                sp.name AS project_name, sp.status AS project_status,
+                m.name AS medium_name, sc.name AS small_name
+           FROM peakos_structured_project_tasks t
+           JOIN peakos_structured_projects sp
+             ON sp.workspace_id = t.workspace_id AND sp.id = t.project_id
+           LEFT JOIN peakos_structured_project_medium_categories m
+             ON m.workspace_id = t.workspace_id AND m.id = t.medium_category_id
+           LEFT JOIN peakos_structured_project_small_categories sc
+             ON sc.workspace_id = t.workspace_id AND sc.id = t.small_category_id
+          WHERE t.workspace_id = $1
+            AND t.assignee_uid = $2
+            AND sp.status IS DISTINCT FROM 'archived'
+          ORDER BY
+            CASE t.status
+              WHEN 'revision' THEN 1 WHEN 'review' THEN 2 WHEN 'doing' THEN 3
+              WHEN 'todo' THEN 4 WHEN 'done' THEN 5 ELSE 6
+            END,
+            COALESCE(NULLIF(t.due_date, ''), '9999-12-31'),
+            sp.name, t.sort_order, t.created_at`,
+        [context.workspaceId, context.uid],
+      );
+      return res.json({
+        readOnly: false,
+        tasks: result.rows.map(row => ({
+          id: String(row.id),
+          title: row.title,
+          description: row.description || '',
+          status: row.status,
+          dueDate: row.due_date || null,
+          version: Number(row.version || 1),
+          attachments: Array.isArray(row.attachments) ? row.attachments : [],
+          assignedBy: { uid: row.assigned_by_uid, name: row.assigned_by_name_snapshot || '' },
+          reviewer: { uid: row.reviewer_uid, name: row.reviewer_name_snapshot || '' },
+          project: { id: String(row.project_id), name: row.project_name, status: row.project_status },
+          medium: { id: row.medium_category_id, name: row.medium_name || '' },
+          small: { id: row.small_category_id, name: row.small_name || '' },
+          reviewRequestedAt: row.review_requested_at || null,
+          statusChangedAt: row.status_changed_at || null,
+          createdAt: row.created_at,
+        })),
+      });
+    } catch (error) {
+      return sendError(res, error);
+    }
+  });
+
   app.get(`${NEW_PROJECT_BASE_PATH}/:id`, ...readMiddlewares, async (req, res) => {
     try {
       const context = createContext(req, { peakWorkspaceId, isPortfolioViewer, isPortfolioCreator });

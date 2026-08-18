@@ -16989,3 +16989,90 @@ html body #moduleView .platform-api-location .module-action { min-height: 44px; 
   cursor: pointer;
 }
 .task-attach-input:hover { background: #eef7fc; }
+
+/* ── 내 업무 탭 ─────────────────────────────────── */
+.my-work-view { display: grid; gap: 14px; min-width: 0; }
+.my-work-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid #cddfe9;
+  border-radius: 12px;
+  padding: 12px 16px;
+  background: #f7fbfd;
+}
+.my-work-head strong { display: block; color: #143d59; font-size: 15px; }
+.my-work-head small { display: block; margin-top: 3px; color: #7d95a5; font-size: 10px; }
+.my-work-head em { color: #2b88be; font-size: 10px; font-style: normal; font-weight: 850; white-space: nowrap; }
+.my-work-group { min-width: 0; }
+.my-work-group > header { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; }
+.my-work-group-label {
+  border-radius: 6px;
+  padding: 3px 9px;
+  background: #eef3f7;
+  color: #4a6478;
+  font-size: 10px;
+  font-weight: 900;
+}
+.my-work-group.tone-danger .my-work-group-label { background: #fdeced; color: #a4565c; }
+.my-work-group.tone-warn .my-work-group-label { background: #fdf1e4; color: #9a6a33; }
+.my-work-group.tone-active .my-work-group-label { background: #e7f2fb; color: #2b6d94; }
+.my-work-group.tone-done .my-work-group-label { background: #e9f6ef; color: #3f7f60; }
+.my-work-group > header em { color: #8a9aa5; font-size: 10px; font-style: normal; font-weight: 800; }
+.my-work-table {
+  min-width: 0;
+  border: 1px solid #dbe6ed;
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+.my-work-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 130px 200px 84px;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 14px;
+  border-bottom: 1px solid #eef3f6;
+}
+.my-work-row:last-child { border-bottom: 0; }
+.my-work-row.head {
+  background: #f8fbfd;
+  color: #8a9aa5;
+  font-size: 9px;
+  font-weight: 850;
+}
+.my-work-row:not(.head):hover { background: #f7fbfd; }
+.my-work-name { min-width: 0; }
+.my-work-name > strong { display: block; color: #1d445d; font-size: 12px; }
+.my-work-name > small {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  color: #8195a3;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.my-work-due { display: flex; align-items: center; gap: 6px; color: #4a6478; font-size: 11px; font-weight: 750; }
+.my-work-due > em { color: #a3b2bc; font-style: normal; font-size: 10px; }
+.my-work-project { min-width: 0; }
+.my-work-project > b { display: block; color: #2b6d94; font-size: 11px; }
+.my-work-project > small { display: block; color: #8a9aa5; font-size: 9px; }
+.my-work-empty {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  border: 1px dashed #cddfe9;
+  border-radius: 12px;
+  padding: 40px 20px;
+  color: #7d95a5;
+  text-align: center;
+}
+.my-work-empty strong { color: #45647c; font-size: 13px; }
+.my-work-empty small { font-size: 10px; }
+@media (max-width: 760px) {
+  .my-work-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 4px; }
+  .my-work-row.head { display: none; }
+  .my-work-project { grid-column: 1 / -1; }
+}

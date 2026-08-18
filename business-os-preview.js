@@ -76,6 +76,31 @@
   });
   updateThemeToggle();
 
+  // 내 업무 탭 — 배포 시 HTML은 복사되지 않으므로 메뉴와 화면 틀을 JS가 만든다.
+  // 신규 프로젝트에서 나에게 배정된 업무만 모으며, 기존 파라곤 데이터와 섞지 않는다.
+  let myWorkView = document.getElementById('myWorkView');
+  {
+    const newProjectsNav = document.querySelector('.app-sidebar .nav-item[data-view="new-projects"]');
+    const newProjectsSection = document.getElementById('newProjectsView');
+    if (newProjectsNav && !document.querySelector('.nav-item[data-view="my-work"]')) {
+      const navItem = document.createElement('button');
+      navItem.className = 'nav-item';
+      navItem.type = 'button';
+      navItem.dataset.view = 'my-work';
+      navItem.dataset.tabSearch = 'MY WORK 내 업무 배정 받은 업무 체크리스트';
+      navItem.innerHTML = '<span class="nav-icon">☑</span>내 업무';
+      newProjectsNav.after(navItem);
+    }
+    if (newProjectsSection && !myWorkView) {
+      myWorkView = document.createElement('section');
+      myWorkView.className = 'my-work-view';
+      myWorkView.id = 'myWorkView';
+      myWorkView.hidden = true;
+      myWorkView.setAttribute('aria-live', 'polite');
+      newProjectsSection.after(myWorkView);
+    }
+  }
+
   // 사이드바 접기 — 버튼을 JS로 만들어 넣는다.
   // 배포 시 HTML은 복사하지 않으므로 마크업을 JS가 들고 있어야 실서비스에 반영된다.
   const OS_SIDEBAR_STORAGE_KEY = 'peakos-sidebar-collapsed';
@@ -564,7 +589,7 @@
   // 기본 협업 화면은 일반 구성원에게도 연다. `new-projects`는 OS 전용이지만
   // 서버가 참여/배정 프로젝트만 잘라 주므로 같은 기본 접근군에 둔다.
   // 나머지 PEAK OS 운영 화면은 지정 인원에게만 연다.
-  const LIVE_PARAGON_VIEWS = ['dashboard', 'calendar', 'chat', 'todo', 'review', 'ideas', 'requests', 'new-projects'];
+  const LIVE_PARAGON_VIEWS = ['dashboard', 'calendar', 'chat', 'todo', 'review', 'ideas', 'requests', 'new-projects', 'my-work'];
   const SALES_OPERATION_VIEWS = ['settlement', 'deposit-check'];
   const SPECIAL_SETTLEMENT_OWNERS = ['김지홍', '박우진', '김대호'];
 
@@ -1058,7 +1083,7 @@
     if (view === 'sales-db') return 'sales';
     if (['calendar', 'todo'].includes(view)) return 'calendar';
     if (view === 'chat') return 'chat';
-    if (['review', 'new-projects', 'ideas', 'requests'].includes(view)) return 'projects';
+    if (['review', 'new-projects', 'my-work', 'ideas', 'requests'].includes(view)) return 'projects';
     if (['company', 'documents', ...COMPANY_RESOURCE_FOLDERS.map(folder => folder.id)].includes(view)) return 'documents';
     if ([
       'reports', 'settlement', 'final-settlement', 'final-execution-settlement',
@@ -5552,6 +5577,85 @@
   const STRUCTURED_TASK_STATUS = Object.freeze({
     todo: '대기', doing: '진행 중', review: '검토 요청', revision: '수정 요청', done: '승인 완료'
   });
+
+  // ── 내 업무 ────────────────────────────────────────
+  let myWorkState = { status: 'idle', tasks: [], error: '', contextKey: '' };
+  const MY_WORK_GROUPS = [
+    { key: 'revision', label: '수정 요청', tone: 'danger' },
+    { key: 'review', label: '검토 요청', tone: 'warn' },
+    { key: 'doing', label: '진행 중', tone: 'active' },
+    { key: 'todo', label: '대기', tone: 'idle' },
+    { key: 'done', label: '완료', tone: 'done' },
+  ];
+
+  function myWorkContextKey() {
+    return [activeWorkspaceSlug || 'peak', currentUser?.uid || '', osAuthAccessGeneration, previewPersona || 'self'].join('|');
+  }
+
+  async function refreshMyWork({ render = true } = {}) {
+    const contextKey = myWorkContextKey();
+    myWorkState = { ...myWorkState, status: 'loading', contextKey };
+    if (render) renderMyWork();
+    try {
+      const payload = await collaborationApi('GET', '/new-projects/my-tasks');
+      if (myWorkContextKey() !== contextKey) return;
+      myWorkState = {
+        status: 'ready',
+        tasks: Array.isArray(payload?.tasks) ? payload.tasks : [],
+        error: '',
+        contextKey,
+      };
+    } catch (error) {
+      if (myWorkContextKey() !== contextKey) return;
+      myWorkState = { status: 'error', tasks: [], error: error.message || '내 업무를 불러오지 못했습니다.', contextKey };
+    }
+    if (render) renderMyWork();
+  }
+
+  function myWorkRow(task) {
+    const path = [task.medium?.name, task.small?.name].filter(Boolean).join(' › ');
+    return `<div class="my-work-row">
+      <span class="my-work-name"><strong>${esc(task.title || '업무명 없음')}</strong>${task.description ? `<small>${esc(task.description)}</small>` : ''}</span>
+      <span class="my-work-due">${task.dueDate ? `${esc(formatDate(task.dueDate, { month: 'numeric', day: 'numeric' }))}${projectDeadlineBadge(task.dueDate, task.status)}` : '<em>기한 없음</em>'}</span>
+      <span class="my-work-project"><b>${esc(task.project?.name || '프로젝트')}</b>${path ? `<small>${esc(path)}</small>` : ''}</span>
+      <span class="my-work-state">${structuredTaskStatusBadge(task.status)}</span>
+    </div>`;
+  }
+
+  function renderMyWork() {
+    if (!myWorkView) return;
+    if (previewPersona) {
+      myWorkView.innerHTML = '<div class="my-work-empty"><strong>계정 미리보기에서는 내 업무를 볼 수 없습니다.</strong></div>';
+      return;
+    }
+    if (myWorkState.status === 'loading' || myWorkState.status === 'idle') {
+      myWorkView.innerHTML = '<div class="my-work-empty loading"><strong>내 업무를 불러오는 중입니다</strong></div>';
+      return;
+    }
+    if (myWorkState.status === 'error') {
+      myWorkView.innerHTML = `<div class="my-work-empty error"><strong>내 업무를 불러오지 못했습니다</strong><small>${esc(myWorkState.error)}</small><button type="button" data-my-work-retry>다시 불러오기</button></div>`;
+      myWorkView.querySelector('[data-my-work-retry]')?.addEventListener('click', () => refreshMyWork());
+      return;
+    }
+    const tasks = myWorkState.tasks;
+    const open = tasks.filter(task => task.status !== 'done').length;
+    const groups = MY_WORK_GROUPS
+      .map(group => ({ ...group, items: tasks.filter(task => task.status === group.key) }))
+      .filter(group => group.items.length);
+    myWorkView.innerHTML = `
+      <header class="my-work-head">
+        <div><strong>내 업무</strong><small>신규 프로젝트에서 나에게 배정된 업무입니다. 기존 프로젝트와는 분리되어 있습니다.</small></div>
+        <em>${open}건 남음 · 전체 ${tasks.length}건</em>
+      </header>
+      ${groups.length ? groups.map(group => `<section class="my-work-group tone-${esc(group.tone)}">
+        <header><span class="my-work-group-label">${esc(group.label)}</span><em>${group.items.length}</em></header>
+        <div class="my-work-table">
+          <div class="my-work-row head"><span>업무명</span><span>기한</span><span>프로젝트</span><span>상태</span></div>
+          ${group.items.map(myWorkRow).join('')}
+        </div>
+      </section>`).join('')
+        : '<div class="my-work-empty"><strong>배정받은 업무가 없습니다</strong><small>신규 프로젝트에서 업무가 배정되면 여기에 모입니다.</small></div>'}`;
+  }
 
   function structuredProjectContextKey() {
     return [
@@ -18554,6 +18658,13 @@
         });
       }
     }
+    if (view === 'my-work') {
+      renderMyWork();
+      if (!previewPersona && collaborationScope.projects
+          && (myWorkState.status === 'idle' || myWorkState.contextKey !== myWorkContextKey())) {
+        Promise.resolve().then(() => refreshMyWork()).catch(() => {});
+      }
+    }
     if (view === 'chat') renderChat();
     if (view === 'review') renderProjects();
     if (view === 'new-projects') {
@@ -18575,9 +18686,10 @@
     todoView.hidden = view !== 'todo';
     reviewView.hidden = view !== 'review';
     newProjectsView.hidden = view !== 'new-projects';
+    if (myWorkView) myWorkView.hidden = view !== 'my-work';
     moduleView.hidden = !isPlannedModule;
     permissionsView.hidden = view !== 'permissions';
-    const labels = { dashboard: '대시보드', calendar: '캘린더', chat: '채팅', todo: '할 일', review: '기존 프로젝트', 'new-projects': '신규 프로젝트', permissions: '조직 및 권한', ...PLANNED_MODULES };
+    const labels = { dashboard: '대시보드', calendar: '캘린더', chat: '채팅', todo: '할 일', review: '기존 프로젝트', 'new-projects': '신규 프로젝트', 'my-work': '내 업무', permissions: '조직 및 권한', ...PLANNED_MODULES };
     pageCrumb.textContent = labels[view] || '피크마케팅';
     document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === view));
     const activeNav = document.querySelector(`.app-sidebar .nav-item[data-view="${view}"]`);
