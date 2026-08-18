@@ -641,6 +641,8 @@ function registerPeakosNewProjectRoutes({
                    AND mine.user_uid = $2 AND mine.active = TRUE
               )
             )
+            -- 삭제(보관)한 대분류는 목록에서 감춘다. 행은 남아 있어 되돌릴 수 있다.
+            AND p.status IS DISTINCT FROM 'archived'
           ORDER BY CASE p.status WHEN 'active' THEN 0 ELSE 1 END,
                    p.sort_order, p.updated_at DESC, p.id`,
         [context.workspaceId, context.uid, context.viewPortfolio],
@@ -742,7 +744,8 @@ function registerPeakosNewProjectRoutes({
         return res.json({ readOnly: true, tasks: [] });
       }
       const result = await pool.query(
-        `SELECT t.id, t.title, t.description, t.status, t.due_date, t.sort_order,
+        `SELECT t.id, t.title, t.description, t.status, t.sort_order,
+                TO_CHAR(t.due_date, 'YYYY-MM-DD') AS due_date,
                 t.assigned_by_uid, t.assigned_by_name_snapshot,
                 t.reviewer_uid, t.reviewer_name_snapshot, t.version,
                 t.review_requested_at, t.status_changed_at, t.created_at,
@@ -765,7 +768,7 @@ function registerPeakosNewProjectRoutes({
               WHEN 'revision' THEN 1 WHEN 'review' THEN 2 WHEN 'doing' THEN 3
               WHEN 'todo' THEN 4 WHEN 'done' THEN 5 ELSE 6
             END,
-            COALESCE(NULLIF(t.due_date, ''), '9999-12-31'),
+            COALESCE(t.due_date, DATE '9999-12-31'),
             sp.name, t.sort_order, t.created_at`,
         [context.workspaceId, context.uid],
       );
