@@ -8,6 +8,7 @@ e2e/test-results/
 
 # Runtime data and credentials
 uploads/
+uploads
 .env
 .env.*
 !.env.example
@@ -37,6 +38,18 @@ server/banking/*.secret.*
 !server/migrations/**
 !server/workspaces/
 !server/workspaces/**
+!server/sales/
+!server/sales/**
+!server/platform/
+!server/platform/**
+!server/settlements/
+!server/settlements/**
+!server/company-resources/
+!server/company-resources/**
+!server/attendance/
+!server/attendance/**
+!server/todos/
+!server/todos/**
 
 # Local backups
 index.old.html

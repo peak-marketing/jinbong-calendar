@@ -12,7 +12,17 @@ const publicFiles = new Map([
   ['/business-os-live.css', 'business-os-live.css'],
   ['/business-os-preview.js', 'business-os-preview.js'],
   ['/logo-trimmed.png', 'logo-trimmed.png'],
+  ['/os/business-os-live.css', 'business-os-live.css'],
+  ['/os/business-os-preview.js', 'business-os-preview.js'],
+  ['/os/logo-trimmed.png', 'logo-trimmed.png'],
 ]);
+
+const osShellPaths = new Set(['/os', '/os/', '/os/login', '/os/login/']);
+
+function isOsShellPath(pathname) {
+  if (osShellPaths.has(pathname)) return true;
+  return /^\/os\/w\/[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\/?$/.test(pathname);
+}
 
 const mime = {
   '.css': 'text/css; charset=utf-8',
@@ -68,7 +78,8 @@ function serveFile(req, res, options) {
     return;
   }
 
-  const filename = options.publicFiles.get(pathname);
+  const filename = options.publicFiles.get(pathname)
+    || (options.osShellFile && isOsShellPath(pathname) ? options.osShellFile : null);
   if (!filename) {
     writeText(req, res, 404, 'Not found');
     return;
@@ -140,7 +151,13 @@ function createDevServer(options = {}) {
       proxyApi(req, res, targetApiPort);
       return;
     }
-    serveFile(req, res, { publicFiles: allowedPublicFiles, realRoot });
+    serveFile(req, res, {
+      publicFiles: allowedPublicFiles,
+      realRoot,
+      osShellFile: options.osShellFile === undefined
+        ? 'business-os-preview.html'
+        : options.osShellFile,
+    });
   });
 }
 
@@ -151,4 +168,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createDevServer, publicFiles };
+module.exports = { createDevServer, isOsShellPath, publicFiles };

@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const { createDevServer } = require('../dev-server');
+const { createDevServer, isOsShellPath } = require('../dev-server');
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -50,6 +50,7 @@ test('serves only allowlisted assets and handles HEAD without a body', async t =
   const server = createDevServer({
     rootDir,
     publicFiles: new Map([['/', 'public.html'], ['/public.html', 'public.html']]),
+    osShellFile: null,
   });
   const port = await listen(server);
   t.after(() => close(server));
@@ -74,6 +75,40 @@ test('serves only allowlisted assets and handles HEAD without a body', async t =
   const rejectedMethod = await request(port, '/', { method: 'POST' });
   assert.equal(rejectedMethod.statusCode, 405);
   assert.equal(rejectedMethod.headers.allow, 'GET, HEAD');
+});
+
+test('serves the OS shell and exact nested assets for refreshable workspace routes', async t => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'peakos-dev-server-os-'));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(rootDir, 'shell.html'), 'shell');
+  fs.writeFileSync(path.join(rootDir, 'app.js'), 'app');
+
+  const server = createDevServer({
+    rootDir,
+    publicFiles: new Map([['/os/app.js', 'app.js']]),
+    osShellFile: 'shell.html',
+  });
+  const port = await listen(server);
+  t.after(() => close(server));
+
+  for (const route of ['/os', '/os/', '/os/login', '/os/w/peak', '/os/w/daegu/']) {
+    const response = await request(port, `${route}?view=todo`);
+    assert.equal(response.statusCode, 200, route);
+    assert.equal(response.body, 'shell', route);
+  }
+  assert.equal((await request(port, '/os/app.js')).body, 'app');
+  assert.equal((await request(port, '/os/w/UPPERCASE')).statusCode, 404);
+  assert.equal((await request(port, '/os/w/invalid_slug')).statusCode, 404);
+  assert.equal((await request(port, '/os/private.json')).statusCode, 404);
+});
+
+test('OS shell matching stays narrow and rejects unrelated nested paths', () => {
+  assert.equal(isOsShellPath('/os/w/peak'), true);
+  assert.equal(isOsShellPath('/os/w/build-solution/'), true);
+  assert.equal(isOsShellPath('/os/login'), true);
+  assert.equal(isOsShellPath('/os/w/peak/settings'), false);
+  assert.equal(isOsShellPath('/api/os/w/peak'), false);
+  assert.equal(isOsShellPath('/os/w/../secret'), false);
 });
 
 test('rejects an allowlisted path when the file is a symlink', async t => {

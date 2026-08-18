@@ -4,7 +4,13 @@
   "main": "index.js",
   "scripts": {
     "test": "node --test",
-    "settlement-import": "node imports/settlement-import-cli.js"
+    "bank:preflight": "node banking/ibk-preflight.js",
+    "bank:merge:preflight": "node banking/peakos-bank-canonical-merge.js",
+    "platform:canary": "node platform/peakos-platform-canary.js",
+    "platform:preflight": "node platform/peakos-platform-preflight.js",
+    "settlement-import": "node imports/settlement-import-cli.js",
+    "settlement:capture": "node imports/settlement-source-capture-cli.js",
+    "settlement:refresh": "node imports/settlement-refresh-cli.js"
   },
   "keywords": [],
   "author": "",
