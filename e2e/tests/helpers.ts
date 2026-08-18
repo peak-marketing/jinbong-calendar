@@ -988,13 +988,20 @@ export function createPeakosStore(viewerName = '', viewerRole = 'manager'): any 
       cost: showCost ? cost : null,
       unit, custom: false, edited: false,
     })),
-    credit: [], creditRequests: [], financeRequests: [], serviceRequests: [], fund: null, monthly: {},
+    credit: [], creditRequests: [], financeRequests: [], financeRequestEvents: [], taxInvoiceEvidence: {}, serviceRequests: [], fund: null, monthly: {},
+    settlementCompletion: {},
+    settlementCompletionAudit: {},
+    settlementCompletionDelayMs: 0,
+    settlementCompletionActive: 0,
+    settlementCompletionMaxActive: 0,
+    vendorReconciliations: [],
     bank: {
       accounts: [],
       collectorConfigured: false,
       autoReconciliationEnabled: false,
       canSync: false,
       canViewBalances: false,
+      connection: { status: 'DISABLED', code: 'IBK_COLLECTOR_DISABLED' },
       transactions: [],
       syncRuns: [],
     },
@@ -1004,6 +1011,107 @@ export function createPeakosStore(viewerName = '', viewerRole = 'manager'): any 
 function upsert(list: any[], row: any) {
   const i = list.findIndex(x => x.id === row.id);
   if (i >= 0) list[i] = row; else list.push(row);
+}
+
+function completionRuleForSource(source: any) {
+  if (String(source?.kind || '') !== 'sale') return '';
+  if (source.view === 'direct-execution') return 'DIRECT_EXECUTION_8TH';
+  if (source.view === 'monthly-manage') return 'MONTHLY_MANAGEMENT_30D';
+  if (source.view === 'monthly-guarantee' && source.c === '건바이') return 'PER_ITEM_24H';
+  if (source.view === 'monthly-guarantee' && source.c === '월보장') return 'MONTHLY_GUARANTEE_25D';
+  return '';
+}
+
+function stubCompletionEligibility(ruleCode: string, evidence: any) {
+  const reasons: any[] = [];
+  const now = Date.parse('2026-08-17T12:00:00.000Z');
+  const add = (code: string, message: string) => reasons.push({ code, message });
+  let eligibleAt: string | null = null;
+  let requiredDurationHours: number | null = null;
+  let observedDurationHours: number | null = null;
+  if (ruleCode === 'DIRECT_EXECUTION_8TH') {
+    if (evidence.completedIssueCount === null || evidence.completedIssueCount === undefined) {
+      add('MISSING_COMPLETED_ISSUE_COUNT', '완료 회차 근거가 없습니다.');
+    } else if (Number(evidence.completedIssueCount) < 8) {
+      add('EIGHTH_ISSUANCE_NOT_COMPLETED', '직접실행 완료 회차가 8회 미만입니다.');
+    }
+    if (!evidence.eighthIssueCompletedAt) {
+      add('MISSING_EIGHTH_ISSUANCE_COMPLETED_AT', '8회차 완료 시각 근거가 없습니다.');
+    } else if (Date.parse(evidence.eighthIssueCompletedAt) > now) {
+      add('FUTURE_EIGHTH_ISSUANCE_COMPLETED_AT', '8회차 완료 시각이 현재보다 미래입니다.');
+    } else {
+      eligibleAt = new Date(evidence.eighthIssueCompletedAt).toISOString();
+    }
+  } else {
+    const service = ruleCode === 'MONTHLY_MANAGEMENT_30D';
+    const start = service ? evidence.serviceStartedAt : evidence.exposureStartedAt;
+    const end = service ? evidence.serviceCompletedAt : evidence.exposureCompletedAt;
+    requiredDurationHours = ruleCode === 'PER_ITEM_24H' ? 24
+      : ruleCode === 'MONTHLY_GUARANTEE_25D' ? 25 * 24 : 30 * 24;
+    if (!start) add(service ? 'MISSING_SERVICE_STARTED_AT' : 'MISSING_EXPOSURE_STARTED_AT', `${service ? '서비스' : '노출'} 시작 근거가 없습니다.`);
+    if (!end) add(service ? 'MISSING_SERVICE_COMPLETED_AT' : 'MISSING_EXPOSURE_COMPLETED_AT', `${service ? '서비스' : '노출'} 완료 근거가 없습니다.`);
+    const startMs = Date.parse(start || '');
+    const endMs = Date.parse(end || '');
+    if (Number.isFinite(startMs) && startMs > now) add(service ? 'FUTURE_SERVICE_STARTED_AT' : 'FUTURE_EXPOSURE_STARTED_AT', `${service ? '서비스' : '노출'} 시작 시각이 현재보다 미래입니다.`);
+    if (Number.isFinite(endMs) && endMs > now) add(service ? 'FUTURE_SERVICE_COMPLETED_AT' : 'FUTURE_EXPOSURE_COMPLETED_AT', `${service ? '서비스' : '노출'} 완료 시각이 현재보다 미래입니다.`);
+    if (Number.isFinite(startMs) && Number.isFinite(endMs)) {
+      observedDurationHours = (endMs - startMs) / 3_600_000;
+      if (endMs < startMs) add('COMPLETION_BEFORE_START', '완료 시각이 시작 시각보다 빠릅니다.');
+      else if (observedDurationHours < Number(requiredDurationHours)) add('REQUIRED_DURATION_NOT_MET', `완료 기간이 ${requiredDurationHours}시간에 미달합니다.`);
+      eligibleAt = new Date(endMs).toISOString();
+    }
+  }
+  const labels: Record<string, string> = {
+    DIRECT_EXECUTION_8TH: '직접실행 8회차 완료',
+    MONTHLY_GUARANTEE_25D: '월보장 25일 노출 완료',
+    PER_ITEM_24H: '건바이 24시간 노출 완료',
+    MONTHLY_MANAGEMENT_30D: '월관리 30일 완료',
+  };
+  return {
+    ruleCode,
+    ruleLabel: labels[ruleCode] || ruleCode,
+    eligible: reasons.length === 0,
+    state: reasons.length ? 'PENDING_EVIDENCE' : 'ELIGIBLE',
+    reasons,
+    requiredDurationHours,
+    observedDurationHours,
+    eligibleAt: reasons.length ? null : eligibleAt,
+    eligibleAtKst: null,
+    evaluatedAt: new Date(now).toISOString(),
+    evaluatedAtKst: '2026-08-17 21:00:00 KST',
+    timeZone: 'Asia/Seoul',
+  };
+}
+
+function stubCompletionState(source: any, current: any = null) {
+  const ruleCode = current?.ruleCode || completionRuleForSource(source);
+  const evidence = {
+    exposureStartedAt: null,
+    exposureCompletedAt: null,
+    serviceStartedAt: null,
+    serviceCompletedAt: null,
+    completedIssueCount: null,
+    eighthIssueCompletedAt: null,
+    ...(current?.evidence || {}),
+  };
+  return {
+    tracked: current?.tracked === true,
+    sourceId: String(source.id),
+    ruleCode,
+    status: current?.status || 'OPEN',
+    locked: ['COMPLETED', 'FROZEN'].includes(String(current?.status || 'OPEN')),
+    rowVersion: Number(current?.rowVersion || 0),
+    evidence,
+    evidenceUpdatedAt: current?.evidenceUpdatedAt || null,
+    evidenceUpdatedByName: current?.evidenceUpdatedByName || '',
+    eligibility: stubCompletionEligibility(ruleCode, evidence),
+    lifecycle: {
+      completedAt: null, completedByName: '', completionReason: '',
+      frozenAt: null, frozenByName: '', freezeReason: '',
+      reopenedAt: null, reopenedByName: '', reopenReason: '',
+      ...(current?.lifecycle || {}),
+    },
+  };
 }
 
 /** /api/peakos/* 를 처리했으면 true. 아니면 호출한 쪽이 이어서 처리한다. */
@@ -1022,6 +1130,160 @@ export function handlePeakos(store: any, route: any): boolean {
   const send = (payload: unknown, status = 200) =>
     route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) });
 
+  if (area === 'todos') {
+    const date = String(new URL(req.url()).searchParams.get('date') || '');
+    if (method === 'GET' && !tail.length) {
+      send({
+        date, timeZone: 'Asia/Seoul', readOnly: false,
+        capabilities: { create: true, edit: true, reorder: true, archive: true },
+        items: [],
+      });
+      return true;
+    }
+    send({ code: 'TODO_NOT_FOUND', error: '테스트 할 일 항목이 없습니다.' }, method === 'GET' ? 404 : 405);
+    return true;
+  }
+
+  if (area === 'settlement-completion') {
+    const id = String(tail[0] || '');
+    const source = Object.entries(store.monthly || {}).flatMap(([view, entries]) =>
+      (Array.isArray(entries) ? entries : []).map((row: any) => ({ ...row, view }))
+    ).find((row: any) => String(row.id || '') === id && row.kind === 'sale');
+    if (!source) {
+      send({ code: 'SETTLEMENT_COMPLETION_SOURCE_NOT_FOUND', error: '정산 원본 판매 행을 찾지 못했습니다.' }, 404);
+      return true;
+    }
+    const ruleCode = completionRuleForSource(source);
+    if (!ruleCode) {
+      send({ code: 'SETTLEMENT_SOURCE_RULE_UNMAPPED', error: '이 판매 행의 정산 완료 규칙이 정해지지 않았습니다.' }, 422);
+      return true;
+    }
+    const stored = store.settlementCompletion?.[id];
+    const current = stubCompletionState(source, stored);
+    if (method === 'GET' && tail[1] === 'audit') {
+      send({ rows: store.settlementCompletionAudit?.[id] || [] });
+      return true;
+    }
+    if (method === 'GET' && !tail[1]) {
+      const delay = Math.max(0, Number(store.settlementCompletionDelayMs || 0));
+      if (!delay) send(current);
+      else {
+        store.settlementCompletionActive = Number(store.settlementCompletionActive || 0) + 1;
+        store.settlementCompletionMaxActive = Math.max(
+          Number(store.settlementCompletionMaxActive || 0),
+          store.settlementCompletionActive,
+        );
+        setTimeout(() => {
+          store.settlementCompletionActive -= 1;
+          void send(current);
+        }, delay);
+      }
+      return true;
+    }
+    const role = String(store.viewerRole || '');
+    if (!['admin', 'manager'].includes(role) || role === 'oversight') {
+      send({ code: 'SETTLEMENT_COMPLETION_WRITE_FORBIDDEN', error: '정산 완료 근거를 변경할 권한이 없습니다.' }, 403);
+      return true;
+    }
+    const expected = Number(body.expectedVersion);
+    if (!Number.isSafeInteger(expected) || expected !== Number(current.rowVersion)) {
+      send({ code: 'SETTLEMENT_COMPLETION_VERSION_CONFLICT', error: '정산 완료 상태가 다른 화면에서 먼저 변경되었습니다.' }, 409);
+      return true;
+    }
+    const reason = String(body.reason || '').replace(/\s+/g, ' ').trim();
+    if (reason.length < 8) {
+      send({ code: 'SETTLEMENT_COMPLETION_REASON_REQUIRED', error: '정산 상태 변경 사유를 8자 이상 입력해 주세요.' }, 400);
+      return true;
+    }
+    let updated: any = null;
+    let action = '';
+    if (method === 'PUT' && tail[1] === 'evidence') {
+      if (current.status !== 'OPEN') {
+        send({ code: 'SETTLEMENT_COMPLETION_STATE_CONFLICT', error: '열린 정산에서만 완료 근거를 변경할 수 있습니다.' }, 409);
+        return true;
+      }
+      updated = stubCompletionState(source, {
+        ...current,
+        tracked: true,
+        rowVersion: Number(current.rowVersion) + 1,
+        evidence: { ...(body.evidence || {}) },
+        evidenceUpdatedAt: '2026-08-17T12:00:00.000Z',
+        evidenceUpdatedByName: store.viewer,
+      });
+      action = 'EVIDENCE_UPDATED';
+    } else if (method === 'POST' && ['complete', 'freeze', 'reopen'].includes(String(tail[1] || ''))) {
+      const transition = String(tail[1]);
+      if (transition === 'complete') {
+        if (!current.tracked || current.status !== 'OPEN' || !current.eligibility.eligible) {
+          send({
+            code: 'SETTLEMENT_COMPLETION_NOT_ELIGIBLE',
+            error: '완료 조건을 충족하지 않아 정산 완료 처리할 수 없습니다.',
+            details: { reasons: current.eligibility.reasons },
+          }, 409);
+          return true;
+        }
+        updated = stubCompletionState(source, {
+          ...current, status: 'COMPLETED', rowVersion: current.rowVersion + 1,
+          lifecycle: {
+            ...current.lifecycle,
+            completedAt: '2026-08-17T12:00:00.000Z',
+            completedByName: store.viewer,
+            completionReason: reason,
+          },
+        });
+        action = 'COMPLETED';
+      } else if (transition === 'freeze') {
+        if (current.status !== 'COMPLETED') {
+          send({ code: 'SETTLEMENT_COMPLETION_STATE_CONFLICT', error: '완료된 정산만 동결할 수 있습니다.' }, 409);
+          return true;
+        }
+        updated = stubCompletionState(source, {
+          ...current, status: 'FROZEN', rowVersion: current.rowVersion + 1,
+          lifecycle: {
+            ...current.lifecycle,
+            frozenAt: '2026-08-17T12:00:00.000Z',
+            frozenByName: store.viewer,
+            freezeReason: reason,
+          },
+        });
+        action = 'FROZEN';
+      } else {
+        if (role !== 'admin') {
+          send({ code: 'SETTLEMENT_COMPLETION_REOPEN_FORBIDDEN', error: '정산 재개는 관리자만 할 수 있습니다.' }, 403);
+          return true;
+        }
+        if (!['COMPLETED', 'FROZEN'].includes(current.status)) {
+          send({ code: 'SETTLEMENT_COMPLETION_STATE_CONFLICT', error: '완료 또는 동결된 정산만 재개할 수 있습니다.' }, 409);
+          return true;
+        }
+        updated = stubCompletionState(source, {
+          ...current, status: 'OPEN', rowVersion: current.rowVersion + 1,
+          lifecycle: {
+            ...current.lifecycle,
+            completedAt: null, completedByName: '', completionReason: '',
+            frozenAt: null, frozenByName: '', freezeReason: '',
+            reopenedAt: '2026-08-17T12:00:00.000Z',
+            reopenedByName: store.viewer,
+            reopenReason: reason,
+          },
+        });
+        action = 'REOPENED';
+      }
+    }
+    if (!updated) {
+      send({ error: '허용되지 않은 요청입니다.' }, 405);
+      return true;
+    }
+    store.settlementCompletion[id] = updated;
+    store.settlementCompletionAudit[id] = store.settlementCompletionAudit[id] || [];
+    store.settlementCompletionAudit[id].unshift({
+      action, rowVersion: updated.rowVersion, actorName: store.viewer, reason,
+      createdAt: '2026-08-17T12:00:00.000Z',
+    });
+    send(updated);
+    return true;
+  }
+
   // 통장 원장은 조회 화면만 E2E에서 재현한다. 쓰기/동기화 요청은 405로
   // 막아 focused UI 테스트가 실제 DB나 은행으로 빠져나가지 못하게 한다.
   if (area === 'bank') {
@@ -1039,6 +1301,9 @@ export function handlePeakos(store: any, route: any): boolean {
         autoReconciliationEnabled: bank.autoReconciliationEnabled === true,
         canSync: bank.canSync === true,
         canViewBalances: bank.canViewBalances === true,
+        connection: bank.connection && typeof bank.connection === 'object'
+          ? bank.connection
+          : { status: bank.collectorConfigured === true ? 'READY' : 'DISABLED' },
       });
       return true;
     }
@@ -1096,6 +1361,113 @@ export function handlePeakos(store: any, route: any): boolean {
     }
 
     send({ error: 'E2E 통장 API를 찾을 수 없습니다.' }, 404);
+    return true;
+  }
+
+  if (area === 'vendor-reconciliations') {
+    if (!FINANCE_REVIEWERS.includes(String(store.viewer || '').trim())) {
+      send({ code: 'VENDOR_RECONCILIATION_FINANCE_FORBIDDEN', error: '공급사 정산은 지정된 재무 담당자만 볼 수 있습니다.' }, 403);
+      return true;
+    }
+    if (method === 'GET') {
+      send({ rows: Array.isArray(store.vendorReconciliations) ? store.vendorReconciliations : [] });
+      return true;
+    }
+    if (method !== 'POST') {
+      send({ error: '허용되지 않은 요청입니다.' }, 405);
+      return true;
+    }
+
+    const history = Array.isArray(store.vendorReconciliations) ? store.vendorReconciliations : [];
+    store.vendorReconciliations = history;
+    const requested = Array.isArray(body.rows) ? body.rows : [];
+    const replay = history.find((batch: any) => batch.idempotencyKey === body.idempotencyKey);
+    const requestShape = JSON.stringify({
+      supplier: body.supplier, deliveredQty: body.deliveredQty, paidDate: body.paidDate,
+      bank: body.bank, memo: body.memo, rows: requested,
+    });
+    if (replay) {
+      if (replay.requestShape !== requestShape) {
+        send({ code: 'VENDOR_RECONCILIATION_IDEMPOTENCY_CONFLICT', error: '같은 재시도 키에 다른 대사 내용이 사용되었습니다.' }, 409);
+      } else {
+        const { requestShape: _requestShape, idempotencyKey: _idempotencyKey, ...publicBatch } = replay;
+        send({ ...publicBatch, replayed: true });
+      }
+      return true;
+    }
+
+    const submitted = requested.map((entry: any) => store.intake.find((row: any) => row.id === entry.id));
+    if (!requested.length || submitted.some((row: any) => !row)) {
+      send({ code: 'VENDOR_RECONCILIATION_SOURCE_NOT_FOUND', error: '일부 접수 행을 찾지 못했습니다.' }, 404);
+      return true;
+    }
+    const versionConflict = requested.find((entry: any, index: number) => (
+      Number(submitted[index].rowVersion) !== Number(entry.expectedRowVersion)
+    ));
+    if (versionConflict) {
+      send({ code: 'VENDOR_RECONCILIATION_VERSION_CONFLICT', error: '다른 작업자가 먼저 접수 행을 수정했습니다.' }, 409);
+      return true;
+    }
+    const supplier = String(body.supplier || '').trim();
+    const eligible = store.intake.filter((row: any) => (
+      row.vendorPaid !== true
+      && ['normal', 'use'].includes(String(row.kind || ''))
+      && Number.isSafeInteger(Number(row.qty))
+      && Number(row.qty) > 0
+      && String(row.supplier || '').trim() === supplier
+    ));
+    const submittedIds = [...new Set(requested.map((entry: any) => String(entry.id)))].sort();
+    const eligibleIds = eligible.map((row: any) => String(row.id)).sort();
+    if (submittedIds.length !== requested.length || JSON.stringify(submittedIds) !== JSON.stringify(eligibleIds)) {
+      send({ code: 'VENDOR_RECONCILIATION_SELECTION_STALE', error: '공급사의 현재 미지급 접수 목록이 바뀌었습니다.' }, 409);
+      return true;
+    }
+    const invalidCost = eligible.some((row: any) => !Number.isSafeInteger(Number(row.cost)) || Number(row.cost) <= 0);
+    if (invalidCost) {
+      send({ code: 'VENDOR_RECONCILIATION_COST_REQUIRED', error: '확정 원가가 없는 접수가 있습니다.' }, 409);
+      return true;
+    }
+    const settledQty = eligible.reduce((sum: number, row: any) => sum + Number(row.qty), 0);
+    const totalDue = eligible.reduce((sum: number, row: any) => sum + Number(row.qty) * Number(row.cost), 0);
+    if (Number(body.deliveredQty) !== settledQty) {
+      send({ code: 'VENDOR_RECONCILIATION_QTY_MISMATCH', error: `접수 수량 ${settledQty}개와 공급사 전달 수량 ${body.deliveredQty}개가 일치하지 않습니다.` }, 409);
+      return true;
+    }
+    const completedAt = '2026-08-17T12:00:00.000Z';
+    const savedRows = eligible.map((row: any) => {
+      const index = store.intake.findIndex((current: any) => current.id === row.id);
+      store.intake[index] = {
+        ...row,
+        vendorPaid: true,
+        vendorPaidAmount: Number(row.qty) * Number(row.cost),
+        vendorPaidDate: body.paidDate,
+        vendorBank: body.bank,
+        vendorBy: store.viewer,
+        vendorMemo: body.memo,
+        rowVersion: Number(row.rowVersion) + 1,
+      };
+      return store.intake[index];
+    });
+    const sequence = String(history.length + 1).padStart(12, '0');
+    const publicBatch = {
+      id: `00000000-0000-4000-8000-${sequence}`,
+      supplier,
+      status: 'COMPLETED',
+      rowVersion: 1,
+      itemCount: savedRows.length,
+      deliveredQty: settledQty,
+      settledQty,
+      totalDue,
+      bank: body.bank,
+      paidDate: body.paidDate,
+      memo: body.memo,
+      completedByName: store.viewer,
+      completedAt,
+      replayed: false,
+      rows: savedRows,
+    };
+    history.unshift({ ...publicBatch, idempotencyKey: body.idempotencyKey, requestShape });
+    send(publicBatch, 201);
     return true;
   }
 
@@ -1349,6 +1721,240 @@ export function handlePeakos(store: any, route: any): boolean {
       row?.requestType || row?.type || row?.view || row?.category
       || kindToView[String(row?.kind || '').toUpperCase()] || '',
     ).trim();
+    const workspaceOf = (row: any) => String(row?.workspaceId || row?.workspace_id || 'ws_peak');
+    const isRefund = (row: any) => ['REFUND_CLIENT', 'REFUND_MISTAKEN']
+      .includes(String(row?.kind || '').toUpperCase());
+    const eligibleRefundDeposits = (request: any) => {
+      const requestWorkspace = workspaceOf(request);
+      const requestAmount = Number(request?.amountVat || request?.amount_vat || 0);
+      const sourceAccountId = String(request?.sourceAccountId || request?.source_account_id || '');
+      const used = new Set((Array.isArray(store.financeRequests) ? store.financeRequests : [])
+        .filter((row: any) => row !== request
+          && workspaceOf(row) === requestWorkspace
+          && isRefund(row)
+          && String(row.status || '').toUpperCase() === 'COMPLETED'
+          && (row.bankTransactionId || row.bank_transaction_id))
+        .map((row: any) => String(row.bankTransactionId || row.bank_transaction_id)));
+      return (Array.isArray(store.bank?.transactions) ? store.bank.transactions : [])
+        .filter((row: any) => workspaceOf(row) === requestWorkspace)
+        .filter((row: any) => String(row.direction || '').toUpperCase() === 'DEPOSIT')
+        .filter((row: any) => ['BANK_SYNC', 'COLLECTOR'].includes(String(row.source || '').toUpperCase()))
+        .filter((row: any) => !['IGNORED', 'REVERSED'].includes(String(row.status || row.reconciliationStatus || '').toUpperCase()))
+        .filter((row: any) => Number(row.amount || 0) >= requestAmount)
+        .filter((row: any) => !sourceAccountId || String(row.accountId || row.account_id || '') === sourceAccountId)
+        .filter((row: any) => !used.has(String(row.id || '')));
+    };
+    (Array.isArray(store.financeRequests) ? store.financeRequests : []).forEach((row: any) => {
+      if (!Number.isSafeInteger(Number(row.version)) || Number(row.version) < 1) row.version = 1;
+      if (!row.workspaceId && !row.workspace_id) row.workspaceId = 'ws_peak';
+      if (!Object.prototype.hasOwnProperty.call(row, 'currentInvoiceEvidenceId')) {
+        row.currentInvoiceEvidenceId = row.current_invoice_evidence_id || null;
+      }
+    });
+
+    if (tail[1] === 'invoice-evidence') {
+      const request = (Array.isArray(store.financeRequests) ? store.financeRequests : [])
+        .find((row: any) => String(row.id || '') === id);
+      if (!request) {
+        send({ error: '금융 요청을 찾지 못했습니다.' }, 404);
+        return true;
+      }
+      store.taxInvoiceEvidence = store.taxInvoiceEvidence || {};
+      const rows = Array.isArray(store.taxInvoiceEvidence[id]) ? store.taxInvoiceEvidence[id] : [];
+      if (method === 'GET' && tail.length === 2) {
+        const mine = String(request.requesterUid || '') === 'e2e-test-user';
+        if (!reviewer && !mine) {
+          send({ error: '다른 사용자의 증빙을 볼 수 없습니다.' }, 403);
+          return true;
+        }
+        const output = rows.map((row: any) => reviewer ? row : ({
+          ...row,
+          invoiceNumber: `${'*'.repeat(Math.max(0, String(row.invoiceNumber || '').length - 4))}${String(row.invoiceNumber || '').slice(-4)}`,
+          supplierRegistrationNumber: `${String(row.supplierRegistrationNumber || '').slice(0, 3)}-**-**${String(row.supplierRegistrationNumber || '').slice(-3)}`,
+          documentIdentifier: `${'*'.repeat(Math.max(0, String(row.documentIdentifier || '').length - 4))}${String(row.documentIdentifier || '').slice(-4)}`,
+          correctionReason: '',
+          protectedOriginalAvailable: false,
+          originalFilename: undefined,
+          sha256: undefined,
+          contentPath: undefined,
+        }));
+        send({
+          request: {
+            id,
+            invoiceStatus: request.invoiceStatus,
+            version: Number(request.version),
+            currentEvidenceId: request.currentInvoiceEvidenceId || null,
+          },
+          evidence: output,
+          masked: !reviewer,
+          registrationOnly: true,
+          externalIssuancePerformed: false,
+        });
+        return true;
+      }
+      if (method === 'GET' && tail[2] && tail[3] === 'content') {
+        if (!reviewer) {
+          send({ error: '증빙 원본은 재무 검토자만 볼 수 있습니다.' }, 403);
+          return true;
+        }
+        const evidence = rows.find((row: any) => String(row.id || '') === String(tail[2] || ''));
+        if (!evidence) {
+          send({ error: '증빙 원본을 찾지 못했습니다.' }, 404);
+          return true;
+        }
+        void route.fulfill({
+          status: 200,
+          contentType: String(evidence.mimeType || 'application/pdf'),
+          headers: { 'Content-Disposition': `attachment; filename="${evidence.originalFilename || 'invoice.pdf'}"` },
+          body: '%PDF-1.4\n%%EOF\n',
+        });
+        return true;
+      }
+      if (method === 'POST' && tail.length === 2) {
+        if (!reviewer) {
+          send({ error: '발급 증빙 등록 권한이 없습니다.' }, 403);
+          return true;
+        }
+        const raw = String(req.postData() || '');
+        const field = (name: string) => {
+          const match = new RegExp(`name="${name}"\\r?\\n\\r?\\n([^\\r\\n]*)`).exec(raw);
+          return String(match?.[1] || '').trim();
+        };
+        if (!/name="document";\s*filename="[^"]+"/i.test(raw)) {
+          send({ error: '세금계산서 원본 파일이 필요합니다.' }, 400);
+          return true;
+        }
+        if (Number(field('expectedVersion')) !== Number(request.version)) {
+          send({ code: 'TAX_INVOICE_EVIDENCE_VERSION_CONFLICT', error: '다른 화면에서 요청이 먼저 변경되었습니다.' }, 409);
+          return true;
+        }
+        const targetStatus = field('invoiceStatus').toUpperCase();
+        if (!['ISSUED', 'CORRECTED'].includes(targetStatus)) {
+          send({ error: '증빙 등록 상태를 확인해 주세요.' }, 400);
+          return true;
+        }
+        const currentEvidenceId = String(request.currentInvoiceEvidenceId || '');
+        const evidenceId = `96c9d661-5349-4684-8962-${String(rows.length + 1).padStart(12, '0')}`;
+        const evidence = {
+          id: evidenceId,
+          requestId: id,
+          revision: rows.length + 1,
+          action: currentEvidenceId && String(request.invoiceStatus || '').toUpperCase() === targetStatus
+            ? 'REPLACEMENT'
+            : (targetStatus === 'CORRECTED' ? 'CORRECTION' : 'ISSUE'),
+          invoiceStatus: targetStatus,
+          invoiceNumber: field('invoiceNumber'),
+          issuedAt: field('issuedAt'),
+          supplierRegistrationNumber: field('supplierRegistrationNumber'),
+          documentIdentifier: field('documentIdentifier'),
+          correctionReason: field('correctionReason'),
+          mimeType: raw.includes('Content-Type: image/png') ? 'image/png'
+            : (raw.includes('Content-Type: image/jpeg') ? 'image/jpeg' : 'application/pdf'),
+          sizeBytes: Math.max(1, raw.length),
+          supersedesEvidenceId: currentEvidenceId || null,
+          registeredByName: store.viewer,
+          createdAt: '2026-08-17T09:00:00.000Z',
+          protectedOriginalAvailable: true,
+          originalFilename: /name="document";\s*filename="([^"]+)"/i.exec(raw)?.[1] || 'invoice.pdf',
+          sha256: 'a'.repeat(64),
+          contentPath: `/api/peakos/finance-requests/${id}/invoice-evidence/${evidenceId}/content`,
+          registrationOnly: true,
+          externalIssuancePerformed: false,
+        };
+        rows.unshift(evidence);
+        store.taxInvoiceEvidence[id] = rows;
+        store.lastTaxInvoiceMultipart = raw;
+        request.invoiceRequested = true;
+        request.invoiceStatus = targetStatus;
+        request.currentInvoiceEvidenceId = evidenceId;
+        request.current_invoice_evidence_id = evidenceId;
+        request.invoiceEvidenceUrl = '';
+        request.version = Number(request.version) + 1;
+        send({
+          evidence,
+          request: {
+            id,
+            invoiceStatus: targetStatus,
+            currentEvidenceId: evidenceId,
+            version: Number(request.version),
+          },
+          message: '외부에서 발급된 세금계산서의 검증 증빙을 등록했습니다.',
+          registrationOnly: true,
+          externalIssuancePerformed: false,
+        }, 201);
+        return true;
+      }
+    }
+
+    if (method === 'GET' && tail[1] === 'refund-deposits') {
+      if (!reviewer) {
+        send({ error: '환불 입금 확인 권한이 없습니다.' }, 403);
+        return true;
+      }
+      const request = (Array.isArray(store.financeRequests) ? store.financeRequests : [])
+        .find((row: any) => String(row.id || '') === id);
+      if (!request) {
+        send({ error: '금융 요청을 찾지 못했습니다.' }, 404);
+        return true;
+      }
+      if (!isRefund(request)) {
+        send({ error: '환불 요청에만 입금 거래를 연결할 수 있습니다.' }, 409);
+        return true;
+      }
+      if (!['APPROVED', 'PROCESSING'].includes(String(request.status || '').toUpperCase())) {
+        send({ error: '승인 또는 처리 중인 환불 요청에서만 입금 거래를 선택할 수 있습니다.' }, 409);
+        return true;
+      }
+      const url = new URL(req.url());
+      const query = String(url.searchParams.get('q') || '').trim().toLowerCase();
+      const page = Math.max(1, Number(url.searchParams.get('page') || 1));
+      const limit = Math.max(1, Math.min(100, Number(url.searchParams.get('limit') || 50)));
+      const candidates = eligibleRefundDeposits(request).filter((row: any) => {
+        if (!query) return true;
+        return `${row.summary || ''} ${row.counterpartyName || row.counterparty_name || ''}`
+          .toLowerCase().includes(query);
+      });
+      const total = candidates.length;
+      const start = (page - 1) * limit;
+      const deposits = candidates.slice(start, start + limit).map((row: any) => ({
+        id: String(row.id),
+        accountId: row.accountId || row.account_id,
+        transactionAt: row.transactionAt || row.transaction_at,
+        amount: Number(row.amount || 0),
+        summary: String(row.summary || ''),
+        counterpartyName: String(row.counterpartyName || row.counterparty_name || ''),
+        status: row.status || row.reconciliationStatus || row.reconciliation_status,
+        source: row.source,
+      }));
+      store.financeRequestEvents = Array.isArray(store.financeRequestEvents) ? store.financeRequestEvents : [];
+      store.financeRequestEvents.push({
+        requestId: id,
+        type: 'FINANCE_REQUEST_REFUND_DEPOSIT_CANDIDATES_VIEWED',
+        page,
+        limit,
+        returned: deposits.length,
+        searchApplied: Boolean(query),
+      });
+      send({
+        request: {
+          id: String(request.id),
+          kind: request.kind,
+          amountVat: Number(request.amountVat || request.amount_vat || 0),
+          sourceAccountId: request.sourceAccountId || request.source_account_id || null,
+          status: request.status,
+          version: Number(request.version),
+        },
+        deposits,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: total ? Math.ceil(total / limit) : 0,
+          total_pages: total ? Math.ceil(total / limit) : 0,
+        },
+      });
+      return true;
+    }
 
     if (method === 'GET') {
       const url = new URL(req.url());
@@ -1425,6 +2031,9 @@ export function handlePeakos(store: any, route: any): boolean {
         invoiceStatus: kind === 'TAX_CORRECTION'
           ? 'CORRECTION_REQUESTED'
           : (invoiceRequested ? 'REQUESTED' : 'NOT_REQUESTED'),
+        workspaceId: String(body.workspaceId || body.workspace_id || 'ws_peak'),
+        version: 1,
+        currentInvoiceEvidenceId: null,
         createdAt: now,
         updatedAt: now,
       };
@@ -1442,18 +2051,63 @@ export function handlePeakos(store: any, route: any): boolean {
     const mine = String(store.financeRequests[index].requesterUid || '') === 'e2e-test-user';
 
     if (method === 'PATCH') {
-      if (!reviewer && !mine) {
+      if (!reviewer) {
         send({ error: '수정 권한이 없습니다.' }, 403);
         return true;
       }
+      const current = store.financeRequests[index];
+      if (['ISSUED', 'CORRECTED'].includes(String(body.invoiceStatus || '').toUpperCase())
+        || Object.prototype.hasOwnProperty.call(body, 'invoiceEvidenceUrl')
+        || Object.prototype.hasOwnProperty.call(body, 'invoice_evidence_url')) {
+        send({
+          code: 'TAX_INVOICE_EVIDENCE_PROTECTED_UPLOAD_REQUIRED',
+          error: '발급·정정 완료는 발급번호와 보호된 원본 파일을 증빙 등록 화면에서 함께 등록해야 합니다.',
+        }, 409);
+        return true;
+      }
+      const currentVersion = Number(current.version);
+      const hasExpectedVersion = Object.prototype.hasOwnProperty.call(body, 'expectedVersion');
+      const statusTransition = Object.prototype.hasOwnProperty.call(body, 'status')
+        && String(body.status || '').toUpperCase() !== String(current.status || '').toUpperCase();
+      if (statusTransition && !hasExpectedVersion) {
+        send({ error: 'expectedVersion이 필요합니다.' }, 400);
+        return true;
+      }
+      if (hasExpectedVersion && Number(body.expectedVersion) !== currentVersion) {
+        send({ error: '금융 요청이 다른 화면에서 먼저 변경되었습니다.', code: 'FINANCE_REQUEST_VERSION_CONFLICT' }, 409);
+        return true;
+      }
+      const nextStatus = String(body.status ?? current.status ?? '').toUpperCase();
+      const requestedBankTransactionId = String(body.bankTransactionId ?? current.bankTransactionId ?? '');
+      if (isRefund(current) && nextStatus === 'COMPLETED'
+          && String(current.status || '').toUpperCase() !== 'COMPLETED') {
+        const candidate = eligibleRefundDeposits(current)
+          .find((row: any) => String(row.id || '') === requestedBankTransactionId);
+        if (!candidate) {
+          send({ error: '같은 워크스페이스의 검증된 입금 거래를 선택해야 합니다.', code: 'FINANCE_REQUEST_REFUND_DEPOSIT_INVALID' }, 409);
+          return true;
+        }
+      }
+      const { expectedVersion: _expectedVersion, ...changes } = body;
       const updated = {
-        ...store.financeRequests[index],
-        ...body,
-        id: store.financeRequests[index].id,
-        requesterUid: store.financeRequests[index].requesterUid,
-        requesterName: store.financeRequests[index].requesterName,
+        ...current,
+        ...changes,
+        id: current.id,
+        requesterUid: current.requesterUid,
+        requesterName: current.requesterName,
+        version: currentVersion + 1,
         updatedAt: '2026-08-08T10:00:00+09:00',
       };
+      if (isRefund(current) && nextStatus === 'COMPLETED'
+          && String(current.status || '').toUpperCase() !== 'COMPLETED') {
+        updated.bankTransactionId = requestedBankTransactionId;
+        updated.refundDepositConfirmedAt = '2026-08-08T10:00:00+09:00';
+        updated.refundDepositConfirmedByUid = 'e2e-test-user';
+        updated.refundDepositConfirmedByName = store.viewer;
+        updated.processedAt = '2026-08-08T10:00:00+09:00';
+        updated.processedByUid = 'e2e-test-user';
+        updated.processedByName = store.viewer;
+      }
       if (['REJECTED', 'CANCELLED'].includes(String(updated.status || '').toUpperCase())
           && !['ISSUED', 'CORRECTED'].includes(String(updated.invoiceStatus || '').toUpperCase())) {
         updated.invoiceStatus = updated.invoiceRequested ? 'CANCELLED' : 'NOT_REQUESTED';
@@ -1468,6 +2122,10 @@ export function handlePeakos(store: any, route: any): boolean {
         send({ error: '삭제 권한이 없습니다.' }, 403);
         return true;
       }
+      if (Number(body.expectedVersion) !== Number(store.financeRequests[index].version)) {
+        send({ error: '금융 요청이 다른 화면에서 먼저 변경되었습니다.', code: 'FINANCE_REQUEST_VERSION_CONFLICT' }, 409);
+        return true;
+      }
       const cancelled = {
         ...store.financeRequests[index],
         status: 'CANCELLED',
@@ -1475,6 +2133,7 @@ export function handlePeakos(store: any, route: any): boolean {
           && !['ISSUED', 'CORRECTED'].includes(String(store.financeRequests[index].invoiceStatus || '').toUpperCase())
           ? 'CANCELLED'
           : store.financeRequests[index].invoiceStatus,
+        version: Number(store.financeRequests[index].version) + 1,
         updatedAt: '2026-08-08T10:00:00+09:00',
       };
       store.financeRequests[index] = cancelled;
@@ -1499,6 +2158,16 @@ export function handlePeakos(store: any, route: any): boolean {
       if (!current) send({ error: '월별 정산 행을 찾지 못했습니다.' }, 404);
       else if (Number(body.expectedRowVersion) !== Number(current.rowVersion)) {
         send({ error: '다른 작업자가 먼저 수정했습니다.' }, 409);
+      } else if (['COMPLETED', 'FROZEN'].includes(String(store.settlementCompletion?.[id]?.status || ''))) {
+        send({
+          code: 'SETTLEMENT_COMPLETION_SOURCE_LOCKED',
+          error: '완료 또는 동결된 정산 원본은 재개 후 삭제할 수 있습니다.',
+        }, 409);
+      } else if (store.settlementCompletion?.[id]?.tracked === true) {
+        send({
+          code: 'SETTLEMENT_COMPLETION_SOURCE_ATTACHED',
+          error: '완료 근거와 감사 이력이 연결된 원본은 삭제할 수 없습니다.',
+        }, 409);
       } else if (current.kind === 'sale'
         && store.monthly[view].some((row: any) => String(row.parentId || '') === String(id))) {
         send({ error: '붙어 있는 실행 건을 먼저 삭제해 주세요.' }, 409);
@@ -1512,9 +2181,23 @@ export function handlePeakos(store: any, route: any): boolean {
         const current = store.monthly[view].find((row: any) => row.id === entry.id);
         return !current || Number(current.rowVersion) !== Number(entry.expectedRowVersion);
       });
+      const locked = requested.find((entry: any) => ['COMPLETED', 'FROZEN']
+        .includes(String(store.settlementCompletion?.[entry.id]?.status || '')));
+      const changesRule = requested.find((entry: any) => store.settlementCompletion?.[entry.id]?.tracked === true
+        && Object.prototype.hasOwnProperty.call(entry.changes || {}, 'c'));
       if (conflict) {
         const exists = store.monthly[view].some((row: any) => row.id === conflict.id);
         send({ error: exists ? '다른 작업자가 먼저 수정했습니다.' : '월별 정산 행을 찾지 못했습니다.' }, exists ? 409 : 404);
+      } else if (locked) {
+        send({
+          code: 'SETTLEMENT_COMPLETION_SOURCE_LOCKED',
+          error: '완료 또는 동결된 정산 원본은 재개 후 수정할 수 있습니다.',
+        }, 409);
+      } else if (changesRule) {
+        send({
+          code: 'SETTLEMENT_COMPLETION_SOURCE_ATTACHED',
+          error: '완료 근거가 연결된 원본의 정산 규칙은 바꿀 수 없습니다.',
+        }, 409);
       } else {
         const rows = requested.map((entry: any) => {
           const index = store.monthly[view].findIndex((row: any) => row.id === entry.id);
