@@ -906,6 +906,16 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(form.locator('select[name="assigneeUid"]')).toHaveAttribute('required', '');
     await expect(form.locator('input[name="dueDate"]')).toHaveAttribute('required', '');
 
+    // 상사가 "며칠 내"로 기한을 바로 지정할 수 있어야 한다.
+    const dueInput = form.locator('input[name="dueDate"]');
+    await form.locator('[data-structured-due-days="3"]').click();
+    const expected = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+    const expectedKey = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(expected);
+    await expect(dueInput).toHaveValue(expectedKey);
+    await dueInput.fill('');
+
     const submit = form.getByRole('button', { name: '담당자에게 배정', exact: true });
     const selfOption = form.locator('select[name="assigneeUid"] option[value="e2e-test-user"]');
     if (await selfOption.isDisabled()) {

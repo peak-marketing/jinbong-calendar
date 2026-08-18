@@ -6557,12 +6557,20 @@
         <label><span>업무 지시자</span><select name="assignedByUid" required ${canReassign ? '' : 'disabled'}><option value="">지시자 선택</option>${structuredTaskMemberOptions(project, selectedAssigner)}</select><small class="structured-form-help">프로젝트의 활성 팀원만 선택할 수 있으며, 완료 요청은 이 지시자에게 돌아옵니다.</small></label>
         <label><span>업무 담당자</span><select name="assigneeUid" required ${canReassign ? '' : 'disabled'}><option value="">담당자 선택</option>${structuredTaskMemberOptions(project, selectedAssignee)}</select><small class="structured-form-help warning" data-structured-assignment-warning hidden>지시자와 담당자는 서로 달라야 합니다.</small></label>
         <label><span>업무 마감일</span><input name="dueDate" type="date" value="${esc(task?.dueDate || '')}" ${quickAssign ? 'required' : ''} ${canEdit ? '' : 'disabled'}></label>
+        ${canEdit ? `<div class="wide project-due-presets" aria-label="빠른 마감기한 선택"><span>기한 빠른 선택</span><div>${[[1, '내일'], [3, '3일 내'], [7, '7일 내'], [14, '14일 내']].map(([days, label]) => `<button type="button" data-structured-due-days="${days}">${label}</button>`).join('')}</div></div>` : ''}
         <label class="wide"><span>상세 내용</span><textarea name="description" rows="5" maxlength="5000" ${canEdit ? '' : 'disabled'} placeholder="필요 자료, 확인 항목, 결과물 형식을 적어 주세요.">${esc(task?.description || '')}</textarea></label>
       </div>
       <div class="structured-assignment-preview"><span><b>업무 지시자</b><em data-structured-assigner-preview>${esc(structuredProjectMemberName(originalAssigner))}</em></span><i>→</i><span><b>업무 담당자</b><em data-structured-assignee-preview>${esc(structuredProjectMemberName(task?.assignee, '선택 필요'))}</em></span><i>→</i><span><b>검토자</b><em data-structured-reviewer-preview>${esc(structuredProjectMemberName(originalReviewer))}</em></span></div>
       <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit" ${!editing && !hasAssignmentPair ? 'disabled' : ''}>${editing ? '업무 저장' : (quickAssign ? '담당자에게 배정' : '업무 토스')}</button></div>
     </form>`, { locked: true });
     const form = document.getElementById('structuredTaskForm');
+    // 상사가 "며칠 내"로 기한을 바로 지정할 수 있게 기존 프로젝트 탭과 같은 프리셋을 쓴다.
+    form.querySelectorAll('[data-structured-due-days]').forEach(button => button.addEventListener('click', () => {
+      const dueDateInput = form.elements.dueDate;
+      if (!dueDateInput || dueDateInput.disabled) return;
+      dueDateInput.value = addProjectDeadlineDays(button.dataset.structuredDueDays);
+      dueDateInput.focus();
+    }));
     const assignerSelect = form.elements.assignedByUid;
     const assigneeSelect = form.elements.assigneeUid;
     const renderAssignment = () => {
