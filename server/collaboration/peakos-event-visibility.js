@@ -63,7 +63,12 @@ function normalizedContextEventId(req) {
   const suffix = String(getPeakosCollaborationContext(req)?.suffix || '');
   const parts = suffix.split('/');
   if (parts.length < 3 || parts[0] !== '' || parts[1] !== 'events') return null;
-  if (!parts[2] || ['checklist-summary', 'reorder'].includes(parts[2])) return null;
+  if (!parts[2] || [
+    'checklist-summary',
+    'checklist-instructions',
+    'instructors',
+    'reorder',
+  ].includes(parts[2])) return null;
   if (parts[3] === 'os-hide') return null;
   try {
     const eventId = decodeURIComponent(parts[2]);

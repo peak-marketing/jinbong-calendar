@@ -236,6 +236,21 @@ test('hidden SQL predicate and direct-ID extraction activate only for marked OS 
   gateway(req, { status() { return this; }, json() { return this; } }, error => assert.equal(error, undefined));
   assert.equal(normalizedContextEventId(req), 'event-1');
   assert.match(eventHiddenPredicate(req, { eventAlias: 'e', workspaceParameter: 2 }), /workspace_id = \$2/);
+
+  for (const reservedPath of ['instructors', 'checklist-instructions']) {
+    const reserved = {
+      method: 'GET',
+      url: `${PEAKOS_COLLABORATION_PREFIX}/events/${reservedPath}`,
+      headers: {},
+      get(name) { return this.headers[String(name).toLowerCase()]; },
+    };
+    gateway(
+      reserved,
+      { status() { return this; }, json() { return this; } },
+      error => assert.equal(error, undefined),
+    );
+    assert.equal(normalizedContextEventId(reserved), null, reservedPath);
+  }
 });
 
 test('OS hide is workspace-wide and idempotent while the legacy event remains alive and visible', async () => {

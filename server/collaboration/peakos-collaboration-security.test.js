@@ -267,7 +267,13 @@ test('chat and project canonical handlers enforce membership and event ownership
   );
   assert.match(projectLink, /canAccessProject\(req, req\.params\.id\)/);
   assert.match(projectLink, /canAccessEvent\(req, eventId, \{ requireOwner: true \}\)/);
-  assert.match(projectLink, /WHERE id = \$2 AND deleted = false RETURNING id/);
+  assert.match(projectLink, /client\.query\('BEGIN'\)/);
+  assert.match(projectLink, /SELECT id FROM events WHERE id = \$1 AND deleted = FALSE FOR UPDATE/);
+  assert.match(projectLink, /SELECT 1 FROM peakos_event_checklist_directives WHERE event_id = \$1 LIMIT 1/);
+  assert.match(projectLink, /UPDATE events SET project_id = \$1 WHERE id = \$2 AND deleted = FALSE RETURNING id/);
+  assert.match(projectLink, /PROJECT_EVENT_DIRECTIVE_CONFLICT/);
+  assert.match(projectLink, /client\.query\('COMMIT'\)/);
+  assert.match(projectLink, /client\.query\('ROLLBACK'\)/);
 });
 
 test('event reorder is locked and authorized as one transaction before any update', () => {
