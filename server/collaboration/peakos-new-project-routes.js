@@ -109,10 +109,38 @@ function normalizeCategoryBody(body, { update = false, level = 'small' } = {}) {
   return result;
 }
 
+const TASK_ATTACHMENT_LIMIT = 20;
+const TASK_ATTACHMENT_URL = /^\/uploads\/[A-Za-z0-9._-]{1,180}$/;
+
+// 첨부는 클라이언트가 보내는 메타데이터라 서버에서 반드시 좁힌다.
+// 업로드 라우트가 만든 /uploads 경로만 허용해 외부 URL이 섞이지 않게 한다.
+function normalizeTaskAttachments(value) {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new NewProjectHttpError(400, 'NEW_PROJECT_TASK_ATTACHMENTS_INVALID', '첨부파일 목록 형식이 올바르지 않습니다.');
+  }
+  if (value.length > TASK_ATTACHMENT_LIMIT) {
+    throw new NewProjectHttpError(400, 'NEW_PROJECT_TASK_ATTACHMENTS_TOO_MANY', `첨부파일은 최대 ${TASK_ATTACHMENT_LIMIT}개까지 올릴 수 있습니다.`);
+  }
+  return value.map(item => {
+    const url = String(item?.url || '').trim();
+    if (!TASK_ATTACHMENT_URL.test(url)) {
+      throw new NewProjectHttpError(400, 'NEW_PROJECT_TASK_ATTACHMENT_URL_INVALID', '업로드한 파일만 첨부할 수 있습니다.');
+    }
+    const size = Number(item?.size);
+    return {
+      url,
+      name: String(item?.name || '').trim().slice(0, 200) || url.split('/').pop(),
+      size: Number.isFinite(size) && size >= 0 ? Math.floor(size) : null,
+      mimeType: String(item?.mimeType || '').trim().slice(0, 120) || null,
+    };
+  });
+}
+
 function normalizeTaskCreateBody(body) {
   validationValue(normalizeStrictObject(
     body,
-    ['title', 'description', 'dueDate', 'assigneeUid', 'assignedByUid', 'sortOrder'],
+    ['title', 'description', 'dueDate', 'assigneeUid', 'assignedByUid', 'sortOrder', 'attachments'],
     '체크리스트 업무',
   ));
   return {
@@ -121,6 +149,7 @@ function normalizeTaskCreateBody(body) {
       field: '업무 설명', required: false, max: 20000,
     })),
     dueDate: validationValue(normalizeNewProjectDate(body.dueDate)),
+    attachments: normalizeTaskAttachments(body.attachments) ?? [],
     assigneeUid: validationValue(normalizeNewProjectUid(body.assigneeUid, '업무 담당자')),
     // assignedByUid is optional only for a cached pre-rollout client. The
     // current UI always sends an explicit instructor; omission falls back to
@@ -135,7 +164,7 @@ function normalizeTaskCreateBody(body) {
 function normalizeTaskUpdateBody(body) {
   validationValue(normalizeStrictObject(
     body,
-    ['title', 'description', 'dueDate', 'assigneeUid', 'assignedByUid', 'sortOrder', 'expectedVersion'],
+    ['title', 'description', 'dueDate', 'assigneeUid', 'assignedByUid', 'sortOrder', 'expectedVersion', 'attachments'],
     '체크리스트 업무 수정',
   ));
   const result = {
@@ -148,6 +177,9 @@ function normalizeTaskUpdateBody(body) {
     result.description = validationValue(normalizeNewProjectText(body.description, {
       field: '업무 설명', required: false, max: 20000,
     }));
+  }
+  if (body.attachments !== undefined) {
+    result.attachments = normalizeTaskAttachments(body.attachments);
   }
   if (body.dueDate !== undefined) result.dueDate = validationValue(normalizeNewProjectDate(body.dueDate));
   if (body.assigneeUid !== undefined) {
@@ -204,6 +236,7 @@ function mapTask(row, context, history = []) {
     id: String(row.id),
     title: row.title,
     description: row.description || '',
+    attachments: Array.isArray(row.attachments) ? row.attachments : [],
     status: row.status,
     dueDate: row.due_date || null,
     sortOrder: Number(row.sort_order || 0),
@@ -1298,8 +1331,8 @@ function registerPeakosNewProjectRoutes({
             title, description, assignee_uid, assignee_name_snapshot,
             assigned_by_uid, assigned_by_name_snapshot,
             reviewer_uid, reviewer_name_snapshot, reviewer_source,
-            due_date, sort_order, created_by_uid, created_by_name_snapshot)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+            due_date, sort_order, created_by_uid, created_by_name_snapshot, attachments)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb)
          RETURNING *`,
         [
           context.workspaceId, projectId, mediumId, smallId, id,
@@ -1307,6 +1340,7 @@ function registerPeakosNewProjectRoutes({
           assigner.uid, assigner.name,
           reviewer.reviewerUid, reviewer.reviewerName, reviewer.source,
           body.dueDate, body.sortOrder, context.uid, context.name,
+          JSON.stringify(body.attachments || []),
         ],
       );
       await recordHistory(client, {
@@ -1454,6 +1488,7 @@ function registerPeakosNewProjectRoutes({
                 assigned_by_uid = $10, assigned_by_name_snapshot = $11,
                 reviewer_uid = $12, reviewer_name_snapshot = $13, reviewer_source = $14,
                 status = $15, status_changed_at = CASE WHEN status <> $15 THEN NOW() ELSE status_changed_at END,
+                attachments = $17::jsonb,
                 version = version + 1, updated_at = NOW()
           WHERE workspace_id = $1 AND project_id = $2 AND id = $3 AND version = $16
           RETURNING *`,
@@ -1465,6 +1500,9 @@ function registerPeakosNewProjectRoutes({
           body.sortOrder ?? task.sort_order,
           assigneeUid, assigneeName, assignedByUid, assignedByName,
           reviewerUid, reviewerName, reviewerSource, nextStatus, body.expectedVersion,
+          JSON.stringify(body.attachments !== undefined
+            ? body.attachments
+            : (Array.isArray(task.attachments) ? task.attachments : [])),
         ],
       );
       if (!updated.rows[0]) throw new NewProjectHttpError(409, 'NEW_PROJECT_TASK_VERSION_CONFLICT', '다른 사용자가 먼저 업무를 변경했습니다.');

@@ -900,6 +900,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(taskDetail).toContainText('업무 지시');
     await expect(taskDetail).toContainText('업무 담당');
     await expect(taskDetail.locator('.task-detail-tag')).toHaveCount(3);
+    await expect(taskDetail).toContainText('첨부파일');
     await expect(taskDetail).toContainText('처리 이력');
     await taskDetail.getByRole('button', { name: '닫기', exact: true }).click();
     await expect(taskDetail).toBeHidden();
@@ -952,6 +953,9 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(form.locator('select[name="assignedByUid"]')).toHaveValue('e2e-test-user');
     await expect(form.locator('select[name="assigneeUid"]')).toHaveAttribute('required', '');
     await expect(form.locator('input[name="dueDate"]')).toHaveAttribute('required', '');
+    // 첨부파일은 업무 폼에서 바로 올릴 수 있어야 한다.
+    await expect(form.locator('[data-task-attach-input]')).toHaveAttribute('type', 'file');
+    await expect(form.locator('[data-task-attach-list]')).toContainText('첨부된 파일이 없습니다');
 
     // 상사가 "며칠 내"로 기한을 바로 지정할 수 있어야 한다.
     const dueInput = form.locator('input[name="dueDate"]');

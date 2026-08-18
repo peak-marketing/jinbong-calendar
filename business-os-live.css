@@ -16937,3 +16937,55 @@ html body #moduleView .platform-api-location .module-action { min-height: 44px; 
 /* 제목을 눌러 상세를 연다 */
 .structured-task-main > strong[data-structured-task-detail] { cursor: pointer; }
 .structured-task-main > strong[data-structured-task-detail]:hover { text-decoration: underline; }
+
+/* ── 업무 첨부파일 ─────────────────────────────── */
+.task-attach-field > span { display: block; margin-bottom: 6px; color: #7d95a5; font-size: 10px; font-weight: 850; }
+.task-attach-field > small { display: block; margin-top: 6px; color: #94a3ae; font-size: 9px; }
+.task-attach-list { display: grid; gap: 5px; }
+.task-attach-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #dbe6ed;
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: #f8fbfd;
+}
+.task-attach-item > a {
+  min-width: 0;
+  overflow: hidden;
+  color: #24475e;
+  font-size: 11px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-attach-item > em { color: #8a9aa5; font-size: 9px; font-style: normal; }
+.task-attach-item > button {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #99acb8;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.task-attach-item > button:hover { background: #f0d7d9; color: #a4565c; }
+.task-attach-empty { margin: 0; color: #94a3ae; font-size: 10px; }
+.task-attach-input {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 6px;
+  border: 1px dashed #bcd2e0;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfdfe;
+  color: #2b6d94;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+.task-attach-input:hover { background: #eef7fc; }

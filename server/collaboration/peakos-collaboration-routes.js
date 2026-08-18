@@ -66,7 +66,8 @@ const COLLABORATION_ROUTE_RULES = Object.freeze([
   // Isolated structured-project domain; never fall through to legacy
   // /projects/:id handlers or tables.
   route(['GET', 'POST'], /^\/new-projects$/),
-  route(['GET', 'PUT', 'DELETE'], /^\/new-projects\/[^/]+$/),
+  route(['POST'], /^\/new-projects\/uploads$/),
+  route(['GET', 'PUT', 'DELETE'], /^\/new-projects\/(?!uploads$)[^/]+$/),
   route(['POST'], /^\/new-projects\/[^/]+\/mediums$/),
   route(['PUT', 'DELETE'], /^\/new-projects\/[^/]+\/mediums\/[^/]+$/),
   route(['POST'], /^\/new-projects\/[^/]+\/mediums\/[^/]+\/smalls$/),

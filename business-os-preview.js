@@ -840,6 +840,14 @@
     return '';
   }
 
+  function formatFileSize(bytes) {
+    const value = Number(bytes);
+    if (!Number.isFinite(value) || value <= 0) return '';
+    if (value < 1024) return `${value}B`;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)}KB`;
+    return `${(value / 1024 / 1024).toFixed(1)}MB`;
+  }
+
   function safeAssetUrl(value) {
     const url = String(value || '').trim();
     if (/^https?:\/\//i.test(url) || url.startsWith('/')) return esc(url);
@@ -6014,6 +6022,7 @@
     const reviewer = structuredProjectMemberName(task.reviewer, assignedBy);
     const person = (label, name) => `<div class="task-detail-person"><span>${esc(label)}</span><strong>${esc(name)}</strong></div>`;
     const row = (label, value) => `<div class="task-detail-row"><span>${esc(label)}</span><div>${value}</div></div>`;
+    const attachments = Array.isArray(task.attachments) ? task.attachments : [];
     const history = Array.isArray(task.history) ? task.history : [];
     const historyMarkup = history.length
       ? history.slice().reverse().map(item => {
@@ -6030,6 +6039,9 @@
       ${row('진행 상태', `${structuredTaskStatusBadge(status)}<span class="task-detail-muted">v${Number(task.workflowVersion ?? task.version ?? 1)}</span>`)}
       ${status === 'revision' && task.revisionReason ? row('수정 요청 사유', `<span class="task-detail-revision">${esc(task.revisionReason)}</span>`) : ''}
       <div class="task-detail-section"><h4>내용</h4><p>${task.description ? esc(task.description) : '<span class="task-detail-muted">등록된 내용이 없습니다.</span>'}</p></div>
+      <div class="task-detail-section"><h4>첨부파일 ${attachments.length}개</h4>${attachments.length
+        ? `<div class="task-attach-list">${attachments.map(file => `<div class="task-attach-item"><a href="${esc(file.url)}" target="_blank" rel="noopener">${esc(file.name || '첨부파일')}</a><em>${esc(formatFileSize(file.size))}</em></div>`).join('')}</div>`
+        : '<p class="task-detail-muted">첨부된 파일이 없습니다.</p>'}</div>
       <div class="task-detail-section"><h4>처리 이력 ${history.length}건</h4><ul class="task-detail-history">${historyMarkup}</ul></div>
       <div class="collaboration-form-actions"><span></span><span></span><button type="button" data-collab-cancel>닫기</button></div>
     </div>`);
@@ -6692,6 +6704,7 @@
         <label><span>업무 마감일</span><input name="dueDate" type="date" value="${esc(task?.dueDate || '')}" ${quickAssign ? 'required' : ''} ${canEdit ? '' : 'disabled'}></label>
         ${canEdit ? `<div class="wide project-due-presets" aria-label="빠른 마감기한 선택"><span>기한 빠른 선택</span><div>${[[1, '내일'], [3, '3일 내'], [7, '7일 내'], [14, '14일 내']].map(([days, label]) => `<button type="button" data-structured-due-days="${days}">${label}</button>`).join('')}</div></div>` : ''}
         <label class="wide"><span>상세 내용</span><textarea name="description" rows="5" maxlength="5000" ${canEdit ? '' : 'disabled'} placeholder="필요 자료, 확인 항목, 결과물 형식을 적어 주세요.">${esc(task?.description || '')}</textarea></label>
+        ${canEdit ? `<div class="wide task-attach-field"><span>첨부파일</span><div class="task-attach-list" data-task-attach-list></div><input class="task-attach-input" type="file" multiple data-task-attach-input aria-label="첨부파일 추가"><small>최대 20개 · 파일당 20MB</small></div>` : ''}
       </div>
       <div class="structured-assignment-preview"><span><b>업무 지시자</b><em data-structured-assigner-preview>${esc(structuredProjectMemberName(originalAssigner))}</em></span><i>→</i><span><b>업무 담당자</b><em data-structured-assignee-preview>${esc(structuredProjectMemberName(task?.assignee, '선택 필요'))}</em></span><i>→</i><span><b>검토자</b><em data-structured-reviewer-preview>${esc(structuredProjectMemberName(originalReviewer))}</em></span></div>
       <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit" ${!editing && !hasAssignmentPair ? 'disabled' : ''}>${editing ? '업무 저장' : (quickAssign ? '담당자에게 배정' : '업무 토스')}</button></div>
@@ -6704,6 +6717,42 @@
       dueDateInput.value = addProjectDeadlineDays(button.dataset.structuredDueDays);
       dueDateInput.focus();
     }));
+    // 첨부는 먼저 업로드해 /uploads 경로를 받고, 저장 시 그 목록만 함께 보낸다.
+    let taskAttachments = Array.isArray(task?.attachments) ? task.attachments.slice() : [];
+    const attachList = form.querySelector('[data-task-attach-list]');
+    const renderAttachments = () => {
+      if (!attachList) return;
+      attachList.innerHTML = taskAttachments.length
+        ? taskAttachments.map((file, index) => `<div class="task-attach-item"><a href="${esc(file.url)}" target="_blank" rel="noopener">${esc(file.name || '첨부파일')}</a><em>${esc(formatFileSize(file.size))}</em><button type="button" data-task-attach-remove="${index}" aria-label="${esc(file.name || '첨부파일')} 삭제">×</button></div>`).join('')
+        : '<p class="task-attach-empty">첨부된 파일이 없습니다.</p>';
+      attachList.querySelectorAll('[data-task-attach-remove]').forEach(button => button.addEventListener('click', () => {
+        taskAttachments.splice(Number(button.dataset.taskAttachRemove), 1);
+        renderAttachments();
+      }));
+    };
+    renderAttachments();
+    form.querySelector('[data-task-attach-input]')?.addEventListener('change', async event => {
+      const input = event.target;
+      const files = [...(input.files || [])];
+      if (!files.length) return;
+      if (taskAttachments.length + files.length > 20) {
+        input.value = '';
+        return showToast('첨부파일은 최대 20개까지 올릴 수 있습니다.');
+      }
+      const payload = new FormData();
+      files.forEach(file => payload.append('files', file));
+      input.disabled = true;
+      try {
+        const result = await collaborationApi('POST', '/new-projects/uploads', payload);
+        taskAttachments = taskAttachments.concat(Array.isArray(result?.attachments) ? result.attachments : []);
+        renderAttachments();
+      } catch (error) {
+        showToast(error.message || '파일을 올리지 못했습니다.');
+      } finally {
+        input.disabled = false;
+        input.value = '';
+      }
+    });
     const assignerSelect = form.elements.assignedByUid;
     const assigneeSelect = form.elements.assigneeUid;
     const renderAssignment = () => {
@@ -6745,6 +6794,11 @@
         record.title = String(data.get('title') || '').trim();
         record.description = String(data.get('description') || '').trim();
         record.dueDate = String(data.get('dueDate') || '');
+        // 첨부를 실제로 쓰는 경우에만 보낸다. 늘 보내면 기존 저장 요청의
+        // 본문이 불필요하게 바뀐다.
+        if (taskAttachments.length || (Array.isArray(task?.attachments) && task.attachments.length)) {
+          record.attachments = taskAttachments;
+        }
       }
       if (editing) record.expectedVersion = Number(task?.workflowVersion ?? task?.version ?? 1);
       if (!(record.title || task?.title) || !record.assigneeUid || !record.assignedByUid) return showToast('할 일, 지시자, 담당자를 확인해 주세요.');

@@ -4814,6 +4814,20 @@ app.post('/api/projects/:id/meetings', authMiddleware, async (req, res) => {
   }
 });
 
+// 신규 프로젝트 업무 첨부 — 기획서·정산자료처럼 이미지가 아닌 파일도 올린다.
+// 저장 경로는 /uploads 로 고정되며, 업무에 붙일 때 서버가 이 경로만 허용한다.
+app.post('/api/new-projects/uploads', authMiddleware, uploadFile.array('files', 20), async (req, res) => {
+  if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
+  if (!req.files?.length) return res.status(400).json({ error: '올릴 파일을 선택해 주세요' });
+  const attachments = req.files.map(file => ({
+    url: '/uploads/' + file.filename,
+    name: path.basename(decodeMultipartFilename(file.originalname || file.filename)),
+    mimeType: file.mimetype || null,
+    size: file.size || null,
+  }));
+  res.json({ attachments });
+});
+
 app.post('/api/projects/upload', authMiddleware, uploadJpgPng.array('images', 10), async (req, res) => {
   if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
   if (!req.files?.length) return res.status(400).json({ error: 'JPG/PNG 이미지만 업로드할 수 있습니다' });
