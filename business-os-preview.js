@@ -149,7 +149,7 @@
   let structuredProjectStatusFilter = 'all';
   // 기존 계층형 화면은 기본값으로 보존하고, 레퍼런스 검증용 보드는
   // 같은 상세 DTO를 읽는 표시 전용 상태만 별도로 가진다.
-  let structuredProjectTaskView = 'hierarchy';
+  let structuredProjectTaskView = 'split';
   // 분할 보기에서 오른쪽에 펼칠 소분류. 비어 있으면 첫 소분류를 고른다.
   let structuredSplitSmallId = '';
   let structuredBoardSearch = '';
@@ -2516,6 +2516,7 @@
     await refreshStructuredProjects({ render: false, quiet: true }).catch(() => []);
     selectedStructuredProjectId = projectId;
     resetStructuredHierarchyExpansion(projectId);
+    // 알림 딥링크는 대상 업무를 계층에서 펼쳐 보여줘야 하므로 계층 보기로 연다.
     structuredProjectTaskView = 'hierarchy';
     selectedStructuredBoardTaskId = '';
     structuredProjectDetailState = {
@@ -2889,7 +2890,7 @@
     selectedStructuredProjectId = '';
     structuredProjectSearch = '';
     structuredProjectStatusFilter = 'all';
-    structuredProjectTaskView = 'hierarchy';
+    structuredProjectTaskView = 'split';
     structuredBoardSearch = '';
     structuredBoardMediumFilter = 'all';
     structuredBoardSmallFilter = 'all';
@@ -3167,7 +3168,7 @@
         status: 'idle', readOnly: true, capabilities: {}, project: null, error: '', contextKey: structuredProjectContextKey(), projectId: ''
       };
       selectedStructuredProjectId = '';
-      structuredProjectTaskView = 'hierarchy';
+      structuredProjectTaskView = 'split';
       structuredBoardSearch = '';
       structuredBoardMediumFilter = 'all';
       structuredBoardSmallFilter = 'all';
@@ -3210,7 +3211,7 @@
         status: 'idle', readOnly: true, capabilities: {}, project: null, error: '', contextKey: '', projectId: ''
       };
       selectedStructuredProjectId = '';
-      structuredProjectTaskView = 'hierarchy';
+      structuredProjectTaskView = 'split';
       structuredBoardSearch = '';
       structuredBoardMediumFilter = 'all';
       structuredBoardSmallFilter = 'all';
@@ -5657,7 +5658,7 @@
         status: 'ready', readOnly: true, capabilities: {}, projects: [], error: '', contextKey
       };
       selectedStructuredProjectId = '';
-      structuredProjectTaskView = 'hierarchy';
+      structuredProjectTaskView = 'split';
       structuredBoardSearch = '';
       structuredBoardMediumFilter = 'all';
       structuredBoardSmallFilter = 'all';
@@ -5753,7 +5754,7 @@
     if (!requestedId || previewPersona) return;
     selectedStructuredProjectId = requestedId;
     resetStructuredHierarchyExpansion(requestedId);
-    structuredProjectTaskView = 'hierarchy';
+    structuredProjectTaskView = 'split';
     structuredBoardSearch = '';
     structuredBoardMediumFilter = 'all';
     structuredBoardSmallFilter = 'all';
@@ -5771,7 +5772,7 @@
     structuredProjectLoadGeneration += 1;
     selectedStructuredProjectId = '';
     resetStructuredHierarchyExpansion();
-    structuredProjectTaskView = 'hierarchy';
+    structuredProjectTaskView = 'split';
     structuredBoardSearch = '';
     structuredBoardMediumFilter = 'all';
     structuredBoardSmallFilter = 'all';

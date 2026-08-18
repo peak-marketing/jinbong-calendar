@@ -622,6 +622,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('[data-structured-project-list]')).toContainText('전체 포트폴리오');
     await expect(page.locator('[data-structured-project-id="new-project-1"]')).toContainText('브랜드 리뉴얼 프로젝트');
     await page.locator('[data-structured-project-open="new-project-1"]').click();
+    await page.locator('[data-structured-task-view="hierarchy"]').click();
 
     const detail = page.locator('[data-structured-project-detail]');
     await expect(detail.locator('.structured-root-label')).toHaveText('대분류');
@@ -726,6 +727,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await setup(page, fixture);
     await openNewProjects(page);
     await page.locator('[data-structured-project-open="board-project"]').click();
+    await page.locator('[data-structured-task-view="hierarchy"]').click();
 
     const hierarchyToggle = page.locator('[data-structured-task-view="hierarchy"]');
     const boardToggle = page.locator('[data-structured-task-view="board"]');
@@ -885,6 +887,13 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await setup(page, fixture);
     await openNewProjects(page);
     await page.locator('[data-structured-project-open="board-quick-assign-project"]').click();
+
+    // 프로젝트를 열면 분할 보기가 기본이어야 한다 (왼쪽 소분류 목록 · 오른쪽 업무).
+    await expect(page.locator('[data-structured-task-view="split"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.structured-split-nav')).toBeVisible();
+    await expect(page.locator('.structured-split-detail')).toBeVisible();
+
+    await page.locator('[data-structured-task-view="hierarchy"]').click();
 
     // 사이드바 접기 — 넓게 보려면 왼쪽 메뉴를 접을 수 있어야 한다.
     const sidebarToggle = page.locator('[data-sidebar-toggle]');
@@ -1124,6 +1133,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await setup(page, fixture);
     await openNewProjects(page);
     await page.locator('[data-structured-project-open="rank-fallback-project"]').click();
+    await page.locator('[data-structured-task-view="hierarchy"]').click();
 
     const leadCard = page.locator('.structured-project-lead-card');
     await expect(leadCard).toContainText('전현우');
@@ -1148,6 +1158,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await setup(page, fixture);
     await openNewProjects(page);
     await page.locator('[data-structured-project-open="legacy-null-manager-project"]').click();
+    await page.locator('[data-structured-task-view="hierarchy"]').click();
 
     const manager = page.locator('[data-work-category-id="legacy-null-manager-project-medium-1"] [data-structured-medium-manager]');
     await expect(manager).toHaveText('중분류 담당자 미지정');
@@ -1166,6 +1177,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.getByText('전체 포트폴리오', { exact: false }).first()).toBeVisible();
     await expect(page.locator('[data-structured-project-create]')).toBeVisible();
     await page.locator('[data-structured-project-open="portfolio-project"]').click();
+    await page.locator('[data-structured-task-view="hierarchy"]').click();
     await expect(page.locator('[data-structured-project-edit]')).toHaveCount(0);
     await expect(page.locator('[data-structured-project-lead-edit]')).toHaveCount(0);
     await expect(page.locator('[data-structured-medium-create]')).toHaveCount(0);
@@ -1199,6 +1211,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await createForm.locator('[data-collab-cancel]').click();
 
     await page.locator('[data-structured-project-open="managed-project"]').click();
+    await page.locator('[data-structured-task-view="hierarchy"]').click();
     await expect(page.locator('[data-structured-project-edit]')).toBeVisible();
     await expect(page.locator('[data-structured-project-lead-edit]')).toBeVisible();
     await expect(page.locator('[data-structured-medium-create]')).toHaveCount(0);
@@ -1238,6 +1251,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await setup(page, fixture);
     await openNewProjects(page);
     await page.locator('[data-structured-project-open="lead-project"]').click();
+    await page.locator('[data-structured-task-view="hierarchy"]').click();
 
     await expect(page.locator('[data-structured-project-lead-edit]')).toBeVisible();
     await expect(page.locator('[data-structured-medium-create]')).toHaveCount(2);
@@ -1323,6 +1337,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await setup(page, fixture);
     await openNewProjects(page);
     await page.locator('[data-structured-project-open="assignment-project"]').click();
+    await page.locator('[data-structured-task-view="hierarchy"]').click();
     await expandAllStructuredHierarchy(page);
 
     const taskRow = page.locator('[data-work-item-id="assignment-project-task-1"]');
@@ -1391,6 +1406,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.getByText('내 참여 프로젝트', { exact: false }).first()).toBeVisible();
     await expect(page.locator('[data-structured-project-create]')).toHaveCount(0);
     await page.locator('[data-structured-project-open="member-project"]').click();
+    await page.locator('[data-structured-task-view="hierarchy"]').click();
     await expandAllStructuredHierarchy(page);
     await expect(page.locator('[data-structured-project-edit]')).toHaveCount(0);
     await expect(page.locator('[data-structured-project-lead-edit]')).toHaveCount(0);
@@ -1411,6 +1427,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await setup(page, fixture);
     await openNewProjects(page);
     await page.locator('[data-structured-project-open="workflow-project"]').click();
+    await page.locator('[data-structured-task-view="hierarchy"]').click();
     await expandAllStructuredHierarchy(page);
 
     const task = page.locator('[data-work-item-id="workflow-project-task-1"]');
@@ -1497,6 +1514,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('[data-structured-project-create]')).toHaveCount(0);
 
     await page.locator('[data-structured-project-open="branch-portfolio-project"]').click();
+    await page.locator('[data-structured-task-view="hierarchy"]').click();
     await expect(page.locator('[data-structured-project-detail]')).toContainText('열람 전용');
     await expect(page.locator('[data-structured-project-edit]')).toHaveCount(0);
     await expect(page.locator('[data-structured-medium-create]')).toHaveCount(0);
@@ -1538,6 +1556,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await setup(page, fixture);
     await openNewProjects(page);
     await page.locator('[data-structured-project-open="mobile-board-assign-project"]').click();
+    await page.locator('[data-structured-task-view="hierarchy"]').click();
     const hierarchyControlsFit = await page.locator(
       '[data-structured-medium-toggle], [data-structured-hierarchy-expand-all], [data-structured-hierarchy-collapse-all]',
     ).evaluateAll(elements => elements.every(element => {
@@ -1603,6 +1622,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('[data-structured-project-id="daegu-project"]')).toBeVisible();
     await expect(page.getByText('본사 비공개 프로젝트', { exact: false })).toHaveCount(0);
     await page.locator('[data-structured-project-open="daegu-project"]').click();
+    await page.locator('[data-structured-task-view="hierarchy"]').click();
     await expandAllStructuredHierarchy(page);
     await expect(page.locator('[data-structured-medium-manager]')).toContainText('업무담당자 이사원');
     await expect(page.locator('[data-structured-medium-manager]')).toContainText('사원');
