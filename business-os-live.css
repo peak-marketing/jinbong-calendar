@@ -16761,3 +16761,12 @@ html body #moduleView .platform-api-location .module-action { min-height: 44px; 
   .structured-task-check { width: 26px; height: 26px; }
   .structured-task-row { grid-template-columns: 30px minmax(0, 1fr) auto; }
 }
+
+/* 넓은 화면에서 계층 보기가 화면 전체로 늘어나면
+   왼쪽 업무 내용과 오른쪽 버튼 사이가 텅 비어 시선이 끊긴다.
+   계층 카드만 폭을 묶어 한 덩어리로 읽히게 한다.
+   보드 보기(칸반)는 칼럼이 필요하므로 제외한다. */
+@media (min-width: 1180px) {
+  .structured-task-viewbar,
+  .structured-medium-category { max-width: 920px; }
+}
