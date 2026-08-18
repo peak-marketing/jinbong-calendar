@@ -17076,3 +17076,63 @@ html body #moduleView .platform-api-location .module-action { min-height: 44px; 
   .my-work-row.head { display: none; }
   .my-work-project { grid-column: 1 / -1; }
 }
+
+/* 내 업무 — 레퍼런스에 맞춘 시각 요소 */
+.my-work-group > header { gap: 6px; }
+.my-work-bullet {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #9bb0bd;
+}
+.my-work-group .my-work-group-label { background: transparent; padding: 0; font-size: 11px; }
+.my-work-group.tone-danger .my-work-group-label { background: transparent; }
+.my-work-group.tone-warn .my-work-group-label { background: transparent; }
+.my-work-group.tone-active .my-work-group-label { background: transparent; }
+.my-work-group.tone-done .my-work-group-label { background: transparent; }
+
+.my-work-name { display: flex; align-items: flex-start; gap: 9px; }
+.my-work-name > span { min-width: 0; }
+.my-work-mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  margin-top: 1px;
+  border: 1.5px solid #c2d3dd;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 900;
+}
+.my-work-mark.status-doing { border-color: #2b88be; background: #2b88be; }
+.my-work-mark.status-review { border-color: #ea885c; background: #ea885c; }
+.my-work-mark.status-revision { border-color: #d2686f; background: #d2686f; }
+.my-work-mark.status-done { border-color: #51a780; background: #51a780; }
+
+.my-work-due > b { color: #4a6478; font-size: 11px; font-weight: 800; }
+.my-work-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 6px;
+  padding: 2px 8px 2px 6px;
+  color: #34586f;
+  font-size: 11px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.my-work-chip > i { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }
+.my-work-chip.tone-0 { background: #e8f2fb; } .my-work-chip.tone-0 > i { background: #3d8fd0; }
+.my-work-chip.tone-1 { background: #fdf1e4; } .my-work-chip.tone-1 > i { background: #e0913f; }
+.my-work-chip.tone-2 { background: #e9f6ef; } .my-work-chip.tone-2 > i { background: #4aa37c; }
+.my-work-chip.tone-3 { background: #f2ecfb; } .my-work-chip.tone-3 > i { background: #8a6bc4; }
+.my-work-chip.tone-4 { background: #fdecee; } .my-work-chip.tone-4 > i { background: #d2686f; }
+.my-work-chip.tone-5 { background: #e6f5f6; } .my-work-chip.tone-5 > i { background: #3f9aa3; }
+.my-work-project > small { margin-top: 3px; }
+.my-work-meta { margin-left: 7px; color: #8a9aa5; font-size: 9px; font-style: normal; font-weight: 800; }

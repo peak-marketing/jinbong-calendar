@@ -5612,13 +5612,43 @@
     if (render) renderMyWork();
   }
 
+  // 프로젝트마다 같은 색을 계속 쓰도록 이름에서 색을 뽑는다.
+  function myWorkProjectTone(name) {
+    const text = String(name || '');
+    let hash = 0;
+    for (let index = 0; index < text.length; index += 1) hash = (hash * 31 + text.charCodeAt(index)) % 997;
+    return hash % 6;
+  }
+
+  // 기한은 오늘·내일처럼 읽히게 쓰고, 그 밖에는 날짜와 요일을 보여준다.
+  function myWorkDueLabel(dueDate) {
+    const value = String(dueDate || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return '';
+    const today = koreaDateKey(new Date());
+    if (value === today) return '오늘';
+    const [year, month, day] = today.split('-').map(Number);
+    const tomorrow = new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+    if (value === tomorrow) return '내일';
+    return formatDate(value, { month: 'numeric', day: 'numeric', weekday: 'short' });
+  }
+
   function myWorkRow(task) {
     const path = [task.medium?.name, task.small?.name].filter(Boolean).join(' › ');
+    const status = STRUCTURED_TASK_STATUS[task.status] ? task.status : 'todo';
+    const projectName = task.project?.name || '프로젝트';
     return `<div class="my-work-row">
-      <span class="my-work-name"><strong>${esc(task.title || '업무명 없음')}</strong>${task.description ? `<small>${esc(task.description)}</small>` : ''}</span>
-      <span class="my-work-due">${task.dueDate ? `${esc(formatDate(task.dueDate, { month: 'numeric', day: 'numeric' }))}${projectDeadlineBadge(task.dueDate, task.status)}` : '<em>기한 없음</em>'}</span>
-      <span class="my-work-project"><b>${esc(task.project?.name || '프로젝트')}</b>${path ? `<small>${esc(path)}</small>` : ''}</span>
-      <span class="my-work-state">${structuredTaskStatusBadge(task.status)}</span>
+      <span class="my-work-name">
+        <i class="my-work-mark status-${esc(status)}" aria-hidden="true">${status === 'done' ? '✓' : status === 'review' ? '↗' : status === 'revision' ? '!' : ''}</i>
+        <span><strong>${esc(task.title || '업무명 없음')}${Array.isArray(task.attachments) && task.attachments.length ? `<em class="my-work-meta" title="첨부파일 ${task.attachments.length}개">📎${task.attachments.length}</em>` : ''}</strong>${task.description ? `<small>${esc(task.description)}</small>` : ''}</span>
+      </span>
+      <span class="my-work-due">${task.dueDate
+        ? `<b>${esc(myWorkDueLabel(task.dueDate))}</b>${projectDeadlineBadge(task.dueDate, status)}`
+        : '<em>기한 없음</em>'}</span>
+      <span class="my-work-project">
+        <span class="my-work-chip tone-${myWorkProjectTone(projectName)}"><i aria-hidden="true"></i>${esc(projectName)}</span>
+        ${path ? `<small>${esc(path)}</small>` : ''}
+      </span>
+      <span class="my-work-state">${structuredTaskStatusBadge(status)}</span>
     </div>`;
   }
 
@@ -5648,7 +5678,7 @@
         <em>${open}건 남음 · 전체 ${tasks.length}건</em>
       </header>
       ${groups.length ? groups.map(group => `<section class="my-work-group tone-${esc(group.tone)}">
-        <header><span class="my-work-group-label">${esc(group.label)}</span><em>${group.items.length}</em></header>
+        <header><i class="my-work-bullet" aria-hidden="true"></i><span class="my-work-group-label">${esc(group.label)}</span><em>${group.items.length}</em></header>
         <div class="my-work-table">
           <div class="my-work-row head"><span>업무명</span><span>기한</span><span>프로젝트</span><span>상태</span></div>
           ${group.items.map(myWorkRow).join('')}
