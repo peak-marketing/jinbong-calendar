@@ -394,7 +394,8 @@ test.describe('세금 · 통장 계층 메뉴와 재무 요청', () => {
     });
 
     const module = await openView(page, 'expense-ad');
-    await expect(module).toContainText('전체 53건');
+    // 재무 장부의 실사용 기본값은 이번 달이므로 첫 조회부터 8월 52건만 보인다.
+    await expect(module).toContainText('전체 52건');
     await expect(module.getByLabel('금융 요청 페이지')).toContainText('1 / 2 페이지');
     await module.locator('[data-finance-request-page="2"]').click();
     await expect(module.getByLabel('금융 요청 페이지')).toContainText('2 / 2 페이지');
