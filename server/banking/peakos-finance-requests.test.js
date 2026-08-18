@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 const {
   FinanceRequestForbiddenError,
@@ -13,6 +15,13 @@ const {
   normalizeCreateInput,
   registerPeakosFinanceRequests,
 } = require('./peakos-finance-requests');
+const {
+  BANK_REFUND_LINK_GUARD_SOURCE,
+  FINANCE_REQUEST_SCHEMA_READINESS_SQL,
+  FORBIDDEN_INDEX_NAMES,
+  REFUND_DEPOSIT_GUARD_SOURCE,
+  REQUIRED_INDEX_DEFINITIONS,
+} = require('./peakos-finance-requests-infrastructure');
 
 const SECRET = 'finance-test-secret-'.padEnd(64, 'x');
 const ENCRYPTION_KEY = deriveEncryptionKey(SECRET);
@@ -80,6 +89,12 @@ function financeRow(overrides = {}) {
     external_document_id: null,
     bank_transaction_id: null,
     idempotency_key: 'finance-request-0001',
+    workspace_id: 'ws_peak',
+    version: 1,
+    current_invoice_evidence_id: null,
+    refund_deposit_confirmed_at: null,
+    refund_deposit_confirmed_by_uid: null,
+    refund_deposit_confirmed_by_name: null,
     created_at: '2026-08-08T00:00:00.000Z',
     updated_at: '2026-08-08T00:00:00.000Z',
     ...overrides,
@@ -98,6 +113,7 @@ function makeRequest(overrides = {}) {
     params: {},
     body: {},
     headers: {},
+    workspace: { id: 'ws_peak', headquartersOversight: false },
     ...overrides,
   };
 }
@@ -167,27 +183,61 @@ function transactionalPool(queryHandler) {
   };
 }
 
-test('migration은 암호문 장부·멱등성·외부문서 유일성·상태 감사 이벤트를 만든다', async () => {
+test('startup readiness는 migration DDL 없이 gate·workspace·ACL을 exact 검사한다', async () => {
   const calls = [];
-  await ensurePeakosFinanceRequestInfrastructure({
+  const readiness = await ensurePeakosFinanceRequestInfrastructure({
     query: async sql => {
       calls.push(String(sql));
-      return { rows: [] };
+      return { rows: [{ ready: true, missing_requirements: [] }] };
     },
   });
   assert.equal(calls.length, 1);
-  assert.match(calls[0], /CREATE TABLE IF NOT EXISTS peakos_finance_requests/);
-  assert.match(calls[0], /\bid TEXT PRIMARY KEY\b/);
-  assert.match(calls[0], /\brequest_id TEXT NOT NULL\b/);
-  assert.match(calls[0], /payee_account_ciphertext BYTEA/);
-  assert.match(calls[0], /AES|payee_account_auth_tag|encryption_version/i);
-  assert.match(calls[0], /requester_idempotency_idx/);
-  assert.match(calls[0], /external_document_idx/);
-  assert.match(calls[0], /refund_terminal_invoice_check/);
-  assert.match(calls[0], /peakos_finance_requests_requester_date_idx/);
-  assert.match(calls[0], /peakos_finance_requests_date_idx/);
-  assert.match(calls[0], /CREATE TABLE IF NOT EXISTS peakos_finance_request_events/);
-  assert.doesNotMatch(calls[0], /payee_account\s+TEXT/i);
+  assert.equal(calls[0], FINANCE_REQUEST_SCHEMA_READINESS_SQL);
+  assert.match(calls[0], /pg_attribute/);
+  assert.match(calls[0], /pg_constraint/);
+  assert.match(calls[0], /pg_trigger/);
+  assert.match(calls[0], /pg_get_indexdef/);
+  assert.match(calls[0], /has_table_privilege/);
+  assert.match(calls[0], /peakos_finance_requests_refund_deposit_unique/);
+  assert.match(calls[0], /peakos_bank_transactions_refund_link_guard/);
+  assert.match(calls[0], /dependency-select-privilege/);
+  assert.match(calls[0], /forbidden-index:/);
+  for (const name of FORBIDDEN_INDEX_NAMES) assert.match(calls[0], new RegExp(name));
+  assert.match(calls[0], /^WITH required_columns/);
+  assert.equal(
+    REQUIRED_INDEX_DEFINITIONS.peakos_finance_requests_refund_deposit_unique[0],
+    true,
+  );
+  assert.match(REFUND_DEPOSIT_GUARD_SOURCE, /FOR UPDATE;/);
+  assert.match(BANK_REFUND_LINK_GUARD_SOURCE, /reconciliation_status IN \('IGNORED', 'REVERSED'\)/);
+  assert.deepEqual(readiness, { ready: true, missing: [] });
+
+  await assert.rejects(
+    ensurePeakosFinanceRequestInfrastructure({
+      query: async () => ({ rows: [{ ready: false, missing_requirements: ['trigger-definition:gate'] }] }),
+    }),
+    error => error.code === 'FINANCE_REQUEST_SCHEMA_NOT_READY'
+      && error.missing.includes('trigger-definition:gate'),
+  );
+});
+
+test('환불 gate migration은 원자적이고 1입금=1환불 및 양방향 거래 보호를 선언한다', () => {
+  const migration = fs.readFileSync(
+    path.join(__dirname, '..', 'migrations', '20260818_peakos_refund_deposit_gate.sql'),
+    'utf8',
+  );
+  assert.match(migration, /^--[^]*\nBEGIN;\nSET LOCAL search_path = pg_catalog, public;/);
+  assert.match(migration, /SELECT transaction\.\*[\s\S]*FOR UPDATE;/);
+  assert.match(
+    migration,
+    /CREATE UNIQUE INDEX IF NOT EXISTS peakos_finance_requests_refund_deposit_unique[\s\S]*WHERE kind IN \('REFUND_CLIENT', 'REFUND_MISTAKEN'\)[\s\S]*status = 'COMPLETED'/,
+  );
+  assert.match(
+    migration,
+    /CREATE TRIGGER peakos_bank_transactions_refund_link_guard[\s\S]*BEFORE UPDATE OR DELETE ON public\.peakos_bank_transactions/,
+  );
+  assert.match(migration, /CONSTRAINT = 'peakos_bank_transactions_refund_link_guard'/);
+  assert.match(migration, /COMMIT;\s*$/);
 });
 
 test('계좌번호는 AES-GCM 암호문으로 왕복하고 일반 출력용으로 끝자리만 마스킹한다', () => {
@@ -278,7 +328,8 @@ test('요청 종류별 필수값과 민감 출금 통장 권한을 검증한다'
 
 test('GET mine은 본인 행만 마스킹하고, 정확한 검토자의 scope=all만 원문을 복호화한다', async () => {
   const calls = [];
-  const row = financeRow();
+  const currentEvidenceId = '96c9d661-5349-4684-8962-c2ca6ea71eb5';
+  const row = financeRow({ current_invoice_evidence_id: currentEvidenceId });
   const pool = {
     query: async (sql, params) => {
       const statement = normalizeSql(sql);
@@ -299,9 +350,11 @@ test('GET mine은 본인 행만 마스킹하고, 정확한 검토자의 scope=al
   assert.equal(mine.body.requests[0].payeeAccount, '***-***-**9012');
   assert.equal(mine.body.requests[0].payee_account, '***-***-**9012');
   assert.equal(mine.body.requests[0].payeeAccountRevealed, false);
+  assert.equal(mine.body.requests[0].currentInvoiceEvidenceId, currentEvidenceId);
+  assert.equal(mine.body.requests[0].current_invoice_evidence_id, currentEvidenceId);
   assert.deepEqual(
     calls.find(call => call.sql.startsWith('SELECT id, requester_uid')).params,
-    ['user-1', 500, 0],
+    ['ws_peak', 'user-1', 500, 0],
   );
   assert.deepEqual(mine.body.pagination, {
     page: 1, limit: 500, total: 1, totalPages: 1, total_pages: 1,
@@ -318,11 +371,12 @@ test('GET mine은 본인 행만 마스킹하고, 정확한 검토자의 scope=al
   assert.equal(all.body.requests[0].payee_account, PAYEE_ACCOUNT);
   assert.equal(all.body.requests[0].payeeAccountRevealed, true);
   const allList = calls.filter(call => call.sql.startsWith('SELECT id, requester_uid')).at(-1);
-  assert.deepEqual(allList.params, [500, 0]);
+  assert.deepEqual(allList.params, ['ws_peak', 500, 0]);
   const audit = calls.find(call => call.sql.includes('FINANCE_REQUEST_PAYEE_ACCOUNT_VIEWED'));
   assert.ok(audit, '계좌 원문 조회에는 감사 이벤트가 기록되어야 한다.');
-  assert.match(audit.sql, /unnest\(\$1::text\[\]\)/);
-  assert.deepEqual(audit.params.slice(0, 3), [[REQUEST_ID], 'finance-uid', '표시이름 변경됨']);
+  assert.match(audit.sql, /workspace_id, request_id/);
+  assert.match(audit.sql, /unnest\(\$2::text\[\]\)/);
+  assert.deepEqual(audit.params.slice(0, 4), ['ws_peak', [REQUEST_ID], 'finance-uid', '표시이름 변경됨']);
 });
 
 test('GET은 기간·복수 kind·계산서 여부·제외 상태를 서버에서 필터하고 전체 건수로 페이지를 계산한다', async () => {
@@ -367,12 +421,14 @@ test('GET은 기간·복수 kind·계산서 여부·제외 상태를 서버에�
   assert.equal(response.body.filters.invoice_requested, true);
   const list = calls.find(call => call.sql.startsWith('SELECT id, requester_uid'));
   const count = calls.find(call => call.sql.startsWith('SELECT COUNT(*)'));
-  assert.match(list.sql, /kind = ANY\(\$1::text\[\]\)/);
-  assert.match(list.sql, /NOT \(status = ANY\(\$2::text\[\]\)\)/);
-  assert.match(list.sql, /invoice_requested = \$3/);
-  assert.match(list.sql, /request_date >= \$4::date/);
-  assert.match(list.sql, /request_date <= \$5::date/);
+  assert.match(list.sql, /workspace_id = \$1/);
+  assert.match(list.sql, /kind = ANY\(\$2::text\[\]\)/);
+  assert.match(list.sql, /NOT \(status = ANY\(\$3::text\[\]\)\)/);
+  assert.match(list.sql, /invoice_requested = \$4/);
+  assert.match(list.sql, /request_date >= \$5::date/);
+  assert.match(list.sql, /request_date <= \$6::date/);
   assert.deepEqual(list.params, [
+    'ws_peak',
     ['REFUND_CLIENT', 'REFUND_MISTAKEN'],
     ['REJECTED', 'CANCELLED'],
     true,
@@ -404,6 +460,125 @@ test('GET은 잘못된 기간·페이지·필터 조합을 DB 조회 전에 거�
     assert.equal(response.statusCode, 400);
   }
   assert.equal(queryCount, 0);
+});
+
+test('환불 입금 후보 조회는 재무 검토자에게 동일 workspace의 검증·미사용 입금만 서버에서 제한한다', async () => {
+  const calls = [];
+  const pool = {
+    query: async (sql, params = []) => {
+      const statement = normalizeSql(sql);
+      calls.push({ sql: statement, params });
+      if (statement.startsWith('SELECT id, kind, amount_vat')) {
+        return { rows: [{
+          id: REQUEST_ID,
+          kind: 'REFUND_CLIENT',
+          amount_vat: '121000',
+          source_account_id: 'ibk-hq-sales',
+          status: 'PROCESSING',
+          version: 3,
+        }] };
+      }
+      if (statement.startsWith('SELECT transaction.id')) {
+        return { rows: [{
+          id: '42', account_id: 'ibk-hq-sales',
+          transaction_at: '2026-08-08T00:30:00.000Z', amount: '200000',
+          summary: '환불 원입금', counterparty_name: '테스트 거래처',
+          reconciliation_status: 'UNMATCHED', source: 'BANK_SYNC',
+          balance: '999999999', provider_transaction_key: 'must-not-leak',
+        }] };
+      }
+      if (statement.startsWith('SELECT COUNT(*)')) return { rows: [{ total: '26' }] };
+      if (statement.startsWith('INSERT INTO peakos_finance_request_events')) return { rows: [] };
+      throw new Error(`Unexpected SQL: ${statement}`);
+    },
+    connect: async () => { throw new Error('후보 조회는 transaction client가 필요하지 않다.'); },
+  };
+  const route = createRouteHarness({ pool, canReview: () => true });
+  const response = makeResponse();
+  await route('GET', '/api/peakos/finance-requests/:id/refund-deposits')(
+    makeRequest({ params: { id: REQUEST_ID }, query: { page: '2', limit: '25', q: '테스트' } }),
+    response,
+  );
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.body.request, {
+    id: REQUEST_ID,
+    kind: 'REFUND_CLIENT',
+    amountVat: 121000,
+    sourceAccountId: 'ibk-hq-sales',
+    status: 'PROCESSING',
+    version: 3,
+  });
+  assert.deepEqual(response.body.pagination, {
+    page: 2, limit: 25, total: 26, totalPages: 2, total_pages: 2,
+  });
+  assert.deepEqual(response.body.deposits, [{
+    id: '42',
+    accountId: 'ibk-hq-sales',
+    transactionAt: '2026-08-08T00:30:00.000Z',
+    amount: 200000,
+    summary: '환불 원입금',
+    counterpartyName: '테스트 거래처',
+    status: 'UNMATCHED',
+    source: 'BANK_SYNC',
+  }]);
+  const list = calls.find(call => call.sql.startsWith('SELECT transaction.id'));
+  assert.match(list.sql, /transaction\.workspace_id = \$1/);
+  assert.match(list.sql, /transaction\.direction = 'DEPOSIT'/);
+  assert.match(list.sql, /transaction\.source = ANY\(\$2::text\[\]\)/);
+  assert.match(list.sql, /NOT \(transaction\.reconciliation_status = ANY\(\$3::text\[\]\)\)/);
+  assert.match(list.sql, /transaction\.amount >= \$4::bigint/);
+  assert.match(list.sql, /NOT EXISTS \( SELECT 1 FROM peakos_finance_requests linked_refund/);
+  assert.match(list.sql, /transaction\.account_id = \$5/);
+  assert.deepEqual(list.params, [
+    'ws_peak', ['BANK_SYNC', 'COLLECTOR'], ['IGNORED', 'REVERSED'], '121000',
+    'ibk-hq-sales', '%테스트%', 25, 25,
+  ]);
+  const audit = calls.find(call => call.sql.startsWith('INSERT INTO peakos_finance_request_events'));
+  assert.deepEqual(audit.params.slice(0, 4), ['ws_peak', REQUEST_ID, 'FINANCE_REQUEST_REFUND_DEPOSIT_CANDIDATES_VIEWED', 'user-1']);
+  assert.deepEqual(JSON.parse(audit.params[10]), {
+    page: 2, limit: 25, returned: 1, searchApplied: true,
+  });
+});
+
+test('환불 입금 후보 조회는 일반 사용자와 처리 불가능한 요청을 은행 조회 전에 거부한다', async () => {
+  let touched = false;
+  const deniedPool = {
+    query: async () => { touched = true; return { rows: [] }; },
+    connect: async () => { touched = true; throw new Error('DB 연결 금지'); },
+  };
+  const deniedRoute = createRouteHarness({ pool: deniedPool, canReview: () => false });
+  const denied = makeResponse();
+  await deniedRoute('GET', '/api/peakos/finance-requests/:id/refund-deposits')(
+    makeRequest({ params: { id: REQUEST_ID } }),
+    denied,
+  );
+  assert.equal(denied.statusCode, 403);
+  assert.equal(touched, false);
+
+  const calls = [];
+  const terminalPool = {
+    query: async (sql, params = []) => {
+      const statement = normalizeSql(sql);
+      calls.push({ sql: statement, params });
+      if (statement.startsWith('SELECT id, kind, amount_vat')) {
+        return { rows: [{
+          id: REQUEST_ID, kind: 'REFUND_CLIENT', amount_vat: '121000',
+          source_account_id: 'ibk-hq-sales', status: 'COMPLETED', version: 4,
+        }] };
+      }
+      throw new Error(`Unexpected SQL: ${statement}`);
+    },
+    connect: async () => { throw new Error('GET은 connect하지 않아야 한다.'); },
+  };
+  const terminalRoute = createRouteHarness({ pool: terminalPool, canReview: () => true });
+  const terminal = makeResponse();
+  await terminalRoute('GET', '/api/peakos/finance-requests/:id/refund-deposits')(
+    makeRequest({ params: { id: REQUEST_ID } }),
+    terminal,
+  );
+  assert.equal(terminal.statusCode, 409);
+  assert.equal(terminal.body.code, 'FINANCE_REQUEST_REFUND_DEPOSIT_NOT_ACTIONABLE');
+  assert.equal(calls.some(call => call.sql.includes('FROM peakos_bank_transactions')), false);
 });
 
 test('표시이름이 검토자와 같거나 admin이어도 capability가 없으면 scope=all을 쿼리 전에 거부한다', async () => {
@@ -496,7 +671,7 @@ test('동일 Idempotency-Key 재시도는 같은 payload만 기존 요청으로 
   assert.equal(response.body.created, false);
   assert.equal(mock.calls.some(call => call.sql.startsWith('INSERT INTO peakos_finance_request_events')), false);
   const retryLookup = mock.calls.find(call => call.sql.startsWith('SELECT id, requester_uid'));
-  assert.deepEqual(retryLookup.params, ['user-1', 'finance-request-0001']);
+  assert.deepEqual(retryLookup.params, ['ws_peak', 'user-1', 'finance-request-0001']);
 
   const conflictMock = transactionalPool((sql) => {
     if (sql.startsWith('INSERT INTO peakos_finance_requests')) return { rows: [] };
@@ -529,7 +704,7 @@ test('일반 직원은 민감 출금 통장을 지정한 POST를 DB 연결 전�
   assert.equal(connectCount, 0);
 });
 
-test('PATCH는 정확한 검토자만 상태·계산서·민감 통장·외부문서를 처리하고 이벤트를 남긴다', async () => {
+test('PATCH는 정확한 검토자만 비종료 계산서·민감 통장·외부문서를 처리하고 이벤트를 남긴다', async () => {
   let deniedConnects = 0;
   const deniedPool = {
     query: async () => ({ rows: [] }),
@@ -576,9 +751,9 @@ test('PATCH는 정확한 검토자만 상태·계산서·민감 통장·외부�
       userDoc: { approved: true, is_active: true, role: 'member', name: '표시이름 변경됨' },
       body: {
         status: 'PROCESSING',
-        invoiceStatus: 'ISSUED',
+        expectedVersion: 1,
+        invoiceStatus: 'PROCESSING',
         processingNote: '지급 및 계산서 확인 중',
-        invoiceEvidenceUrl: 'https://files.example.test/invoice',
         sourceAccountId: 'ibk-hq-fixed',
         platformKey: 'platform-one',
         externalDocumentId: 'invoice-2026-0001',
@@ -589,7 +764,7 @@ test('PATCH는 정확한 검토자만 상태·계산서·민감 통장·외부�
   );
   assert.equal(response.statusCode, 200);
   assert.equal(response.body.request.status, 'PROCESSING');
-  assert.equal(response.body.request.invoiceStatus, 'ISSUED');
+  assert.equal(response.body.request.invoiceStatus, 'PROCESSING');
   assert.equal(response.body.request.sourceAccountId, 'ibk-hq-fixed');
   assert.equal(response.body.request.processedByUid, 'finance-uid');
   assert.equal(response.body.request.payeeAccount, '***-***-**9012');
@@ -597,6 +772,44 @@ test('PATCH는 정확한 검토자만 상태·계산서·민감 통장·외부�
   assert.equal(update.params[10], 'finance-uid');
   assert.equal(update.params.includes('attacker-controlled-value'), false);
   assert.ok(mock.calls.some(call => call.sql.startsWith('INSERT INTO peakos_finance_request_events')));
+});
+
+test('일반 PATCH는 migration 적용 여부와 무관하게 URL-only 발급·정정 완료를 명확한 409로 차단한다', async () => {
+  for (const body of [
+    {
+      invoiceStatus: 'ISSUED',
+      invoiceEvidenceUrl: 'https://files.example.test/invoice',
+      expectedVersion: 1,
+    },
+    {
+      invoiceStatus: 'CORRECTED',
+      invoice_evidence_url: 'https://files.example.test/correction',
+      expectedVersion: 1,
+    },
+    {
+      invoiceEvidenceUrl: 'https://files.example.test/url-only',
+      expectedVersion: 1,
+    },
+  ]) {
+    const current = financeRow({
+      invoice_status: body.invoiceStatus === 'CORRECTED' ? 'CORRECTION_REQUESTED' : 'PROCESSING',
+    });
+    const mock = transactionalPool(sql => {
+      if (sql.startsWith('SELECT id, requester_uid')) return { rows: [current] };
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+    const route = createRouteHarness({ pool: mock.pool, canReview: () => true });
+    const response = makeResponse();
+    await route('PATCH', '/api/peakos/finance-requests/:id')(
+      makeRequest({ params: { id: REQUEST_ID }, body }),
+      response,
+    );
+    assert.equal(response.statusCode, 409);
+    assert.equal(response.body.code, 'TAX_INVOICE_EVIDENCE_PROTECTED_UPLOAD_REQUIRED');
+    assert.match(response.body.error, /발급번호.*보호된 원본 파일/);
+    assert.equal(mock.calls.some(call => call.sql.startsWith('UPDATE peakos_finance_requests')), false);
+    assert.ok(mock.calls.some(call => call.sql === 'ROLLBACK'));
+  }
 });
 
 test('PATCH는 환불 반려 시 진행 중 계산서를 함께 취소하고 발행 완료 계산서는 보존한다', async () => {
@@ -619,7 +832,7 @@ test('PATCH는 환불 반려 시 진행 중 계산서를 함께 취소하고 발
   const cancelledRoute = createRouteHarness({ pool: cancelledMock.pool, canReview: () => true });
   const cancelledResponse = makeResponse();
   await cancelledRoute('PATCH', '/api/peakos/finance-requests/:id')(
-    makeRequest({ params: { id: REQUEST_ID }, body: { status: 'REJECTED', processingNote: '환불 불가' } }),
+    makeRequest({ params: { id: REQUEST_ID }, body: { status: 'REJECTED', processingNote: '환불 불가', expectedVersion: 1 } }),
     cancelledResponse,
   );
   assert.equal(cancelledResponse.statusCode, 200);
@@ -628,9 +841,9 @@ test('PATCH는 환불 반려 시 진행 중 계산서를 함께 취소하고 발
   const cancelledUpdate = cancelledMock.calls.find(call => call.sql.startsWith('UPDATE peakos_finance_requests'));
   assert.deepEqual(cancelledUpdate.params.slice(1, 4), ['REJECTED', true, 'CANCELLED']);
   const cancelledEvent = cancelledMock.calls.find(call => call.sql.startsWith('INSERT INTO peakos_finance_request_events'));
-  assert.equal(cancelledEvent.params[6], 'PROCESSING');
-  assert.equal(cancelledEvent.params[7], 'CANCELLED');
-  assert.equal(JSON.parse(cancelledEvent.params[9]).invoiceAutoCancelled, true);
+  assert.equal(cancelledEvent.params[7], 'PROCESSING');
+  assert.equal(cancelledEvent.params[8], 'CANCELLED');
+  assert.equal(JSON.parse(cancelledEvent.params[10]).invoiceAutoCancelled, true);
 
   const issuedInvoice = financeRow({ invoice_requested: true, invoice_status: 'ISSUED' });
   const preservedMock = transactionalPool((sql, params) => {
@@ -649,7 +862,7 @@ test('PATCH는 환불 반려 시 진행 중 계산서를 함께 취소하고 발
   const preservedRoute = createRouteHarness({ pool: preservedMock.pool, canReview: () => true });
   const preservedResponse = makeResponse();
   await preservedRoute('PATCH', '/api/peakos/finance-requests/:id')(
-    makeRequest({ params: { id: REQUEST_ID }, body: { status: 'REJECTED' } }),
+    makeRequest({ params: { id: REQUEST_ID }, body: { status: 'REJECTED', expectedVersion: 1 } }),
     preservedResponse,
   );
   assert.equal(preservedResponse.statusCode, 200);
@@ -666,7 +879,7 @@ test('PATCH는 환불 반려 시 진행 중 계산서를 함께 취소하고 발
   await conflictRoute('PATCH', '/api/peakos/finance-requests/:id')(
     makeRequest({
       params: { id: REQUEST_ID },
-      body: { status: 'REJECTED', invoiceStatus: 'CORRECTION_REQUESTED' },
+      body: { status: 'REJECTED', invoiceStatus: 'CORRECTION_REQUESTED', expectedVersion: 1 },
     }),
     conflict,
   );
@@ -683,12 +896,242 @@ test('PATCH는 환불 반려 시 진행 중 계산서를 함께 취소하고 발
   await activeConflictRoute('PATCH', '/api/peakos/finance-requests/:id')(
     makeRequest({
       params: { id: REQUEST_ID },
-      body: { status: 'REJECTED', invoiceStatus: 'PROCESSING' },
+      body: { status: 'REJECTED', invoiceStatus: 'PROCESSING', expectedVersion: 1 },
     }),
     activeConflict,
   );
   assert.equal(activeConflict.statusCode, 409);
   assert.equal(activeConflict.body.code, 'FINANCE_REQUEST_TERMINAL_INVOICE_CONFLICT');
+});
+
+test('PATCH 환불 완료는 expectedVersion과 동일 workspace의 검증된 입금 거래가 모두 필요하다', async () => {
+  const current = financeRow({ status: 'PROCESSING', version: 3 });
+
+  const missingMock = transactionalPool((sql) => {
+    if (sql.startsWith('SELECT id, requester_uid')) return { rows: [current] };
+    throw new Error(`Unexpected SQL: ${sql}`);
+  });
+  const missingRoute = createRouteHarness({ pool: missingMock.pool, canReview: () => true });
+  const missing = makeResponse();
+  await missingRoute('PATCH', '/api/peakos/finance-requests/:id')(
+    makeRequest({
+      params: { id: REQUEST_ID },
+      body: { status: 'COMPLETED', expectedVersion: 3 },
+    }),
+    missing,
+  );
+  assert.equal(missing.statusCode, 409);
+  assert.equal(missing.body.code, 'FINANCE_REQUEST_REFUND_DEPOSIT_REQUIRED');
+  assert.equal(missingMock.calls.some(call => call.sql.startsWith('UPDATE peakos_finance_requests')), false);
+  assert.ok(missingMock.calls.some(call => call.sql === 'ROLLBACK'));
+
+  const noVersionMock = transactionalPool((sql) => {
+    if (sql.startsWith('SELECT id, requester_uid')) return { rows: [current] };
+    throw new Error(`Unexpected SQL: ${sql}`);
+  });
+  const noVersionRoute = createRouteHarness({ pool: noVersionMock.pool, canReview: () => true });
+  const noVersion = makeResponse();
+  await noVersionRoute('PATCH', '/api/peakos/finance-requests/:id')(
+    makeRequest({ params: { id: REQUEST_ID }, body: { status: 'COMPLETED', bankTransactionId: '42' } }),
+    noVersion,
+  );
+  assert.equal(noVersion.statusCode, 400);
+  assert.equal(noVersion.body.code, 'FINANCE_REQUEST_EXPECTED_VERSION_REQUIRED');
+  assert.equal(noVersionMock.calls.some(call => call.sql.includes('peakos_bank_transactions')), false);
+
+  const staleMock = transactionalPool((sql) => {
+    if (sql.startsWith('SELECT id, requester_uid')) return { rows: [current] };
+    throw new Error(`Unexpected SQL: ${sql}`);
+  });
+  const staleRoute = createRouteHarness({ pool: staleMock.pool, canReview: () => true });
+  const stale = makeResponse();
+  await staleRoute('PATCH', '/api/peakos/finance-requests/:id')(
+    makeRequest({
+      params: { id: REQUEST_ID },
+      body: { status: 'COMPLETED', expectedVersion: 2, bankTransactionId: '42' },
+    }),
+    stale,
+  );
+  assert.equal(stale.statusCode, 409);
+  assert.equal(stale.body.code, 'FINANCE_REQUEST_VERSION_CONFLICT');
+});
+
+test('PATCH 환불 완료는 출금·수동 CSV·취소 거래·부족 금액·다른 통장을 모두 거부한다', async () => {
+  const current = financeRow({ status: 'PROCESSING', version: 3 });
+  const cases = [
+    [{ direction: 'WITHDRAWAL', source: 'BANK_SYNC', reconciliation_status: 'UNMATCHED', amount: '200000', account_id: 'ibk-hq-sales' }, 'FINANCE_REQUEST_REFUND_DEPOSIT_DIRECTION_INVALID'],
+    [{ direction: 'DEPOSIT', source: 'CSV_IMPORT', reconciliation_status: 'UNMATCHED', amount: '200000', account_id: 'ibk-hq-sales' }, 'FINANCE_REQUEST_REFUND_DEPOSIT_UNVERIFIED'],
+    [{ direction: 'DEPOSIT', source: 'BANK_SYNC', reconciliation_status: 'REVERSED', amount: '200000', account_id: 'ibk-hq-sales' }, 'FINANCE_REQUEST_REFUND_DEPOSIT_UNVERIFIED'],
+    [{ direction: 'DEPOSIT', source: 'BANK_SYNC', reconciliation_status: 'UNMATCHED', amount: '120999', account_id: 'ibk-hq-sales' }, 'FINANCE_REQUEST_REFUND_DEPOSIT_AMOUNT_INSUFFICIENT'],
+  ];
+  for (const [transaction, code] of cases) {
+    const mock = transactionalPool((sql) => {
+      if (sql.startsWith('SELECT id, requester_uid')) return { rows: [current] };
+      if (sql.includes('FROM peakos_bank_transactions')) {
+        return { rows: [{ id: '42', workspace_id: 'ws_peak', ...transaction }] };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+    const route = createRouteHarness({ pool: mock.pool, canReview: () => true });
+    const response = makeResponse();
+    await route('PATCH', '/api/peakos/finance-requests/:id')(
+      makeRequest({
+        params: { id: REQUEST_ID },
+        body: { status: 'COMPLETED', expectedVersion: 3, bankTransactionId: '42' },
+      }),
+      response,
+    );
+    assert.equal(response.statusCode, 409);
+    assert.equal(response.body.code, code);
+    assert.equal(mock.calls.some(call => call.sql.startsWith('UPDATE peakos_finance_requests')), false);
+    const bankRead = mock.calls.find(call => call.sql.includes('FROM peakos_bank_transactions'));
+    assert.deepEqual(bankRead.params, ['ws_peak', '42']);
+    assert.match(bankRead.sql, /WHERE workspace_id = \$1 AND id = \$2/);
+    assert.match(bankRead.sql, /FOR UPDATE/);
+  }
+});
+
+test('PATCH 환불 완료는 입금 확인 actor·시각·version과 안전한 감사 metadata를 원자 저장한다', async () => {
+  const current = financeRow({ status: 'PROCESSING', version: 3 });
+  const mock = transactionalPool((sql, params) => {
+    if (sql.startsWith('SELECT id, requester_uid')) return { rows: [current] };
+    if (sql.includes('FROM peakos_bank_transactions')) {
+      return { rows: [{
+        id: '42', workspace_id: 'ws_peak', account_id: 'ibk-hq-sales',
+        transaction_at: '2026-08-08T00:30:00.000Z', direction: 'DEPOSIT',
+        amount: '200000', reconciliation_status: 'UNMATCHED', source: 'BANK_SYNC',
+      }] };
+    }
+    if (sql.startsWith('UPDATE peakos_finance_requests')) {
+      assert.match(sql, /refund_deposit_confirmed_at = CASE/);
+      assert.match(sql, /version = version \+ 1/);
+      assert.match(sql, /workspace_id = \$15 AND version = \$14/);
+      assert.equal(params[12], true);
+      assert.equal(params[13], 3);
+      assert.equal(params[14], 'ws_peak');
+      return { rows: [{
+        ...current,
+        status: 'COMPLETED', bank_transaction_id: '42', version: 4,
+        processed_by_uid: params[10], processed_by_name: params[11],
+        processed_at: '2026-08-08T01:00:00.000Z',
+        refund_deposit_confirmed_at: '2026-08-08T01:00:00.000Z',
+        refund_deposit_confirmed_by_uid: params[10],
+        refund_deposit_confirmed_by_name: params[11],
+      }] };
+    }
+    if (sql.startsWith('INSERT INTO peakos_finance_request_events')) return { rows: [] };
+    throw new Error(`Unexpected SQL: ${sql}`);
+  });
+  const route = createRouteHarness({ pool: mock.pool, canReview: () => true });
+  const response = makeResponse();
+  await route('PATCH', '/api/peakos/finance-requests/:id')(
+    makeRequest({
+      uid: 'finance-uid',
+      userDoc: { approved: true, is_active: true, name: '검토자' },
+      params: { id: REQUEST_ID },
+      body: { status: 'COMPLETED', expectedVersion: 3, bankTransactionId: '42' },
+    }),
+    response,
+  );
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.request.version, 4);
+  assert.equal(response.body.request.bankTransactionId, '42');
+  assert.equal(response.body.request.refundDepositConfirmedByUid, 'finance-uid');
+  const event = mock.calls.find(call => call.sql.startsWith('INSERT INTO peakos_finance_request_events'));
+  const metadata = JSON.parse(event.params[10]);
+  assert.equal(metadata.refundDepositConfirmed, true);
+  assert.equal(metadata.refundDepositTransactionId, '42');
+  assert.equal(metadata.expectedVersion, 3);
+  assert.equal(metadata.resultingVersion, 4);
+  assert.ok(mock.calls.findIndex(call => call.sql === 'BEGIN')
+    < mock.calls.findIndex(call => call.sql === 'COMMIT'));
+});
+
+test('동일 입금 거래를 다른 완료 환불에 재사용하면 원자 롤백하고 명확한 409를 반환한다', async () => {
+  const current = financeRow({ status: 'PROCESSING', version: 3 });
+  const mock = transactionalPool((sql) => {
+    if (sql.startsWith('SELECT id, requester_uid')) return { rows: [current] };
+    if (sql.includes('FROM peakos_bank_transactions')) {
+      return { rows: [{
+        id: '42', workspace_id: 'ws_peak', account_id: 'ibk-hq-sales',
+        transaction_at: '2026-08-08T00:30:00.000Z', direction: 'DEPOSIT',
+        amount: '200000', reconciliation_status: 'UNMATCHED', source: 'BANK_SYNC',
+      }] };
+    }
+    if (sql.startsWith('UPDATE peakos_finance_requests')) {
+      const error = new Error('duplicate linked deposit');
+      error.code = '23505';
+      error.constraint = 'peakos_finance_requests_refund_deposit_unique';
+      throw error;
+    }
+    throw new Error(`Unexpected SQL: ${sql}`);
+  });
+  const route = createRouteHarness({ pool: mock.pool, canReview: () => true });
+  const response = makeResponse();
+  await route('PATCH', '/api/peakos/finance-requests/:id')(
+    makeRequest({
+      params: { id: REQUEST_ID },
+      body: { status: 'COMPLETED', expectedVersion: 3, bankTransactionId: '42' },
+    }),
+    response,
+  );
+  assert.equal(response.statusCode, 409);
+  assert.equal(response.body.code, 'FINANCE_REQUEST_REFUND_DEPOSIT_ALREADY_USED');
+  assert.ok(mock.calls.some(call => call.sql === 'ROLLBACK'));
+  assert.equal(mock.calls.some(call => call.sql === 'COMMIT'), false);
+});
+
+test('비환불 요청 완료는 입금 거래를 요구하지 않고 기존 처리 흐름을 보존한다', async () => {
+  const current = financeRow({
+    kind: 'EXPENSE_SUPPLIES', status: 'PROCESSING', version: 5,
+    source_account_id: null, invoice_requested: false, invoice_status: 'NOT_REQUESTED',
+  });
+  const mock = transactionalPool((sql, params) => {
+    if (sql.startsWith('SELECT id, requester_uid')) return { rows: [current] };
+    if (sql.startsWith('UPDATE peakos_finance_requests')) {
+      return { rows: [{ ...current, status: params[1], version: 6 }] };
+    }
+    if (sql.startsWith('INSERT INTO peakos_finance_request_events')) return { rows: [] };
+    throw new Error(`Unexpected SQL: ${sql}`);
+  });
+  const route = createRouteHarness({ pool: mock.pool, canReview: () => true });
+  const response = makeResponse();
+  await route('PATCH', '/api/peakos/finance-requests/:id')(
+    makeRequest({
+      params: { id: REQUEST_ID },
+      body: { status: 'COMPLETED', expectedVersion: 5 },
+    }),
+    response,
+  );
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.request.status, 'COMPLETED');
+  assert.equal(mock.calls.some(call => call.sql.includes('FROM peakos_bank_transactions')), false);
+});
+
+test('oversight workspace는 검토 capability가 있어도 금융 변경을 DB 전에 거부한다', async () => {
+  let touched = false;
+  const pool = {
+    query: async () => { touched = true; return { rows: [] }; },
+    connect: async () => { touched = true; throw new Error('DB 연결 금지'); },
+  };
+  const route = createRouteHarness({ pool, canReview: () => true });
+  for (const [method, body] of [
+    ['POST', validBody()],
+    ['PATCH', { status: 'PROCESSING', expectedVersion: 1 }],
+    ['DELETE', { expectedVersion: 1 }],
+  ]) {
+    const response = makeResponse();
+    await route(method, method === 'POST' ? '/api/peakos/finance-requests' : '/api/peakos/finance-requests/:id')(
+      makeRequest({
+        params: { id: REQUEST_ID }, body,
+        workspace: { id: 'ws_branch', headquartersOversight: true },
+      }),
+      response,
+    );
+    assert.equal(response.statusCode, 403);
+    assert.equal(response.body.code, 'PEAKOS_WORKSPACE_READ_ONLY');
+  }
+  assert.equal(touched, false);
 });
 
 test('DELETE는 본인의 PENDING만 CANCELLED로 바꾸고 상태 이벤트를 함께 저장한다', async () => {
@@ -708,14 +1151,14 @@ test('DELETE는 본인의 PENDING만 CANCELLED로 바꾸고 상태 이벤트를 
   const route = createRouteHarness({ pool: mock.pool });
   const response = makeResponse();
   await route('DELETE', '/api/peakos/finance-requests/:id')(
-    makeRequest({ params: { id: REQUEST_ID }, body: { reason: '요청 내용 변경' } }),
+    makeRequest({ params: { id: REQUEST_ID }, body: { reason: '요청 내용 변경', expectedVersion: 1 } }),
     response,
   );
   assert.equal(response.statusCode, 200);
   assert.equal(response.body.request.status, 'CANCELLED');
   assert.equal(response.body.request.invoiceStatus, 'CANCELLED');
   const update = mock.calls.find(call => call.sql.startsWith('UPDATE peakos_finance_requests'));
-  assert.deepEqual(update.params, [REQUEST_ID, true, 'CANCELLED']);
+  assert.deepEqual(update.params, [REQUEST_ID, true, 'CANCELLED', 'ws_peak', 1]);
   assert.ok(mock.calls.some(call => call.sql.startsWith('INSERT INTO peakos_finance_request_events')));
 
   const otherMock = transactionalPool((sql) => {

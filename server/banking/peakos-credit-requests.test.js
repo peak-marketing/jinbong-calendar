@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 
 const {
@@ -89,7 +91,7 @@ function validBody(overrides = {}) {
   };
 }
 
-function createRouteHarness({ pool, canReview = () => false } = {}) {
+function createRouteHarness({ pool, canReview = () => false, canRequest = () => true } = {}) {
   const routes = new Map();
   const app = {};
   for (const method of ['get', 'post', 'delete']) {
@@ -102,6 +104,7 @@ function createRouteHarness({ pool, canReview = () => false } = {}) {
     authMiddleware: (_req, _res, next) => next(),
     pool,
     canReview,
+    canRequest,
     getActor: req => ({ uid: req.uid, name: req.userDoc?.name || '' }),
     logger: { error() {} },
   });
@@ -237,6 +240,41 @@ test('POST는 미승인·비활성 계정을 DB 전에 차단한다', async () =
   );
   assert.equal(response.statusCode, 403);
   assert.equal(queried, false);
+});
+
+test('영업 요청 policy와 계정 미리보기는 DB 접근 전에 fail-closed 된다', async () => {
+  let queried = false;
+  const pool = { query: async () => { queried = true; return { rows: [] }; } };
+
+  const nonRequester = createRouteHarness({ pool, canRequest: () => false });
+  const forbidden = makeResponse();
+  await nonRequester('POST', '/api/peakos/credit-requests')(
+    makeRequest({ body: validBody() }),
+    forbidden,
+  );
+  assert.equal(forbidden.statusCode, 403);
+  assert.equal(forbidden.body.code, 'CREDIT_REQUEST_ACCESS_FORBIDDEN');
+
+  const previewRoute = createRouteHarness({ pool });
+  const preview = makeResponse();
+  await previewRoute('POST', '/api/peakos/credit-requests')(
+    makeRequest({ headers: { 'x-peakos-preview': '1' }, body: validBody() }),
+    preview,
+  );
+  assert.equal(preview.statusCode, 403);
+  assert.equal(preview.body.code, 'CREDIT_REQUEST_PREVIEW_READ_ONLY');
+  assert.equal(queried, false);
+});
+
+test('production 등록은 조회와 변경에 각각 workspace settlement middleware를 연결한다', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
+  const registration = source.slice(
+    source.indexOf('registerPeakosCreditRequests({'),
+    source.indexOf('registerPeakosSettlementRoutes({'),
+  );
+  assert.match(registration, /canRequest:\s*req\s*=>[\s\S]*group_type[\s\S]*peakosCanSeeFinanceOperations/);
+  assert.match(registration, /readMiddlewares:[\s\S]*area:\s*'settlements',\s*action:\s*'read',\s*requireHeader:\s*true/);
+  assert.match(registration, /writeMiddlewares:[\s\S]*area:\s*'settlements',\s*action:\s*'write',\s*requireHeader:\s*true/);
 });
 
 test('같은 사용자 Idempotency-Key 재시도는 같은 요청을 돌려주고 다른 payload면 충돌한다', async () => {

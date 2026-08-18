@@ -210,6 +210,13 @@ function approvedAndActive(req) {
   );
 }
 
+function requestIsPreview(req) {
+  const value = typeof req?.get === 'function'
+    ? req.get('x-peakos-preview')
+    : req?.headers?.['x-peakos-preview'];
+  return /^(?:1|true|yes|on)$/i.test(String(value || '').trim());
+}
+
 function logFailure(logger, label, error) {
   if (!logger || typeof logger.error !== 'function') return;
   const code = /^[A-Z0-9_]{2,80}$/.test(String(error?.code || ''))
@@ -237,7 +244,10 @@ function registerPeakosCreditRequests({
   authMiddleware,
   pool,
   canReview,
+  canRequest,
   getActor,
+  readMiddlewares = [],
+  writeMiddlewares = [],
   logger = console,
 }) {
   if (!app || typeof app.get !== 'function' || typeof app.post !== 'function' || typeof app.delete !== 'function') {
@@ -245,13 +255,37 @@ function registerPeakosCreditRequests({
   }
   if (typeof authMiddleware !== 'function') throw new TypeError('authMiddleware가 필요합니다.');
   if (!pool || typeof pool.query !== 'function') throw new TypeError('pool.query가 필요합니다.');
+  if (!Array.isArray(readMiddlewares) || readMiddlewares.some(middleware => typeof middleware !== 'function')) {
+    throw new TypeError('readMiddlewares는 함수 배열이어야 합니다.');
+  }
+  if (!Array.isArray(writeMiddlewares) || writeMiddlewares.some(middleware => typeof middleware !== 'function')) {
+    throw new TypeError('writeMiddlewares는 함수 배열이어야 합니다.');
+  }
   const reviewAllowed = typeof canReview === 'function' ? canReview : () => false;
+  const requestAllowed = typeof canRequest === 'function' ? canRequest : approvedAndActive;
   const actorOf = typeof getActor === 'function'
     ? getActor
     : req => ({ uid: req.uid, name: req.userDoc?.name || '' });
 
-  app.get('/api/peakos/credit-requests', authMiddleware, async (req, res) => {
-    if (!approvedAndActive(req)) return res.status(403).json({ error: '승인된 사용자만 충전 요청을 볼 수 있습니다.' });
+  const rejectRequester = (req, res, action) => {
+    if (!approvedAndActive(req) || requestAllowed(req) !== true) {
+      return res.status(403).json({
+        error: `승인된 영업 구성원 또는 재무 담당자만 충전 요청을 ${action} 수 있습니다.`,
+        code: 'CREDIT_REQUEST_ACCESS_FORBIDDEN',
+      });
+    }
+    if (requestIsPreview(req)) {
+      return res.status(403).json({
+        error: '계정 미리보기에서는 충전 요청을 변경하거나 조회할 수 없습니다.',
+        code: 'CREDIT_REQUEST_PREVIEW_READ_ONLY',
+      });
+    }
+    return null;
+  };
+
+  app.get('/api/peakos/credit-requests', authMiddleware, ...readMiddlewares, async (req, res) => {
+    const rejected = rejectRequester(req, res, '볼');
+    if (rejected) return rejected;
     try {
       const scope = String(req.query?.scope || 'mine').trim();
       if (!['mine', 'all'].includes(scope)) {
@@ -274,8 +308,9 @@ function registerPeakosCreditRequests({
     }
   });
 
-  app.post('/api/peakos/credit-requests', authMiddleware, async (req, res) => {
-    if (!approvedAndActive(req)) return res.status(403).json({ error: '승인된 사용자만 충전을 요청할 수 있습니다.' });
+  app.post('/api/peakos/credit-requests', authMiddleware, ...writeMiddlewares, async (req, res) => {
+    const rejected = rejectRequester(req, res, '등록할');
+    if (rejected) return rejected;
     try {
       const input = normalizeCreateInput(req.body);
       const actor = normalizeActor(actorOf(req));
@@ -333,8 +368,9 @@ function registerPeakosCreditRequests({
     }
   });
 
-  app.delete('/api/peakos/credit-requests/:id', authMiddleware, async (req, res) => {
-    if (!approvedAndActive(req)) return res.status(403).json({ error: '승인된 사용자만 충전 요청을 취소할 수 있습니다.' });
+  app.delete('/api/peakos/credit-requests/:id', authMiddleware, ...writeMiddlewares, async (req, res) => {
+    const rejected = rejectRequester(req, res, '취소할');
+    if (rejected) return rejected;
     try {
       const id = String(req.params?.id || '').trim();
       if (!UUID_PATTERN.test(id)) throw new CreditRequestValidationError('충전 요청 ID가 올바르지 않습니다.');

@@ -1,8 +1,12 @@
 'use strict';
 
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
+const {
+  ensurePeakosFinanceRequestInfrastructure,
+} = require('./peakos-finance-requests-infrastructure');
+const {
+  assertGenericFinancePatchDoesNotClaimIssuance,
+} = require('./peakos-tax-invoice-evidence-policy');
 
 const FINANCE_REQUEST_KINDS = Object.freeze([
   'TAX_ADVANCE',
@@ -90,7 +94,9 @@ const REQUEST_COLUMNS = `id, requester_uid, requester_name, kind, request_date,
   invoice_evidence_url, source_account_id, status, processing_note,
   processed_by_uid, processed_by_name, processed_at, cancelled_at,
   platform_key, external_document_id, bank_transaction_id, idempotency_key,
-  created_at, updated_at`;
+  workspace_id, version, current_invoice_evidence_id,
+  refund_deposit_confirmed_at, refund_deposit_confirmed_by_uid,
+  refund_deposit_confirmed_by_name, created_at, updated_at`;
 
 class FinanceRequestError extends Error {
   constructor(message, code, statusCode) {
@@ -168,6 +174,51 @@ function parseOptionalBankTransactionId(value) {
     throw new FinanceRequestValidationError('통장 거래 식별자가 올바르지 않습니다.');
   }
   return normalized;
+}
+
+function parseExpectedVersion(value, { required = false } = {}) {
+  if (value === undefined || value === null || value === '') {
+    if (!required) return null;
+    throw new FinanceRequestValidationError(
+      '상태를 변경하려면 최신 버전이 필요합니다.',
+      'FINANCE_REQUEST_EXPECTED_VERSION_REQUIRED',
+    );
+  }
+  const normalized = typeof value === 'number' ? String(value) : String(value).trim();
+  if (!/^\d+$/.test(normalized)) {
+    throw new FinanceRequestValidationError(
+      'expectedVersion이 올바르지 않습니다.',
+      'FINANCE_REQUEST_EXPECTED_VERSION_INVALID',
+    );
+  }
+  const parsed = Number(normalized);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 2147483647) {
+    throw new FinanceRequestValidationError(
+      'expectedVersion이 올바르지 않습니다.',
+      'FINANCE_REQUEST_EXPECTED_VERSION_INVALID',
+    );
+  }
+  return parsed;
+}
+
+function requestWorkspaceId(req) {
+  const workspaceId = String(req?.workspace?.id || '').trim();
+  if (!/^[A-Za-z0-9:_-]{1,120}$/.test(workspaceId)) {
+    throw new FinanceRequestForbiddenError(
+      '금융 요청 워크스페이스를 확인할 수 없습니다.',
+      'FINANCE_REQUEST_WORKSPACE_REQUIRED',
+    );
+  }
+  return workspaceId;
+}
+
+function assertWorkspaceWritable(req) {
+  if (req?.workspace?.headquartersOversight === true) {
+    throw new FinanceRequestForbiddenError(
+      '본사 열람 권한으로 금융 요청을 변경할 수 없습니다.',
+      'PEAKOS_WORKSPACE_READ_ONLY',
+    );
+  }
 }
 
 function validateUrl(value, fieldName, { optional = true } = {}) {
@@ -370,6 +421,7 @@ function publicFinanceRequest(row, { encryptionKey, revealPayeeAccount = false }
   const payeeAccount = decryptPayeeAccount(row, encryptionKey);
   const maskedAccount = maskPayeeAccount(payeeAccount);
   const request = {
+    workspaceId: row.workspace_id,
     id: String(row.id),
     requesterUid: row.requester_uid,
     requesterName: row.requester_name,
@@ -388,6 +440,9 @@ function publicFinanceRequest(row, { encryptionKey, revealPayeeAccount = false }
     reason: row.reason || '',
     invoiceRequested: row.invoice_requested === true,
     invoiceStatus: row.invoice_status,
+    currentInvoiceEvidenceId: row.current_invoice_evidence_id
+      ? String(row.current_invoice_evidence_id)
+      : null,
     evidenceUrl: row.evidence_url || '',
     invoiceEvidenceUrl: row.invoice_evidence_url || '',
     sourceAccountId: row.source_account_id || null,
@@ -402,6 +457,10 @@ function publicFinanceRequest(row, { encryptionKey, revealPayeeAccount = false }
     bankTransactionId: row.bank_transaction_id === null || row.bank_transaction_id === undefined
       ? null
       : String(row.bank_transaction_id),
+    version: Number(row.version),
+    refundDepositConfirmedAt: row.refund_deposit_confirmed_at || null,
+    refundDepositConfirmedByUid: row.refund_deposit_confirmed_by_uid || null,
+    refundDepositConfirmedByName: row.refund_deposit_confirmed_by_name || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -411,6 +470,7 @@ function publicFinanceRequest(row, { encryptionKey, revealPayeeAccount = false }
   // selecting a different response key.
   return {
     ...request,
+    workspace_id: request.workspaceId,
     requester_uid: request.requesterUid,
     requester_name: request.requesterName,
     request_date: request.requestDate,
@@ -424,6 +484,7 @@ function publicFinanceRequest(row, { encryptionKey, revealPayeeAccount = false }
     payee_name: request.payeeName,
     invoice_requested: request.invoiceRequested,
     invoice_status: request.invoiceStatus,
+    current_invoice_evidence_id: request.currentInvoiceEvidenceId,
     evidence_url: request.evidenceUrl,
     invoice_evidence_url: request.invoiceEvidenceUrl,
     source_account_id: request.sourceAccountId,
@@ -435,6 +496,9 @@ function publicFinanceRequest(row, { encryptionKey, revealPayeeAccount = false }
     platform_key: request.platformKey,
     external_document_id: request.externalDocumentId,
     bank_transaction_id: request.bankTransactionId,
+    refund_deposit_confirmed_at: request.refundDepositConfirmedAt,
+    refund_deposit_confirmed_by_uid: request.refundDepositConfirmedByUid,
+    refund_deposit_confirmed_by_name: request.refundDepositConfirmedByName,
     created_at: request.createdAt,
     updated_at: request.updatedAt,
   };
@@ -481,6 +545,12 @@ function sendError(res, error, fallbackMessage, logger, label) {
     return res.status(error.statusCode).json({ error: error.message, code: error.code });
   }
   if (error?.code === '23505') {
+    if (error.constraint === 'peakos_finance_requests_refund_deposit_unique') {
+      return res.status(409).json({
+        error: '선택한 입금 거래는 다른 완료 환불에 이미 연결되어 있습니다.',
+        code: 'FINANCE_REQUEST_REFUND_DEPOSIT_ALREADY_USED',
+      });
+    }
     return res.status(409).json({
       error: '같은 외부 문서 또는 요청 키가 이미 사용되었습니다.',
       code: 'FINANCE_REQUEST_UNIQUE_CONFLICT',
@@ -490,13 +560,8 @@ function sendError(res, error, fallbackMessage, logger, label) {
   return res.status(500).json({ error: fallbackMessage });
 }
 
-async function ensurePeakosFinanceRequestInfrastructure(pool) {
-  if (!pool || typeof pool.query !== 'function') throw new TypeError('pool.query가 필요합니다.');
-  const migrationPath = path.join(__dirname, '..', 'migrations', '20260808_peakos_finance_requests.sql');
-  await pool.query(fs.readFileSync(migrationPath, 'utf8'));
-}
-
 async function insertEvent(client, {
+  workspaceId,
   requestId,
   eventType,
   actor,
@@ -509,10 +574,11 @@ async function insertEvent(client, {
 }) {
   await client.query(
     `INSERT INTO peakos_finance_request_events
-      (request_id, event_type, actor_uid, actor_name, from_status, to_status,
+      (workspace_id, request_id, event_type, actor_uid, actor_name, from_status, to_status,
        from_invoice_status, to_invoice_status, note, metadata)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
     [
+      workspaceId,
       requestId,
       eventType,
       actor.uid,
@@ -660,17 +726,17 @@ function assertTerminalInvoiceConsistency(kind, requestStatus, invoiceRequested,
   }
 }
 
-async function insertPayeeAccountReadAudit(pool, rows, actor, metadata) {
+async function insertPayeeAccountReadAudit(pool, workspaceId, rows, actor, metadata) {
   const requestIds = rows
     .filter(row => row.payee_account_ciphertext)
     .map(row => String(row.id));
   if (!requestIds.length) return;
   await pool.query(
     `INSERT INTO peakos_finance_request_events
-      (request_id, event_type, actor_uid, actor_name, note, metadata)
-     SELECT request_id, 'FINANCE_REQUEST_PAYEE_ACCOUNT_VIEWED', $2, $3, '', $4::jsonb
-       FROM unnest($1::text[]) AS requested(request_id)`,
-    [requestIds, actor.uid, actor.name, JSON.stringify(metadata || {})],
+      (workspace_id, request_id, event_type, actor_uid, actor_name, note, metadata)
+     SELECT $1, request_id, 'FINANCE_REQUEST_PAYEE_ACCOUNT_VIEWED', $3, $4, '', $5::jsonb
+       FROM unnest($2::text[]) AS requested(request_id)`,
+    [workspaceId, requestIds, actor.uid, actor.name, JSON.stringify(metadata || {})],
   );
 }
 
@@ -703,6 +769,11 @@ function normalizeOperatorPatch(body, current) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new FinanceRequestValidationError('처리할 금융 요청 내용이 필요합니다.');
   }
+  try {
+    assertGenericFinancePatchDoesNotClaimIssuance(body);
+  } catch (error) {
+    throw new FinanceRequestConflictError(error.message, error.code);
+  }
   const suppliedKeys = [
     'status', 'invoiceRequested', 'invoiceStatus', 'processingNote',
     'invoiceEvidenceUrl', 'sourceAccountId', 'platformKey',
@@ -717,6 +788,14 @@ function normalizeOperatorPatch(body, current) {
     throw new FinanceRequestValidationError('처리 상태가 올바르지 않습니다.');
   }
   assertTransition(current.status, status, REQUEST_STATUS_TRANSITIONS, '처리 상태');
+  const statusTransition = status !== current.status;
+  const expectedVersion = parseExpectedVersion(body.expectedVersion, { required: statusTransition });
+  if (expectedVersion !== null && Number(current.version) !== expectedVersion) {
+    throw new FinanceRequestConflictError(
+      '금융 요청이 다른 화면에서 먼저 변경되었습니다. 새로고침 후 다시 시도해 주세요.',
+      'FINANCE_REQUEST_VERSION_CONFLICT',
+    );
+  }
 
   let invoiceRequested = current.invoice_requested === true;
   let invoiceStatus = current.invoice_status;
@@ -777,8 +856,84 @@ function normalizeOperatorPatch(body, current) {
     platformKey,
     externalDocumentId,
     bankTransactionId,
+    expectedVersion: expectedVersion ?? Number(current.version),
+    statusTransition,
     invoiceAutoCancelled: reconciledInvoice.invoiceAutoCancelled,
     invoiceCancellationSkipped: reconciledInvoice.invoiceCancellationSkipped,
+  };
+}
+
+async function readLinkedBankTransaction(client, {
+  workspaceId,
+  bankTransactionId,
+}) {
+  if (!bankTransactionId) return null;
+  const transaction = await client.query(
+    `SELECT id, workspace_id, account_id, transaction_at, direction, amount,
+            reconciliation_status, source
+      FROM peakos_bank_transactions
+      WHERE workspace_id = $1 AND id = $2
+      FOR UPDATE`,
+    [workspaceId, bankTransactionId],
+  );
+  return transaction.rows[0] || null;
+}
+
+function assertRefundDepositTransaction(current, patch, transaction) {
+  if (!REFUND_KIND_SET.has(current.kind) || patch.status !== 'COMPLETED') return;
+  if (!patch.bankTransactionId) {
+    throw new FinanceRequestConflictError(
+      '환불을 완료하려면 입금 거래를 선택해 확인해야 합니다.',
+      'FINANCE_REQUEST_REFUND_DEPOSIT_REQUIRED',
+    );
+  }
+  if (!transaction) {
+    throw new FinanceRequestConflictError(
+      '같은 워크스페이스에서 입금 거래를 찾지 못했습니다.',
+      'FINANCE_REQUEST_REFUND_DEPOSIT_NOT_FOUND',
+    );
+  }
+  if (transaction.direction !== 'DEPOSIT') {
+    throw new FinanceRequestConflictError(
+      '출금 거래는 환불 입금 확인으로 연결할 수 없습니다.',
+      'FINANCE_REQUEST_REFUND_DEPOSIT_DIRECTION_INVALID',
+    );
+  }
+  if (!['BANK_SYNC', 'COLLECTOR'].includes(transaction.source)
+      || ['IGNORED', 'REVERSED'].includes(transaction.reconciliation_status)) {
+    throw new FinanceRequestConflictError(
+      '은행에서 확인된 유효한 입금 거래만 환불에 연결할 수 있습니다.',
+      'FINANCE_REQUEST_REFUND_DEPOSIT_UNVERIFIED',
+    );
+  }
+  if (BigInt(transaction.amount) < BigInt(current.amount_vat)) {
+    throw new FinanceRequestConflictError(
+      '선택한 입금 거래 금액이 환불 요청 금액보다 작습니다.',
+      'FINANCE_REQUEST_REFUND_DEPOSIT_AMOUNT_INSUFFICIENT',
+    );
+  }
+  if (patch.sourceAccountId && transaction.account_id !== patch.sourceAccountId) {
+    throw new FinanceRequestConflictError(
+      '입금받았던 통장과 선택한 입금 거래의 통장이 다릅니다.',
+      'FINANCE_REQUEST_REFUND_DEPOSIT_ACCOUNT_MISMATCH',
+    );
+  }
+}
+
+function publicRefundDepositCandidate(row) {
+  const amount = Number(row.amount);
+  if (!Number.isSafeInteger(amount) || amount <= 0) {
+    throw new Error('입금 거래 금액 형식이 올바르지 않습니다.');
+  }
+  return {
+    id: String(row.id),
+    accountId: row.account_id,
+    transactionAt: row.transaction_at,
+    amount,
+    summary: row.summary || '',
+    counterpartyName: row.counterparty_name || '',
+    status: row.reconciliation_status,
+    source: row.source,
   };
 }
 
@@ -810,6 +965,7 @@ function registerPeakosFinanceRequests({
       return res.status(403).json({ error: '승인된 사용자만 금융 요청을 볼 수 있습니다.' });
     }
     try {
+      const workspaceId = requestWorkspaceId(req);
       const scope = String(req.query?.scope || 'mine').trim();
       if (!['mine', 'all'].includes(scope)) {
         throw new FinanceRequestValidationError('scope는 mine 또는 all이어야 합니다.');
@@ -840,8 +996,8 @@ function registerPeakosFinanceRequests({
       const limit = parsePageInteger(req.query?.limit, 'limit', DEFAULT_LIST_ROWS, MAX_LIST_ROWS);
       const page = parsePageInteger(req.query?.page, 'page', 1, MAX_LIST_PAGE);
       const offset = (page - 1) * limit;
-      const values = [];
-      const where = [];
+      const values = [workspaceId];
+      const where = ['workspace_id = $1'];
       if (scope === 'mine') {
         values.push(String(req.uid));
         where.push(`requester_uid = $${values.length}`);
@@ -895,7 +1051,7 @@ function registerPeakosFinanceRequests({
       const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
       if (revealPayeeAccount) {
         const actor = normalizeActor(actorOf(req));
-        await insertPayeeAccountReadAudit(pool, result.rows, actor, {
+        await insertPayeeAccountReadAudit(pool, workspaceId, result.rows, actor, {
           scope,
           page,
           limit,
@@ -932,6 +1088,138 @@ function registerPeakosFinanceRequests({
     }
   });
 
+  app.get('/api/peakos/finance-requests/:id/refund-deposits', authMiddleware, async (req, res) => {
+    if (!approvedAndActive(req) || reviewAllowed(req) !== true) {
+      return res.status(403).json({ error: '환불 입금 확인 권한이 없습니다.' });
+    }
+    try {
+      const id = String(req.params?.id || '').trim();
+      if (!UUID_PATTERN.test(id)) throw new FinanceRequestValidationError('금융 요청 ID가 올바르지 않습니다.');
+      const workspaceId = requestWorkspaceId(req);
+      const requestResult = await pool.query(
+        `SELECT id, kind, amount_vat, source_account_id, status, version
+           FROM peakos_finance_requests
+          WHERE workspace_id = $1 AND id = $2`,
+        [workspaceId, id],
+      );
+      const request = requestResult.rows[0];
+      if (!request) return res.status(404).json({ error: '금융 요청을 찾지 못했습니다.' });
+      if (!REFUND_KIND_SET.has(request.kind)) {
+        throw new FinanceRequestConflictError(
+          '환불 요청에만 입금 거래를 연결할 수 있습니다.',
+          'FINANCE_REQUEST_REFUND_DEPOSIT_NOT_APPLICABLE',
+        );
+      }
+      if (!['APPROVED', 'PROCESSING'].includes(request.status)) {
+        throw new FinanceRequestConflictError(
+          '승인 또는 처리 중인 환불 요청에서만 입금 거래를 선택할 수 있습니다.',
+          'FINANCE_REQUEST_REFUND_DEPOSIT_NOT_ACTIONABLE',
+        );
+      }
+
+      const page = parsePageInteger(req.query?.page, 'page', 1, MAX_LIST_PAGE);
+      const limit = parsePageInteger(req.query?.limit, 'limit', 50, 100);
+      const offset = (page - 1) * limit;
+      const search = validateText(req.query?.q ?? '', '입금 거래 검색어', 120, { optional: true });
+      const values = [
+        workspaceId,
+        ['BANK_SYNC', 'COLLECTOR'],
+        ['IGNORED', 'REVERSED'],
+        String(request.amount_vat),
+      ];
+      const where = [
+        'transaction.workspace_id = $1',
+        "transaction.direction = 'DEPOSIT'",
+        'transaction.source = ANY($2::text[])',
+        'NOT (transaction.reconciliation_status = ANY($3::text[]))',
+        'transaction.amount >= $4::bigint',
+        `NOT EXISTS (
+          SELECT 1
+            FROM peakos_finance_requests linked_refund
+           WHERE linked_refund.workspace_id = transaction.workspace_id
+             AND linked_refund.bank_transaction_id = transaction.id
+             AND linked_refund.kind IN ('REFUND_CLIENT', 'REFUND_MISTAKEN')
+             AND linked_refund.status = 'COMPLETED'
+        )`,
+      ];
+      if (request.source_account_id) {
+        values.push(request.source_account_id);
+        where.push(`transaction.account_id = $${values.length}`);
+      }
+      if (search) {
+        values.push(`%${search}%`);
+        where.push(`(
+          COALESCE(transaction.summary, '') ILIKE $${values.length}
+          OR COALESCE(transaction.counterparty_name, '') ILIKE $${values.length}
+        )`);
+      }
+      const whereSql = `WHERE ${where.join(' AND ')}`;
+      const [candidateResult, countResult] = await Promise.all([
+        pool.query(
+          `SELECT transaction.id, transaction.account_id, transaction.transaction_at,
+                  transaction.amount, transaction.summary, transaction.counterparty_name,
+                  transaction.reconciliation_status, transaction.source
+             FROM peakos_bank_transactions transaction
+            ${whereSql}
+            ORDER BY transaction.transaction_at DESC, transaction.id DESC
+            LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+          [...values, limit, offset],
+        ),
+        pool.query(
+          `SELECT COUNT(*)::bigint AS total
+             FROM peakos_bank_transactions transaction
+            ${whereSql}`,
+          values,
+        ),
+      ]);
+      const total = Number(countResult.rows[0]?.total || 0);
+      if (!Number.isSafeInteger(total) || total < 0) {
+        throw new Error('입금 거래 전체 건수 형식이 올바르지 않습니다.');
+      }
+      const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+      const actor = normalizeActor(actorOf(req));
+      await insertEvent(pool, {
+        workspaceId,
+        requestId: id,
+        eventType: 'FINANCE_REQUEST_REFUND_DEPOSIT_CANDIDATES_VIEWED',
+        actor,
+        metadata: {
+          page,
+          limit,
+          returned: candidateResult.rows.length,
+          searchApplied: Boolean(search),
+        },
+      });
+      res.set?.('Cache-Control', 'no-store');
+      return res.json({
+        request: {
+          id: String(request.id),
+          kind: request.kind,
+          amountVat: Number(request.amount_vat),
+          sourceAccountId: request.source_account_id || null,
+          status: request.status,
+          version: Number(request.version),
+        },
+        deposits: candidateResult.rows.map(publicRefundDepositCandidate),
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          total_pages: totalPages,
+        },
+      });
+    } catch (error) {
+      return sendError(
+        res,
+        error,
+        '환불에 연결할 입금 거래를 불러오지 못했습니다.',
+        logger,
+        'refund deposit candidates read failed',
+      );
+    }
+  });
+
   app.get('/api/peakos/finance-requests/:id/events', authMiddleware, async (req, res) => {
     if (!approvedAndActive(req)) {
       return res.status(403).json({ error: '승인된 사용자만 금융 요청 이력을 볼 수 있습니다.' });
@@ -939,7 +1227,11 @@ function registerPeakosFinanceRequests({
     try {
       const id = String(req.params?.id || '').trim();
       if (!UUID_PATTERN.test(id)) throw new FinanceRequestValidationError('금융 요청 ID가 올바르지 않습니다.');
-      const owner = await pool.query('SELECT requester_uid FROM peakos_finance_requests WHERE id = $1', [id]);
+      const workspaceId = requestWorkspaceId(req);
+      const owner = await pool.query(
+        'SELECT requester_uid FROM peakos_finance_requests WHERE workspace_id = $1 AND id = $2',
+        [workspaceId, id],
+      );
       if (!owner.rows[0]) return res.status(404).json({ error: '금융 요청을 찾지 못했습니다.' });
       if (owner.rows[0].requester_uid !== String(req.uid) && reviewAllowed(req) !== true) {
         return res.status(403).json({ error: '다른 사용자의 금융 요청 이력을 볼 수 없습니다.' });
@@ -949,9 +1241,9 @@ function registerPeakosFinanceRequests({
                 to_status, from_invoice_status, to_invoice_status, note,
                 metadata, created_at
            FROM peakos_finance_request_events
-          WHERE request_id = $1
+          WHERE workspace_id = $1 AND request_id = $2
           ORDER BY created_at, id`,
-        [id],
+        [workspaceId, id],
       );
       res.set?.('Cache-Control', 'no-store');
       return res.json({
@@ -981,6 +1273,8 @@ function registerPeakosFinanceRequests({
     }
     let client;
     try {
+      assertWorkspaceWritable(req);
+      const workspaceId = requestWorkspaceId(req);
       const reviewer = reviewAllowed(req) === true;
       const input = normalizeCreateInput(req.body, { allowRestrictedSource: reviewer });
       const actor = normalizeActor(actorOf(req));
@@ -996,9 +1290,9 @@ function registerPeakosFinanceRequests({
            payee_account_ciphertext, payee_account_iv, payee_account_auth_tag,
            payee_account_encryption_version, payee_name, reason,
            invoice_requested, invoice_status, evidence_url, invoice_evidence_url,
-           source_account_id, status, idempotency_key)
+           source_account_id, status, idempotency_key, workspace_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
-                 $17,$18,$19,$20,$21,$22,'PENDING',$23)
+                 $17,$18,$19,$20,$21,$22,'PENDING',$23,$24)
          ON CONFLICT DO NOTHING
          RETURNING ${REQUEST_COLUMNS}`,
         [
@@ -1025,12 +1319,14 @@ function registerPeakosFinanceRequests({
           input.invoiceEvidenceUrl,
           input.sourceAccountId,
           idempotencyKey,
+          workspaceId,
         ],
       );
       let row = inserted.rows[0];
       let created = true;
       if (row) {
         await insertEvent(client, {
+          workspaceId,
           requestId: row.id,
           eventType: 'FINANCE_REQUEST_CREATED',
           actor,
@@ -1049,10 +1345,10 @@ function registerPeakosFinanceRequests({
         }
         const existing = await client.query(
           `SELECT ${REQUEST_COLUMNS}
-             FROM peakos_finance_requests
-            WHERE requester_uid = $1 AND idempotency_key = $2
+            FROM peakos_finance_requests
+            WHERE workspace_id = $1 AND requester_uid = $2 AND idempotency_key = $3
             FOR UPDATE`,
-          [actor.uid, idempotencyKey],
+          [workspaceId, actor.uid, idempotencyKey],
         );
         row = existing.rows[0];
         if (!row || !sameCreatePayload(row, input, encryptionKey)) {
@@ -1084,14 +1380,19 @@ function registerPeakosFinanceRequests({
     }
     let client;
     try {
+      assertWorkspaceWritable(req);
       const id = String(req.params?.id || '').trim();
       if (!UUID_PATTERN.test(id)) throw new FinanceRequestValidationError('금융 요청 ID가 올바르지 않습니다.');
+      const workspaceId = requestWorkspaceId(req);
       const actor = normalizeActor(actorOf(req));
       client = await pool.connect();
       await client.query('BEGIN');
       const existing = await client.query(
-        `SELECT ${REQUEST_COLUMNS} FROM peakos_finance_requests WHERE id = $1 FOR UPDATE`,
-        [id],
+        `SELECT ${REQUEST_COLUMNS}
+           FROM peakos_finance_requests
+          WHERE workspace_id = $1 AND id = $2
+          FOR UPDATE`,
+        [workspaceId, id],
       );
       const current = existing.rows[0];
       if (!current) {
@@ -1100,24 +1401,33 @@ function registerPeakosFinanceRequests({
       }
       const patch = normalizeOperatorPatch(req.body, current);
 
-      if (patch.bankTransactionId) {
-        const transaction = await client.query(
-          `SELECT id, account_id
-             FROM peakos_bank_transactions
-            WHERE id = $1
-            FOR SHARE`,
-          [patch.bankTransactionId],
+      if (REFUND_KIND_SET.has(current.kind) && current.status === 'COMPLETED'
+          && String(patch.bankTransactionId || '') !== String(current.bank_transaction_id || '')) {
+        throw new FinanceRequestConflictError(
+          '완료된 환불의 입금 확인 거래는 변경할 수 없습니다.',
+          'FINANCE_REQUEST_REFUND_DEPOSIT_IMMUTABLE',
         );
-        if (!transaction.rows[0]) {
-          throw new FinanceRequestConflictError('연결할 통장 거래를 찾지 못했습니다.');
-        }
-        if (patch.sourceAccountId && transaction.rows[0].account_id !== patch.sourceAccountId) {
-          throw new FinanceRequestConflictError('선택한 출금 통장과 연결 거래의 통장이 다릅니다.');
-        }
-        if (!patch.sourceAccountId) patch.sourceAccountId = transaction.rows[0].account_id;
       }
 
+      const transaction = await readLinkedBankTransaction(client, {
+        workspaceId,
+        bankTransactionId: patch.bankTransactionId,
+      });
+      if (patch.bankTransactionId) {
+        if (!transaction) {
+          throw new FinanceRequestConflictError('연결할 통장 거래를 찾지 못했습니다.');
+        }
+        if (patch.sourceAccountId && transaction.account_id !== patch.sourceAccountId) {
+          throw new FinanceRequestConflictError('선택한 출금 통장과 연결 거래의 통장이 다릅니다.');
+        }
+        if (!patch.sourceAccountId) patch.sourceAccountId = transaction.account_id;
+      }
+      assertRefundDepositTransaction(current, patch, transaction);
+
       const cancelledAtSql = patch.status === 'CANCELLED' ? 'NOW()' : 'NULL';
+      const confirmRefundDeposit = REFUND_KIND_SET.has(current.kind)
+        && current.status !== 'COMPLETED'
+        && patch.status === 'COMPLETED';
       const updated = await client.query(
         `UPDATE peakos_finance_requests
             SET status = $2,
@@ -1131,14 +1441,24 @@ function registerPeakosFinanceRequests({
                 bank_transaction_id = $10,
                 processed_by_uid = $11,
                 processed_by_name = $12,
+                refund_deposit_confirmed_at = CASE
+                  WHEN $13 THEN NOW() ELSE refund_deposit_confirmed_at
+                END,
+                refund_deposit_confirmed_by_uid = CASE
+                  WHEN $13 THEN $11 ELSE refund_deposit_confirmed_by_uid
+                END,
+                refund_deposit_confirmed_by_name = CASE
+                  WHEN $13 THEN $12 ELSE refund_deposit_confirmed_by_name
+                END,
                 processed_at = CASE
                   WHEN $2 IN ('COMPLETED', 'REJECTED', 'CANCELLED')
                     THEN COALESCE(processed_at, NOW())
                   ELSE processed_at
                 END,
                 cancelled_at = ${cancelledAtSql},
+                version = version + 1,
                 updated_at = NOW()
-          WHERE id = $1
+          WHERE id = $1 AND workspace_id = $15 AND version = $14
         RETURNING ${REQUEST_COLUMNS}`,
         [
           id,
@@ -1153,10 +1473,20 @@ function registerPeakosFinanceRequests({
           patch.bankTransactionId,
           actor.uid,
           actor.name,
+          confirmRefundDeposit,
+          patch.expectedVersion,
+          workspaceId,
         ],
       );
       const row = updated.rows[0];
+      if (!row) {
+        throw new FinanceRequestConflictError(
+          '금융 요청이 다른 화면에서 먼저 변경되었습니다. 새로고침 후 다시 시도해 주세요.',
+          'FINANCE_REQUEST_VERSION_CONFLICT',
+        );
+      }
       await insertEvent(client, {
+        workspaceId,
         requestId: id,
         eventType: 'FINANCE_REQUEST_PROCESSED',
         actor,
@@ -1170,6 +1500,10 @@ function registerPeakosFinanceRequests({
           platformKey: patch.platformKey,
           hasExternalDocument: Boolean(patch.externalDocumentId),
           hasBankTransaction: Boolean(patch.bankTransactionId),
+          refundDepositConfirmed: confirmRefundDeposit,
+          refundDepositTransactionId: confirmRefundDeposit ? String(patch.bankTransactionId) : null,
+          expectedVersion: patch.expectedVersion,
+          resultingVersion: Number(row.version),
           invoiceAutoCancelled: patch.invoiceAutoCancelled,
           invoiceCancellationSkipped: patch.invoiceCancellationSkipped,
         },
@@ -1191,16 +1525,21 @@ function registerPeakosFinanceRequests({
     }
     let client;
     try {
+      assertWorkspaceWritable(req);
       const id = String(req.params?.id || '').trim();
       if (!UUID_PATTERN.test(id)) throw new FinanceRequestValidationError('금융 요청 ID가 올바르지 않습니다.');
+      const workspaceId = requestWorkspaceId(req);
       const actor = normalizeActor(actorOf(req));
       const reviewer = reviewAllowed(req) === true;
       const note = validateText(req.body?.reason ?? '', '취소 사유', 2000, { optional: true });
       client = await pool.connect();
       await client.query('BEGIN');
       const existing = await client.query(
-        `SELECT ${REQUEST_COLUMNS} FROM peakos_finance_requests WHERE id = $1 FOR UPDATE`,
-        [id],
+        `SELECT ${REQUEST_COLUMNS}
+           FROM peakos_finance_requests
+          WHERE workspace_id = $1 AND id = $2
+          FOR UPDATE`,
+        [workspaceId, id],
       );
       const current = existing.rows[0];
       if (!current) {
@@ -1213,6 +1552,13 @@ function registerPeakosFinanceRequests({
       }
       if (current.status !== 'PENDING') {
         throw new FinanceRequestConflictError('대기 중인 금융 요청만 취소할 수 있습니다.');
+      }
+      const expectedVersion = parseExpectedVersion(req.body?.expectedVersion, { required: true });
+      if (Number(current.version) !== expectedVersion) {
+        throw new FinanceRequestConflictError(
+          '금융 요청이 다른 화면에서 먼저 변경되었습니다. 새로고침 후 다시 시도해 주세요.',
+          'FINANCE_REQUEST_VERSION_CONFLICT',
+        );
       }
       const reconciledInvoice = reconcileRefundTerminalInvoice(
         current,
@@ -1232,15 +1578,17 @@ function registerPeakosFinanceRequests({
                 invoice_requested = $2,
                 invoice_status = $3,
                 cancelled_at = NOW(),
+                version = version + 1,
                 updated_at = NOW()
-          WHERE id = $1 AND status = 'PENDING'
+          WHERE id = $1 AND workspace_id = $4 AND status = 'PENDING' AND version = $5
         RETURNING ${REQUEST_COLUMNS}`,
-        [id, reconciledInvoice.invoiceRequested, reconciledInvoice.invoiceStatus],
+        [id, reconciledInvoice.invoiceRequested, reconciledInvoice.invoiceStatus, workspaceId, expectedVersion],
       );
       if (!cancelled.rows[0]) {
         throw new FinanceRequestConflictError('금융 요청 상태가 이미 변경되었습니다.');
       }
       await insertEvent(client, {
+        workspaceId,
         requestId: id,
         eventType: 'FINANCE_REQUEST_CANCELLED',
         actor,
@@ -1250,6 +1598,8 @@ function registerPeakosFinanceRequests({
         toInvoiceStatus: cancelled.rows[0].invoice_status,
         note,
         metadata: {
+          expectedVersion,
+          resultingVersion: Number(cancelled.rows[0].version),
           invoiceAutoCancelled: reconciledInvoice.invoiceAutoCancelled,
           invoiceCancellationSkipped: reconciledInvoice.invoiceCancellationSkipped,
         },
