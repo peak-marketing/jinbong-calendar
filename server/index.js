@@ -28,6 +28,12 @@ const {
   registerPeakosFinanceRequests,
 } = require('./banking/peakos-finance-requests');
 const {
+  ensurePeakosTaxInvoiceEvidenceInfrastructure,
+} = require('./banking/peakos-tax-invoice-evidence-infrastructure');
+const {
+  registerPeakosTaxInvoiceEvidenceRoutes,
+} = require('./banking/peakos-tax-invoice-evidence-routes');
+const {
   createIbkQuickCollector,
   IBK_ACCOUNT_IDS,
 } = require('./banking/collectors/ibk-quick-collector');
@@ -51,6 +57,24 @@ const {
   registerPeakosSettlementRoutes,
 } = require('./banking/peakos-settlement-routes');
 const {
+  ensureSettlementCompletionInfrastructure,
+} = require('./settlements/peakos-settlement-completion-infrastructure');
+const {
+  registerPeakosSettlementCompletionRoutes,
+} = require('./settlements/peakos-settlement-completion-routes');
+const {
+  ensurePeakosVendorReconciliationInfrastructure,
+} = require('./settlements/peakos-vendor-reconciliation-infrastructure');
+const {
+  registerPeakosVendorReconciliationRoutes,
+} = require('./settlements/peakos-vendor-reconciliation-routes');
+const {
+  ensurePeakosCommissionInfrastructure,
+} = require('./settlements/peakos-commission-infrastructure');
+const {
+  registerPeakosCommissionRoutes,
+} = require('./settlements/peakos-commission-routes');
+const {
   createPeakosCollaborationGateway,
   isPeakosCollaborationAuthenticated,
 } = require('./collaboration/peakos-collaboration-routes');
@@ -58,8 +82,16 @@ const {
   createPeakosEventVisibilityGuard,
   ensurePeakosEventVisibilityInfrastructure,
   eventHiddenPredicate,
+  isPeakosEventVisibilityRequest,
   registerPeakosEventVisibilityRoutes,
 } = require('./collaboration/peakos-event-visibility');
+const {
+  ensurePeakosEventChecklistDirectiveInfrastructure,
+  registerPeakosEventChecklistDirectiveRoutes,
+} = require('./collaboration/peakos-event-checklist-directives');
+const {
+  internalCalendarRuleEventSql,
+} = require('./collaboration/peakos-event-checklist-policy');
 const {
   authorizeEventReorder,
   normalizeChatMessageId,
@@ -82,12 +114,50 @@ const {
   registerPeakosNewProjectRoutes,
 } = require('./collaboration/peakos-new-project-routes');
 const {
+  ensurePeakosTodoInfrastructure,
+} = require('./todos/peakos-todo-infrastructure');
+const {
+  registerPeakosTodoRoutes,
+} = require('./todos/peakos-todo-routes');
+const {
   PEAK_WORKSPACE_ID,
   createPeakosWorkspaceService,
   ensurePeakosWorkspaceInfrastructure,
   registerPeakosWorkspaceRoutes,
   workspacePublicAttachmentMutation,
 } = require('./workspaces/peakos-workspaces');
+const {
+  ensurePeakosSalesLeadInfrastructure,
+} = require('./sales/peakos-sales-leads-infrastructure');
+const {
+  registerPeakosSalesLeadRoutes,
+} = require('./sales/peakos-sales-leads-routes');
+const {
+  calculatePlatformMonthlyAggregateDigest,
+  ensurePeakosPlatformSettlementInfrastructure,
+  importPlatformMonthlyAggregateSnapshot,
+  registerPeakosPlatformMonthlySettlementRoutes,
+} = require('./platform/peakos-platform-monthly-settlement');
+const {
+  createPlatformSettlementSyncService,
+} = require('./platform/peakos-platform-connectors');
+const {
+  createPlatformSettlementSyncRuntime,
+} = require('./platform/peakos-platform-sync-runtime');
+const {
+  ensurePeakosAttendanceInfrastructure,
+} = require('./attendance/peakos-attendance-infrastructure');
+const {
+  createLegacyAttendanceHandlers,
+  createPeakosAttendanceService,
+  registerPeakosAttendanceRoutes,
+} = require('./attendance/peakos-attendance-routes');
+const {
+  ensurePeakosCompanyResourceInfrastructure,
+} = require('./company-resources/peakos-company-resources-infrastructure');
+const {
+  registerPeakosCompanyResourceRoutes,
+} = require('./company-resources/peakos-company-resources-routes');
 
 const admin = require('firebase-admin');
 const serviceAccount = require('./firebase-service-account.json');
@@ -302,6 +372,12 @@ const pool = new Pool({
   port: Number(process.env.PGPORT || 5432),
   database: process.env.PGDATABASE || 'calendar_db',
 });
+const peakosAttendanceService = createPeakosAttendanceService({ pool });
+const legacyAttendanceHandlers = createLegacyAttendanceHandlers({
+  service: peakosAttendanceService,
+  logger: console,
+});
+let peakosPlatformSettlementSyncRuntime = null;
 const peakosWorkspaceService = createPeakosWorkspaceService({ pool });
 const peakosWorkspaceDocumentService = createPeakosWorkspaceDocumentService({
   pool,
@@ -313,8 +389,16 @@ function requestWorkspaceId(req) {
   return peakosWorkspaceService.workspaceId(req);
 }
 
+function requestPolicyPath(req) {
+  const base = String(req?.baseUrl || '').split('?')[0].replace(/\/$/, '');
+  const pathname = String(req?.path || '').split('?')[0] || '/';
+  if (!base || pathname === base || pathname.startsWith(`${base}/`)) return pathname;
+  return `${base}${pathname.startsWith('/') ? '' : '/'}${pathname}`;
+}
+
 function collaborationAreaForPath(pathname) {
   const value = String(pathname || '');
+  if (/^\/api\/peakos\/todos(?:\/|$)/.test(value)) return 'calendar';
   if (/^\/api\/(?:events|event-types|todo-cats)(?:\/|$)/.test(value)) return 'calendar';
   if (/^\/api\/(?:chat|chat-rooms|chat-room-groups)(?:\/|$)/.test(value)) return 'chat';
   if (/^\/api\/(?:projects|new-projects)(?:\/|$)/.test(value) || value === '/api/users/all-approved') return 'projects';
@@ -1349,13 +1433,14 @@ async function authMiddleware(req, res, next) {
       [req.uid],
     );
     req.userDoc = userRes.rows[0] || null;
+    const policyPath = requestPolicyPath(req);
     // Hard server-side enforcement of restricted account modes. The
     // client hides disallowed routes, but direct API calls must be
     // blocked here too.
-    if (req.userDoc?.chat_only && !req.userDoc?.external_calendar_only && !isChatOnlyAllowedPath(req.path)) {
+    if (req.userDoc?.chat_only && !req.userDoc?.external_calendar_only && !isChatOnlyAllowedPath(policyPath)) {
       return res.status(403).json({ error: 'This account is restricted to chat' });
     }
-    if (req.userDoc?.external_calendar_only && !isExternalCalendarAllowedPath(req.path)) {
+    if (req.userDoc?.external_calendar_only && !isExternalCalendarAllowedPath(policyPath)) {
       return res.status(403).json({ error: 'This account is restricted to calendar and chat' });
     }
     // Attach the authenticated user's default direct workspace to legacy
@@ -1363,14 +1448,14 @@ async function authMiddleware(req, res, next) {
     // is never accepted without an active membership row.
     await peakosWorkspaceService.attachRequestWorkspace(req, { required: false });
     if (rejectWorkspacePublicAttachment(req, res)) return undefined;
-    const collaborationArea = collaborationAreaForPath(req.path);
+    const collaborationArea = collaborationAreaForPath(policyPath);
     if (collaborationArea && (!req.workspace || !workspacePermissionAllowsRequest(req, collaborationArea))) {
       return res.status(403).json({
         code: req.workspace?.headquartersOversight ? 'PEAKOS_WORKSPACE_READ_ONLY' : 'PEAKOS_WORKSPACE_AREA_FORBIDDEN',
         error: '이 워크스페이스에서 해당 협업 기능을 사용할 수 없습니다.',
       });
     }
-    if (req.workspace?.id !== PEAK_WORKSPACE_ID && !isNonPeakWorkspaceSafePath(req.path)) {
+    if (req.workspace?.id !== PEAK_WORKSPACE_ID && !isNonPeakWorkspaceSafePath(policyPath)) {
       return res.status(403).json({
         code: 'PEAKOS_WORKSPACE_SURFACE_NOT_MIGRATED',
         error: '이 기능은 워크스페이스 격리 적용 후 사용할 수 있습니다.',
@@ -1422,10 +1507,7 @@ function isExternalCalendarUser(req) {
   return !!req.userDoc?.external_calendar_only;
 }
 
-const INTERNAL_CALENDAR_RULE_EVENT_SQL = `(COALESCE(e.todo_cat, '') = '보고서'
-  OR COALESCE(e.title, '') LIKE '%보고서 작성%'
-  OR COALESCE(e.title, '') LIKE '%보고서 확인%'
-  OR COALESCE(e.title, '') LIKE '%업무보고 작성%')`;
+const INTERNAL_CALENDAR_RULE_EVENT_SQL = internalCalendarRuleEventSql('e');
 
 async function canAccessEvent(req, eventId, { requireOwner = false } = {}) {
   if (!eventId || !req.workspace) return false;
@@ -1488,6 +1570,21 @@ registerPeakosEventVisibilityRoutes({
   pool,
   workspaceIdForRequest: requestWorkspaceId,
   peakWorkspaceId: PEAK_WORKSPACE_ID,
+});
+
+// The protected OS alias has already authenticated Firebase + email session
+// and attached the selected workspace before it reaches these overrides.
+// Canonical Paragon requests carry no collaboration marker and deliberately
+// fall through to the unchanged legacy checklist handlers below.
+registerPeakosEventChecklistDirectiveRoutes({
+  app,
+  pool,
+  workspaceIdForRequest: requestWorkspaceId,
+  peakWorkspaceId: PEAK_WORKSPACE_ID,
+  eventHiddenPredicate,
+  canAccessEvent,
+  notifyUser: sendPushToUser,
+  isOsRequest: isPeakosEventVisibilityRequest,
 });
 
 // ── Users ──────────────────────────────────────────────────
@@ -1593,19 +1690,6 @@ app.post('/api/users/:uid/approve', authMiddleware, async (req, res) => {
     sets.push(`group_id = $${params.length + 1}`);
     params.push(groupId || null);
   }
-  if (typeof chatOnly === 'boolean') {
-    // Safety: refuse chat_only on an existing admin account even if
-    // the approving admin ticked the box by mistake.
-    const target = await pool.query('SELECT role FROM users WHERE uid = $1', [req.params.uid]);
-    const isAdminTarget = target.rows[0]?.role === 'admin' || role === 'admin';
-    if (chatOnly && !isAdminTarget) {
-      sets.push(`chat_only = $${params.length + 1}`);
-      params.push(true);
-    } else if (!chatOnly) {
-      sets.push(`chat_only = $${params.length + 1}`);
-      params.push(false);
-    }
-  }
   const membershipClient = await pool.connect();
   try {
     await membershipClient.query('BEGIN');
@@ -1618,6 +1702,15 @@ app.post('/api/users/:uid/approve', authMiddleware, async (req, res) => {
       role,
       client: membershipClient,
     });
+    if (typeof chatOnly === 'boolean') {
+      await peakosWorkspaceService.setUserRestrictionMode({
+        actorUid: req.uid,
+        targetUid: req.params.uid,
+        mode: 'chat_only',
+        enabled: chatOnly,
+        client: membershipClient,
+      });
+    }
     await peakosWorkspaceService.setUserMembershipsActive({
       actorUid: req.uid,
       targetUid: req.params.uid,
@@ -3667,6 +3760,30 @@ app.put('/api/reports/:id', authMiddleware, async (req, res) => {
 });
 
 app.get('/api/reports/:id/entries', authMiddleware, async (req, res) => {
+  if (!req.userDoc?.approved || req.userDoc?.is_active === false) {
+    return res.status(403).json({ error: 'Not approved' });
+  }
+  const accessParams = [req.params.id];
+  let accessClause = '';
+  if (req.userDoc.role !== 'admin' && !req.userDoc.can_view_all_reports) {
+    accessParams.push(req.uid);
+    if (req.userDoc.role === 'manager') {
+      accessParams.push(req.userDoc.group_id || null);
+      accessClause = `AND (r.author_id = $2 OR u.group_id = $3)`;
+    } else {
+      accessClause = `AND r.author_id = $2`;
+    }
+  }
+  const accessible = await pool.query(
+    `SELECT 1
+       FROM reports r
+       JOIN users u ON u.uid = r.author_id
+      WHERE r.id = $1 ${accessClause}
+      LIMIT 1`,
+    accessParams,
+  );
+  // Do not reveal whether an inaccessible report ID exists.
+  if (!accessible.rows[0]) return res.status(404).json({ error: 'Report not found' });
   const result = await pool.query(
     `SELECT re.*, rf.field_name, rf.field_type, rf.field_group, rf.is_amount, rf.sort_order
      FROM report_entries re JOIN report_fields rf ON re.field_id = rf.id
@@ -3770,12 +3887,13 @@ function shiftDate(date, days) {
   return next.toISOString().slice(0, 10);
 }
 
-// 계정 권한에 따라 조회 가능한 보고서 범위를 좁힌다. weekly-summary와 동일 기준.
+// 계정 권한에 따라 조회 가능한 보고서 범위를 좁힌다. 전체 범위는 legacy
+// role 문자열이 아니라 startup에서 exact UID로 고정한 정책만 허용한다.
 function salesSummaryScope(req, params) {
-  if (req.userDoc.role === 'admin' || req.userDoc.can_view_all_reports) {
+  if (peakosCanSeeAll(req)) {
     return { clause: '', scope: 'all' };
   }
-  if (req.userDoc.role === 'manager') {
+  if (req.workspace?.role === 'manager') {
     params.push(req.uid, req.userDoc.group_id);
     return { clause: ` AND (r.author_id = $${params.length - 1} OR u.group_id = $${params.length})`, scope: 'group' };
   }
@@ -3783,8 +3901,20 @@ function salesSummaryScope(req, params) {
   return { clause: ` AND r.author_id = $${params.length}`, scope: 'self' };
 }
 
-app.get('/api/reports/sales-summary', authMiddleware, async (req, res) => {
-  if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
+function peakosReportPreviewRequest(req) {
+  const header = name => String(req.get?.(name) || req.headers?.[name.toLowerCase()] || '').trim();
+  return /^(?:1|true|yes|on)$/i.test(header('x-peakos-preview'))
+    || Boolean(header('x-peakos-preview-persona') || header('x-peakos-preview-owner'));
+}
+
+async function handlePeakosSalesSummary(req, res) {
+  if (!req.userDoc?.approved || req.userDoc?.is_active === false
+      || req.userDoc?.chat_only === true || req.userDoc?.external_calendar_only === true) {
+    return res.status(403).json({ code: 'REPORT_ACCOUNT_RESTRICTED', error: '승인된 일반 계정만 보고 매출을 볼 수 있습니다.' });
+  }
+  if (peakosReportPreviewRequest(req)) {
+    return res.status(403).json({ code: 'REPORT_PREVIEW_FORBIDDEN', error: '계정 미리보기에서는 보고 매출을 불러오지 않습니다.' });
+  }
 
   const bucket = String(req.query.bucket || 'month');
   const bucketExpr = Object.prototype.hasOwnProperty.call(SALES_SUMMARY_BUCKETS, bucket)
@@ -3935,7 +4065,7 @@ app.get('/api/reports/sales-summary', authMiddleware, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+}
 
 // 미제출 체크
 app.get('/api/reports/missing-today', authMiddleware, async (req, res) => {
@@ -4018,8 +4148,8 @@ app.put('/api/users/:uid/deactivate', authMiddleware, async (req, res) => {
     await client.query('COMMIT');
     res.json({ ok: true });
   } catch (err) {
-    await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    await client.query('ROLLBACK').catch(() => {});
+    res.status(err.statusCode || 500).json({ code: err.code, error: err.message });
   } finally {
     client.release();
   }
@@ -4083,151 +4213,44 @@ app.put('/api/users/:uid/role', authMiddleware, async (req, res) => {
 app.put('/api/users/:uid/chat-only', authMiddleware, async (req, res) => {
   if (req.userDoc?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
   const chatOnly = !!req.body?.chatOnly;
-  // An admin would be locked out of the admin panel by this flag, so
-  // refuse it on admin accounts instead of silently bricking them.
-  const target = await pool.query('SELECT role FROM users WHERE uid = $1', [req.params.uid]);
-  if (!target.rows[0]) return res.status(404).json({ error: 'User not found' });
-  if (target.rows[0].role === 'admin' && chatOnly) {
-    return res.status(400).json({ error: 'admin 계정은 chat-only로 제한할 수 없습니다' });
+  try {
+    await peakosWorkspaceService.setUserRestrictionMode({
+      actorUid: req.uid,
+      targetUid: req.params.uid,
+      mode: 'chat_only',
+      enabled: chatOnly,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ code: err.code, error: err.message });
   }
-  await pool.query('UPDATE users SET chat_only = $1 WHERE uid = $2', [chatOnly, req.params.uid]);
-  res.json({ ok: true });
 });
 
 app.put('/api/users/:uid/external-calendar-only', authMiddleware, async (req, res) => {
   if (req.userDoc?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
   const externalCalendarOnly = !!req.body?.externalCalendarOnly;
-  const target = await pool.query('SELECT role FROM users WHERE uid = $1', [req.params.uid]);
-  if (!target.rows[0]) return res.status(404).json({ error: 'User not found' });
-  if (target.rows[0].role === 'admin' && externalCalendarOnly) {
-    return res.status(400).json({ error: 'admin 계정은 외부 캘린더 계정으로 제한할 수 없습니다' });
+  try {
+    await peakosWorkspaceService.setUserRestrictionMode({
+      actorUid: req.uid,
+      targetUid: req.params.uid,
+      mode: 'external_calendar_only',
+      enabled: externalCalendarOnly,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ code: err.code, error: err.message });
   }
-  await pool.query(
-    `UPDATE users
-     SET external_calendar_only = $1,
-         chat_only = CASE WHEN $1 THEN false ELSE chat_only END,
-         can_view_all_attendance = CASE WHEN $1 THEN false ELSE can_view_all_attendance END,
-         can_view_all_reports = CASE WHEN $1 THEN false ELSE can_view_all_reports END,
-         can_manage_team = CASE WHEN $1 THEN false ELSE can_manage_team END,
-         viewable_groups = CASE WHEN $1 THEN ARRAY[]::text[] ELSE viewable_groups END
-     WHERE uid = $2`,
-    [externalCalendarOnly, req.params.uid]
-  );
-  res.json({ ok: true });
 });
 
 // ══ 출근 보고서 ═══════════════════════════════════════════════
-app.get('/api/attendance', authMiddleware, async (req, res) => {
-  if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
-  const { month, userId } = req.query; // month: '2026-04'
-  let query, params;
-  if (req.userDoc.role === 'admin') {
-    if (userId) {
-      query = 'SELECT * FROM attendance WHERE user_id = $1 AND attendance_date LIKE $2 ORDER BY attendance_date';
-      params = [userId, (month || new Date().toISOString().slice(0,7)) + '%'];
-    } else {
-      // 같은 그룹만
-      query = `SELECT a.* FROM attendance a JOIN users u ON a.user_id = u.uid
-        WHERE ($1::text IS NULL OR u.group_id = $1) AND a.attendance_date LIKE $2 ORDER BY a.attendance_date, u.name`;
-      params = [req.userDoc.group_id, (month || new Date().toISOString().slice(0,7)) + '%'];
-    }
-  } else {
-    query = 'SELECT * FROM attendance WHERE user_id = $1 AND attendance_date LIKE $2 ORDER BY attendance_date';
-    params = [req.uid, (month || new Date().toISOString().slice(0,7)) + '%'];
-  }
-  const result = await pool.query(query, params);
-  res.json(result.rows);
-});
-
-app.post('/api/attendance/check-in', authMiddleware, async (req, res) => {
-  if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
-  const kstNow = new Date(new Date().getTime() + 9*60*60*1000);
-  const today = kstNow.toISOString().slice(0, 10);
-  const now = `${String(kstNow.getUTCHours()).padStart(2,'0')}:${String(kstNow.getUTCMinutes()).padStart(2,'0')}`;
-  const result = await pool.query(
-    `INSERT INTO attendance (user_id, user_name, attendance_date, check_in, group_id)
-     VALUES ($1,$2,$3,$4,$5)
-     ON CONFLICT (user_id, attendance_date) DO UPDATE SET check_in = $4
-     RETURNING *`,
-    [req.uid, req.userName, today, now, req.userDoc.group_id]
-  );
-  res.json(result.rows[0]);
-});
-
-app.post('/api/attendance/check-out', authMiddleware, async (req, res) => {
-  if (!req.userDoc?.approved) return res.status(403).json({ error: 'Not approved' });
-  const today = new Date().toISOString().slice(0, 10);
-  const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
-  const result = await pool.query(
-    'UPDATE attendance SET check_out = $1 WHERE user_id = $2 AND attendance_date = $3 RETURNING *',
-    [now, req.uid, today]
-  );
-  res.json(result.rows[0] || { error: 'No check-in found' });
-});
-
-// 상세 출근 데이터 (시간+지각)
-app.get('/api/attendance/details', authMiddleware, async (req, res) => {
-  const { month, userId } = req.query;
-  const m = month || new Date().toISOString().slice(0,7);
-  let query, params;
-  if (userId) {
-    query = 'SELECT * FROM attendance WHERE user_id = $1 AND attendance_date LIKE $2 ORDER BY attendance_date';
-    params = [userId, m+'%'];
-  } else if (req.userDoc.role === 'admin' || req.userDoc.can_view_all_attendance) {
-    query = 'SELECT * FROM attendance WHERE attendance_date LIKE $1 ORDER BY user_name, attendance_date';
-    params = [m+'%'];
-  } else if (req.userDoc.role === 'manager') {
-    query = `SELECT a.* FROM attendance a JOIN users u ON a.user_id = u.uid WHERE u.group_id = $1 AND a.attendance_date LIKE $2 ORDER BY a.user_name, a.attendance_date`;
-    params = [req.userDoc.group_id, m+'%'];
-  } else {
-    query = 'SELECT * FROM attendance WHERE user_id = $1 AND attendance_date LIKE $2 ORDER BY attendance_date';
-    params = [req.uid, m+'%'];
-  }
-  const result = await pool.query(query, params);
-  // 휴무일 목록 가져오기
-  const holidays = await pool.query('SELECT holiday_date FROM holidays');
-  const holidayDates = new Set(holidays.rows.map(h => h.holiday_date));
-  // 지각 계산 (10:10 이후, 휴무일 제외)
-  const data = result.rows.map(r => ({
-    ...r,
-    is_holiday: holidayDates.has(r.attendance_date),
-    is_late: r.check_in && r.check_in > '10:10' && !holidayDates.has(r.attendance_date)
-  }));
-  res.json(data);
-});
-
-app.get('/api/attendance/monthly-summary', authMiddleware, async (req, res) => {
-  if (req.userDoc?.role !== 'admin' && !req.userDoc?.can_view_all_attendance && req.userDoc?.role !== 'manager') return res.status(403).json({ error: 'Not authorized' });
-  const { month } = req.query;
-  const m = month || new Date().toISOString().slice(0, 7);
-  const showAll = req.userDoc.role === 'admin';
-  const vGroups = req.userDoc.viewable_groups || [];
-  const hasViewableGroups = req.userDoc.can_view_all_attendance && vGroups.length > 0;
-  const seeAll = req.userDoc.can_view_all_attendance && vGroups.length === 0;
-
-  let groupFilter, params;
-  if (showAll || seeAll) {
-    groupFilter = '($2::text IS NULL OR true)';
-    params = [m + '%', null];
-  } else if (hasViewableGroups) {
-    // 본인 그룹 + viewable_groups
-    const allGroups = [req.userDoc.group_id, ...vGroups].filter(Boolean);
-    groupFilter = `u.group_id = ANY($2::text[])`;
-    params = [m + '%', allGroups];
-  } else {
-    groupFilter = 'u.group_id = $2';
-    params = [m + '%', req.userDoc.group_id];
-  }
-  const result = await pool.query(
-    `SELECT u.uid, u.name, u.email, u.group_id, COUNT(a.id) as total_days,
-      MIN(a.check_in) as earliest_in, MAX(a.check_out) as latest_out
-     FROM users u LEFT JOIN attendance a ON u.uid = a.user_id AND a.attendance_date LIKE $1
-     WHERE u.approved = true AND ${groupFilter}
-     GROUP BY u.uid, u.name, u.email, u.group_id ORDER BY u.name`,
-    params
-  );
-  res.json(result.rows);
-});
+// Legacy calendar URLs and the PEAK OS module share one tenant-scoped service.
+// In particular, a client-supplied userId is authorized by workspace role
+// before SQL, so ordinary users cannot read another employee's attendance.
+app.get('/api/attendance', authMiddleware, legacyAttendanceHandlers.list);
+app.post('/api/attendance/check-in', authMiddleware, legacyAttendanceHandlers.checkIn);
+app.post('/api/attendance/check-out', authMiddleware, legacyAttendanceHandlers.checkOut);
+app.get('/api/attendance/details', authMiddleware, legacyAttendanceHandlers.details);
+app.get('/api/attendance/monthly-summary', authMiddleware, legacyAttendanceHandlers.summary);
 
 // ══ 프로젝트 ══════════════════════════════════════════════════
 app.get('/api/projects', authMiddleware, async (req, res) => {
@@ -4736,11 +4759,48 @@ app.post('/api/projects/:id/events', authMiddleware, async (req, res) => {
   if (!(await canAccessEvent(req, eventId, { requireOwner: true }))) {
     return res.status(403).json({ error: 'Not authorized to modify this event' });
   }
-  const linked = await pool.query(
-    'UPDATE events SET project_id = $1 WHERE id = $2 AND deleted = false RETURNING id',
-    [req.params.id, eventId]
-  );
-  if (!linked.rows[0]) return res.status(404).json({ error: 'Event not found' });
+  // A personal checklist directive belongs to the Todo instructor inbox. The
+  // lock and the directive check intentionally use two statements: under
+  // READ COMMITTED the second statement gets a fresh snapshot after any
+  // concurrent directive transaction that held the event row has committed.
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const target = await client.query(
+      'SELECT id FROM events WHERE id = $1 AND deleted = FALSE FOR UPDATE',
+      [eventId],
+    );
+    if (!target.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    const directive = await client.query(
+      'SELECT 1 FROM peakos_event_checklist_directives WHERE event_id = $1 LIMIT 1',
+      [eventId],
+    );
+    if (directive.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        code: 'PROJECT_EVENT_DIRECTIVE_CONFLICT',
+        error: '지시자가 지정된 체크리스트를 먼저 해제한 뒤 프로젝트에 연결해 주세요.',
+      });
+    }
+    const linked = await client.query(
+      'UPDATE events SET project_id = $1 WHERE id = $2 AND deleted = FALSE RETURNING id',
+      [req.params.id, eventId],
+    );
+    if (!linked.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Event link conflict' });
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('project event link error:', error.message);
+    return res.status(500).json({ error: '프로젝트에 일정을 연결하지 못했습니다.' });
+  } finally {
+    client.release();
+  }
   await syncProjectStatus(req.params.id);
   res.json({ ok: true });
 });
@@ -6681,14 +6741,31 @@ app.get('/api/reports/team-status', authMiddleware, async (req, res) => {
 });
 
 // ── 외부 API: 아이디어 추가 (API 키 인증) ────────────────────
-const EXTERNAL_API_KEY = '4210786b72641a28115b3c12e70d3d6b4fa9f939fa910ef41e2f81a32cc04425';
+// Credential material must never live in source. This endpoint is optional
+// and fails closed until an operator injects a rotated secret.
+function externalIdeaAuthorizationMatches(value, configuredKey = process.env.PEAKOS_EXTERNAL_IDEA_API_KEY) {
+  const key = String(configuredKey || '').trim();
+  if (key.length < 32) return false;
+  const supplied = String(value || '');
+  const expected = `Bearer ${key}`;
+  const suppliedBytes = Buffer.from(supplied, 'utf8');
+  const expectedBytes = Buffer.from(expected, 'utf8');
+  return suppliedBytes.length === expectedBytes.length
+    && crypto.timingSafeEqual(suppliedBytes, expectedBytes);
+}
 const EXTERNAL_OWNER_UID = 'AWTTuoILg6TkwkkHTvIoqsb8BST2';
 const EXTERNAL_OWNER_NAME = '패션TV봉이';
 
 app.post('/api/add-idea', async (req, res) => {
-  // API 키 검증
+  const configuredKey = String(process.env.PEAKOS_EXTERNAL_IDEA_API_KEY || '').trim();
+  if (configuredKey.length < 32) {
+    return res.status(503).json({
+      code: 'EXTERNAL_IDEA_API_DISABLED',
+      error: '외부 아이디어 등록 API가 설정되지 않았습니다.',
+    });
+  }
   const authHeader = req.headers.authorization;
-  if (!authHeader || authHeader !== 'Bearer ' + EXTERNAL_API_KEY) {
+  if (!externalIdeaAuthorizationMatches(authHeader, configuredKey)) {
     return res.status(401).json({ error: 'Invalid API key' });
   }
   const { title, summary, detail, url, category, date } = req.body;
@@ -7283,11 +7360,36 @@ app.use('/api/peakos', (req, res, next) => {
       || /^\/company-documents(?:\/|$)/.test(routePath)
       || /^\/intake(?:\/|$)/.test(routePath)
       || /^\/monthly(?:\/|$)/.test(routePath)
+      || /^\/monthly-settlement(?:\/|$)/.test(routePath)
+      || /^\/settlement-completion(?:\/|$)/.test(routePath)
+      || /^\/vendor-reconciliations(?:\/|$)/.test(routePath)
+      || /^\/commission-(?:rules|estimates|calculations)(?:\/|$)/.test(routePath)
+      || /^\/company-resources(?:\/|$)/.test(routePath)
+      || /^\/finance-requests(?:\/|$)/.test(routePath)
+      || /^\/sales-leads(?:\/|$)/.test(routePath)
+      || /^\/attendance(?:\/|$)/.test(routePath)
+      || /^\/todos(?:\/|$)/.test(routePath)
       || /^\/final-execution(?:\/|$)/.test(routePath)) return next();
   return res.status(403).json({
     code: 'PEAKOS_WORKSPACE_SURFACE_NOT_MIGRATED',
     error: '이 기능은 지사 워크스페이스 격리 적용 후 사용할 수 있습니다.',
   });
+});
+
+registerPeakosAttendanceRoutes({
+  app,
+  pool,
+  readMiddlewares: [
+    peakosWorkspaceService.requireWorkspace({
+      area: 'settlements', action: 'read', requireHeader: true,
+    }),
+  ],
+  writeMiddlewares: [
+    peakosWorkspaceService.requireWorkspace({
+      area: 'settlements', action: 'write', requireHeader: true,
+    }),
+  ],
+  logger: console,
 });
 
 
@@ -7339,6 +7441,17 @@ const peakosBankCanViewBalances = req => peakosAccess.canViewBankBalances(req);
 const peakosCanReviewFinance = req => peakosAccess.canReviewFinance(req);
 const peakosCanSeeTaxPurchase = req => peakosAccess.canSeeTaxPurchase(req);
 
+// OS report metrics are never exposed through the legacy Firebase-only
+// `/api/reports/*` surface. The protected alias requires the email session,
+// selected workspace, and settlements read permission established above.
+app.get(
+  '/api/peakos/reports/sales-summary',
+  peakosWorkspaceService.requireWorkspace({
+    area: 'settlements', action: 'read', requireHeader: true,
+  }),
+  handlePeakosSalesSummary,
+);
+
 // Both the canonical and protected-alias URLs are OS-only. Rechecking the
 // email session and explicit workspace here keeps `/api/new-projects` from
 // becoming a Firebase-only second-factor bypass.
@@ -7359,6 +7472,21 @@ registerPeakosNewProjectRoutes({
   isPortfolioViewer: peakosCanViewStructuredProjectPortfolio,
   isPortfolioCreator: peakosCanCreateStructuredProject,
   notifyUser: sendPushToUser,
+});
+
+// PEAK OS personal todos intentionally use a standalone, self-owned store.
+// Both reads and writes require the OS email session and an explicitly
+// selected direct workspace; the calendar permission is rechecked here even
+// though authMiddleware also classifies this protected path as calendar data.
+registerPeakosTodoRoutes({
+  app,
+  pool,
+  readMiddlewares: [
+    peakosWorkspaceService.requireWorkspace({ area: 'calendar', action: 'read', requireHeader: true }),
+  ],
+  writeMiddlewares: [
+    peakosWorkspaceService.requireWorkspace({ area: 'calendar', action: 'write', requireHeader: true }),
+  ],
 });
 
 app.use(
@@ -7464,7 +7592,18 @@ registerPeakosCreditRequests({
   authMiddleware,
   pool,
   canReview: peakosBankCanViewBalances,
+  // 일반 영업자는 본인 요청만 만들고 읽는다. 회사 충전금 장부와 전체
+  // 요청 검토는 기존 UID 기반 재무 capability를 그대로 사용한다.
+  canRequest: req => peakosApprovedActive(req)
+    && (String(req.userDoc?.group_type || '').trim() === 'sales'
+      || peakosCanSeeFinanceOperations(req)),
   getActor: req => ({ uid: req.uid, name: peakosName(req) }),
+  readMiddlewares: [
+    peakosWorkspaceService.requireWorkspace({ area: 'settlements', action: 'read', requireHeader: true }),
+  ],
+  writeMiddlewares: [
+    peakosWorkspaceService.requireWorkspace({ area: 'settlements', action: 'write', requireHeader: true }),
+  ],
 });
 
 registerPeakosSettlementRoutes({
@@ -7484,6 +7623,66 @@ registerPeakosSettlementRoutes({
   canReviewFinance: peakosCanReviewFinance,
   canManageBankEligibility: peakosBankCanViewBalances,
   autoReconciliationEnabled: peakosAutoReconciliationEnabled,
+  getWorkspaceId: req => requestWorkspaceId(req),
+  logger: console,
+});
+
+registerPeakosVendorReconciliationRoutes({
+  app,
+  authMiddleware,
+  pool,
+  approvedActive: peakosApprovedActive,
+  getName: peakosName,
+  canReviewFinance: peakosCanReviewFinance,
+  getWorkspaceId: req => requestWorkspaceId(req),
+  logger: console,
+});
+
+// 비품·개발비·통장사본·기타 회사자료는 표시명 배열이 아니라 exact UID
+// finance capability와 DB의 활성 direct workspace membership을 함께 확인한다.
+// 파일은 public uploads 밖의 전용 보호 저장소에만 기록된다.
+registerPeakosCompanyResourceRoutes({
+  app,
+  authMiddleware,
+  pool,
+  canSeeFinanceOperations: peakosCanSeeFinanceOperations,
+  canReviewFinance: peakosCanReviewFinance,
+  getName: peakosName,
+  logger: console,
+});
+
+registerPeakosSettlementCompletionRoutes({
+  app,
+  authMiddleware,
+  pool,
+  approvedActive: peakosApprovedActive,
+  getName: peakosName,
+  // 원본 owner와 workspace manager/admin/oversight는 정책 모듈이 직접
+  // 판정하고, Peak의 지정 최종실행 열람자만 이 capability로 추가한다.
+  canSeeAll: peakosCanSeeWorkspaceFinalExecution,
+  getWorkspaceId: req => requestWorkspaceId(req),
+  logger: console,
+});
+
+// 수당률은 기본값을 추정하지 않는다. 현재 workspace의 명시적 승인 규칙만
+// 서버가 원본 접수·공급사 대사 근거와 함께 재계산해 별도 예상 수당으로 낸다.
+registerPeakosCommissionRoutes({
+  app,
+  authMiddleware,
+  pool,
+  getName: peakosName,
+  getWorkspaceId: req => requestWorkspaceId(req),
+  logger: console,
+});
+
+// 전 계정 공통 월 정산은 기존 개인 원장과 플랫폼 원장을 섞어 쓰지 않고
+// 동일 응답의 독립된 두 섹션으로 제공한다. `/api/peakos` 전역 게이트가
+// Firebase + OS 이메일 세션 + 명시 workspace를 이미 검증했으며, 라우트는
+// direct 활성 계정의 req.uid만 사용해 admin/manager도 v1에서는 본인만 본다.
+registerPeakosPlatformMonthlySettlementRoutes({
+  app,
+  pool,
+  peakWorkspaceId: PEAK_WORKSPACE_ID,
   getWorkspaceId: req => requestWorkspaceId(req),
   logger: console,
 });
@@ -7752,9 +7951,18 @@ async function startServer() {
     // workspace migration has not been applied. This is a SELECT-only
     // readiness check; application startup never attempts owner DDL here.
     await ensurePeakosWorkspaceInfrastructure(pool);
+    await ensurePeakosCompanyResourceInfrastructure(pool);
+    // Attendance is operator-migrated as well. Verify its exact tenant/time/
+    // audit contract before any legacy startup helper can perform writes.
+    await ensurePeakosAttendanceInfrastructure(pool);
     await ensurePeakosEventVisibilityInfrastructure(pool);
+    await ensurePeakosEventChecklistDirectiveInfrastructure(pool);
     await ensureEventTimeRangeInfrastructure(pool);
     await ensurePeakosNewProjectInfrastructure(pool);
+    await ensurePeakosTodoInfrastructure(pool);
+    await ensurePeakosSalesLeadInfrastructure(pool, {
+      encryptionSecret: process.env.PEAKOS_SALES_PII_ENCRYPTION_SECRET,
+    });
     await ensureReminderInfrastructure();
     await ensureChatPerformanceIndexes();
     await ensureChatRoomGroupInfrastructure();
@@ -7767,12 +7975,64 @@ async function startServer() {
     await ensurePeakosBankInfrastructure(pool);
     await ensurePeakosBankReconciliationInfrastructure(pool);
     await ensureSettlementImportInfrastructure(pool);
+    await ensureSettlementCompletionInfrastructure(pool);
+    await ensurePeakosVendorReconciliationInfrastructure(pool);
+    await ensurePeakosCommissionInfrastructure(pool);
+    await ensurePeakosPlatformSettlementInfrastructure(pool);
+    const peakosPlatformSettlementSyncService = createPlatformSettlementSyncService({
+      pool,
+      env: process.env,
+      fetchImpl: globalThis.fetch,
+      importMonthlySnapshot: importPlatformMonthlyAggregateSnapshot,
+      calculateSnapshotDigest: calculatePlatformMonthlyAggregateDigest,
+      logger: {
+        error(message, metadata = {}) {
+          const provider = /^[a-z0-9_-]{1,40}$/.test(String(metadata.provider || ''))
+            ? metadata.provider
+            : 'unknown';
+          const month = /^20\d{2}-(0[1-9]|1[0-2])$/.test(String(metadata.month || ''))
+            ? metadata.month
+            : 'unknown';
+          const code = /^PLATFORM_[A-Z0-9_]{1,71}$/.test(String(metadata.code || ''))
+            ? metadata.code
+            : 'PLATFORM_CONNECTOR_SYNC_FAILED';
+          console.error(`[PEAK OS] platform connector provider=${provider} month=${month} code=${code}`);
+        },
+      },
+    });
+    // 키가 제거된 공급사를 이전 ready 상태로 남겨 두지 않는다. 이 작업은
+    // 공급사 호출 없이 DB의 연결 상태만 정리하며, 스케줄러 비활성화와
+    // 무관하게 시작 시 한 번 실행한다.
+    await peakosPlatformSettlementSyncService.reconcileConnectionStates();
+    peakosPlatformSettlementSyncRuntime = createPlatformSettlementSyncRuntime({
+      service: peakosPlatformSettlementSyncService,
+      scheduleCron,
+      enabled: process.env.PEAKOS_PLATFORM_SYNC_ENABLED === 'true',
+      backgroundJobsEnabled,
+      logger: console,
+    });
     await ensurePeakosCreditRequestInfrastructure(pool);
     await ensurePeakosFinanceRequestInfrastructure(pool);
+    await ensurePeakosTaxInvoiceEvidenceInfrastructure(pool);
     await ensureOsEmailAuthInfrastructure(pool);
     await peakosWorkspaceService.seedOversightMemberships();
     await ensurePeakosPriceCatalog(pool);
     await peakosOsEmailAuth.repository.purgeExpired(new Date());
+    // `/api/peakos` 전역 게이트가 Firebase + OS 이메일 세션 + 명시적
+    // workspace 헤더를 먼저 확인한다. 이 영역 미들웨어가 sales 권한을
+    // 추가 확인하며, 라우트 내부 정책이 영업 그룹/조직 관리자/oversight
+    // 범위와 PII 마스킹을 다시 강제한다.
+    registerPeakosSalesLeadRoutes({
+      app,
+      pool,
+      readMiddlewares: [
+        peakosWorkspaceService.requireWorkspace({ area: 'sales', action: 'read', requireHeader: true }),
+      ],
+      writeMiddlewares: [
+        peakosWorkspaceService.requireWorkspace({ area: 'sales', action: 'write', requireHeader: true }),
+      ],
+      encryptionSecret: process.env.PEAKOS_SALES_PII_ENCRYPTION_SECRET,
+    });
     registerPeakosFinanceRequests({
       app,
       authMiddleware,
@@ -7783,9 +8043,21 @@ async function startServer() {
       // 누락 시 서버가 fail-closed로 시작을 거부해 키 교체로 장부가 깨지는 일을 막는다.
       encryptionSecret: process.env.PEAKOS_FINANCE_ENCRYPTION_SECRET,
     });
+    registerPeakosTaxInvoiceEvidenceRoutes({
+      app,
+      authMiddleware,
+      pool,
+      canReviewFinance: peakosCanReviewFinance,
+      getName: req => peakosName(req),
+      storageRoot: process.env.PEAKOS_TAX_INVOICE_EVIDENCE_ROOT || undefined,
+    });
     startPeakosBankScheduler();
+    peakosPlatformSettlementSyncRuntime.startScheduler();
     app.listen(PORT, '127.0.0.1', () => {
       console.log(`Calendar API running on port ${PORT}`);
+      if (process.env.PEAKOS_PLATFORM_SYNC_ON_STARTUP === 'true') {
+        void peakosPlatformSettlementSyncRuntime.run('startup');
+      }
     });
   } catch (err) {
     console.error('Server startup failed:', err.message);
