@@ -48,7 +48,7 @@ function maskedUidMap(uidMap) {
   }]));
 }
 
-async function verifyUidMap(client, uidMap) {
+async function verifyUidMap(client, uidMap, { lock = true } = {}) {
   if (!client || typeof client.query !== 'function') throw new TypeError('DB client.query가 필요합니다.');
   if (!(uidMap instanceof Map) || uidMap.size !== REQUIRED_PEOPLE.length) {
     throw new Error('검증할 7명 UID 매핑이 필요합니다.');
@@ -62,7 +62,7 @@ async function verifyUidMap(client, uidMap) {
     `SELECT uid, name, email, approved, COALESCE(is_active, true) AS is_active
        FROM users
       WHERE uid = ANY($1::text[])
-      FOR SHARE`,
+      ${lock ? 'FOR SHARE' : ''}`,
     [uids],
   );
   const byUid = new Map(result.rows.map(row => [String(row.uid || ''), row]));

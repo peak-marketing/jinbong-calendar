@@ -76,6 +76,25 @@ test('DB UID 검증은 name·email·approved·active를 모두 확인하고 비�
   assert.equal(JSON.stringify(result).includes('@example.test'), false);
 });
 
+test('dry-run UID 검증은 read-only transaction에서 row lock을 요구하지 않는다', async () => {
+  const configured = uidConfig();
+  const uidMap = parseUidMap(JSON.stringify(configured));
+  await verifyUidMap({
+    query: async sql => {
+      assert.doesNotMatch(sql, /FOR SHARE/);
+      return {
+        rows: REQUIRED_PEOPLE.map(name => ({
+          uid: configured[name].uid,
+          name,
+          email: configured[name].email,
+          approved: true,
+          is_active: true,
+        })),
+      };
+    },
+  }, uidMap, { lock: false });
+});
+
 test('content hash·byte length가 snapshot과 manifest SHA에 포함된다', () => {
   const documents = parseSourceMap(JSON.stringify(sourceConfig()));
   const files = documents.map((document, index) => ({
