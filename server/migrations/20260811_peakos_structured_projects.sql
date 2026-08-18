@@ -137,6 +137,8 @@ CREATE TABLE IF NOT EXISTS peakos_structured_project_medium_categories (
   id UUID NOT NULL DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
+  manager_uid TEXT,
+  manager_name_snapshot TEXT,
   active BOOLEAN NOT NULL DEFAULT TRUE,
   sort_order INTEGER NOT NULL DEFAULT 0,
   version INTEGER NOT NULL DEFAULT 1,
@@ -153,6 +155,21 @@ CREATE TABLE IF NOT EXISTS peakos_structured_project_medium_categories (
     FOREIGN KEY (workspace_id, created_by_uid)
     REFERENCES peakos_workspace_memberships(workspace_id, user_uid)
     ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT peakos_structured_project_medium_manager_fields_check
+    CHECK (
+      (manager_uid IS NULL AND manager_name_snapshot IS NULL)
+      OR (
+        manager_uid IS NOT NULL
+        AND char_length(btrim(manager_uid)) BETWEEN 1 AND 200
+        AND manager_name_snapshot IS NOT NULL
+        AND char_length(btrim(manager_name_snapshot)) BETWEEN 1 AND 160
+      )
+    ),
+  CONSTRAINT peakos_structured_project_medium_manager_fk
+    FOREIGN KEY (workspace_id, project_id, manager_uid)
+    REFERENCES peakos_structured_project_members(workspace_id, project_id, user_uid)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+    DEFERRABLE INITIALLY DEFERRED,
   CONSTRAINT peakos_structured_project_medium_name_check
     CHECK (char_length(btrim(name)) BETWEEN 1 AND 160),
   CONSTRAINT peakos_structured_project_medium_description_check
@@ -168,6 +185,51 @@ CREATE TABLE IF NOT EXISTS peakos_structured_project_medium_categories (
   CONSTRAINT peakos_structured_project_medium_updated_check
     CHECK (updated_at >= created_at)
 );
+
+-- Older installations applied the first structured-project migration before
+-- medium managers shipped. Keep this operator migration safely re-runnable so
+-- the current schema can be reached without relying on CREATE TABLE IF NOT
+-- EXISTS to retrofit columns or constraints.
+ALTER TABLE peakos_structured_project_medium_categories
+  ADD COLUMN IF NOT EXISTS manager_uid TEXT,
+  ADD COLUMN IF NOT EXISTS manager_name_snapshot TEXT;
+
+DO $medium_manager_constraints$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_constraint
+     WHERE conrelid = 'peakos_structured_project_medium_categories'::regclass
+       AND conname = 'peakos_structured_project_medium_manager_fields_check'
+  ) THEN
+    ALTER TABLE peakos_structured_project_medium_categories
+      ADD CONSTRAINT peakos_structured_project_medium_manager_fields_check
+      CHECK (
+        (manager_uid IS NULL AND manager_name_snapshot IS NULL)
+        OR (
+          manager_uid IS NOT NULL
+          AND char_length(btrim(manager_uid)) BETWEEN 1 AND 200
+          AND manager_name_snapshot IS NOT NULL
+          AND char_length(btrim(manager_name_snapshot)) BETWEEN 1 AND 160
+        )
+      );
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_constraint
+     WHERE conrelid = 'peakos_structured_project_medium_categories'::regclass
+       AND conname = 'peakos_structured_project_medium_manager_fk'
+  ) THEN
+    ALTER TABLE peakos_structured_project_medium_categories
+      ADD CONSTRAINT peakos_structured_project_medium_manager_fk
+      FOREIGN KEY (workspace_id, project_id, manager_uid)
+      REFERENCES peakos_structured_project_members(workspace_id, project_id, user_uid)
+      ON UPDATE RESTRICT ON DELETE RESTRICT
+      DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END
+$medium_manager_constraints$;
 
 CREATE TABLE IF NOT EXISTS peakos_structured_project_small_categories (
   workspace_id TEXT NOT NULL,
@@ -370,6 +432,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS peakos_structured_project_members_one_active_l
   WHERE active = TRUE AND role = 'lead';
 CREATE INDEX IF NOT EXISTS peakos_structured_project_medium_listing_idx
   ON peakos_structured_project_medium_categories(workspace_id, project_id, active, sort_order, id);
+CREATE INDEX IF NOT EXISTS peakos_structured_project_medium_manager_idx
+  ON peakos_structured_project_medium_categories(workspace_id, project_id, manager_uid)
+  WHERE active = TRUE AND manager_uid IS NOT NULL;
 CREATE INDEX IF NOT EXISTS peakos_structured_project_small_listing_idx
   ON peakos_structured_project_small_categories(workspace_id, project_id, medium_category_id, active, sort_order, id);
 CREATE INDEX IF NOT EXISTS peakos_structured_project_tasks_hierarchy_idx
@@ -458,6 +523,60 @@ AFTER INSERT OR UPDATE OR DELETE ON peakos_structured_project_members
 DEFERRABLE INITIALLY DEFERRED
 FOR EACH ROW EXECUTE FUNCTION peakos_structured_project_assert_active_lead();
 
+CREATE OR REPLACE FUNCTION peakos_structured_project_assert_active_medium_manager()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $active_medium_manager$
+DECLARE
+  target_workspace_id TEXT;
+  target_project_id UUID;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    target_workspace_id := OLD.workspace_id;
+    target_project_id := OLD.project_id;
+  ELSE
+    target_workspace_id := NEW.workspace_id;
+    target_project_id := NEW.project_id;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+      FROM peakos_structured_project_medium_categories medium
+      LEFT JOIN peakos_structured_project_members member
+        ON member.workspace_id = medium.workspace_id
+       AND member.project_id = medium.project_id
+       AND member.user_uid = medium.manager_uid
+       AND member.active = TRUE
+     WHERE medium.workspace_id = target_workspace_id
+       AND medium.project_id = target_project_id
+       AND medium.active = TRUE
+       AND medium.manager_uid IS NOT NULL
+       AND member.user_uid IS NULL
+  ) THEN
+    RAISE EXCEPTION
+      'active structured-project medium managers must be active project members for %/%',
+      target_workspace_id, target_project_id
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NULL;
+END
+$active_medium_manager$;
+
+DROP TRIGGER IF EXISTS peakos_structured_project_medium_manager_guard
+  ON peakos_structured_project_medium_categories;
+CREATE CONSTRAINT TRIGGER peakos_structured_project_medium_manager_guard
+AFTER INSERT OR UPDATE ON peakos_structured_project_medium_categories
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION peakos_structured_project_assert_active_medium_manager();
+
+DROP TRIGGER IF EXISTS peakos_structured_project_members_medium_manager_guard
+  ON peakos_structured_project_members;
+CREATE CONSTRAINT TRIGGER peakos_structured_project_members_medium_manager_guard
+AFTER INSERT OR UPDATE OR DELETE ON peakos_structured_project_members
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION peakos_structured_project_assert_active_medium_manager();
+
 CREATE OR REPLACE FUNCTION peakos_structured_project_history_append_only()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -474,21 +593,28 @@ CREATE TRIGGER peakos_structured_project_history_no_mutation
 BEFORE UPDATE OR DELETE ON peakos_structured_project_history
 FOR EACH ROW EXECUTE FUNCTION peakos_structured_project_history_append_only();
 
+-- Runtime privileges are reset instead of trusting inherited/default ACLs.
 -- This file is applied by an owner/DBA while the API normally connects as
 -- calendar_user. Override in the same operator session with:
 --   SET peakos.app_role = 'another_runtime_role';
+-- The configured role must be a dedicated non-owner runtime role. If
+-- calendar_user is absent, fail closed instead of granting to current_user.
 DO $structured_project_runtime_grants$
 DECLARE
   configured_role TEXT := NULLIF(current_setting('peakos.app_role', TRUE), '');
   application_role TEXT;
   mutable_table TEXT;
+  privilege_name TEXT;
+  function_signature TEXT;
 BEGIN
   application_role := configured_role;
   IF application_role IS NULL THEN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'calendar_user') THEN
       application_role := 'calendar_user';
     ELSE
-      application_role := current_user;
+      RAISE EXCEPTION
+        'set peakos.app_role to the non-owner runtime role before applying PEAK OS structured projects migration'
+        USING ERRCODE = '55000';
     END IF;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = application_role) THEN
@@ -503,29 +629,120 @@ BEGIN
     'peakos_structured_project_tasks'
   ] LOOP
     EXECUTE format(
-      'GRANT SELECT, INSERT, UPDATE ON TABLE %I TO %I',
+      'REVOKE ALL PRIVILEGES ON TABLE public.%I FROM PUBLIC, %I',
+      mutable_table,
+      application_role
+    );
+    EXECUTE format(
+      'GRANT SELECT, INSERT, UPDATE ON TABLE public.%I TO %I',
       mutable_table,
       application_role
     );
   END LOOP;
   EXECUTE format(
-    'GRANT SELECT, INSERT ON TABLE peakos_structured_project_history TO %I',
+    'REVOKE ALL PRIVILEGES ON TABLE public.peakos_structured_project_history FROM PUBLIC, %I',
+    application_role
+  );
+  EXECUTE format(
+    'GRANT SELECT, INSERT ON TABLE public.peakos_structured_project_history TO %I',
     application_role
   );
   IF to_regclass('public.peakos_structured_project_history_id_seq') IS NOT NULL THEN
     EXECUTE format(
-      'GRANT USAGE, SELECT ON SEQUENCE peakos_structured_project_history_id_seq TO %I',
+      'REVOKE ALL PRIVILEGES ON SEQUENCE public.peakos_structured_project_history_id_seq FROM PUBLIC, %I',
+      application_role
+    );
+    EXECUTE format(
+      'GRANT USAGE ON SEQUENCE public.peakos_structured_project_history_id_seq TO %I',
       application_role
     );
   END IF;
-  EXECUTE format(
-    'GRANT EXECUTE ON FUNCTION peakos_structured_project_assert_active_lead() TO %I',
-    application_role
-  );
-  EXECUTE format(
-    'GRANT EXECUTE ON FUNCTION peakos_structured_project_history_append_only() TO %I',
-    application_role
-  );
+
+  FOREACH function_signature IN ARRAY ARRAY[
+    'public.peakos_structured_project_assert_active_lead()',
+    'public.peakos_structured_project_assert_active_medium_manager()',
+    'public.peakos_structured_project_history_append_only()'
+  ] LOOP
+    EXECUTE format(
+      'REVOKE ALL PRIVILEGES ON FUNCTION %s FROM PUBLIC, %I',
+      function_signature,
+      application_role
+    );
+  END LOOP;
+
+  FOREACH mutable_table IN ARRAY ARRAY[
+    'peakos_structured_projects',
+    'peakos_structured_project_members',
+    'peakos_structured_project_medium_categories',
+    'peakos_structured_project_small_categories',
+    'peakos_structured_project_tasks'
+  ] LOOP
+    FOREACH privilege_name IN ARRAY ARRAY[
+      'SELECT', 'INSERT', 'UPDATE', 'DELETE',
+      'TRUNCATE', 'REFERENCES', 'TRIGGER'
+    ] LOOP
+      IF has_table_privilege(
+        application_role,
+        'public.' || mutable_table,
+        privilege_name
+      ) IS DISTINCT FROM (privilege_name IN ('SELECT', 'INSERT', 'UPDATE')) THEN
+        RAISE EXCEPTION
+          'runtime role % has an unexpected effective % privilege on %',
+          application_role, privilege_name, mutable_table
+          USING ERRCODE = '55000';
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  FOREACH privilege_name IN ARRAY ARRAY[
+    'SELECT', 'INSERT', 'UPDATE', 'DELETE',
+    'TRUNCATE', 'REFERENCES', 'TRIGGER'
+  ] LOOP
+    IF has_table_privilege(
+      application_role,
+      'public.peakos_structured_project_history',
+      privilege_name
+    ) IS DISTINCT FROM (privilege_name IN ('SELECT', 'INSERT')) THEN
+      RAISE EXCEPTION
+        'runtime role % has an unexpected effective % privilege on structured-project history',
+        application_role, privilege_name
+        USING ERRCODE = '55000';
+    END IF;
+  END LOOP;
+
+  IF NOT has_sequence_privilege(
+    application_role,
+    'public.peakos_structured_project_history_id_seq',
+    'USAGE'
+  )
+     OR has_sequence_privilege(
+       application_role,
+       'public.peakos_structured_project_history_id_seq',
+       'SELECT'
+     )
+     OR has_sequence_privilege(
+       application_role,
+       'public.peakos_structured_project_history_id_seq',
+       'UPDATE'
+     ) THEN
+    RAISE EXCEPTION
+      'runtime role % has unsafe structured-project history sequence privileges',
+      application_role
+      USING ERRCODE = '55000';
+  END IF;
+
+  FOREACH function_signature IN ARRAY ARRAY[
+    'public.peakos_structured_project_assert_active_lead()',
+    'public.peakos_structured_project_assert_active_medium_manager()',
+    'public.peakos_structured_project_history_append_only()'
+  ] LOOP
+    IF has_function_privilege(application_role, function_signature, 'EXECUTE') THEN
+      RAISE EXCEPTION
+        'runtime role % must not execute structured-project trigger function % directly',
+        application_role, function_signature
+        USING ERRCODE = '55000';
+    END IF;
+  END LOOP;
 END
 $structured_project_runtime_grants$;
 

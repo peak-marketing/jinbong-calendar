@@ -6,13 +6,21 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  ACTIVE_LEAD_FUNCTION_SOURCE,
+  ACTIVE_MEDIUM_MANAGER_FUNCTION_SOURCE,
+  HISTORY_APPEND_ONLY_FUNCTION_SOURCE,
   NEW_PROJECT_INTERNAL_TASK_ACTIONS,
   NEW_PROJECT_PROJECT_STATUSES,
+  NEW_PROJECT_REQUIRED_COLUMN_DEFINITIONS,
   NEW_PROJECT_REQUIRED_COLUMNS,
+  NEW_PROJECT_REQUIRED_CONSTRAINT_DEFINITIONS,
   NEW_PROJECT_REQUIRED_CONSTRAINTS,
+  NEW_PROJECT_REQUIRED_FUNCTIONS,
+  NEW_PROJECT_REQUIRED_INDEXES,
   NEW_PROJECT_REQUIRED_TABLES,
   NEW_PROJECT_REQUIRED_TRIGGERS,
   NEW_PROJECT_SCHEMA_READINESS_SQL,
+  NEW_PROJECT_TABLE_PRIVILEGES,
   NEW_PROJECT_TASK_ACTIONS,
   newProjectCreateDecision,
   newProjectExternalActionToInternal,
@@ -42,15 +50,41 @@ const task = Object.freeze({
   reviewer_source: 'assigned_by',
 });
 
-test('readiness contract names six isolated tables and checks columns, composite constraints, and guards with SELECT only', () => {
+function stripSqlStringLiterals(sql) {
+  return String(sql).replace(/'(?:''|[^'])*'/g, "''");
+}
+
+test('readiness contract fail-closes on exact columns, constraints, indexes, functions, triggers and runtime ACLs using SELECT only', () => {
   assert.equal(NEW_PROJECT_REQUIRED_TABLES.length, 6);
   assert.equal(new Set(NEW_PROJECT_REQUIRED_TABLES).size, 6);
   assert.ok(NEW_PROJECT_REQUIRED_TABLES.every(name => name.startsWith('peakos_structured_')));
   assert.ok(Object.values(NEW_PROJECT_REQUIRED_COLUMNS).every(columns => columns.includes('workspace_id')));
   assert.ok(NEW_PROJECT_REQUIRED_COLUMNS.peakos_structured_project_medium_categories.includes('manager_uid'));
   assert.ok(NEW_PROJECT_REQUIRED_COLUMNS.peakos_structured_project_medium_categories.includes('manager_name_snapshot'));
+  assert.deepEqual(
+    NEW_PROJECT_REQUIRED_COLUMN_DEFINITIONS.peakos_structured_project_tasks.assigned_by_uid,
+    ['text', true, null],
+  );
+  assert.deepEqual(
+    NEW_PROJECT_REQUIRED_COLUMN_DEFINITIONS.peakos_structured_project_tasks.reviewer_uid,
+    ['text', true, null],
+  );
+  assert.deepEqual(
+    NEW_PROJECT_REQUIRED_COLUMN_DEFINITIONS.peakos_structured_project_tasks.status,
+    ['text', true, "'todo'::text"],
+  );
   assert.ok(Object.values(NEW_PROJECT_REQUIRED_CONSTRAINTS).flat().includes('peakos_structured_projects_lead_project_member_fk'));
   assert.ok(Object.values(NEW_PROJECT_REQUIRED_CONSTRAINTS).flat().includes('peakos_structured_project_medium_manager_fk'));
+  assert.ok(NEW_PROJECT_REQUIRED_CONSTRAINT_DEFINITIONS.peakos_structured_project_tasks.some(
+    ([name, type, definition]) => name === 'peakos_structured_project_tasks_assigner_membership_fk'
+      && type === 'f'
+      && /workspace_id, assigned_by_uid/.test(definition),
+  ));
+  assert.ok(NEW_PROJECT_REQUIRED_CONSTRAINT_DEFINITIONS.peakos_structured_project_tasks.some(
+    ([name, type, definition]) => name === 'peakos_structured_project_tasks_reviewer_membership_fk'
+      && type === 'f'
+      && /workspace_id, reviewer_uid/.test(definition),
+  ));
   assert.deepEqual(NEW_PROJECT_REQUIRED_TRIGGERS.map(([, trigger]) => trigger), [
     'peakos_structured_projects_active_lead_guard',
     'peakos_structured_project_members_active_lead_guard',
@@ -58,10 +92,61 @@ test('readiness contract names six isolated tables and checks columns, composite
     'peakos_structured_project_members_medium_manager_guard',
     'peakos_structured_project_history_no_mutation',
   ]);
+  assert.equal(NEW_PROJECT_REQUIRED_INDEXES.length, 14);
+  assert.ok(NEW_PROJECT_REQUIRED_INDEXES.some(([, name, , columns, , predicate]) => (
+    name === 'peakos_structured_project_tasks_reviewer_idx'
+      && columns === 'workspace_id,reviewer_uid,status,review_requested_at'
+      && predicate === "(status = 'review'::text)"
+  )));
+  assert.deepEqual(NEW_PROJECT_REQUIRED_FUNCTIONS.map(([name]) => name), [
+    'peakos_structured_project_assert_active_lead',
+    'peakos_structured_project_assert_active_medium_manager',
+    'peakos_structured_project_history_append_only',
+  ]);
+  assert.match(ACTIVE_LEAD_FUNCTION_SOURCE, /role = 'lead'[\s\S]*active = TRUE/);
+  assert.match(ACTIVE_MEDIUM_MANAGER_FUNCTION_SOURCE, /medium\.manager_uid[\s\S]*member\.active = TRUE/);
+  assert.match(HISTORY_APPEND_ONLY_FUNCTION_SOURCE, /append-only/);
+  assert.deepEqual(NEW_PROJECT_TABLE_PRIVILEGES.peakos_structured_project_tasks, {
+    SELECT: true, INSERT: true, UPDATE: true, DELETE: false,
+    TRUNCATE: false, REFERENCES: false, TRIGGER: false,
+  });
+  assert.deepEqual(NEW_PROJECT_TABLE_PRIVILEGES.peakos_structured_project_history, {
+    SELECT: true, INSERT: true, UPDATE: false, DELETE: false,
+    TRUNCATE: false, REFERENCES: false, TRIGGER: false,
+  });
   assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /^WITH required_columns/i);
-  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /pg_constraint/);
-  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /pg_trigger/);
-  assert.doesNotMatch(NEW_PROJECT_SCHEMA_READINESS_SQL, /\b(?:CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|GRANT)\b/i);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /format_type\(actual\.atttypid, actual\.atttypmod\)/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /pg_get_expr\(default_row\.adbin, default_row\.adrelid\)/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /actual\.convalidated IS NOT TRUE/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /pg_get_constraintdef\(actual\.oid\)/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /actual\.tgenabled::text <> expected\.enabled_state/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /actual\.tgdeferrable <> expected\.is_deferrable/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /actual\.tginitdeferred <> expected\.is_initially_deferred/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /actual\.tgqual IS NOT NULL/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /actual\.tgattr::text <> ''/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /actual\.tgnargs <> 0/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /octet_length\(actual\.tgargs\) <> 0/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /pg_get_triggerdef\(actual\.oid\)/);
+  assert.ok(NEW_PROJECT_REQUIRED_TRIGGERS.every(([, , , , , , , definition]) => (
+    /^CREATE (?:CONSTRAINT )?TRIGGER /.test(definition)
+  )));
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /actual\.prorettype <> 'trigger'::regtype/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /actual\.prosecdef IS NOT FALSE/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /actual\.prosrc/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /actual\.indisvalid IS NOT TRUE/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /actual\.indisready IS NOT TRUE/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /actual\.indislive IS NOT TRUE/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /actual\.indoption/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /has_table_privilege/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /has_sequence_privilege/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /has_function_privilege/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /aclexplode/);
+  assert.match(NEW_PROJECT_SCHEMA_READINESS_SQL, /SELECT current_user AS role_name/);
+  assert.doesNotMatch(NEW_PROJECT_SCHEMA_READINESS_SQL, /current_setting\('peakos\.app_role'/);
+  assert.doesNotMatch(
+    stripSqlStringLiterals(NEW_PROJECT_SCHEMA_READINESS_SQL),
+    /\b(?:CREATE\s+(?:TABLE|INDEX|TRIGGER|FUNCTION)|ALTER\s+TABLE|DROP\s+(?:TABLE|INDEX|TRIGGER|FUNCTION)|INSERT\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM|GRANT\s+)/i,
+  );
 
   assert.deepEqual(newProjectSchemaReadiness({ ready: true, missing_requirements: [] }), { ready: true, missing: [] });
   const missing = newProjectSchemaReadiness({
@@ -85,7 +170,7 @@ test('portfolio visibility is server-injected and does not expand an ordinary Pe
     canReadWorkspacePortfolio: true,
   }), { allowed: true, scope: 'portfolio' });
   assert.deepEqual(newProjectReadDecision({ isProjectMember: true }), { allowed: true, scope: 'project' });
-  assert.deepEqual(newProjectReadDecision({ isAssignee: true }), { allowed: true, scope: 'project' });
+  assert.equal(newProjectReadDecision({ isAssignee: true }).code, 'NEW_PROJECT_READ_FORBIDDEN');
   assert.equal(newProjectReadDecision({ preview: true, isPortfolioViewer: true }).code, 'NEW_PROJECT_PREVIEW_DATA_HIDDEN');
 });
 
@@ -303,12 +388,22 @@ test('operator migration creates six new tables without legacy copies and enforc
   assert.deepEqual(NEW_PROJECT_PROJECT_STATUSES, ['active', 'completed', 'archived']);
 });
 
-test('operator migration grants the configurable runtime role only required DML and sequence privileges', () => {
+test('operator migration resets PUBLIC/runtime ACLs to exact least privilege without owner fallback', () => {
   assert.match(migration, /current_setting\('peakos\.app_role', TRUE\)/i);
   assert.match(migration, /rolname = 'calendar_user'/i);
-  assert.match(migration, /GRANT SELECT, INSERT, UPDATE ON TABLE %I TO %I/i);
-  assert.match(migration, /GRANT SELECT, INSERT ON TABLE peakos_structured_project_history TO %I/i);
-  assert.match(migration, /GRANT USAGE, SELECT ON SEQUENCE peakos_structured_project_history_id_seq/i);
+  assert.match(migration, /REVOKE ALL PRIVILEGES ON TABLE public\.%I FROM PUBLIC, %I/i);
+  assert.match(migration, /GRANT SELECT, INSERT, UPDATE ON TABLE public\.%I TO %I/i);
+  assert.match(migration, /REVOKE ALL PRIVILEGES ON TABLE public\.peakos_structured_project_history FROM PUBLIC, %I/i);
+  assert.match(migration, /GRANT SELECT, INSERT ON TABLE public\.peakos_structured_project_history TO %I/i);
+  assert.match(migration, /REVOKE ALL PRIVILEGES ON SEQUENCE public\.peakos_structured_project_history_id_seq FROM PUBLIC, %I/i);
+  assert.match(migration, /GRANT USAGE ON SEQUENCE public\.peakos_structured_project_history_id_seq TO %I/i);
+  assert.match(migration, /REVOKE ALL PRIVILEGES ON FUNCTION %s FROM PUBLIC, %I/i);
+  assert.match(migration, /has_table_privilege\([\s\S]*'TRUNCATE'/i);
+  assert.match(migration, /has_sequence_privilege\([\s\S]*'UPDATE'/i);
+  assert.match(migration, /has_function_privilege\(application_role, function_signature, 'EXECUTE'\)/i);
+  assert.doesNotMatch(migration, /application_role\s*:=\s*current_user/i);
+  assert.doesNotMatch(migration, /GRANT\s+EXECUTE/i);
+  assert.doesNotMatch(migration, /GRANT\s+USAGE,\s*SELECT\s+ON\s+SEQUENCE/i);
   assert.doesNotMatch(migration, /GRANT[^;]*\bDELETE\b/i);
   assert.doesNotMatch(migration, /ALTER\s+(?:TABLE|SEQUENCE)[\s\S]{0,100}\sOWNER\s+TO/i);
 });

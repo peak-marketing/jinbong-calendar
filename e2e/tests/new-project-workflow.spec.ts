@@ -431,7 +431,12 @@ async function installApi(page: Page, fixture: NewProjectFixture) {
       const assignee = (project.members || [])
         .find((member: any) => String(member.uid) === String(body?.assigneeUid));
       if (!assignee) return send({ code: 'NEW_PROJECT_ASSIGNEE_NOT_MEMBER', error: '프로젝트 팀원만 배정할 수 있습니다.' }, 400);
-      const assignedBy = { uid: user.uid, name: user.name };
+      const assignedBy = (project.members || [])
+        .find((member: any) => String(member.uid) === String(body?.assignedByUid));
+      if (!assignedBy) return send({ code: 'NEW_PROJECT_ASSIGNER_NOT_MEMBER', error: '프로젝트 팀원만 지시자로 선택할 수 있습니다.' }, 400);
+      if (String(assignedBy.uid) === String(assignee.uid)) {
+        return send({ code: 'NEW_PROJECT_ASSIGNER_ASSIGNEE_CONFLICT', error: '업무 지시자와 담당자는 서로 달라야 합니다.' }, 400);
+      }
       const task = {
         id: `${project.id}-task-${(small.tasks || []).length + 1}`,
         title: String(body?.title || ''),
@@ -441,7 +446,7 @@ async function installApi(page: Page, fixture: NewProjectFixture) {
         workflowVersion: 1,
         assignedBy,
         assignee,
-        reviewer: String(assignee.uid) === String(user.uid) ? { ...project.lead } : assignedBy,
+        reviewer: { uid: assignedBy.uid, name: assignedBy.name },
         revisionReason: '',
         history: [],
         capabilities: taskCapabilities('todo'),
@@ -460,16 +465,21 @@ async function installApi(page: Page, fixture: NewProjectFixture) {
       if (Number(body?.expectedVersion) !== Number(task.workflowVersion)) {
         return send({ code: 'NEW_PROJECT_TASK_VERSION_CONFLICT', error: '다른 사용자가 먼저 처리했습니다.' }, 409);
       }
-      const reassigned = body?.assigneeUid !== undefined
-        && String(body.assigneeUid) !== String(task.assignee?.uid || '');
-      if (reassigned) {
-        const assignee = (project.members || []).find((member: any) => String(member.uid) === String(body.assigneeUid));
+      const nextAssigneeUid = body?.assigneeUid === undefined ? task.assignee?.uid : body.assigneeUid;
+      const nextAssignerUid = body?.assignedByUid === undefined ? task.assignedBy?.uid : body.assignedByUid;
+      const assignmentChanged = String(nextAssigneeUid || '') !== String(task.assignee?.uid || '')
+        || String(nextAssignerUid || '') !== String(task.assignedBy?.uid || '');
+      if (assignmentChanged) {
+        const assignee = (project.members || []).find((member: any) => String(member.uid) === String(nextAssigneeUid));
+        const assignedBy = (project.members || []).find((member: any) => String(member.uid) === String(nextAssignerUid));
         if (!assignee) return send({ code: 'NEW_PROJECT_ASSIGNEE_NOT_MEMBER', error: '프로젝트 구성원만 배정할 수 있습니다.' }, 400);
+        if (!assignedBy) return send({ code: 'NEW_PROJECT_ASSIGNER_NOT_MEMBER', error: '프로젝트 구성원만 지시자로 선택할 수 있습니다.' }, 400);
+        if (String(assignedBy.uid) === String(assignee.uid)) {
+          return send({ code: 'NEW_PROJECT_ASSIGNER_ASSIGNEE_CONFLICT', error: '업무 지시자와 담당자는 서로 달라야 합니다.' }, 400);
+        }
         task.assignee = { uid: assignee.uid, name: assignee.name };
-        task.assignedBy = { uid: user.uid, name: user.name };
-        task.reviewer = String(assignee.uid) === String(user.uid)
-          ? { ...project.lead }
-          : { uid: user.uid, name: user.name };
+        task.assignedBy = { uid: assignedBy.uid, name: assignedBy.name };
+        task.reviewer = { uid: assignedBy.uid, name: assignedBy.name };
         task.status = 'todo';
       }
       if (body?.title !== undefined) task.title = String(body.title);
@@ -564,7 +574,41 @@ async function openNewProjects(page: Page) {
   await expect(page.locator('#newProjectsView')).toBeVisible();
 }
 
+async function expandAllStructuredHierarchy(page: Page) {
+  const expand = page.locator('[data-structured-hierarchy-expand-all]');
+  await expect(expand).toBeVisible();
+  await expand.click();
+}
+
 test.describe('신규 프로젝트 계층·검토 workflow', () => {
+  test('프로젝트 알림 링크가 워크스페이스 안에서 대상 업무를 열고 사용한 query만 정리한다', async ({ page }) => {
+    const projectId = '11111111-1111-4111-8111-111111111111';
+    const taskId = '22222222-2222-4222-8222-222222222222';
+    const project = makeProject({ id: projectId, name: '알림 연결 프로젝트' });
+    project.mediumCategories[0].smallCategories[0].tasks[0].id = taskId;
+    const fixture: NewProjectFixture = {
+      calls: [],
+      projectsByWorkspace: { peak: [project] },
+      capabilities: { viewPortfolio: true, createProject: true },
+    };
+    await setup(
+      page,
+      fixture,
+      `/os/w/peak/?view=new-projects&projectId=${projectId}&taskId=${taskId}&keep=1#notification`,
+    );
+
+    await expect(page.locator('#newProjectsView')).toBeVisible();
+    await expect(page.locator('[data-structured-project-detail]')).toContainText('알림 연결 프로젝트');
+    const task = page.locator(`[data-work-item-id="${taskId}"]`);
+    await expect(task).toBeVisible();
+    await expect(task).toBeFocused();
+    await expect(page.locator('[data-structured-medium-toggle]')).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('[data-structured-small-toggle]')).toHaveAttribute('aria-expanded', 'true');
+    await expect(page).toHaveURL(/\/os\/w\/peak\/\?keep=1#notification$/);
+    expect(fixture.calls.some(call => call.method === 'GET'
+      && call.path.endsWith(`/new-projects/${projectId}`))).toBe(true);
+  });
+
   test('기존 프로젝트와 별도 탭에서 프로젝트의 중분류 > 소분류 > 체크리스트와 지시 계보를 표시한다', async ({ page }) => {
     const project = makeProject();
     const fixture: NewProjectFixture = {
@@ -580,7 +624,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await page.locator('[data-structured-project-open="new-project-1"]').click();
 
     const detail = page.locator('[data-structured-project-detail]');
-    await expect(detail).not.toContainText('프로젝트 대분류');
+    await expect(detail.locator('.structured-root-label')).toHaveText('대분류');
     await expect(detail.locator('.structured-hierarchy-guide')).toHaveCount(0);
     await expect(detail).toContainText('프로젝트 팀원 3명');
     await expect(detail).not.toContainText('같이 보는 구성원');
@@ -635,11 +679,33 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(medium.locator('[data-structured-medium-manager]')).toContainText('중분류 담당자');
     await expect(medium.locator('[data-structured-medium-manager]')).toContainText('업무담당자 이사원');
     await expect(medium.locator('[data-structured-medium-manager]')).toContainText('사원');
-    await expect(page.locator('[data-work-subcategory-id="new-project-1-small-1"]')).toContainText('광고 시안');
+    const mediumToggle = medium.locator('[data-structured-medium-toggle]');
+    const small = page.locator('[data-work-subcategory-id="new-project-1-small-1"]');
     const task = page.locator('[data-work-item-id="new-project-1-task-1"]');
+    await expect(mediumToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(mediumToggle).toHaveAttribute('aria-controls', 'structured-medium-body-new-project-1-medium-1');
+    await expect(page.locator('#structured-medium-body-new-project-1-medium-1')).toHaveAttribute('hidden', '');
+    await expect(small).toBeHidden();
+    await expect(task).toBeHidden();
+    await mediumToggle.click();
+    await expect(mediumToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(small).toBeVisible();
+    const smallToggle = small.locator('[data-structured-small-toggle]');
+    await expect(smallToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(smallToggle).toHaveAttribute('aria-controls', 'structured-small-body-new-project-1-small-1');
+    await expect(page.locator('#structured-small-body-new-project-1-small-1')).toHaveAttribute('hidden', '');
+    await expect(task).toBeHidden();
+    await smallToggle.click();
+    await expect(smallToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(small).toContainText('광고 시안');
+    await expect(task).toBeVisible();
     await expect(task).toContainText('메인 캠페인 시안 제작');
     await expect(task).toContainText('업무지시자 김팀장');
     await expect(task).toContainText('업무담당자 이사원');
+    await page.locator('[data-structured-hierarchy-collapse-all]').click();
+    await expect(mediumToggle).toHaveAttribute('aria-expanded', 'false');
+    await expandAllStructuredHierarchy(page);
+    await expect(page.locator('[data-work-item-id="new-project-1-task-1"]')).toBeVisible();
 
     await openMainCluster(page);
     await page.locator('.nav-item[data-view="review"]').click();
@@ -835,6 +901,8 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     const form = page.locator('#structuredTaskForm[data-structured-board-assign-form]');
     await expect(form).toBeVisible();
     await expect(form.locator('input[name="title"]')).toHaveAttribute('required', '');
+    await expect(form.locator('select[name="assignedByUid"]')).toHaveAttribute('required', '');
+    await expect(form.locator('select[name="assignedByUid"]')).toHaveValue('e2e-test-user');
     await expect(form.locator('select[name="assigneeUid"]')).toHaveAttribute('required', '');
     await expect(form.locator('input[name="dueDate"]')).toHaveAttribute('required', '');
 
@@ -846,7 +914,9 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
       await form.locator('input[name="title"]').fill('검토자가 자기 자신인 잘못된 배정');
       await form.locator('select[name="assigneeUid"]').selectOption('e2e-test-user');
       await form.locator('input[name="dueDate"]').fill('2026-08-27');
-      await submit.click();
+      // The form now blocks a same-person instructor/assignee pair before a
+      // request can be submitted, so the safe state is a disabled action.
+      await expect(submit).toBeDisabled();
       expect(fixture.calls.filter(call => call.method === 'POST' && call.path.endsWith('/tasks'))).toHaveLength(0);
       await expect(form).toBeVisible();
       await form.locator('input[name="title"]').fill('');
@@ -881,6 +951,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
       description: '필터로 선택한 분류에 바로 배정합니다.',
       dueDate: '2026-08-28',
       assigneeUid: 'worker-uid',
+      assignedByUid: 'e2e-test-user',
     });
   });
 
@@ -938,6 +1009,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
       workspace: 'peak',
       body: {
         title: '랜딩 페이지 문구 검수', description: '', dueDate: '2026-08-29', assigneeUid: 'viewer-uid',
+        assignedByUid: 'e2e-test-user',
       },
     });
     const card = page.locator('[data-structured-board-column="todo"]')
@@ -1080,8 +1152,8 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
 
     await page.locator('[data-structured-project-create]').click();
     const createForm = page.locator('#structuredProjectForm');
-    await expect(createForm.getByText('프로젝트명', { exact: true })).toBeVisible();
-    await expect(createForm).not.toContainText('대분류');
+    await expect(createForm.getByText('대분류명', { exact: true })).toBeVisible();
+    await expect(createForm).not.toContainText('프로젝트명');
     await expect(createForm.getByText('프로젝트 담당자', { exact: true })).toBeVisible();
     await expect(createForm.getByText('프로젝트 팀원', { exact: true })).toBeVisible();
     await expect(createForm.getByText('같이 볼 구성원', { exact: true })).toHaveCount(0);
@@ -1163,6 +1235,11 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await small.locator('[data-structured-task-create]').click();
     const taskForm = page.locator('#structuredTaskForm');
     await expect(taskForm).toContainText('업무 지시자');
+    // Firebase auth in the shared browser stub uses e2e-test-user while this
+    // fixture's canonical project lead is lead-uid. Select the server-backed
+    // active project member explicitly instead of relying on an impossible
+    // mixed-identity default.
+    await taskForm.locator('select[name="assignedByUid"]').selectOption('lead-uid');
     await taskForm.locator('input[name="title"]').fill('모바일 광고 시안 제작');
     await taskForm.locator('select[name="assigneeUid"]').selectOption('worker-uid');
     await taskForm.locator('input[name="dueDate"]').fill('2026-08-31');
@@ -1185,11 +1262,11 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     ]);
     expect(writes[2]?.body).toEqual({
       title: '모바일 광고 시안 제작', description: '소분류 기준으로 업무를 배정합니다.',
-      dueDate: '2026-08-31', assigneeUid: 'worker-uid',
+      dueDate: '2026-08-31', assigneeUid: 'worker-uid', assignedByUid: 'lead-uid',
     });
   });
 
-  test('업무 편집은 담당자 유지 시 원 지시·검토 계보를 보존하고 재배정 시 현재 지시자로 갱신한다', async ({ page }) => {
+  test('업무 편집은 원 지시자를 보존하고 활성 프로젝트 팀원 중 새 지시자를 명시적으로 선택한다', async ({ page }) => {
     const project = makeProject({ id: 'assignment-project', name: '업무 계보 프로젝트', canManage: true });
     project.members.push({ uid: 'e2e-test-user', name: '김대호' });
     const task = findTask(project, 'assignment-project-task-1');
@@ -1209,10 +1286,12 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await setup(page, fixture);
     await openNewProjects(page);
     await page.locator('[data-structured-project-open="assignment-project"]').click();
+    await expandAllStructuredHierarchy(page);
 
     const taskRow = page.locator('[data-work-item-id="assignment-project-task-1"]');
     await taskRow.locator('[data-work-item-edit]').click();
     let form = page.locator('#structuredTaskForm');
+    await expect(form.locator('select[name="assignedByUid"]')).toHaveValue('lead-uid');
     await expect(form.locator('[data-structured-assigner-preview]')).toHaveText('업무지시자 김팀장');
     await expect(form.locator('[data-structured-reviewer-preview]')).toHaveText('업무지시자 김팀장');
     await form.locator('textarea[name="description"]').fill('기존 담당자를 유지한 설명 수정');
@@ -1224,39 +1303,39 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     form = page.locator('#structuredTaskForm');
     await form.locator('select[name="assigneeUid"]').selectOption('viewer-uid');
     await expect(form.locator('[data-structured-assignee-preview]')).toHaveText('공동구성원 박대리');
-    await expect(form.locator('[data-structured-assigner-preview]')).toHaveText('김대호');
-    await expect(form.locator('[data-structured-reviewer-preview]')).toHaveText('김대호');
+    await expect(form.locator('[data-structured-assigner-preview]')).toHaveText('업무지시자 김팀장');
+    await expect(form.locator('[data-structured-reviewer-preview]')).toHaveText('업무지시자 김팀장');
     await form.getByRole('button', { name: '업무 저장' }).click();
     const lineage = taskRow.locator('.structured-assignment-flow');
-    await expect(lineage).toContainText('김대호');
+    await expect(lineage).toContainText('업무지시자 김팀장');
     await expect(lineage).toContainText('공동구성원 박대리');
 
     await taskRow.locator('[data-work-item-edit]').click();
     form = page.locator('#structuredTaskForm');
-    await form.locator('select[name="assigneeUid"]').selectOption('e2e-test-user');
-    await expect(form.locator('[data-structured-assignee-preview]')).toHaveText('김대호');
+    await form.locator('select[name="assignedByUid"]').selectOption('e2e-test-user');
+    await expect(form.locator('[data-structured-assignee-preview]')).toHaveText('공동구성원 박대리');
     await expect(form.locator('[data-structured-assigner-preview]')).toHaveText('김대호');
-    await expect(form.locator('[data-structured-reviewer-preview]')).toHaveText('업무지시자 김팀장');
+    await expect(form.locator('[data-structured-reviewer-preview]')).toHaveText('김대호');
     await form.getByRole('button', { name: '업무 저장' }).click();
-    await expect(taskRow.locator('.structured-assignment-flow')).toContainText('업무지시자 김팀장');
+    await expect(taskRow.locator('.structured-assignment-flow')).toContainText('김대호');
 
     const updates = fixture.calls.filter(call => call.method === 'PUT'
       && call.path.endsWith('/new-projects/assignment-project/tasks/assignment-project-task-1'));
     expect(updates.map(call => call.body)).toEqual([
       {
         title: '메인 캠페인 시안 제작', description: '기존 담당자를 유지한 설명 수정',
-        dueDate: '2026-08-20', assigneeUid: 'worker-uid', expectedVersion: 7,
+        dueDate: '2026-08-20', assigneeUid: 'worker-uid', assignedByUid: 'lead-uid', expectedVersion: 7,
       },
       {
         title: '메인 캠페인 시안 제작', description: '기존 담당자를 유지한 설명 수정',
-        dueDate: '2026-08-20', assigneeUid: 'viewer-uid', expectedVersion: 8,
+        dueDate: '2026-08-20', assigneeUid: 'viewer-uid', assignedByUid: 'lead-uid', expectedVersion: 8,
       },
       {
         title: '메인 캠페인 시안 제작', description: '기존 담당자를 유지한 설명 수정',
-        dueDate: '2026-08-20', assigneeUid: 'e2e-test-user', expectedVersion: 9,
+        dueDate: '2026-08-20', assigneeUid: 'viewer-uid', assignedByUid: 'e2e-test-user', expectedVersion: 9,
       },
     ]);
-    expect(updates.every(call => call.body.assignedByUid === undefined && call.body.reviewerUid === undefined)).toBe(true);
+    expect(updates.every(call => call.body.reviewerUid === undefined)).toBe(true);
   });
 
   test('일반 구성원은 참여 프로젝트만 보고 생성·구조 변경 없이 본인 체크리스트를 제출한다', async ({ page }) => {
@@ -1275,6 +1354,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.getByText('내 참여 프로젝트', { exact: false }).first()).toBeVisible();
     await expect(page.locator('[data-structured-project-create]')).toHaveCount(0);
     await page.locator('[data-structured-project-open="member-project"]').click();
+    await expandAllStructuredHierarchy(page);
     await expect(page.locator('[data-structured-project-edit]')).toHaveCount(0);
     await expect(page.locator('[data-structured-project-lead-edit]')).toHaveCount(0);
     await expect(page.locator('[data-structured-medium-create]')).toHaveCount(0);
@@ -1294,6 +1374,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await setup(page, fixture);
     await openNewProjects(page);
     await page.locator('[data-structured-project-open="workflow-project"]').click();
+    await expandAllStructuredHierarchy(page);
 
     const task = page.locator('[data-work-item-id="workflow-project-task-1"]');
     await task.locator('[data-work-item-submit]').first().click();
@@ -1420,6 +1501,13 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await setup(page, fixture);
     await openNewProjects(page);
     await page.locator('[data-structured-project-open="mobile-board-assign-project"]').click();
+    const hierarchyControlsFit = await page.locator(
+      '[data-structured-medium-toggle], [data-structured-hierarchy-expand-all], [data-structured-hierarchy-collapse-all]',
+    ).evaluateAll(elements => elements.every(element => {
+      const rect = element.getBoundingClientRect();
+      return rect.height >= 44 && rect.left >= 0 && rect.right <= window.innerWidth;
+    }));
+    expect(hierarchyControlsFit).toBe(true);
     await page.locator('[data-structured-task-view="board"]').click();
 
     const assignButton = page.locator('[data-structured-board-assign]');
@@ -1478,6 +1566,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('[data-structured-project-id="daegu-project"]')).toBeVisible();
     await expect(page.getByText('본사 비공개 프로젝트', { exact: false })).toHaveCount(0);
     await page.locator('[data-structured-project-open="daegu-project"]').click();
+    await expandAllStructuredHierarchy(page);
     await expect(page.locator('[data-structured-medium-manager]')).toContainText('업무담당자 이사원');
     await expect(page.locator('[data-structured-medium-manager]')).toContainText('사원');
     await expect(page.locator('[data-work-category-id]')).toBeVisible();

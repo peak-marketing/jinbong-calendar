@@ -114,14 +114,13 @@ test('list and detail reads bind every relation to the authenticated workspace a
   assert.match(list, /mine\.workspace_id = p\.workspace_id/);
   assert.match(list, /mine\.project_id = p\.id/);
   assert.match(list, /mine\.user_uid = \$2/);
-  assert.match(list, /mine_task\.workspace_id = p\.workspace_id/);
-  assert.match(list, /mine_task\.assignee_uid = \$2/);
+  assert.doesNotMatch(list, /mine_task/);
   assert.doesNotMatch(list, /req\.(?:query|body).*(?:uid|workspace)/);
 
   const access = between(routesSource, 'async function loadProjectAccess', 'function assertCanManage');
   assert.match(access, /p\.workspace_id = \$1 AND p\.id = \$2/);
   assert.match(access, /member\.workspace_id = p\.workspace_id/);
-  assert.match(access, /task\.workspace_id = p\.workspace_id/);
+  assert.doesNotMatch(access, /AS is_assignee|task\.assignee_uid/);
   assert.match(access, /\[context\.workspaceId, projectId, context\.uid\]/);
 });
 
@@ -191,6 +190,39 @@ test('중분류 managerUid는 실제 담당자의 manageProject 경계와 프로
   assert.match(projectUpdate, /NEW_PROJECT_MEMBER_MANAGES_MEDIUM/);
 });
 
+test('새 프로젝트 역할 지정은 workspace membership 잠금으로 소속 비활성화와 직렬화된다', () => {
+  const resolver = between(
+    routesSource,
+    'async function resolveWorkspaceUsers',
+    'async function resolveMediumManager',
+  );
+  assert.match(resolver, /membership\.active = TRUE/);
+  assert.match(resolver, /membership\.role <> 'oversight'/);
+  assert.match(resolver, /membership\.permissions ->> 'projects'/);
+  assert.match(resolver, /JOIN peakos_workspaces workspace/);
+  assert.match(resolver, /workspace\.active = TRUE/);
+  assert.match(resolver, /u\.approved = TRUE/);
+  assert.match(resolver, /COALESCE\(u\.is_active, TRUE\) = TRUE/);
+  assert.match(resolver, /COALESCE\(u\.chat_only, FALSE\) = FALSE/);
+  assert.match(resolver, /COALESCE\(u\.external_calendar_only, FALSE\) = FALSE/);
+  assert.match(resolver, /FOR KEY SHARE OF u, membership/);
+
+  const recipient = between(
+    routesSource,
+    'async function findActiveProjectNotificationRecipient',
+    'async function safeNotifyProjectMember',
+  );
+  assert.match(recipient, /lockWorkspaceMembership = false/);
+  assert.match(recipient, /FOR KEY SHARE OF workspace_member, project_member/);
+
+  const review = between(
+    routesSource,
+    'app.post(`${NEW_PROJECT_BASE_PATH}/:id/tasks/:taskId/review`',
+    '\n}\n\nmodule.exports',
+  );
+  assert.equal((review.match(/\{ lockWorkspaceMembership: true \}/g) || []).length, 2);
+});
+
 test('project hierarchy, assignee membership and task mutations all reject cross-parent IDs', () => {
   const createTask = between(
     routesSource,
@@ -199,7 +231,7 @@ test('project hierarchy, assignee membership and task mutations all reject cross
   );
   assert.match(createTask, /small\.workspace_id = \$1 AND small\.project_id = \$2/);
   assert.match(createTask, /small\.medium_category_id = \$3 AND small\.id = \$4/);
-  assert.match(createTask, /WHERE workspace_id = \$1 AND project_id = \$2 AND user_uid = \$3 AND active = TRUE/);
+  assert.match(createTask, /WHERE workspace_id = \$1 AND project_id = \$2[\s\S]*user_uid = ANY\(\$3::text\[\]\) AND active = TRUE/);
   assert.match(createTask, /NEW_PROJECT_HIERARCHY_NOT_FOUND/);
   assert.match(createTask, /NEW_PROJECT_ASSIGNEE_NOT_MEMBER/);
 
@@ -213,16 +245,38 @@ test('project hierarchy, assignee membership and task mutations all reject cross
   assert.match(updateTask, /NEW_PROJECT_TASK_EDIT_LOCKED/);
 });
 
-test('assigned-by lineage is server-authored and the persisted reviewer receives review decisions', () => {
+test('selected instructor UID is server-validated, canonically named, and persisted as the reviewer', () => {
+  const normalizers = between(
+    routesSource,
+    'function normalizeTaskCreateBody',
+    'function mapMember',
+  );
+  assert.match(normalizers, /assignedByUid/);
+  assert.match(normalizers, /normalizeNewProjectUid\(body\.assignedByUid, '업무 지시자'\)/);
+
   const createTask = between(
     routesSource,
     'app.post(`${NEW_PROJECT_BASE_PATH}/:id/mediums/:mediumId/smalls/:smallId/tasks`',
     'app.put(`${NEW_PROJECT_BASE_PATH}/:id/tasks/:taskId`',
   );
-  assert.match(createTask, /assignedByUid: context\.uid/);
-  assert.match(createTask, /assignedByName: context\.name/);
+  assert.match(createTask, /body\.assignedByUid/);
+  assert.match(createTask, /NEW_PROJECT_ASSIGNER_NOT_MEMBER/);
+  assert.match(createTask, /assignedByUid: assigner\.uid/);
+  assert.match(createTask, /assignedByName: assigner\.name/);
   assert.match(createTask, /reviewer\.reviewerUid/);
-  assert.doesNotMatch(createTask, /req\.body\.(?:assignedBy|assigned_by|reviewer)/);
+  assert.doesNotMatch(createTask, /assignedByUid: context\.uid/);
+  assert.doesNotMatch(createTask, /req\.body\.(?:assignedByName|assigned_by|reviewer)/);
+
+  const updateTask = between(
+    routesSource,
+    'app.put(`${NEW_PROJECT_BASE_PATH}/:id/tasks/:taskId`',
+    'app.delete(`${NEW_PROJECT_BASE_PATH}/:id/tasks/:taskId`',
+  );
+  assert.match(updateTask, /let assignedByUid = task\.assigned_by_uid/);
+  assert.match(updateTask, /body\.assignedByUid !== undefined/);
+  assert.match(updateTask, /NEW_PROJECT_ASSIGNER_NOT_MEMBER/);
+  assert.match(updateTask, /assignedByUid = assigner\.uid/);
+  assert.match(updateTask, /reviewerUid = reviewer\.reviewerUid/);
 
   const review = between(
     routesSource,

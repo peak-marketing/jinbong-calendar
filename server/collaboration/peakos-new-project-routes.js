@@ -112,7 +112,7 @@ function normalizeCategoryBody(body, { update = false, level = 'small' } = {}) {
 function normalizeTaskCreateBody(body) {
   validationValue(normalizeStrictObject(
     body,
-    ['title', 'description', 'dueDate', 'assigneeUid', 'sortOrder'],
+    ['title', 'description', 'dueDate', 'assigneeUid', 'assignedByUid', 'sortOrder'],
     '체크리스트 업무',
   ));
   return {
@@ -122,6 +122,12 @@ function normalizeTaskCreateBody(body) {
     })),
     dueDate: validationValue(normalizeNewProjectDate(body.dueDate)),
     assigneeUid: validationValue(normalizeNewProjectUid(body.assigneeUid, '업무 담당자')),
+    // assignedByUid is optional only for a cached pre-rollout client. The
+    // current UI always sends an explicit instructor; omission falls back to
+    // the authenticated actor below without ever trusting a client name.
+    assignedByUid: body.assignedByUid === undefined
+      ? undefined
+      : validationValue(normalizeNewProjectUid(body.assignedByUid, '업무 지시자')),
     sortOrder: validationValue(normalizeNewProjectSortOrder(body.sortOrder)),
   };
 }
@@ -129,7 +135,7 @@ function normalizeTaskCreateBody(body) {
 function normalizeTaskUpdateBody(body) {
   validationValue(normalizeStrictObject(
     body,
-    ['title', 'description', 'dueDate', 'assigneeUid', 'sortOrder', 'expectedVersion'],
+    ['title', 'description', 'dueDate', 'assigneeUid', 'assignedByUid', 'sortOrder', 'expectedVersion'],
     '체크리스트 업무 수정',
   ));
   const result = {
@@ -146,6 +152,9 @@ function normalizeTaskUpdateBody(body) {
   if (body.dueDate !== undefined) result.dueDate = validationValue(normalizeNewProjectDate(body.dueDate));
   if (body.assigneeUid !== undefined) {
     result.assigneeUid = validationValue(normalizeNewProjectUid(body.assigneeUid, '업무 담당자'));
+  }
+  if (body.assignedByUid !== undefined) {
+    result.assignedByUid = validationValue(normalizeNewProjectUid(body.assignedByUid, '업무 지시자'));
   }
   if (body.sortOrder !== undefined) result.sortOrder = validationValue(normalizeNewProjectSortOrder(body.sortOrder));
   if (Object.keys(result).length === 1) {
@@ -175,12 +184,15 @@ function mapMediumManager(row) {
 
 function taskCapabilities(task, context) {
   const mutable = !context.readOnly && context.canManage && !['review', 'done'].includes(task.status);
+  const assignmentMutable = !context.readOnly && context.canManage && task.status !== 'done';
   const isAssignee = String(task.assignee_uid) === String(context.uid);
   const isReviewer = String(task.reviewer_uid) === String(context.uid);
   const canReview = !context.readOnly && task.status === 'review' && isReviewer;
   return {
     edit: mutable,
-    reassign: mutable,
+    // A manager must be able to recover a review that can no longer reach its
+    // stored reviewer after membership or project access was revoked.
+    reassign: assignmentMutable,
     submit: !context.readOnly && isAssignee && ['todo', 'doing', 'revision'].includes(task.status),
     approve: canReview,
     requestRevision: canReview,
@@ -317,9 +329,16 @@ async function resolveWorkspaceUsers(db, workspaceId, uids) {
         AND membership.workspace_id = $1
         AND membership.active = TRUE
         AND membership.role <> 'oversight'
+        AND COALESCE(membership.permissions ->> 'projects', 'none') IN ('read', 'write')
+       JOIN peakos_workspaces workspace
+         ON workspace.id = membership.workspace_id
+        AND workspace.active = TRUE
       WHERE u.uid = ANY($2::text[])
         AND u.approved = TRUE
-        AND COALESCE(u.is_active, TRUE) = TRUE`,
+        AND COALESCE(u.is_active, TRUE) = TRUE
+        AND COALESCE(u.chat_only, FALSE) = FALSE
+        AND COALESCE(u.external_calendar_only, FALSE) = FALSE
+      FOR KEY SHARE OF u, membership`,
     [workspaceId, unique],
   );
   const byUid = new Map(result.rows.map(row => [String(row.uid), { uid: String(row.uid), name: String(row.name || '사용자') }]));
@@ -356,13 +375,7 @@ async function loadProjectAccess(db, context, projectId, { lock = false } = {}) 
                  AND member.project_id = p.id
                  AND member.user_uid = $3
                  AND member.active = TRUE
-            ) AS is_project_member,
-            EXISTS (
-              SELECT 1 FROM peakos_structured_project_tasks task
-               WHERE task.workspace_id = p.workspace_id
-                 AND task.project_id = p.id
-                 AND task.assignee_uid = $3
-            ) AS is_assignee
+            ) AS is_project_member
        FROM peakos_structured_projects p
       WHERE p.workspace_id = $1 AND p.id = $2
       ${lock ? 'FOR UPDATE' : ''}`,
@@ -379,7 +392,6 @@ async function loadProjectAccess(db, context, projectId, { lock = false } = {}) 
     canReadWorkspacePortfolio: context.isNonPeakManager,
     isProjectLead: isLead,
     isProjectMember: project.is_project_member === true,
-    isAssignee: project.is_assignee === true,
   }));
   const isManagerMember = context.isNonPeakManager
     && project.is_project_member === true;
@@ -450,6 +462,77 @@ async function safeNotify(notifyUser, uid, title, body, data) {
     await notifyUser(uid, title, body, data);
   } catch (_) {
     // A push delivery failure must not roll back a committed workflow action.
+  }
+}
+
+function structuredProjectNotificationLink(context, projectId, taskId = '') {
+  const explicitSlug = String(context?.workspace?.slug || '').trim().toLowerCase();
+  const derivedSlug = String(context?.workspaceId || '')
+    .replace(/^ws_/, '')
+    .replaceAll('_', '-');
+  const workspaceSlug = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(explicitSlug)
+    ? explicitSlug
+    : (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(derivedSlug) ? derivedSlug : 'peak');
+  const query = new URLSearchParams({ view: 'new-projects', projectId: String(projectId) });
+  if (taskId) query.set('taskId', String(taskId));
+  return `/os/w/${encodeURIComponent(workspaceSlug)}/?${query.toString()}`;
+}
+
+async function findActiveProjectNotificationRecipient(
+  db,
+  workspaceId,
+  projectId,
+  uid,
+  { lockWorkspaceMembership = false } = {},
+) {
+  if (!uid) return null;
+  const result = await db.query(
+    `SELECT user_row.uid, user_row.name
+       FROM users user_row
+       JOIN peakos_workspace_memberships workspace_member
+         ON workspace_member.user_uid = user_row.uid
+        AND workspace_member.workspace_id = $1
+        AND workspace_member.active = TRUE
+        AND workspace_member.role <> 'oversight'
+        AND COALESCE(workspace_member.permissions ->> 'projects', 'none') IN ('read', 'write')
+       JOIN peakos_workspaces workspace
+         ON workspace.id = workspace_member.workspace_id
+        AND workspace.active = TRUE
+       JOIN peakos_structured_project_members project_member
+         ON project_member.workspace_id = workspace_member.workspace_id
+        AND project_member.project_id = $2
+        AND project_member.user_uid = workspace_member.user_uid
+        AND project_member.active = TRUE
+      WHERE user_row.uid = $3
+        AND user_row.approved = TRUE
+        AND COALESCE(user_row.is_active, TRUE) = TRUE
+        AND COALESCE(user_row.chat_only, FALSE) = FALSE
+        AND COALESCE(user_row.external_calendar_only, FALSE) = FALSE
+      LIMIT 1
+      ${lockWorkspaceMembership ? 'FOR KEY SHARE OF workspace_member, project_member' : ''}`,
+    [workspaceId, projectId, uid],
+  );
+  const row = result.rows[0];
+  return row ? { uid: String(row.uid), name: String(row.name || '') } : null;
+}
+
+async function safeNotifyProjectMember(
+  db,
+  notifyUser,
+  { workspaceId, projectId, uid, title, body, data },
+) {
+  try {
+    const recipient = await findActiveProjectNotificationRecipient(
+      db, workspaceId, projectId, uid,
+    );
+    if (!recipient) return false;
+    await safeNotify(notifyUser, recipient.uid, title, body, data);
+    return true;
+  } catch (_) {
+    // The workflow mutation has already committed. Recipient lookup and push
+    // delivery are best-effort and must never turn a committed change into a
+    // 500 response that the client could mistakenly retry.
+    return false;
   }
 }
 
@@ -524,11 +607,6 @@ function registerPeakosNewProjectRoutes({
                  WHERE mine.workspace_id = p.workspace_id AND mine.project_id = p.id
                    AND mine.user_uid = $2 AND mine.active = TRUE
               )
-              OR EXISTS (
-                SELECT 1 FROM peakos_structured_project_tasks mine_task
-                 WHERE mine_task.workspace_id = p.workspace_id AND mine_task.project_id = p.id
-                   AND mine_task.assignee_uid = $2
-              )
             )
           ORDER BY CASE p.status WHEN 'active' THEN 0 ELSE 1 END,
                    p.sort_order, p.updated_at DESC, p.id`,
@@ -595,8 +673,16 @@ function registerPeakosNewProjectRoutes({
         metadata: { leadUid, memberUids: allUids },
       });
       await client.query('COMMIT');
-      await safeNotify(notifyUser, leadUid, '신규 프로젝트 담당', `${context.name}님이 "${name}" 프로젝트 담당자로 지정했습니다.`, {
-        kind: 'new-project', newProjectId: id, link: `/os?view=new-projects&projectId=${id}`,
+      await safeNotifyProjectMember(pool, notifyUser, {
+        workspaceId: context.workspaceId,
+        projectId: id,
+        uid: leadUid,
+        title: '신규 프로젝트 담당',
+        body: `${context.name}님이 "${name}" 프로젝트 담당자로 지정했습니다.`,
+        data: {
+          kind: 'new-project', newProjectId: id,
+          link: structuredProjectNotificationLink(context, id),
+        },
       });
       return res.status(201).json({
         project: {
@@ -1171,18 +1257,38 @@ function registerPeakosNewProjectRoutes({
         [context.workspaceId, projectId, mediumId, smallId],
       );
       if (!hierarchy.rows[0]) throw new NewProjectHttpError(404, 'NEW_PROJECT_HIERARCHY_NOT_FOUND', '업무 중·소분류를 찾을 수 없습니다.');
-      const users = await resolveWorkspaceUsers(client, context.workspaceId, [body.assigneeUid]);
-      const member = await client.query(
-        `SELECT 1 FROM peakos_structured_project_members
-          WHERE workspace_id = $1 AND project_id = $2 AND user_uid = $3 AND active = TRUE`,
-        [context.workspaceId, projectId, body.assigneeUid],
+      const selectedAssignerUid = body.assignedByUid || context.uid;
+      if (selectedAssignerUid === body.assigneeUid) {
+        throw new NewProjectHttpError(
+          400,
+          'NEW_PROJECT_ASSIGNER_ASSIGNEE_CONFLICT',
+          '업무 지시자와 담당자는 서로 달라야 합니다.',
+        );
+      }
+      const users = await resolveWorkspaceUsers(
+        client,
+        context.workspaceId,
+        [body.assigneeUid, selectedAssignerUid],
       );
-      if (!member.rows[0]) throw new NewProjectHttpError(400, 'NEW_PROJECT_ASSIGNEE_NOT_MEMBER', '업무 담당자는 프로젝트 구성원이어야 합니다.');
+      const members = await client.query(
+        `SELECT user_uid FROM peakos_structured_project_members
+          WHERE workspace_id = $1 AND project_id = $2
+            AND user_uid = ANY($3::text[]) AND active = TRUE`,
+        [context.workspaceId, projectId, [body.assigneeUid, selectedAssignerUid]],
+      );
+      const activeMemberUids = new Set(members.rows.map(row => String(row.user_uid)));
+      if (!activeMemberUids.has(body.assigneeUid) || !users.has(body.assigneeUid)) {
+        throw new NewProjectHttpError(400, 'NEW_PROJECT_ASSIGNEE_NOT_MEMBER', '업무 담당자는 프로젝트 구성원이어야 합니다.');
+      }
+      if (!activeMemberUids.has(selectedAssignerUid) || !users.has(selectedAssignerUid)) {
+        throw new NewProjectHttpError(400, 'NEW_PROJECT_ASSIGNER_NOT_MEMBER', '업무 지시자는 프로젝트 구성원이어야 합니다.');
+      }
       const assignee = users.get(body.assigneeUid);
+      const assigner = users.get(selectedAssignerUid);
       const reviewer = validationValue(resolveNewProjectReviewer({
         assigneeUid: assignee.uid,
-        assignedByUid: context.uid,
-        assignedByName: context.name,
+        assignedByUid: assigner.uid,
+        assignedByName: assigner.name,
         leadUid: access.project.lead_uid,
         leadName: access.project.lead_name_snapshot,
       }));
@@ -1193,31 +1299,43 @@ function registerPeakosNewProjectRoutes({
             assigned_by_uid, assigned_by_name_snapshot,
             reviewer_uid, reviewer_name_snapshot, reviewer_source,
             due_date, sort_order, created_by_uid, created_by_name_snapshot)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$10,$11)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
          RETURNING *`,
         [
           context.workspaceId, projectId, mediumId, smallId, id,
           body.title, body.description, assignee.uid, assignee.name,
-          context.uid, context.name,
+          assigner.uid, assigner.name,
           reviewer.reviewerUid, reviewer.reviewerName, reviewer.source,
-          body.dueDate, body.sortOrder,
+          body.dueDate, body.sortOrder, context.uid, context.name,
         ],
       );
       await recordHistory(client, {
         context, projectId, entityType: 'task', entityId: id, taskId: id,
         action: 'assigned', toStatus: 'todo', version: 1,
-        metadata: { assigneeUid: assignee.uid, assignedByUid: context.uid, reviewerUid: reviewer.reviewerUid },
+        metadata: {
+          assigneeUid: assignee.uid,
+          assignedByUid: assigner.uid,
+          reviewerUid: reviewer.reviewerUid,
+          registeredByUid: context.uid,
+        },
       });
       await client.query('COMMIT');
       notification = {
         uid: assignee.uid,
         title: '신규 업무 배정',
-        body: `${context.name}님이 "${body.title}" 업무를 배정했습니다.`,
+        body: `${assigner.name}님 지시 · ${context.name}님이 "${body.title}" 업무를 등록했습니다.`,
       };
       const task = inserted.rows[0];
-      await safeNotify(notifyUser, notification.uid, notification.title, notification.body, {
+      await safeNotifyProjectMember(pool, notifyUser, {
+        workspaceId: context.workspaceId,
+        projectId,
+        uid: notification.uid,
+        title: notification.title,
+        body: notification.body,
+        data: {
         kind: 'new-project-task', newProjectId: projectId, taskId: id,
-        link: `/os?view=new-projects&projectId=${projectId}`,
+          link: structuredProjectNotificationLink(context, projectId, id),
+        },
       });
       return res.status(201).json({
         task: mapTask(task, { uid: context.uid, readOnly: false, canManage: true, isLead: access.isLead }, []),
@@ -1253,7 +1371,12 @@ function registerPeakosNewProjectRoutes({
       if (Number(task.version) !== body.expectedVersion) {
         throw new NewProjectHttpError(409, 'NEW_PROJECT_TASK_VERSION_CONFLICT', '다른 사용자가 먼저 업무를 변경했습니다.');
       }
-      if (['review', 'done'].includes(task.status)) {
+      const assignmentTouched = body.assigneeUid !== undefined || body.assignedByUid !== undefined;
+      const nonAssignmentTouched = body.title !== undefined
+        || body.description !== undefined
+        || body.dueDate !== undefined
+        || body.sortOrder !== undefined;
+      if (task.status === 'done' || (task.status === 'review' && (!assignmentTouched || nonAssignmentTouched))) {
         throw new NewProjectHttpError(409, 'NEW_PROJECT_TASK_EDIT_LOCKED', '검토 중이거나 완료된 업무는 수정할 수 없습니다.');
       }
       let assigneeUid = task.assignee_uid;
@@ -1264,32 +1387,66 @@ function registerPeakosNewProjectRoutes({
       let reviewerName = task.reviewer_name_snapshot;
       let reviewerSource = task.reviewer_source;
       const reassigned = body.assigneeUid !== undefined && body.assigneeUid !== task.assignee_uid;
-      if (reassigned) {
-        const users = await resolveWorkspaceUsers(client, context.workspaceId, [body.assigneeUid]);
-        const member = await client.query(
-          `SELECT 1 FROM peakos_structured_project_members
-            WHERE workspace_id = $1 AND project_id = $2 AND user_uid = $3 AND active = TRUE`,
-          [context.workspaceId, projectId, body.assigneeUid],
+      const assignerChanged = body.assignedByUid !== undefined
+        && body.assignedByUid !== task.assigned_by_uid;
+      if (assignmentTouched) {
+        const nextAssigneeUid = body.assigneeUid ?? task.assignee_uid;
+        const nextAssignerUid = body.assignedByUid ?? task.assigned_by_uid;
+        if (nextAssigneeUid === nextAssignerUid) {
+          throw new NewProjectHttpError(
+            400,
+            'NEW_PROJECT_ASSIGNER_ASSIGNEE_CONFLICT',
+            '업무 지시자와 담당자는 서로 달라야 합니다.',
+          );
+        }
+        const users = await resolveWorkspaceUsers(
+          client,
+          context.workspaceId,
+          [nextAssigneeUid, nextAssignerUid],
         );
-        if (!member.rows[0]) throw new NewProjectHttpError(400, 'NEW_PROJECT_ASSIGNEE_NOT_MEMBER', '업무 담당자는 프로젝트 구성원이어야 합니다.');
-        const assignee = users.get(body.assigneeUid);
+        const members = await client.query(
+          `SELECT user_uid FROM peakos_structured_project_members
+            WHERE workspace_id = $1 AND project_id = $2
+              AND user_uid = ANY($3::text[]) AND active = TRUE`,
+          [context.workspaceId, projectId, [nextAssigneeUid, nextAssignerUid]],
+        );
+        const activeMemberUids = new Set(members.rows.map(row => String(row.user_uid)));
+        if (!activeMemberUids.has(nextAssigneeUid) || !users.has(nextAssigneeUid)) {
+          throw new NewProjectHttpError(400, 'NEW_PROJECT_ASSIGNEE_NOT_MEMBER', '업무 담당자는 프로젝트 구성원이어야 합니다.');
+        }
+        if (!activeMemberUids.has(nextAssignerUid) || !users.has(nextAssignerUid)) {
+          throw new NewProjectHttpError(400, 'NEW_PROJECT_ASSIGNER_NOT_MEMBER', '업무 지시자는 프로젝트 구성원이어야 합니다.');
+        }
+        const assignee = users.get(nextAssigneeUid);
+        const assigner = users.get(nextAssignerUid);
         const reviewer = validationValue(resolveNewProjectReviewer({
           assigneeUid: assignee.uid,
-          assignedByUid: context.uid,
-          assignedByName: context.name,
+          assignedByUid: assigner.uid,
+          assignedByName: assigner.name,
           leadUid: access.project.lead_uid,
           leadName: access.project.lead_name_snapshot,
         }));
         assigneeUid = assignee.uid;
         assigneeName = assignee.name;
-        assignedByUid = context.uid;
-        assignedByName = context.name;
+        assignedByUid = assigner.uid;
+        assignedByName = assigner.name;
         reviewerUid = reviewer.reviewerUid;
         reviewerName = reviewer.reviewerName;
         reviewerSource = reviewer.source;
-        notifyTarget = assignee;
+        if (reassigned) notifyTarget = assignee;
       }
-      const nextStatus = reassigned ? 'todo' : task.status;
+      const assignmentChanged = reassigned || assignerChanged;
+      if (task.status === 'review' && !assignmentChanged) {
+        throw new NewProjectHttpError(
+          409,
+          'NEW_PROJECT_TASK_REVIEW_RECOVERY_REQUIRED',
+          '검토 중인 업무는 지시자 또는 담당자를 변경해야 다시 진행할 수 있습니다.',
+        );
+      }
+      if (task.status === 'review' && assignmentChanged && !notifyTarget) {
+        notifyTarget = { uid: assigneeUid, name: assigneeName };
+      }
+      const nextStatus = assignmentChanged ? 'todo' : task.status;
       const updated = await client.query(
         `UPDATE peakos_structured_project_tasks
             SET title = $4, description = $5, due_date = $6, sort_order = $7,
@@ -1313,16 +1470,29 @@ function registerPeakosNewProjectRoutes({
       if (!updated.rows[0]) throw new NewProjectHttpError(409, 'NEW_PROJECT_TASK_VERSION_CONFLICT', '다른 사용자가 먼저 업무를 변경했습니다.');
       await recordHistory(client, {
         context, projectId, entityType: 'task', entityId: taskId, taskId,
-        action: reassigned ? 'reassigned' : 'updated',
+        action: reassigned || assignerChanged ? 'reassigned' : 'updated',
         fromStatus: task.status, toStatus: nextStatus,
         version: Number(updated.rows[0].version),
-        metadata: reassigned ? { fromAssigneeUid: task.assignee_uid, assigneeUid } : {},
+        metadata: reassigned || assignerChanged ? {
+          fromAssigneeUid: task.assignee_uid,
+          assigneeUid,
+          fromAssignedByUid: task.assigned_by_uid,
+          assignedByUid,
+          registeredByUid: context.uid,
+        } : {},
       });
       await client.query('COMMIT');
       if (notifyTarget) {
-        await safeNotify(notifyUser, notifyTarget.uid, '업무 재배정', `${context.name}님이 "${updated.rows[0].title}" 업무를 배정했습니다.`, {
-          kind: 'new-project-task', newProjectId: projectId, taskId,
-          link: `/os?view=new-projects&projectId=${projectId}`,
+        await safeNotifyProjectMember(pool, notifyUser, {
+          workspaceId: context.workspaceId,
+          projectId,
+          uid: notifyTarget.uid,
+          title: '업무 재배정',
+          body: `${assignedByName}님 지시 · ${context.name}님이 "${updated.rows[0].title}" 업무를 배정했습니다.`,
+          data: {
+            kind: 'new-project-task', newProjectId: projectId, taskId,
+            link: structuredProjectNotificationLink(context, projectId, taskId),
+          },
         });
       }
       return res.json({
@@ -1377,6 +1547,32 @@ function registerPeakosNewProjectRoutes({
         isReviewer,
         isProjectLead: access.isLead,
       }));
+      if (decision.action === 'submit' || decision.action === 'resubmit') {
+        const activeReviewer = await findActiveProjectNotificationRecipient(
+          client, context.workspaceId, projectId, task.reviewer_uid,
+          { lockWorkspaceMembership: true },
+        );
+        if (!activeReviewer) {
+          throw new NewProjectHttpError(
+            409,
+            'NEW_PROJECT_REVIEWER_UNAVAILABLE',
+            '검토자가 현재 프로젝트를 열람할 수 없습니다. 프로젝트 관리자에게 지시자 재지정을 요청해 주세요.',
+          );
+        }
+      }
+      if (decision.action === 'request_revision') {
+        const activeAssignee = await findActiveProjectNotificationRecipient(
+          client, context.workspaceId, projectId, task.assignee_uid,
+          { lockWorkspaceMembership: true },
+        );
+        if (!activeAssignee) {
+          throw new NewProjectHttpError(
+            409,
+            'NEW_PROJECT_ASSIGNEE_UNAVAILABLE',
+            '담당자가 현재 프로젝트를 열람할 수 없어 수정 요청을 보낼 수 없습니다.',
+          );
+        }
+      }
       const updated = await client.query(
         `UPDATE peakos_structured_project_tasks
             SET status = $4,
@@ -1413,9 +1609,16 @@ function registerPeakosNewProjectRoutes({
             : `"${task.title}" 업무에 수정 요청이 도착했습니다.`,
         };
       }
-      await safeNotify(notifyUser, notification.uid, notification.title, notification.body, {
-        kind: 'new-project-task-review', newProjectId: projectId, taskId,
-        link: `/os?view=new-projects&projectId=${projectId}`,
+      await safeNotifyProjectMember(pool, notifyUser, {
+        workspaceId: context.workspaceId,
+        projectId,
+        uid: notification.uid,
+        title: notification.title,
+        body: notification.body,
+        data: {
+          kind: 'new-project-task-review', newProjectId: projectId, taskId,
+          link: structuredProjectNotificationLink(context, projectId, taskId),
+        },
       });
       return res.json({
         task: mapTask(updated.rows[0], {
