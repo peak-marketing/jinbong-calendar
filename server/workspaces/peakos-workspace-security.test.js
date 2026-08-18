@@ -11,7 +11,7 @@ const INDEX_SOURCE = fs.readFileSync(path.resolve(__dirname, '../index.js'), 'ut
 const SETTLEMENT_SOURCE = fs.readFileSync(path.resolve(__dirname, '../banking/peakos-settlement-routes.js'), 'utf8');
 
 const EXPECTED_SLUGS = Object.freeze(['peak', 'build-solution', 'jeonju', 'daegu']);
-const OVERSIGHT_AREAS = Object.freeze(['projects', 'settlements', 'documents']);
+const OVERSIGHT_AREAS = Object.freeze(['projects', 'settlements', 'documents', 'sales']);
 const DENIED_OVERSIGHT_AREAS = Object.freeze(['calendar', 'chat']);
 
 function loadWorkspaceModule() {
@@ -75,14 +75,14 @@ test('workspace permission middleware enforces membership and the exact oversigh
       workspace: { id: 'workspace-daegu', slug: 'daegu', name: '대구지사 OS' },
       membership: { role: 'member' },
       permissions: {
-        calendar: 'write', chat: 'write', projects: 'write', settlements: 'write', documents: 'write',
+        calendar: 'write', chat: 'write', projects: 'write', settlements: 'write', documents: 'write', sales: 'write',
       },
     }],
     ['hq-oversight:daegu', {
       workspace: { id: 'workspace-daegu', slug: 'daegu', name: '대구지사 OS' },
       membership: { role: 'oversight' },
       permissions: {
-        calendar: 'none', chat: 'none', projects: 'read', settlements: 'read', documents: 'read',
+        calendar: 'none', chat: 'none', projects: 'read', settlements: 'read', documents: 'read', sales: 'read',
       },
     }],
   ]);
@@ -199,7 +199,7 @@ test('HQ oversight bootstrap grants only the configured exact four immutable UID
     assert.deepEqual(grant.uids.sort(), expectedUids);
     assert.equal(grant.uids.includes(configured['전현우']), false);
     assert.deepEqual(grant.permissions, {
-      calendar: 'none', chat: 'none', projects: 'read', settlements: 'read', documents: 'read',
+      calendar: 'none', chat: 'none', projects: 'read', settlements: 'read', documents: 'read', sales: 'read',
     });
   }
   const revoke = statements.find(statement => /WITH deactivated AS/.test(statement.text));
@@ -482,7 +482,9 @@ test('direct canonical collaboration routes pass the active workspace through th
     '// Whitelist of API paths a chat_only user is allowed to hit.',
   );
   assert.match(authGate, /attachRequestWorkspace\s*\(req/);
-  assert.match(authGate, /collaborationAreaForPath\s*\(req\.path\)/);
+  assert.match(authGate, /const policyPath = requestPolicyPath\s*\(req\)/);
+  assert.match(authGate, /collaborationAreaForPath\s*\(policyPath\)/);
+  assert.match(authGate, /isNonPeakWorkspaceSafePath\s*\(policyPath\)/);
   assert.match(authGate, /workspacePermissionAllowsRequest\s*\(req,\s*collaborationArea\)/);
   assert.match(authGate, /status\s*\(403\)/);
 
@@ -655,4 +657,87 @@ test('restricted collaboration accounts can reach only their matching protected 
   );
   assert.match(externalCalendar, /events\|event-types\|todo-cats/);
   assert.doesNotMatch(externalCalendar, /projects/);
+});
+
+test('제한 계정 true 전환과 기존 승인 경로는 공통 transaction guard를 쓰고 409를 보존한다', () => {
+  const approval = sourceBetween(
+    INDEX_SOURCE,
+    "app.post('/api/users/:uid/approve', authMiddleware",
+    "app.post('/api/users/:uid/cancel-approval', authMiddleware",
+  );
+  assert.match(approval, /BEGIN/);
+  assert.match(approval, /setUserRestrictionMode\(\{/);
+  assert.match(approval, /mode: 'chat_only'/);
+  assert.match(approval, /enabled: chatOnly/);
+  assert.match(approval, /client: membershipClient/);
+  assert.match(approval, /ROLLBACK/);
+  assert.match(approval, /status\(err\.statusCode \|\| 500\)/);
+  assert.match(approval, /code: err\.code/);
+  assert.doesNotMatch(approval, /sets\.push\(`chat_only/);
+
+  const chatOnly = sourceBetween(
+    INDEX_SOURCE,
+    "app.put('/api/users/:uid/chat-only', authMiddleware",
+    "app.put('/api/users/:uid/external-calendar-only', authMiddleware",
+  );
+  assert.match(chatOnly, /setUserRestrictionMode\(\{/);
+  assert.match(chatOnly, /mode: 'chat_only'/);
+  assert.match(chatOnly, /status\(err\.statusCode \|\| 500\)/);
+  assert.match(chatOnly, /code: err\.code/);
+  assert.doesNotMatch(chatOnly, /pool\.query\(['"]UPDATE users/);
+
+  const externalCalendarOnly = sourceBetween(
+    INDEX_SOURCE,
+    "app.put('/api/users/:uid/external-calendar-only', authMiddleware",
+    '// ══ 출근 보고서',
+  );
+  assert.match(externalCalendarOnly, /setUserRestrictionMode\(\{/);
+  assert.match(externalCalendarOnly, /mode: 'external_calendar_only'/);
+  assert.match(externalCalendarOnly, /status\(err\.statusCode \|\| 500\)/);
+  assert.match(externalCalendarOnly, /code: err\.code/);
+  assert.doesNotMatch(externalCalendarOnly, /pool\.query\(/);
+});
+
+test('OS 보고 매출은 legacy Firebase-only URL을 닫고 2차 인증·workspace alias에서만 제공한다', () => {
+  assert.doesNotMatch(INDEX_SOURCE, /app\.get\(['"]\/api\/reports\/sales-summary['"]/);
+  const protectedRoute = sourceBetween(
+    INDEX_SOURCE,
+    "app.get(\n  '/api/peakos/reports/sales-summary'",
+    '// Both the canonical and protected-alias URLs',
+  );
+  assert.match(protectedRoute, /requireWorkspace\(\{[\s\S]*area: 'settlements'[\s\S]*action: 'read'[\s\S]*requireHeader: true/);
+  assert.match(protectedRoute, /handlePeakosSalesSummary/);
+  const handler = sourceBetween(
+    INDEX_SOURCE,
+    'async function handlePeakosSalesSummary(req, res)',
+    '// 미제출 체크',
+  );
+  assert.match(handler, /REPORT_PREVIEW_FORBIDDEN/);
+  assert.match(handler, /chat_only/);
+  assert.match(handler, /external_calendar_only/);
+  const scope = sourceBetween(INDEX_SOURCE, 'function salesSummaryScope(req, params)', 'function peakosReportPreviewRequest(req)');
+  assert.match(scope, /peakosCanSeeAll\(req\)/);
+  assert.doesNotMatch(scope, /role === 'admin'/);
+  assert.doesNotMatch(scope, /can_view_all_reports/);
+});
+
+test('개별 보고서 entries는 parent 보고서의 self·group·exact 전체 범위를 먼저 검증한다', () => {
+  const handler = sourceBetween(
+    INDEX_SOURCE,
+    "app.get('/api/reports/:id/entries', authMiddleware",
+    '// ── 주간 보고서 요약',
+  );
+  assert.match(handler, /JOIN users u ON u\.uid = r\.author_id/);
+  assert.match(handler, /r\.author_id = \$2 OR u\.group_id = \$3/);
+  assert.match(handler, /r\.author_id = \$2/);
+  assert.match(handler, /Report not found/);
+  assert.ok(handler.indexOf('accessible.rows[0]') < handler.indexOf('FROM report_entries'));
+});
+
+test('외부 아이디어 credential은 source 상수가 아니라 회전 가능한 env secret을 timing-safe 비교한다', () => {
+  const handler = sourceBetween(INDEX_SOURCE, '// ── 외부 API: 아이디어 추가', '// ══ 공지사항');
+  assert.match(handler, /PEAKOS_EXTERNAL_IDEA_API_KEY/);
+  assert.match(handler, /crypto\.timingSafeEqual/);
+  assert.match(handler, /EXTERNAL_IDEA_API_DISABLED/);
+  assert.doesNotMatch(handler, /const\s+EXTERNAL_API_KEY\s*=\s*['"][0-9a-f]{32,}/i);
 });

@@ -36,13 +36,14 @@ test('워크스페이스 slug와 헤더는 엄격한 소문자 slug만 받는다
   assert.equal(readWorkspaceSlugHeader({ headers: { 'x-peakos-workspace': 'jeonju' } }), 'jeonju');
 });
 
-test('본사 열람 권한은 프로젝트·정산·자료 읽기만 허용한다', () => {
+test('본사 열람 권한은 프로젝트·정산·자료·마스킹 영업 읽기만 허용한다', () => {
   assert.deepEqual(OVERSIGHT_PERMISSIONS, {
-    calendar: 'none', chat: 'none', projects: 'read', settlements: 'read', documents: 'read',
+    calendar: 'none', chat: 'none', projects: 'read', settlements: 'read', documents: 'read', sales: 'read',
   });
   assert.equal(permissionAllows(OVERSIGHT_PERMISSIONS.projects, 'read'), true);
   assert.equal(permissionAllows(OVERSIGHT_PERMISSIONS.projects, 'write'), false);
   assert.equal(permissionAllows(OVERSIGHT_PERMISSIONS.chat, 'read'), false);
+  assert.equal(permissionAllows(OVERSIGHT_PERMISSIONS.sales, 'write'), false);
   assert.equal(DIRECT_PERMISSIONS.documents, 'read');
 });
 
@@ -353,4 +354,321 @@ test('role 변경은 supplied transaction 안에서 기존 BuildSolution default
   assert.equal(result.slug, 'build-solution');
   assert.equal(result.role, 'manager');
   assert.equal(insertedWorkspace, 'ws_build_solution');
+});
+
+test('소속 이동은 실제로 빠지는 workspace의 역할 없는 활성 프로젝트 팀원도 원자적으로 차단한다', async () => {
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const text = String(sql).replace(/\s+/g, ' ').trim();
+      calls.push({ text, params });
+      if (text.includes('SELECT u.uid, u.role, u.group_id')) {
+        return { rows: [{ uid: 'project-owner', role: 'member', group_id: 'daegu' }] };
+      }
+      if (text.includes('SELECT workspace_id, role, permissions, is_default, active')) {
+        return { rows: [
+          { workspace_id: 'ws_daegu', role: 'member', permissions: {}, is_default: true, active: true },
+          { workspace_id: 'ws_peak', role: 'member', permissions: {}, is_default: false, active: true },
+        ] };
+      }
+      if (text.includes('WITH active_responsibilities AS')) {
+        assert.equal(params[0], 'project-owner');
+        assert.deepEqual(params[1], ['ws_daegu']);
+        return { rows: [{
+          workspace_id: 'ws_daegu',
+          project_id: '11111111-1111-4111-8111-111111111111',
+          project_name: '매출',
+          responsibility: 'project_member',
+        }] };
+      }
+      throw new Error(`unexpected query: ${text}`);
+    },
+  };
+  const service = createPeakosWorkspaceService({ pool: { query: async () => ({ rows: [] }) } });
+
+  await assert.rejects(
+    service.syncUserDefaultMembership({
+      actorUid: 'admin-uid',
+      targetUid: 'project-owner',
+      workspaceSlug: 'peak',
+      client,
+    }),
+    error => (
+      error.code === 'PEAKOS_WORKSPACE_MEMBER_HAS_ACTIVE_PROJECT_RESPONSIBILITY'
+      && error.statusCode === 409
+      && /책임 역할/.test(error.message)
+    ),
+  );
+  assert.equal(calls.some(call => call.text.startsWith('UPDATE peakos_workspace_memberships')), false);
+  assert.equal(calls.some(call => call.text.startsWith('INSERT INTO peakos_workspace_membership_audit')), false);
+});
+
+test('같은 workspace 재할당은 프로젝트 책임 가드 없이 허용한다', async () => {
+  let guardQueries = 0;
+  const client = {
+    async query(sql) {
+      const text = String(sql).replace(/\s+/g, ' ').trim();
+      if (text.includes('SELECT u.uid, u.role, u.group_id')) {
+        return { rows: [{ uid: 'same-user', role: 'member', group_id: 'daegu' }] };
+      }
+      if (text.includes('SELECT workspace_id, role, permissions, is_default, active')) {
+        return { rows: [{
+          workspace_id: 'ws_daegu', role: 'member', permissions: {}, is_default: true, active: true,
+        }] };
+      }
+      if (text.includes('WITH active_responsibilities AS')) guardQueries += 1;
+      return { rows: [], rowCount: 1 };
+    },
+  };
+  const service = createPeakosWorkspaceService({ pool: { query: async () => ({ rows: [] }) } });
+
+  const result = await service.syncUserDefaultMembership({
+    actorUid: 'admin-uid',
+    targetUid: 'same-user',
+    workspaceSlug: 'daegu',
+    client,
+  });
+  assert.equal(result.workspace_id, 'ws_daegu');
+  assert.equal(guardQueries, 0);
+});
+
+test('계정 비활성화는 활성 프로젝트의 중분류 책임자와 미완료 task 역할을 모두 검사한다', async () => {
+  const calls = [];
+  const client = {
+    release() {},
+    async query(sql, params = []) {
+      const text = String(sql).replace(/\s+/g, ' ').trim();
+      calls.push({ text, params });
+      if (text === 'BEGIN' || text === 'ROLLBACK') return { rows: [] };
+      if (text.includes('SELECT workspace_id, role, permissions, is_default, active')) {
+        return { rows: [
+          { workspace_id: 'ws_peak', role: 'member', permissions: {}, is_default: true, active: true },
+          { workspace_id: 'ws_daegu', role: 'oversight', permissions: {}, is_default: false, active: true },
+          { workspace_id: 'ws_jeonju', role: 'member', permissions: {}, is_default: false, active: false },
+        ] };
+      }
+      if (text.includes('WITH active_responsibilities AS')) {
+        assert.deepEqual(params, ['reviewer-user', ['ws_peak']]);
+        return { rows: [{
+          workspace_id: 'ws_peak',
+          project_id: '22222222-2222-4222-8222-222222222222',
+          project_name: '매출',
+          responsibility: 'open_task',
+        }] };
+      }
+      throw new Error(`unexpected query: ${text}`);
+    },
+  };
+  const pool = { query: async () => ({ rows: [] }), connect: async () => client };
+  const service = createPeakosWorkspaceService({ pool });
+
+  await assert.rejects(
+    service.setUserMembershipsActive({ actorUid: 'admin-uid', targetUid: 'reviewer-user', active: false }),
+    error => error.code === 'PEAKOS_WORKSPACE_MEMBER_HAS_ACTIVE_PROJECT_RESPONSIBILITY',
+  );
+  const guard = calls.find(call => call.text.includes('WITH active_responsibilities AS'));
+  assert.ok(guard);
+  assert.match(guard.text, /project\.status = 'active'/);
+  assert.match(guard.text, /FROM peakos_structured_project_members project_member/);
+  assert.match(guard.text, /project_member\.active = TRUE/);
+  assert.match(guard.text, /project_member\.user_uid = \$1/);
+  assert.match(guard.text, /medium\.active = TRUE/);
+  assert.match(guard.text, /medium\.manager_uid = \$1/);
+  assert.match(guard.text, /task\.status <> 'done'/);
+  assert.match(guard.text, /task\.assignee_uid, task\.assigned_by_uid, task\.reviewer_uid/);
+  assert.equal(calls.some(call => call.text.startsWith('UPDATE peakos_workspace_memberships')), false);
+  assert.equal(calls.at(-1).text, 'ROLLBACK');
+});
+
+test('활성 프로젝트·영업 책임이 없으면 기존 membership 비활성화와 감사 기록을 계속 수행한다', async () => {
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const text = String(sql).replace(/\s+/g, ' ').trim();
+      calls.push({ text, params });
+      if (text.includes('SELECT workspace_id, role, permissions, is_default, active')) {
+        return { rows: [{
+          workspace_id: 'ws_peak', role: 'member', permissions: {}, is_default: true, active: true,
+        }] };
+      }
+      if (text.includes('WITH active_responsibilities AS')) return { rows: [] };
+      if (text.startsWith('UPDATE peakos_workspace_memberships')
+          || text.startsWith('INSERT INTO peakos_workspace_membership_audit')) {
+        return { rows: [], rowCount: 1 };
+      }
+      throw new Error(`unexpected query: ${text}`);
+    },
+  };
+  const service = createPeakosWorkspaceService({ pool: { query: async () => ({ rows: [] }) } });
+
+  assert.equal(await service.setUserMembershipsActive({
+    actorUid: 'admin-uid', targetUid: 'free-user', active: false, client,
+  }), 1);
+  assert.equal(calls.some(call => call.text.startsWith('UPDATE peakos_workspace_memberships')), true);
+  assert.equal(calls.some(call => call.text.startsWith('INSERT INTO peakos_workspace_membership_audit')), true);
+});
+
+test('활성 영업 리드 담당자를 제한 계정으로 바꾸면 user·membership 잠금 뒤 409로 차단한다', async () => {
+  const calls = [];
+  const client = {
+    release() {},
+    async query(sql, params = []) {
+      const text = String(sql).replace(/\s+/g, ' ').trim();
+      calls.push({ text, params });
+      if (text === 'BEGIN' || text === 'ROLLBACK') return { rows: [] };
+      if (text.includes('FROM users') && text.includes('FOR UPDATE')) {
+        return { rows: [{ uid: 'sales-owner', role: 'member' }] };
+      }
+      if (text.includes('FROM peakos_workspace_memberships') && text.includes('FOR UPDATE')) {
+        return { rows: [{ workspace_id: 'ws_daegu', role: 'member', active: true }] };
+      }
+      if (text.includes('WITH active_responsibilities AS')) {
+        assert.deepEqual(params, ['sales-owner', ['ws_daegu']]);
+        assert.match(text, /FROM peakos_sales_leads sales_lead/);
+        assert.match(text, /sales_lead\.archived_at IS NULL/);
+        assert.match(text, /sales_lead\.owner_uid = \$1/);
+        return { rows: [{
+          workspace_id: 'ws_daegu',
+          project_id: '55555555-5555-4555-8555-555555555555',
+          project_name: '활성 리드',
+          responsibility: 'active_sales_lead_owner',
+        }] };
+      }
+      throw new Error(`unexpected query: ${text}`);
+    },
+  };
+  const service = createPeakosWorkspaceService({
+    pool: { query: async () => ({ rows: [] }), connect: async () => client },
+  });
+
+  await assert.rejects(
+    service.setUserRestrictionMode({
+      actorUid: 'admin-uid', targetUid: 'sales-owner', mode: 'external_calendar_only', enabled: true,
+    }),
+    error => (
+      error.code === 'PEAKOS_WORKSPACE_MEMBER_HAS_ACTIVE_PROJECT_RESPONSIBILITY'
+      && error.statusCode === 409
+      && /영업 리드 담당/.test(error.message)
+      && /이전/.test(error.message)
+    ),
+  );
+  const userLock = calls.findIndex(call => /FROM users/.test(call.text) && /FOR UPDATE/.test(call.text));
+  const membershipLock = calls.findIndex(call => (
+    /FROM peakos_workspace_memberships/.test(call.text) && /FOR UPDATE/.test(call.text)
+  ));
+  const dependencyCheck = calls.findIndex(call => call.text.includes('WITH active_responsibilities AS'));
+  assert.ok(userLock >= 0 && userLock < membershipLock && membershipLock < dependencyCheck);
+  assert.equal(calls.some(call => call.text.startsWith('UPDATE users SET external_calendar_only')), false);
+  assert.equal(calls.at(-1).text, 'ROLLBACK');
+});
+
+test('보관된 영업 리드만 남은 담당자는 membership 비활성화를 막지 않는다', async () => {
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const text = String(sql).replace(/\s+/g, ' ').trim();
+      calls.push({ text, params });
+      if (text.includes('SELECT workspace_id, role, permissions, is_default, active')) {
+        return { rows: [{
+          workspace_id: 'ws_daegu', role: 'member', permissions: {}, is_default: true, active: true,
+        }] };
+      }
+      if (text.includes('WITH active_responsibilities AS')) {
+        assert.match(text, /sales_lead\.archived_at IS NULL/);
+        return { rows: [] };
+      }
+      if (text.startsWith('UPDATE peakos_workspace_memberships')
+          || text.startsWith('INSERT INTO peakos_workspace_membership_audit')) {
+        return { rows: [], rowCount: 1 };
+      }
+      throw new Error(`unexpected query: ${text}`);
+    },
+  };
+  const service = createPeakosWorkspaceService({ pool: { query: async () => ({ rows: [] }) } });
+
+  assert.equal(await service.setUserMembershipsActive({
+    actorUid: 'admin-uid', targetUid: 'archived-lead-owner', active: false, client,
+  }), 1);
+  assert.equal(calls.some(call => call.text.startsWith('UPDATE peakos_workspace_memberships')), true);
+  assert.equal(calls.some(call => call.text.startsWith('INSERT INTO peakos_workspace_membership_audit')), true);
+});
+
+test('기존 승인 프로젝트 팀원을 제한 계정으로 바꾸면 user·membership 잠금 뒤 409로 원자적 차단한다', async () => {
+  const calls = [];
+  const client = {
+    release() {},
+    async query(sql, params = []) {
+      const text = String(sql).replace(/\s+/g, ' ').trim();
+      calls.push({ text, params });
+      if (text === 'BEGIN' || text === 'ROLLBACK') return { rows: [] };
+      if (text.includes('FROM users') && text.includes('FOR UPDATE')) {
+        return { rows: [{ uid: 'approved-member', role: 'member' }] };
+      }
+      if (text.includes('FROM peakos_workspace_memberships') && text.includes('FOR UPDATE')) {
+        return { rows: [{ workspace_id: 'ws_peak', role: 'member', active: true }] };
+      }
+      if (text.includes('WITH active_responsibilities AS')) {
+        return { rows: [{
+          workspace_id: 'ws_peak', project_id: '11111111-1111-4111-8111-111111111111',
+          project_name: '매출', responsibility: 'project_member',
+        }] };
+      }
+      throw new Error(`unexpected query: ${text}`);
+    },
+  };
+  const service = createPeakosWorkspaceService({
+    pool: { query: async () => ({ rows: [] }), connect: async () => client },
+  });
+
+  await assert.rejects(
+    service.setUserRestrictionMode({
+      actorUid: 'admin-uid', targetUid: 'approved-member', mode: 'chat_only', enabled: true,
+    }),
+    error => (
+      error.code === 'PEAKOS_WORKSPACE_MEMBER_HAS_ACTIVE_PROJECT_RESPONSIBILITY'
+      && error.statusCode === 409
+    ),
+  );
+  const userLock = calls.findIndex(call => /FROM users/.test(call.text) && /FOR UPDATE/.test(call.text));
+  const membershipLock = calls.findIndex(call => (
+    /FROM peakos_workspace_memberships/.test(call.text) && /FOR UPDATE/.test(call.text)
+  ));
+  const dependencyCheck = calls.findIndex(call => call.text.includes('WITH active_responsibilities AS'));
+  assert.ok(userLock >= 0 && userLock < membershipLock && membershipLock < dependencyCheck);
+  assert.equal(calls.some(call => call.text.startsWith('UPDATE users SET chat_only')), false);
+  assert.equal(calls.at(-1).text, 'ROLLBACK');
+});
+
+test('제한 계정 해제는 기존 프로젝트 책임과 관계없이 허용하고 같은 transaction에서 커밋한다', async () => {
+  const calls = [];
+  const client = {
+    release() {},
+    async query(sql, params = []) {
+      const text = String(sql).replace(/\s+/g, ' ').trim();
+      calls.push({ text, params });
+      if (text === 'BEGIN' || text === 'COMMIT') return { rows: [] };
+      if (text.includes('FROM users') && text.includes('FOR UPDATE')) {
+        return { rows: [{ uid: 'restricted-admin', role: 'admin' }] };
+      }
+      if (text.includes('FROM peakos_workspace_memberships') && text.includes('FOR UPDATE')) {
+        return { rows: [{ workspace_id: 'ws_peak', role: 'admin', active: true }] };
+      }
+      if (text.startsWith('UPDATE users SET external_calendar_only')) return { rows: [], rowCount: 1 };
+      throw new Error(`unexpected query: ${text}`);
+    },
+  };
+  const service = createPeakosWorkspaceService({
+    pool: { query: async () => ({ rows: [] }), connect: async () => client },
+  });
+
+  assert.deepEqual(await service.setUserRestrictionMode({
+    actorUid: 'admin-uid',
+    targetUid: 'restricted-admin',
+    mode: 'external_calendar_only',
+    enabled: false,
+  }), {
+    uid: 'restricted-admin', mode: 'external_calendar_only', enabled: false,
+  });
+  assert.equal(calls.some(call => call.text.includes('WITH active_responsibilities AS')), false);
+  assert.equal(calls.at(-1).text, 'COMMIT');
 });

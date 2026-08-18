@@ -140,6 +140,25 @@ async function expectOnlyClients(results: Locator, included: string[], excluded:
 }
 
 test.describe('재무 탭 공통 월별·기간별 조회', () => {
+  test('개인정산서 첫 진입은 현재 월 최신 원장부터 보여주고 전체 이력은 명시적으로 연다', async ({ page }) => {
+    await seedFinanceData(page);
+    await page.goto('/business-os-preview.html');
+    await expect(page.locator('#authGate')).toBeHidden();
+
+    const period = await openView(page, 'settlement');
+    await expect(period.locator('[data-finance-period-mode="month"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(period.locator('[data-finance-period-month]')).toHaveValue('2026-08');
+    await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(3);
+    await expectOnlyClients(
+      page.locator('#moduleView .ledger-day'),
+      augustClients,
+      ['칠월외부업체', '구월경계업체', '구월외부업체'],
+    );
+
+    await period.locator('[data-finance-period-mode="all"]').click();
+    await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(6);
+  });
+
   test('탭·입금 필터를 바꾸면 숨겨진 선택을 버리고 정산서 재불러오기도 조회 기간을 지킨다', async ({ page }) => {
     const store = await seedFinanceData(page);
     store.intake = [
@@ -188,7 +207,7 @@ test.describe('재무 탭 공통 월별·기간별 조회', () => {
     await expectSharedPeriod(page, 'settlement', 'month', '2026년 8월');
     await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(3);
     await expectOnlyClients(page.locator('#moduleView .ledger-day'), augustClients, ['칠월외부업체', '구월경계업체', '구월외부업체']);
-    await expect(page.locator('#moduleView .module-chip').filter({ hasText: '매출' }).first()).toContainText('600,000원');
+    await expect(page.locator('#moduleView .settlement-kpi-card.sales strong')).toHaveText('600,000');
 
     await openView(page, 'deposit-check');
     const depositPeriod = await expectSharedPeriod(page, 'deposit-check', 'month', '2026년 8월');
@@ -244,7 +263,7 @@ test.describe('재무 탭 공통 월별·기간별 조회', () => {
     await expectSharedPeriod(page, 'settlement', 'range', rangeLabel);
     await expect(page.locator('#moduleView .ledger-table tbody tr')).toHaveCount(3);
     await expectOnlyClients(page.locator('#moduleView .ledger-day'), rangeClients, ['칠월외부업체', '팔월시작업체', '구월외부업체']);
-    await expect(page.locator('#moduleView .module-chip').filter({ hasText: '매출' }).first()).toContainText('900,000원');
+    await expect(page.locator('#moduleView .settlement-kpi-card.sales strong')).toHaveText('900,000');
 
     await openView(page, 'deposit-check');
     const depositPeriod = await expectSharedPeriod(page, 'deposit-check', 'range', rangeLabel);

@@ -58,7 +58,10 @@ for (const name of FINANCE_VIEWERS) {
 
     const finance = await expandCluster(page, '[data-nav-cluster="finance"]');
     await expect(finance.locator('[data-view="credit"]')).toBeVisible();
-    await expect(finance.locator('[data-view="reports"]')).toBeVisible();
+    // 보고서·근태는 재무 capability가 아니라 승인된 direct workspace
+    // membership의 self/team scope로 연다. 이 legacy shell fixture에는
+    // workspace context가 없으므로 민감 재무 탭과 별개로 닫혀 있어야 한다.
+    await expect(finance.locator('[data-view="reports"]')).toBeHidden();
     await expect(finance.locator('[data-view="final-settlement"]')).toBeVisible();
     await expect(finance.locator('[data-view="closing"]')).toBeVisible();
     await expect(finance.locator('[data-view="platform"]')).toBeVisible();
@@ -289,6 +292,7 @@ test('계정 미리보기는 대상 계정의 세금·최종정산 메뉴만 재
     (request.path === '/api/peakos/intake' && request.search.includes('scope=all'))
     || request.path === '/api/peakos/prices'
     || request.path === '/api/peakos/final-execution'
+    || request.path.startsWith('/api/peakos/settlement-completion/')
     || request.path.startsWith('/api/peakos/credit')
     || request.path === '/api/peakos/fund'
     || request.path === '/api/peakos/finance-requests'

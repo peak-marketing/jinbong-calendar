@@ -17,6 +17,7 @@ const WORKSPACE_AREAS = Object.freeze([
   'projects',
   'settlements',
   'documents',
+  'sales',
 ]);
 const PERMISSION_LEVELS = Object.freeze(['none', 'read', 'write']);
 const WORKSPACES = Object.freeze([
@@ -64,6 +65,7 @@ const DIRECT_PERMISSIONS = Object.freeze({
   // Upload/delete remains a separate document-manager grant. A workspace
   // membership alone never makes every employee a company-document editor.
   documents: 'read',
+  sales: 'write',
 });
 const OVERSIGHT_PERMISSIONS = Object.freeze({
   calendar: 'none',
@@ -71,6 +73,7 @@ const OVERSIGHT_PERMISSIONS = Object.freeze({
   projects: 'read',
   settlements: 'read',
   documents: 'read',
+  sales: 'read',
 });
 
 class WorkspaceAccessError extends Error {
@@ -550,6 +553,86 @@ function createPeakosWorkspaceService({ pool, environment = process.env, logger 
     return !!result.rows[0];
   }
 
+  async function assertNoActiveWorkspaceResponsibilities(db, userUid, workspaceIds) {
+    const affectedWorkspaceIds = [...new Set((Array.isArray(workspaceIds) ? workspaceIds : [])
+      .map(workspaceId => String(workspaceId || '').trim())
+      .filter(Boolean))];
+    if (!affectedWorkspaceIds.length) return;
+
+    const dependency = await db.query(
+      `WITH active_responsibilities AS (
+         SELECT project_member.workspace_id,
+                project_member.project_id,
+                project.name AS project_name,
+                'project_member'::text AS responsibility
+           FROM peakos_structured_project_members project_member
+           JOIN peakos_structured_projects project
+             ON project.workspace_id = project_member.workspace_id
+            AND project.id = project_member.project_id
+            AND project.status = 'active'
+          WHERE project_member.workspace_id = ANY($2::text[])
+            AND project_member.active = TRUE
+            AND project_member.user_uid = $1
+         UNION ALL
+         SELECT project.workspace_id,
+                project.id AS project_id,
+                project.name AS project_name,
+                'project_lead'::text AS responsibility
+           FROM peakos_structured_projects project
+          WHERE project.workspace_id = ANY($2::text[])
+            AND project.status = 'active'
+            AND project.lead_uid = $1
+         UNION ALL
+         SELECT medium.workspace_id,
+                medium.project_id,
+                project.name AS project_name,
+                'medium_manager'::text AS responsibility
+           FROM peakos_structured_project_medium_categories medium
+           JOIN peakos_structured_projects project
+             ON project.workspace_id = medium.workspace_id
+            AND project.id = medium.project_id
+            AND project.status = 'active'
+          WHERE medium.workspace_id = ANY($2::text[])
+            AND medium.active = TRUE
+            AND medium.manager_uid = $1
+         UNION ALL
+         SELECT task.workspace_id,
+                task.project_id,
+                project.name AS project_name,
+                'open_task'::text AS responsibility
+           FROM peakos_structured_project_tasks task
+           JOIN peakos_structured_projects project
+             ON project.workspace_id = task.workspace_id
+            AND project.id = task.project_id
+            AND project.status = 'active'
+         WHERE task.workspace_id = ANY($2::text[])
+            AND task.status <> 'done'
+            AND $1 IN (task.assignee_uid, task.assigned_by_uid, task.reviewer_uid)
+         UNION ALL
+         SELECT sales_lead.workspace_id,
+                sales_lead.id AS project_id,
+                sales_lead.company_name AS project_name,
+                'active_sales_lead_owner'::text AS responsibility
+           FROM peakos_sales_leads sales_lead
+          WHERE sales_lead.workspace_id = ANY($2::text[])
+            AND sales_lead.archived_at IS NULL
+            AND sales_lead.owner_uid = $1
+       )
+       SELECT workspace_id, project_id, project_name, responsibility
+         FROM active_responsibilities
+        ORDER BY workspace_id, project_id, responsibility
+        LIMIT 1`,
+      [userUid, affectedWorkspaceIds],
+    );
+    if (dependency.rows[0]) {
+      throw new WorkspaceAccessError(
+        '진행 중인 프로젝트의 팀원·책임 역할 또는 활성 영업 리드 담당을 먼저 이전·정리한 뒤 소속 이동·계정 비활성화·제한 설정을 진행해 주세요.',
+        'PEAKOS_WORKSPACE_MEMBER_HAS_ACTIVE_PROJECT_RESPONSIBILITY',
+        409,
+      );
+    }
+  }
+
   async function syncUserDefaultMembership({
     actorUid,
     targetUid,
@@ -608,6 +691,18 @@ function createPeakosWorkspaceService({ pool, environment = process.env, logger 
           WHERE user_uid = $1 AND role <> 'oversight'
           FOR UPDATE`,
         [normalizedTargetUid],
+      );
+      const deactivatedWorkspaceIds = before.rows
+        .filter(membership => (
+          membership.active === true
+          && String(membership.role) !== 'oversight'
+          && String(membership.workspace_id) !== workspace.id
+        ))
+        .map(membership => membership.workspace_id);
+      await assertNoActiveWorkspaceResponsibilities(
+        db,
+        normalizedTargetUid,
+        deactivatedWorkspaceIds,
       );
       await db.query(
         `UPDATE peakos_workspace_memberships
@@ -670,6 +765,15 @@ function createPeakosWorkspaceService({ pool, environment = process.env, logger 
           FOR UPDATE`,
         [normalizedTargetUid, active],
       );
+      if (!active) {
+        await assertNoActiveWorkspaceResponsibilities(
+          db,
+          normalizedTargetUid,
+          before.rows
+            .filter(membership => membership.active === true && String(membership.role) !== 'oversight')
+            .map(membership => membership.workspace_id),
+        );
+      }
       await db.query(
         `UPDATE peakos_workspace_memberships
             SET active = $2,
@@ -695,6 +799,100 @@ function createPeakosWorkspaceService({ pool, environment = process.env, logger 
       }
       if (ownsTransaction) await db.query('COMMIT');
       return before.rows.length;
+    } catch (error) {
+      if (ownsTransaction) await db.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      if (ownsTransaction) db.release();
+    }
+  }
+
+  async function setUserRestrictionMode({
+    actorUid,
+    targetUid,
+    mode,
+    enabled,
+    client: suppliedClient,
+  } = {}) {
+    const normalizedTargetUid = String(targetUid || '').trim();
+    const normalizedActorUid = String(actorUid || '').trim();
+    const normalizedMode = String(mode || '').trim();
+    if (!normalizedTargetUid || !normalizedActorUid
+        || !['chat_only', 'external_calendar_only'].includes(normalizedMode)
+        || typeof enabled !== 'boolean') {
+      throw new WorkspaceAccessError(
+        '제한 계정 설정을 확인할 수 없습니다.',
+        'PEAKOS_WORKSPACE_RESTRICTION_INVALID',
+        400,
+      );
+    }
+    if (!suppliedClient && typeof pool.connect !== 'function') {
+      throw new TypeError('제한 계정 변경에는 pool.connect 또는 transaction client가 필요합니다.');
+    }
+    const db = suppliedClient || await pool.connect();
+    const ownsTransaction = !suppliedClient;
+    try {
+      if (ownsTransaction) await db.query('BEGIN');
+      const target = await db.query(
+        `SELECT uid, role
+           FROM users
+          WHERE uid = $1
+          FOR UPDATE`,
+        [normalizedTargetUid],
+      );
+      if (!target.rows[0]) {
+        throw new WorkspaceAccessError(
+          '사용자를 찾을 수 없습니다.',
+          'PEAKOS_WORKSPACE_MEMBER_NOT_FOUND',
+          404,
+        );
+      }
+      const memberships = await db.query(
+        `SELECT workspace_id, role, active
+           FROM peakos_workspace_memberships
+          WHERE user_uid = $1
+            AND active = TRUE
+            AND role <> 'oversight'
+          ORDER BY workspace_id
+          FOR UPDATE`,
+        [normalizedTargetUid],
+      );
+      if (enabled && String(target.rows[0].role) === 'admin') {
+        throw new WorkspaceAccessError(
+          normalizedMode === 'chat_only'
+            ? 'admin 계정은 chat-only로 제한할 수 없습니다.'
+            : 'admin 계정은 외부 캘린더 계정으로 제한할 수 없습니다.',
+          'PEAKOS_WORKSPACE_ADMIN_RESTRICTION_FORBIDDEN',
+          400,
+        );
+      }
+      if (enabled) {
+        await assertNoActiveWorkspaceResponsibilities(
+          db,
+          normalizedTargetUid,
+          memberships.rows.map(membership => membership.workspace_id),
+        );
+      }
+      if (normalizedMode === 'chat_only') {
+        await db.query(
+          'UPDATE users SET chat_only = $1 WHERE uid = $2',
+          [enabled, normalizedTargetUid],
+        );
+      } else {
+        await db.query(
+          `UPDATE users
+              SET external_calendar_only = $1,
+                  chat_only = CASE WHEN $1 THEN FALSE ELSE chat_only END,
+                  can_view_all_attendance = CASE WHEN $1 THEN FALSE ELSE can_view_all_attendance END,
+                  can_view_all_reports = CASE WHEN $1 THEN FALSE ELSE can_view_all_reports END,
+                  can_manage_team = CASE WHEN $1 THEN FALSE ELSE can_manage_team END,
+                  viewable_groups = CASE WHEN $1 THEN ARRAY[]::text[] ELSE viewable_groups END
+            WHERE uid = $2`,
+          [enabled, normalizedTargetUid],
+        );
+      }
+      if (ownsTransaction) await db.query('COMMIT');
+      return { uid: normalizedTargetUid, mode: normalizedMode, enabled };
     } catch (error) {
       if (ownsTransaction) await db.query('ROLLBACK').catch(() => {});
       throw error;
@@ -747,6 +945,7 @@ function createPeakosWorkspaceService({ pool, environment = process.env, logger 
     resolveForUser,
     seedOversightMemberships,
     setUserMembershipsActive,
+    setUserRestrictionMode,
     syncUserDefaultMembership,
     userHasDirectMembership,
     canAccessWorkspacePortfolio,
