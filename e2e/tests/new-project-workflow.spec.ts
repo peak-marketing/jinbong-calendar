@@ -885,6 +885,18 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await setup(page, fixture);
     await openNewProjects(page);
     await page.locator('[data-structured-project-open="board-quick-assign-project"]').click();
+
+    // 분할 보기: 왼쪽에서 소분류를 고르면 오른쪽에 그 소분류 업무만 펼쳐진다.
+    await page.locator('[data-structured-task-view="split"]').click();
+    const splitItems = page.locator('[data-structured-split-small]');
+    await expect(splitItems.first()).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.structured-split-detail')).toBeVisible();
+    if (await splitItems.count() > 1) {
+      await splitItems.nth(1).click();
+      await expect(splitItems.nth(1)).toHaveAttribute('aria-pressed', 'true');
+      await expect(splitItems.first()).toHaveAttribute('aria-pressed', 'false');
+    }
+
     await page.locator('[data-structured-task-view="board"]').click();
 
     const assignButton = page.locator('[data-structured-board-assign]');

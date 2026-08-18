@@ -122,6 +122,8 @@
   // 기존 계층형 화면은 기본값으로 보존하고, 레퍼런스 검증용 보드는
   // 같은 상세 DTO를 읽는 표시 전용 상태만 별도로 가진다.
   let structuredProjectTaskView = 'hierarchy';
+  // 분할 보기에서 오른쪽에 펼칠 소분류. 비어 있으면 첫 소분류를 고른다.
+  let structuredSplitSmallId = '';
   let structuredBoardSearch = '';
   let structuredBoardMediumFilter = 'all';
   let structuredBoardSmallFilter = 'all';
@@ -5967,6 +5969,42 @@
     </aside>`;
   }
 
+  // 분할 보기: 왼쪽에 소분류 목록, 오른쪽에 그 소분류의 업무만 펼친다.
+  // 계층 보기를 그대로 두고 별도 모드로 붙여 기존 동작을 건드리지 않는다.
+  function structuredProjectSplit(project) {
+    const mediums = Array.isArray(project?.mediumCategories) ? project.mediumCategories : [];
+    const entries = [];
+    mediums.forEach(medium => {
+      (Array.isArray(medium?.smallCategories) ? medium.smallCategories : []).forEach(small => {
+        entries.push({ medium, small, tasks: Array.isArray(small?.tasks) ? small.tasks : [] });
+      });
+    });
+    if (!entries.length) {
+      return '<section class="structured-empty"><strong>아직 소분류가 없습니다.</strong><span>계층 보기에서 중분류와 소분류를 먼저 만들어 주세요.</span></section>';
+    }
+    const active = entries.find(entry => String(entry.small.id) === String(structuredSplitSmallId)) || entries[0];
+    const canManage = structuredProjectCan('manageProject', structuredProjectDetailState);
+    const navMarkup = mediums.map(medium => {
+      const smalls = Array.isArray(medium?.smallCategories) ? medium.smallCategories : [];
+      const items = smalls.map(small => {
+        const tasks = Array.isArray(small?.tasks) ? small.tasks : [];
+        const done = tasks.filter(task => task?.status === 'done').length;
+        const selected = String(small.id) === String(active.small.id);
+        return `<button class="structured-split-item ${selected ? 'active' : ''}" type="button" data-structured-split-small="${esc(small.id)}" aria-pressed="${selected ? 'true' : 'false'}"><span>${esc(small.name || '이름 없는 소분류')}</span><em>${done}/${tasks.length}</em></button>`;
+      }).join('');
+      return `<div class="structured-split-group"><h3>${esc(medium.name || '이름 없는 중분류')}</h3>${items || '<p class="structured-split-note">소분류 없음</p>'}</div>`;
+    }).join('');
+    const taskMarkup = active.tasks.map(task => structuredTaskRow(task, project)).join('')
+      || '<div class="structured-split-note">이 소분류에는 아직 업무가 없습니다.</div>';
+    return `<section class="structured-split">
+      <nav class="structured-split-nav" aria-label="업무 소분류 목록">${navMarkup}</nav>
+      <div class="structured-split-detail">
+        <header class="structured-split-head"><div><small>${esc(active.medium.name || '중분류')}</small><strong>${esc(active.small.name || '소분류')}</strong></div>${canManage ? `<button type="button" data-structured-task-create data-medium-id="${esc(active.medium.id)}" data-small-id="${esc(active.small.id)}">＋ 할 일 배정</button>` : ''}</header>
+        <div class="structured-task-list">${taskMarkup}</div>
+      </div>
+    </section>`;
+  }
+
   function structuredProjectBoard(project) {
     const records = structuredProjectTaskRecords(project);
     const mediums = Array.isArray(project?.mediumCategories) ? project.mediumCategories : [];
@@ -6097,9 +6135,11 @@
         </div>
         <div class="structured-detail-progress"><span><b>전체 진행률</b><strong>${percent}%</strong></span><i><b style="width:${percent}%"></b></i><small>승인 완료 ${done}/${tasks.length} · 검토 요청 ${review} · 수정 요청 ${revision}</small></div>
       </section>
-      <section class="structured-task-viewbar"><div><strong>업무 보기</strong><small>대분류 › 중분류 › 소분류 › 할 일 흐름과 상태 보드를 전환합니다.</small></div>${structuredProjectTaskView === 'hierarchy' && mediums.length ? '<span class="structured-hierarchy-bulk" role="group" aria-label="계층 접기 및 펼치기"><button type="button" data-structured-hierarchy-expand-all>모두 펼치기</button><button type="button" data-structured-hierarchy-collapse-all>모두 접기</button></span>' : ''}<nav data-structured-task-view-toggle aria-label="업무 보기 방식"><button type="button" data-structured-task-view="hierarchy" class="${structuredProjectTaskView === 'hierarchy' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'hierarchy' ? 'true' : 'false'}">계층 보기</button><button type="button" data-structured-task-view="board" class="${structuredProjectTaskView === 'board' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'board' ? 'true' : 'false'}">보드 보기</button></nav></section>
+      <section class="structured-task-viewbar"><div><strong>업무 보기</strong><small>대분류 › 중분류 › 소분류 › 할 일 흐름과 상태 보드를 전환합니다.</small></div>${structuredProjectTaskView === 'hierarchy' && mediums.length ? '<span class="structured-hierarchy-bulk" role="group" aria-label="계층 접기 및 펼치기"><button type="button" data-structured-hierarchy-expand-all>모두 펼치기</button><button type="button" data-structured-hierarchy-collapse-all>모두 접기</button></span>' : ''}<nav data-structured-task-view-toggle aria-label="업무 보기 방식"><button type="button" data-structured-task-view="hierarchy" class="${structuredProjectTaskView === 'hierarchy' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'hierarchy' ? 'true' : 'false'}">계층 보기</button><button type="button" data-structured-task-view="split" class="${structuredProjectTaskView === 'split' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'split' ? 'true' : 'false'}">분할 보기</button><button type="button" data-structured-task-view="board" class="${structuredProjectTaskView === 'board' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'board' ? 'true' : 'false'}">보드 보기</button></nav></section>
       ${structuredProjectTaskView === 'board'
         ? structuredProjectBoard(project)
+        : structuredProjectTaskView === 'split'
+        ? structuredProjectSplit(project)
         : `<section class="structured-medium-list">${mediums.map(medium => structuredMediumCategory(medium, project)).join('') || `<div class="structured-empty"><strong>아직 업무 중분류가 없습니다.</strong><span>${canManage ? '중분류를 추가해 프로젝트 업무를 나눠 주세요.' : '프로젝트 담당자가 업무 구조를 준비하고 있습니다.'}</span>${canManage ? '<button class="structured-empty-action" type="button" data-structured-medium-create>＋ 업무 중분류 만들기</button>' : ''}</div>`}</section>`}
     </section>`;
     wireStructuredDetailActions(project);
@@ -6177,8 +6217,13 @@
       renderStructuredProjectDetail();
       window.requestAnimationFrame(() => newProjectsView.querySelector('[data-structured-hierarchy-collapse-all]')?.focus());
     });
+    newProjectsView.querySelectorAll('[data-structured-split-small]').forEach(button => button.addEventListener('click', () => {
+      structuredSplitSmallId = String(button.dataset.structuredSplitSmall || '');
+      renderStructuredProjectDetail();
+    }));
     newProjectsView.querySelectorAll('[data-structured-task-view]').forEach(button => button.addEventListener('click', () => {
-      const nextView = button.dataset.structuredTaskView === 'board' ? 'board' : 'hierarchy';
+      const requested = String(button.dataset.structuredTaskView || '');
+      const nextView = ['board', 'split'].includes(requested) ? requested : 'hierarchy';
       if (nextView === structuredProjectTaskView) return;
       structuredProjectTaskView = nextView;
       selectedStructuredBoardTaskId = '';

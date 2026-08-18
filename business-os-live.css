@@ -16805,3 +16805,76 @@ html body #moduleView .platform-api-location .module-action { min-height: 44px; 
 
 /* 업무도 한 줄로 — 설명이 줄을 새로 만들지 않게 */
 .structured-task-main > p { flex: 0 1 auto; max-width: 280px; }
+
+/* ── 분할 보기: 왼쪽 소분류 목록 · 오른쪽 업무 ───────────── */
+.structured-split {
+  display: grid;
+  grid-template-columns: minmax(0, 260px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  min-width: 0;
+}
+.structured-split-nav {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  border: 1px solid #cddfe9;
+  border-radius: 12px;
+  padding: 10px;
+  background: #f7fbfd;
+}
+.structured-split-group > h3 {
+  margin: 0 0 5px;
+  color: #6d8a9d;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .02em;
+}
+.structured-split-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 9px;
+  background: transparent;
+  color: #24475e;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+.structured-split-item:hover { background: #eaf4fa; }
+.structured-split-item.active { background: #2b88be; color: #fff; }
+.structured-split-item > em { font-style: normal; font-size: 9px; opacity: .8; }
+.structured-split-detail {
+  min-width: 0;
+  border: 1px solid #cddfe9;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+.structured-split-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 14px;
+  border-bottom: 1px solid #e4edf2;
+  background: #fbfdfe;
+}
+.structured-split-head small { display: block; color: #7d95a5; font-size: 9px; font-weight: 800; }
+.structured-split-head strong { color: #173d57; font-size: 13px; }
+.structured-split-note { margin: 0; padding: 16px 14px; color: #8195a3; font-size: 10px; text-align: center; }
+
+/* 분할 보기는 화면을 넓게 써야 하므로 계층 보기 폭 제한에서 뺀다 */
+@media (min-width: 1180px) {
+  .structured-split { max-width: none; }
+}
+@media (max-width: 900px) {
+  .structured-split { grid-template-columns: minmax(0, 1fr); }
+}
