@@ -241,7 +241,8 @@ test.describe('최종실행정산서', () => {
       await page.goto('/business-os-preview.html');
       await expect(page.locator('#authGate')).toBeHidden();
       await openFinalExecution(page);
-      await expect(page.locator('#moduleView')).toContainText('읽기 전용');
+      await expect(page.locator('#moduleView')).toContainText('완료 관리');
+      await expect(page.locator('#moduleView')).toContainText('원본 수정은 각 담당자 정산서에서만');
     });
   }
 

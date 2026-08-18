@@ -213,6 +213,18 @@ function sendRouteError(res, error, logLabel, logger) {
   if (error instanceof SettlementRouteError || error instanceof IntakeWriteError) {
     return res.status(error.status).json({ error: error.message, code: error.code });
   }
+  if (error?.constraint === 'peakos_monthly_settlement_completion_lock') {
+    return res.status(409).json({
+      error: '완료 또는 동결된 정산 원본은 관리자 재개 후 수정할 수 있습니다.',
+      code: 'SETTLEMENT_COMPLETION_SOURCE_LOCKED',
+    });
+  }
+  if (error?.constraint === 'peakos_monthly_settlement_completion_attached') {
+    return res.status(409).json({
+      error: '완료 근거가 연결된 정산 원본은 삭제하거나 정산 규칙을 바꿀 수 없습니다.',
+      code: 'SETTLEMENT_COMPLETION_SOURCE_ATTACHED',
+    });
+  }
   if (error?.code === '23505') {
     return res.status(409).json({ error: '이미 존재하거나 삭제된 행 ID입니다.', code: 'ROW_ID_CONFLICT' });
   }
@@ -712,6 +724,12 @@ function registerPeakosSettlementRoutes({
     let patch;
     try { patch = normalizePatchRequest(req.body); }
     catch (error) { return sendRouteError(res, error, 'peakos intake patch validation error', logger); }
+    if (patch.action === 'vendor') {
+      return res.status(409).json({
+        error: '공급사 지급은 수량 대사 배치에서만 확정할 수 있습니다.',
+        code: 'VENDOR_RECONCILIATION_BATCH_REQUIRED',
+      });
+    }
     const actor = actorFrom(req, getName);
     const client = await pool.connect();
     try {

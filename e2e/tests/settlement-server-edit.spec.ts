@@ -293,9 +293,16 @@ test.describe('개인정산서 서버 편집', () => {
       importedRow({ id: 'vendor-refund', client: '환불조정', supplier: '정확공급사', kind: 'refund', qty: 1, cost: 30_000, expectedDepositAmount: 110_000 }),
       importedRow({ id: 'vendor-unknown', client: '원가미정', supplier: '미정공급사', qty: 1, cost: null }),
     ];
-    const patchBodies: any[] = [];
+    const reconciliationBodies: any[] = [];
+    const legacyVendorPatches: any[] = [];
     page.on('request', request => {
-      if (request.method() === 'PATCH' && request.url().includes('/api/peakos/intake')) patchBodies.push(request.postDataJSON());
+      if (request.method() === 'POST' && request.url().includes('/api/peakos/vendor-reconciliations')) {
+        reconciliationBodies.push(request.postDataJSON());
+      }
+      if (request.method() === 'PATCH' && request.url().includes('/api/peakos/intake')) {
+        const payload = request.postDataJSON();
+        if (payload?.action === 'vendor') legacyVendorPatches.push(payload);
+      }
     });
     await page.goto('/business-os-preview.html');
     await expect(page.locator('#authGate')).toBeHidden();
@@ -316,7 +323,7 @@ test.describe('개인정산서 서버 편집', () => {
     await page.locator('#vendorQty').fill('2');
     await page.locator('#vendorMemo').fill('공급처 통장에서 정확 송금 완료');
     await page.locator('[data-vendor-save]').click();
-    await expect(page.locator('.toast')).toContainText('60,000원을 지불한 정산을 서버 저장했습니다.');
+    await expect(page.locator('.toast')).toContainText('60,000원을 지불한 수량 대사를 서버 확정했습니다.');
 
     expect(store.intake.find((row: any) => row.id === 'vendor-positive')).toMatchObject({
       vendorPaid: true,
@@ -324,10 +331,16 @@ test.describe('개인정산서 서버 편집', () => {
     });
     expect(store.intake.find((row: any) => row.id === 'vendor-negative')?.vendorPaid).toBe(false);
     expect(store.intake.find((row: any) => row.id === 'vendor-refund')?.vendorPaid).toBe(false);
-    const vendorPatch = patchBodies.at(-1);
-    expect(vendorPatch).toMatchObject({ action: 'vendor' });
-    expect(vendorPatch.rows).toHaveLength(1);
-    expect(vendorPatch.rows[0].changes).not.toHaveProperty('vendorPaidAmount');
+    expect(legacyVendorPatches).toHaveLength(0);
+    expect(reconciliationBodies).toHaveLength(1);
+    expect(reconciliationBodies[0]).toMatchObject({
+      supplier: '정확공급사', deliveredQty: 2,
+      bank: '공급처통장', memo: '공급처 통장에서 정확 송금 완료',
+    });
+    expect(reconciliationBodies[0]).not.toHaveProperty('totalDue');
+    expect(reconciliationBodies[0].rows).toEqual([
+      { id: 'vendor-positive', expectedRowVersion: 1 },
+    ]);
     await expect(page.locator('.final-day-table .vendor-chip.done')).toContainText('60,000원');
   });
 

@@ -390,8 +390,8 @@ test('intake POST는 기존 행 또는 tombstone ID가 하나라도 있으면 �
   }
 });
 
-test('일반 owner는 payment/vendor/manager 액션을 실행할 수 없다', async () => {
-  for (const action of ['payment', 'vendor', 'manager']) {
+test('일반 owner는 payment/manager 액션을 실행할 수 없다', async () => {
+  for (const action of ['payment', 'manager']) {
     const statements = [];
     const current = {
       id: 'intake-1', owner_uid: actor.uid, row_version: 1, kind: 'normal',
@@ -407,9 +407,7 @@ test('일반 owner는 payment/vendor/manager 액션을 실행할 수 없다', as
     };
     const changes = action === 'payment'
       ? { paidAmount: 110000, payer: '입금자', paidDate: '2026-08-09', paidMemo: '매출통장 입금 확인 완료' }
-      : action === 'vendor'
-        ? { vendorPaid: true, vendorPaidDate: '2026-08-09', vendorBank: '공급처통장', vendorMemo: '공급처 통장 지급 완료' }
-        : { manager: '김대호' };
+      : { manager: '김대호' };
     const res = responseCapture();
     await captureRoutes(client).get('PATCH /api/peakos/intake')({
       uid: actor.uid, headers: {}, body: { action, rows: [{ id: current.id, expectedRowVersion: 1, changes }] },
@@ -419,6 +417,38 @@ test('일반 owner는 payment/vendor/manager 액션을 실행할 수 없다', as
     assert.equal(statements.some(sql => sql.startsWith('UPDATE peakos_intake')), false);
     assert.equal(statements.at(-1), 'ROLLBACK');
   }
+});
+
+test('legacy vendor PATCH는 DB 접근 전에 수량 대사 배치 전용 409로 차단한다', async () => {
+  const statements = [];
+  const client = {
+    async query(sql) {
+      statements.push(String(sql));
+      throw new Error('legacy vendor PATCH must not reach the database');
+    },
+    release() {},
+  };
+  const res = responseCapture();
+  await captureRoutes(client).get('PATCH /api/peakos/intake')({
+    uid: actor.uid,
+    headers: {},
+    body: {
+      action: 'vendor',
+      rows: [{
+        id: 'intake-1',
+        expectedRowVersion: 1,
+        changes: {
+          vendorPaid: true,
+          vendorPaidDate: '2026-08-09',
+          vendorBank: '공급처통장',
+          vendorMemo: '공급처 통장 지급 완료',
+        },
+      }],
+    },
+  }, res);
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.payload.code, 'VENDOR_RECONCILIATION_BATCH_REQUIRED');
+  assert.equal(statements.length, 0);
 });
 
 test('intake business PATCH 성공은 row_version을 증가시키고 감사 후 commit한다', async () => {
@@ -579,6 +609,61 @@ test('monthly stale PATCH와 eligibility stale PUT은 UPDATE 없이 rollback한�
   assert.equal(res.payload.code, 'INTAKE_VERSION_CONFLICT');
   assert.equal(eligibilityStatements.some(sql => sql.startsWith('UPDATE peakos_intake')), false);
   assert.equal(eligibilityStatements.at(-1), 'ROLLBACK');
+});
+
+test('완료 근거가 연결된 monthly 원본 수정·삭제는 lifecycle 충돌 409로 반환한다', async () => {
+  const current = {
+    id: 'monthly-locked-1', view: 'monthly-guarantee', owner_uid: actor.uid,
+    row_version: 3, kind: 'sale', workspace_id: 'ws_peak',
+  };
+  const lockedStatements = [];
+  const lockedClient = {
+    async query(sql) {
+      const normalized = String(sql).replace(/\s+/g, ' ').trim();
+      lockedStatements.push(normalized);
+      if (normalized.startsWith('SELECT * FROM peakos_monthly WHERE id = ANY')) return { rows: [current] };
+      if (normalized.startsWith('UPDATE peakos_monthly')) {
+        throw Object.assign(new Error('source locked'), {
+          code: 'P0001', constraint: 'peakos_monthly_settlement_completion_lock',
+        });
+      }
+      return { rows: [] };
+    },
+    release() {},
+  };
+  let res = responseCapture();
+  await captureRoutes(lockedClient).get('PATCH /api/peakos/monthly/:view')({
+    uid: actor.uid, headers: {}, params: { view: 'monthly-guarantee' },
+    body: { rows: [{ id: current.id, expectedRowVersion: 3, changes: { memo: '잠금 원본 수정' } }] },
+  }, res);
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.payload.code, 'SETTLEMENT_COMPLETION_SOURCE_LOCKED');
+  assert.equal(lockedStatements.at(-1), 'ROLLBACK');
+
+  const attachedStatements = [];
+  const attachedClient = {
+    async query(sql) {
+      const normalized = String(sql).replace(/\s+/g, ' ').trim();
+      attachedStatements.push(normalized);
+      if (normalized.startsWith('SELECT * FROM peakos_monthly WHERE id = $1')) return { rows: [current] };
+      if (normalized.startsWith('SELECT 1 FROM peakos_monthly WHERE parent_id')) return { rows: [] };
+      if (normalized.startsWith('DELETE FROM peakos_monthly')) {
+        throw Object.assign(new Error('source attached'), {
+          code: '23503', constraint: 'peakos_monthly_settlement_completion_attached',
+        });
+      }
+      return { rows: [] };
+    },
+    release() {},
+  };
+  res = responseCapture();
+  await captureRoutes(attachedClient).get('DELETE /api/peakos/monthly/:view/:id')({
+    uid: actor.uid, headers: {}, params: { view: 'monthly-guarantee', id: current.id },
+    body: { expectedRowVersion: 3 },
+  }, res);
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.payload.code, 'SETTLEMENT_COMPLETION_SOURCE_ATTACHED');
+  assert.equal(attachedStatements.at(-1), 'ROLLBACK');
 });
 
 test('owner 미리보기는 원장에 저장된 단일 immutable UID를 우선해 중복 빈 계정과 섞지 않는다', async () => {
