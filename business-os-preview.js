@@ -6313,7 +6313,7 @@
           <label class="wide"><span>대분류 설명</span><textarea name="description" rows="4" maxlength="5000" placeholder="예: 플랫폼별 매출 업무와 콜 진행 기준을 관리합니다.">${esc(project?.description || '')}</textarea></label>
           <fieldset class="wide collaboration-member-field"><legend>프로젝트 팀원</legend><p class="structured-form-help">프로젝트 담당자는 자동으로 팀원에 포함됩니다. 저장 후에도 추가하거나 교체할 수 있습니다.</p><div class="collaboration-member-list">${structuredMemberCheckboxes(users, selectedIds)}</div></fieldset>
         </div>
-        <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">${project ? '변경 저장' : '대분류 생성'}</button></div>
+        <div class="collaboration-form-actions">${project && structuredProjectCan('manageProject', source) ? '<button class="danger" type="button" data-structured-project-delete>대분류 삭제</button>' : '<span></span>'}<span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">${project ? '변경 저장' : '대분류 생성'}</button></div>
       </form>`, { locked: true });
     const form = document.getElementById('structuredProjectForm');
     const syncLeadMember = () => {
@@ -6326,6 +6326,21 @@
     };
     syncLeadMember();
     form.elements.leadUid.addEventListener('change', syncLeadMember);
+    // 서버는 행을 지우지 않고 status='archived'로 보관한다. 되돌릴 수 있다는 점을 문구에 밝힌다.
+    form.querySelector('[data-structured-project-delete]')?.addEventListener('click', async () => {
+      const label = String(project?.name || '이 대분류');
+      if (!window.confirm(`"${label}" 대분류를 삭제할까요?\n\n안에 있는 중분류·소분류·업무가 목록에서 함께 사라집니다.\n기록은 남아 있어 필요하면 되돌릴 수 있습니다.`)) return;
+      const saved = await runCollaborationMutation(
+        () => collaborationApi('DELETE', `/new-projects/${encodeURIComponent(project.id)}`, {
+          expectedVersion: Number(project.version ?? source?.project?.version ?? 1)
+        }),
+        '대분류를 삭제했습니다.'
+      );
+      if (!saved) return;
+      closeDetailModal();
+      closeStructuredProject();
+      await refreshStructuredProjects();
+    });
     form.querySelector('[data-collab-cancel]').addEventListener('click', () => closeDetailModal());
     form.addEventListener('submit', async event => {
       event.preventDefault();
