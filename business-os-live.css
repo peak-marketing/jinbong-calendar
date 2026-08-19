@@ -17306,7 +17306,9 @@ html body #newProjectsView .structured-page-head > div:first-child > h1 {
 .structured-split-block-head > strong { color: #2b6d94; font-size: 11px; }
 
 @media (min-width: 761px) {
-  html body #newProjectsView .structured-split-head > button,
+  /* 제목 자체가 버튼이 된 뒤로는 여기서 빼야 한다 — 안 그러면 제목이
+     "중분류 수정" 같은 작은 테두리 버튼 모양이 되어버린다. */
+  html body #newProjectsView .structured-split-head > button:not(.structured-split-title),
   html body #newProjectsView .structured-split-block-head > button {
     min-height: 24px;
     height: 24px;
@@ -17793,7 +17795,7 @@ html body #newProjectsView .structured-split-brief-status > em.is-empty { backgr
 
 /* 중분류 상세는 이름을 눌렀을 때만 연다 (늘 펼쳐 두니 목록 위 자리를 계속 먹었다) */
 html body #newProjectsView .structured-split-brief[hidden] { display: none; }
-html body #newProjectsView .structured-split-title {
+html body #newProjectsView .structured-split-head > .structured-split-title {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -17805,8 +17807,8 @@ html body #newProjectsView .structured-split-title {
   text-align: left;
   cursor: pointer;
 }
-html body #newProjectsView .structured-split-title:hover { background: #f2f6f9; }
-html body #newProjectsView .structured-split-title > span { display: grid; gap: 1px; min-width: 0; }
+html body #newProjectsView .structured-split-head > .structured-split-title:hover { background: #f2f6f9; }
+html body #newProjectsView .structured-split-head > .structured-split-title > span { display: grid; gap: 1px; min-width: 0; }
 html body #newProjectsView .structured-split-title-caret {
   flex: 0 0 auto;
   color: #9bb0bd;
@@ -17816,4 +17818,4 @@ html body #newProjectsView .structured-split-title-caret {
   transform: rotate(0deg);
   transition: transform 150ms ease;
 }
-html body #newProjectsView .structured-split-title[aria-expanded="true"] .structured-split-title-caret { transform: rotate(90deg); }
+html body #newProjectsView .structured-split-head > .structured-split-title[aria-expanded="true"] .structured-split-title-caret { transform: rotate(90deg); }

@@ -82,6 +82,18 @@ test('분할 보기에서 중분류 이름을 누르면 담당자와 진행 상�
   await page.locator('.nav-item[data-view="new-projects"]').click();
   await page.locator('[data-structured-project-open="p1"]').click();
 
+  // 제목은 눌리지만 생김새는 제목이어야 한다. 헤더의 작은 액션 버튼 규칙에
+  // 휩쓸려 테두리 상자가 되어버린 적이 있다.
+  const title = page.locator('.structured-split-title');
+  const look = await title.evaluate(el => {
+    const c = getComputedStyle(el as HTMLElement);
+    return { border: c.borderTopWidth, bg: c.backgroundColor,
+      size: getComputedStyle(el.querySelector('strong')!).fontSize };
+  });
+  expect(look.border).toBe('0px');
+  expect(look.bg).toBe('rgba(0, 0, 0, 0)');
+  expect(look.size).toBe('13px');
+
   // 처음에는 접혀 있고, 중분류 이름을 눌러야 열린다.
   const brief = page.locator('.structured-split-brief');
   await expect(brief).toBeHidden();
