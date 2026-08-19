@@ -215,6 +215,9 @@
   let calendarScope = 'all';
   let calendarIncompleteOnly = true;
   let todoSelectedDate = initialKoreaDate;
+  // 탭을 하루 넘게 열어두면 선택 날짜가 어제에 머물러 새 할 일이 어제로 저장된다.
+  // 사용자가 직접 날짜를 옮기기 전까지는 화면을 열 때마다 오늘로 맞춘다.
+  let todoDateFollowsToday = true;
   // PEAK OS 할 일은 기존 Paragon 일정(/events)과 물리적으로 다른 저장소다.
   // 선택 날짜와 오늘 배지는 각각 세대·인증·워크스페이스 키로 격리해
   // 늦게 도착한 다른 계정/지사의 응답을 화면에 올리지 않는다.
@@ -4666,6 +4669,7 @@
       }
       const validNextDate = validDateKey(nextDate);
       if (!validNextDate || validNextDate === todoSelectedDate) return;
+      todoDateFollowsToday = validNextDate === koreaDateKey(new Date());
       const previousDate = todoSelectedDate;
       const previousState = todoDayState;
       const previousDraft = todoCaptureDraft;
@@ -18763,6 +18767,8 @@
     if (view === 'dashboard') renderDashboard();
     if (view === 'calendar') renderCalendar();
     if (view === 'todo') {
+      // 오래 열어둔 탭이 어제에 머물지 않도록, 직접 날짜를 옮기기 전까지는 오늘로 맞춘다.
+      if (todoDateFollowsToday) todoSelectedDate = koreaDateKey(new Date());
       renderTodo();
       const selectedTodoDate = validDateKey(todoSelectedDate) || koreaDateKey(new Date());
       const hasSelectedDay = ['loading', 'ready', 'refreshing'].includes(todoDayState.status)
