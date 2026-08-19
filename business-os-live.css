@@ -17819,3 +17819,93 @@ html body #newProjectsView .structured-split-title-caret {
   transition: transform 150ms ease;
 }
 html body #newProjectsView .structured-split-head > .structured-split-title[aria-expanded="true"] .structured-split-title-caret { transform: rotate(90deg); }
+
+/* ── 분류별 회의 일정 ──────────────────────────────── */
+html body #newProjectsView .structured-meeting-list {
+  display: grid;
+  gap: 6px;
+  padding: 8px 16px 4px;
+}
+html body #newProjectsView .structured-meeting {
+  display: grid;
+  gap: 3px;
+  border: 1px solid #d9e7f0;
+  border-left: 3px solid #2b88be;
+  border-radius: 9px;
+  padding: 9px 12px;
+  background: #f6fbfe;
+}
+html body #newProjectsView .structured-meeting-when {
+  color: #2b6fa8;
+  font-size: 10px;
+  font-weight: 900;
+}
+html body #newProjectsView .structured-meeting > strong { color: #163f5a; font-size: 13px; }
+html body #newProjectsView .structured-meeting-where { color: #4a6478; font-size: 11px; font-weight: 700; }
+html body #newProjectsView .structured-meeting-people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  color: #37596e;
+  font-size: 11px;
+}
+html body #newProjectsView .structured-meeting-people b {
+  color: #7b909f;
+  font-size: 10px;
+  font-weight: 800;
+}
+html body #newProjectsView .structured-meeting > p {
+  margin: 2px 0 0;
+  color: #4a6478;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+html body #newProjectsView .structured-meeting-actions { display: flex; gap: 6px; margin-top: 4px; }
+html body #newProjectsView .structured-meeting-actions > button {
+  min-height: 24px;
+  border: 1px solid #cadae4;
+  border-radius: 7px;
+  padding: 0 9px;
+  background: #fff;
+  color: #37596e;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+html body #newProjectsView .structured-meeting-actions > button:hover { border-color: #2b88be; color: #2b88be; }
+
+/* 참석자 고르기 */
+html body .structured-meeting-attendee-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 5px;
+}
+html body .structured-meeting-attendee {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #d5e2ea;
+  border-radius: 9px;
+  padding: 6px 10px;
+  background: #fff;
+  cursor: pointer;
+}
+html body .structured-meeting-attendee:has(input:checked) { border-color: #2b88be; background: #eef7fd; }
+html body .structured-meeting-attendee > span { color: #1d4a67; font-size: 12px; font-weight: 800; }
+html body .structured-meeting-attendee > em { color: #7b909f; font-size: 10px; font-style: normal; font-weight: 700; }
+
+/* 폼 전역 규칙이 input 폭을 100%로 늘려 체크박스가 커지고 이름이 세로로 눌렸다 */
+html body .structured-meeting-attendee > input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 15px;
+  min-width: 15px;
+  height: 15px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  accent-color: #2b88be;
+}
+html body .structured-meeting-attendee > span,
+html body .structured-meeting-attendee > em { white-space: nowrap; }

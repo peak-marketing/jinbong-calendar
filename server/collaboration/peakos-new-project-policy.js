@@ -7,6 +7,8 @@ const NEW_PROJECT_TABLES = Object.freeze({
   smallCategories: 'peakos_structured_project_small_categories',
   tasks: 'peakos_structured_project_tasks',
   history: 'peakos_structured_project_history',
+  meetings: 'peakos_structured_project_meetings',
+  meetingAttendees: 'peakos_structured_project_meeting_attendees',
 });
 
 function freezeDefinitionMap(definitions) {
@@ -61,6 +63,26 @@ const NEW_PROJECT_REQUIRED_COLUMN_DEFINITIONS = freezeDefinitionMap({
     created_by_name_snapshot: ['text', true, null],
     created_at: ['timestamp with time zone', true, 'now()'],
     updated_at: ['timestamp with time zone', true, 'now()'],
+  },
+  [NEW_PROJECT_TABLES.meetings]: {
+    workspace_id: ['text', true, null], project_id: ['uuid', true, null],
+    id: ['uuid', true, 'gen_random_uuid()'], medium_category_id: ['uuid', true, null],
+    small_category_id: ['uuid', false, null], title: ['text', true, null],
+    description: ['text', true, "''::text"], location: ['text', true, "''::text"],
+    start_date: ['date', true, null], end_date: ['date', true, null],
+    start_time: ['text', true, "''::text"], end_time: ['text', true, "''::text"],
+    organizer_uid: ['text', true, null], organizer_name_snapshot: ['text', true, null],
+    status: ['text', true, "'scheduled'::text"], event_id: ['text', false, null],
+    version: ['integer', true, '1'], created_by_uid: ['text', true, null],
+    created_by_name_snapshot: ['text', true, null],
+    created_at: ['timestamp with time zone', true, 'now()'],
+    updated_at: ['timestamp with time zone', true, 'now()'],
+  },
+  [NEW_PROJECT_TABLES.meetingAttendees]: {
+    workspace_id: ['text', true, null], project_id: ['uuid', true, null],
+    meeting_id: ['uuid', true, null], user_uid: ['text', true, null],
+    user_name_snapshot: ['text', true, null], active: ['boolean', true, 'true'],
+    created_at: ['timestamp with time zone', true, 'now()'],
   },
   [NEW_PROJECT_TABLES.tasks]: {
     workspace_id: ['text', true, null], project_id: ['uuid', true, null],
@@ -150,6 +172,26 @@ const NEW_PROJECT_REQUIRED_CONSTRAINT_DEFINITIONS = Object.freeze({
     ['peakos_structured_project_tasks_reviewer_source_check', 'c', "CHECK ((reviewer_source = ANY (ARRAY['assigned_by'::text, 'lead_fallback'::text, 'explicit'::text])))"],
     ['peakos_structured_project_tasks_reviewer_separation_check', 'c', 'CHECK ((reviewer_uid <> assignee_uid))'],
     ['peakos_structured_project_tasks_version_check', 'c', 'CHECK (((version >= 1) AND (version <= 2147483647)))'],
+  ]),
+  [NEW_PROJECT_TABLES.meetings]: Object.freeze([
+    ['peakos_structured_project_meetings_pkey', 'p', 'PRIMARY KEY (workspace_id, project_id, id)'],
+    ['peakos_structured_project_meetings_project_fk', 'f', 'FOREIGN KEY (workspace_id, project_id) REFERENCES peakos_structured_projects(workspace_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT'],
+    ['peakos_structured_project_meetings_medium_fk', 'f', 'FOREIGN KEY (workspace_id, project_id, medium_category_id) REFERENCES peakos_structured_project_medium_categories(workspace_id, project_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT'],
+    ['peakos_structured_project_meetings_small_hierarchy_fk', 'f', 'FOREIGN KEY (workspace_id, project_id, medium_category_id, small_category_id) REFERENCES peakos_structured_project_small_categories(workspace_id, project_id, medium_category_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT'],
+    ['peakos_structured_project_meetings_organizer_fk', 'f', 'FOREIGN KEY (workspace_id, project_id, organizer_uid) REFERENCES peakos_structured_project_members(workspace_id, project_id, user_uid) ON UPDATE RESTRICT ON DELETE RESTRICT'],
+    ['peakos_structured_project_meetings_creator_membership_fk', 'f', 'FOREIGN KEY (workspace_id, created_by_uid) REFERENCES peakos_workspace_memberships(workspace_id, user_uid) ON UPDATE RESTRICT ON DELETE RESTRICT'],
+    ['peakos_structured_project_meetings_status_check', 'c', "CHECK ((status = ANY (ARRAY['scheduled'::text, 'done'::text, 'cancelled'::text])))"],
+    ['peakos_structured_project_meetings_title_check', 'c', "CHECK (((btrim(title) <> ''::text) AND (length(title) <= 180)))"],
+    ['peakos_structured_project_meetings_span_check', 'c', 'CHECK ((end_date >= start_date))'],
+    ['peakos_structured_project_meetings_start_time_check', 'c', "CHECK (((start_time = ''::text) OR (start_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'::text)))"],
+    ['peakos_structured_project_meetings_end_time_check', 'c', "CHECK (((end_time = ''::text) OR ((start_time <> ''::text) AND (end_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'::text))))"],
+    ['peakos_structured_project_meetings_time_order_check', 'c', "CHECK (((end_time = ''::text) OR (end_date > start_date) OR (end_time > start_time)))"],
+    ['peakos_structured_project_meetings_version_check', 'c', 'CHECK (((version >= 1) AND (version <= 2147483647)))'],
+  ]),
+  [NEW_PROJECT_TABLES.meetingAttendees]: Object.freeze([
+    ['peakos_structured_project_meeting_attendees_pkey', 'p', 'PRIMARY KEY (workspace_id, project_id, meeting_id, user_uid)'],
+    ['peakos_structured_project_meeting_attendees_meeting_fk', 'f', 'FOREIGN KEY (workspace_id, project_id, meeting_id) REFERENCES peakos_structured_project_meetings(workspace_id, project_id, id) ON UPDATE RESTRICT ON DELETE CASCADE'],
+    ['peakos_structured_project_meeting_attendees_member_fk', 'f', 'FOREIGN KEY (workspace_id, project_id, user_uid) REFERENCES peakos_structured_project_members(workspace_id, project_id, user_uid) ON UPDATE RESTRICT ON DELETE RESTRICT'],
   ]),
   [NEW_PROJECT_TABLES.history]: Object.freeze([
     ['peakos_structured_project_history_pkey', 'p', 'PRIMARY KEY (id)'],
@@ -992,6 +1034,49 @@ function normalizeNewProjectTaskActionBody(body) {
   return { ok: true, value: { action: action.value, expectedVersion: expectedVersion.value, note: note.value } };
 }
 
+const MEETING_STATUSES = Object.freeze(['scheduled', 'done', 'cancelled']);
+const MEETING_TIME = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+const MEETING_ATTENDEE_LIMIT = 100;
+
+// 시간은 "" 이거나 HH:MM. 빈 값은 "시간 미정"이라는 뜻이다.
+function normalizeMeetingTime(value, field) {
+  if (value === undefined || value === null || value === '') return { ok: true, value: '' };
+  const text = String(value).trim();
+  if (!MEETING_TIME.test(text)) {
+    return { ok: false, code: 'NEW_PROJECT_MEETING_TIME_INVALID', error: `${field}은(는) 09:30 형식으로 입력해 주세요.` };
+  }
+  return { ok: true, value: text };
+}
+
+// 회의 한 건이 성립하는지 본다. DB CHECK와 같은 규칙을 여기서 먼저 걸러
+// 사용자에게 제약 위반 대신 읽을 수 있는 메시지를 준다.
+function normalizeMeetingSchedule({ startDate, endDate, startTime, endTime }) {
+  if (endDate < startDate) {
+    return { ok: false, code: 'NEW_PROJECT_MEETING_SPAN_INVALID', error: '종료일이 시작일보다 빠릅니다.' };
+  }
+  if (endTime && !startTime) {
+    return { ok: false, code: 'NEW_PROJECT_MEETING_TIME_INVALID', error: '종료 시간을 넣으려면 시작 시간을 먼저 정해 주세요.' };
+  }
+  if (endTime && endDate === startDate && endTime <= startTime) {
+    return { ok: false, code: 'NEW_PROJECT_MEETING_TIME_ORDER', error: '종료 시간이 시작 시간보다 빠르거나 같습니다.' };
+  }
+  return { ok: true, value: { startDate, endDate, startTime, endTime } };
+}
+
+// 회의를 잡을 수 있는 사람: 프로젝트를 관리하는 사람, 프로젝트 담당자,
+// 그리고 그 중분류를 맡은 사람. 남의 분류에 회의를 꽂지 못하게 한다.
+function newProjectMeetingManageDecision({ readOnly, canManage, isLead, uid, mediumManagerUid }) {
+  if (readOnly) {
+    return { allowed: false, status: 403, code: 'NEW_PROJECT_READ_ONLY', error: '열람 전용 계정은 회의를 잡을 수 없습니다.' };
+  }
+  if (canManage === true || isLead === true) return { allowed: true };
+  if (uid && mediumManagerUid && String(uid) === String(mediumManagerUid)) return { allowed: true };
+  return {
+    allowed: false, status: 403, code: 'NEW_PROJECT_MEETING_FORBIDDEN',
+    error: '이 중분류에 회의를 잡을 권한이 없습니다.',
+  };
+}
+
 module.exports = {
   ACTION_TRANSITIONS,
   ACTIVE_LEAD_FUNCTION_SOURCE,
@@ -1014,16 +1099,21 @@ module.exports = {
   NEW_PROJECT_TABLES,
   NEW_PROJECT_TASK_ACTIONS,
   NEW_PROJECT_TASK_STATUSES,
+  MEETING_ATTENDEE_LIMIT,
+  MEETING_STATUSES,
   NOTE_REQUIRED_ACTIONS,
   SORT_ORDER_BOUND,
   VERSION_BOUND,
   newProjectCreateDecision,
+  newProjectMeetingManageDecision,
   newProjectMutationDecision,
   newProjectExternalActionToInternal,
   newProjectReadDecision,
   newProjectSchemaReadiness,
   newProjectVisibleMediums,
   newProjectTaskTransitionDecision,
+  normalizeMeetingSchedule,
+  normalizeMeetingTime,
   normalizeNewProjectDate,
   normalizeNewProjectDisplayName,
   normalizeNewProjectEnum,

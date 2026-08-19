@@ -56,8 +56,8 @@ function stripSqlStringLiterals(sql) {
 }
 
 test('readiness contract fail-closes on exact columns, constraints, indexes, functions, triggers and runtime ACLs using SELECT only', () => {
-  assert.equal(NEW_PROJECT_REQUIRED_TABLES.length, 6);
-  assert.equal(new Set(NEW_PROJECT_REQUIRED_TABLES).size, 6);
+  assert.equal(NEW_PROJECT_REQUIRED_TABLES.length, 8);
+  assert.equal(new Set(NEW_PROJECT_REQUIRED_TABLES).size, 8);
   assert.ok(NEW_PROJECT_REQUIRED_TABLES.every(name => name.startsWith('peakos_structured_')));
   assert.ok(Object.values(NEW_PROJECT_REQUIRED_COLUMNS).every(columns => columns.includes('workspace_id')));
   assert.ok(NEW_PROJECT_REQUIRED_COLUMNS.peakos_structured_project_medium_categories.includes('manager_uid'));
@@ -376,8 +376,12 @@ test('strict validators reject internal actions, unknown fields, numeric strings
 });
 
 test('operator migration creates six new tables without legacy copies and enforces tenant hierarchy, lead integrity and append-only history', () => {
+  // 회의 표 두 개는 나중에 따로 올린 마이그레이션이 만든다. 기본 마이그레이션은
+  // 여전히 핵심 여섯 개만 만들어야 한다.
+  const CORE_TABLES = NEW_PROJECT_REQUIRED_TABLES.filter(name => !name.includes('_meeting'));
+  assert.equal(CORE_TABLES.length, 6);
   const tableMatches = [...migration.matchAll(/CREATE TABLE IF NOT EXISTS\s+(peakos_structured_[a-z_]+)/gi)];
-  assert.deepEqual(tableMatches.map(match => match[1]), NEW_PROJECT_REQUIRED_TABLES);
+  assert.deepEqual(tableMatches.map(match => match[1]), CORE_TABLES);
   assert.match(migration, /BEGIN;[\s\S]*pg_advisory_xact_lock[\s\S]*COMMIT;/i);
   assert.doesNotMatch(migration, /(?:INSERT|UPDATE|DELETE)\s+(?:INTO\s+|FROM\s+)?(?:projects|project_tasks|project_members)\b/i);
 
