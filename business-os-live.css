@@ -17410,14 +17410,36 @@ html body #newProjectsView .structured-task-check.status-done {
 /* ── 업무 행 열 맞춤 ────────────────────────────────
    내용 길이에 따라 흐르던 구조라 행마다 지시·이력·버튼 위치가 달랐다.
    고정 격자로 바꿔 모든 행에서 같은 x 위치에 오게 한다. */
-@media (min-width: 1100px) {
-  html body #newProjectsView .structured-task-row {
-    grid-template-columns: 26px minmax(0, 1fr) 206px;
-    align-items: center;
-  }
+/* 화면 폭이 아니라 업무 목록 칸 자체의 폭을 본다. 화면이 1280px이어도 이 칸은
+   700px밖에 안 되는 일이 흔해서, 화면 기준으로 켜면 정렬이 안 켜지거나(행마다
+   x가 제각각) 켜져도 오른쪽이 잘려 나갔다(overflow:hidden이라 티도 안 났다).
+
+   열 폭은 반드시 고정값이어야 한다. 행 하나하나가 독립된 격자라서 minmax를
+   쓰면 행마다 내용에 따라 폭이 달라지고, 그게 곧 "간격이 제각각"이 된다.
+   단계마다 값은 달라도 한 단계 안에서는 모든 행이 같은 폭을 쓴다. */
+html body #newProjectsView .structured-task-list { container-type: inline-size; }
+
+/* 칸이 620px보다 좁으면 가로 정렬은 물리적으로 안 들어간다. 그때는 흐르게
+   두지 말고 세로로 쌓는다. 흐르게 두면 배지 길이에 따라 제목 x가 행마다
+   달라져서, 좁은 화면에서 "간격이 제각각"으로 보이는 게 바로 이것이었다. */
+@container (max-width: 639px) {
   html body #newProjectsView .structured-task-main {
     display: grid;
-    grid-template-columns: 148px minmax(160px, 1fr) 238px 74px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  html body #newProjectsView .structured-task-main > * { grid-column: 1; }
+  html body #newProjectsView .structured-task-meta { flex-wrap: wrap; }
+  html body #newProjectsView .structured-assignment-flow { flex-wrap: wrap; margin-top: 4px; }
+  html body #newProjectsView .structured-task-steps { flex-wrap: wrap; }
+}
+
+/* 기준값은 실측이다. 배지 묶음이 128px, 버튼 묶음이 157px을 요구하므로
+   그보다 좁은 열을 주면 조용히 잘려 나간다. */
+@container (min-width: 640px) {
+  html body #newProjectsView .structured-task-row { align-items: center; }
+  html body #newProjectsView .structured-task-main {
+    display: grid;
     grid-template-rows: auto auto;
     align-items: center;
     gap: 0 10px;
@@ -17432,6 +17454,7 @@ html body #newProjectsView .structured-task-check.status-done {
     grid-column: 2;
     grid-row: 2;
     max-width: none;
+    overflow-wrap: anywhere;
   }
   html body #newProjectsView .structured-assignment-flow {
     grid-column: 3;
@@ -17440,7 +17463,6 @@ html body #newProjectsView .structured-task-check.status-done {
     justify-content: flex-start;
   }
   html body #newProjectsView .structured-task-history { grid-column: 4; grid-row: 1 / span 2; }
-  /* 액션 열도 오른쪽 끝에 맞춰 버튼이 어긋나지 않게 한다 */
   html body #newProjectsView .structured-task-actions {
     display: flex;
     align-items: center;
@@ -17448,6 +17470,28 @@ html body #newProjectsView .structured-task-check.status-done {
     gap: 6px;
     flex-wrap: wrap;
   }
+
+  /* 단계 버튼 묶음도 접히게 해야 좁은 칸에서 열을 밀고 나가지 않는다 */
+  html body #newProjectsView .structured-task-steps { flex-wrap: wrap; }
+
+  /* 이름은 절대 글자 단위로 쪼개지 않는다. 150px에 세 칸을 억지로 밀어 넣으니
+     "전현우"가 "전현/우"로 눌려 읽을 수가 없었다. 대신 줄로 접는다. */
+  html body #newProjectsView .structured-assignment-flow { flex-wrap: wrap; gap: 4px 6px; }
+  html body #newProjectsView .structured-assignment-flow > span { white-space: nowrap; }
+
+  /* 좁은 칸 */
+  html body #newProjectsView .structured-task-row { grid-template-columns: 24px minmax(0, 1fr) 160px; }
+  html body #newProjectsView .structured-task-main { grid-template-columns: 130px minmax(0, 1fr) 164px 56px; }
+}
+@container (min-width: 780px) {
+  html body #newProjectsView .structured-task-row { grid-template-columns: 26px minmax(0, 1fr) 168px; }
+  html body #newProjectsView .structured-task-main { grid-template-columns: 136px minmax(0, 1fr) 190px 66px; }
+}
+@container (min-width: 960px) {
+  html body #newProjectsView .structured-task-row { grid-template-columns: 26px minmax(0, 1fr) 206px; }
+  html body #newProjectsView .structured-task-main { grid-template-columns: 148px minmax(0, 1fr) 238px 74px; }
+  /* 넉넉하면 한 줄로 나란히 */
+  html body #newProjectsView .structured-assignment-flow { flex-wrap: nowrap; gap: 7px; }
 }
 
 /* 지난 날짜에서 넘어온 할 일 표시 */

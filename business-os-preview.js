@@ -6355,8 +6355,9 @@
     let detailHead = '';
     let detailBody = '';
     if (activeSmall) {
-      detailHead = `<div><small>${esc(activeMedium?.name || '중분류')}</small><strong>${esc(activeSmall.name || '소분류')}</strong></div>${canManage ? `<button type="button" data-structured-task-create data-medium-id="${esc(activeMedium?.id || '')}" data-small-id="${esc(activeSmall.id)}">＋ 할 일 배정</button>` : ''}`;
-      detailBody = `<div class="structured-task-list">${tasksOf(activeSmall).map(task => structuredTaskRow(task, project)).join('')
+      detailHead = `<div><small>${esc(activeMedium?.name || '중분류')}</small><strong>${esc(activeSmall.name || '소분류')}</strong></div>${canManage ? `<span class="structured-category-actions"><button type="button" data-structured-meeting-create data-medium-id="${esc(activeMedium?.id || '')}" data-small-id="${esc(activeSmall.id)}">＋ 회의 일정</button><button type="button" data-structured-task-create data-medium-id="${esc(activeMedium?.id || '')}" data-small-id="${esc(activeSmall.id)}">＋ 할 일 배정</button></span>` : ''}`;
+      detailBody = structuredMeetingList(activeSmall.meetings, project)
+        + `<div class="structured-task-list">${tasksOf(activeSmall).map(task => structuredTaskRow(task, project)).join('')
         || '<div class="structured-split-note">이 소분류에는 아직 업무가 없습니다.</div>'}</div>`;
     } else {
       const smalls = smallsOf(activeMedium);
