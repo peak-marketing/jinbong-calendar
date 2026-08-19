@@ -6263,15 +6263,16 @@
 
   // 중분류 응답은 manager { uid, name }만 보장하므로 프로젝트 팀원 DTO의
   // 표시용 직급을 보강하되, 권한 판단에는 쓰지 않는다.
-  // 중분류를 고르면 누가 맡고 있고 어디까지 왔는지를 목록 위에 먼저 보여 준다.
-  function structuredMediumBrief(medium, project, tasks) {
+  // 중분류 이름을 누르면 열리는 상세. 늘 펼쳐 두면 목록 위 자리를 계속 먹는다.
+  const structuredMediumBriefOpenIds = new Set();
+  function structuredMediumBrief(medium, project, tasks, open) {
     const { name: managerName, rank: managerRank } = structuredMediumManager(medium, project);
     const done = tasks.filter(task => structuredTaskStatusKey(task) === 'done').length;
     const percent = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
     const counts = STRUCTURED_TASK_STATUS_ORDER
       .map(key => ({ key, label: STRUCTURED_TASK_STATUS[key], count: tasks.filter(task => structuredTaskStatusKey(task) === key).length }))
       .filter(entry => entry.count);
-    return `<section class="structured-split-brief">
+    return `<section class="structured-split-brief" id="structuredMediumBrief" ${open ? '' : 'hidden'}>
       <span class="structured-split-brief-person">
         <b>중분류 담당자</b>
         ${managerName
@@ -6360,8 +6361,9 @@
       const smalls = smallsOf(activeMedium);
       const mediumTasks = smalls.flatMap(small => tasksOf(small));
       const taskCount = mediumTasks.length;
-      detailHead = `<div><small>중분류</small><strong>${esc(activeMedium?.name || '중분류')}</strong></div><span class="structured-split-count">소분류 ${smalls.length} · 업무 ${taskCount}</span>${canManage ? `<button type="button" data-structured-medium-edit="${esc(activeMedium?.id || '')}">중분류 수정</button><button type="button" data-structured-small-create="${esc(activeMedium?.id || '')}">＋ 소분류 추가</button>` : ''}`;
-      detailBody = structuredMediumBrief(activeMedium, project, mediumTasks) + (smalls.length
+      const briefOpen = structuredMediumBriefOpenIds.has(String(activeMedium?.id || ''));
+      detailHead = `<button class="structured-split-title" type="button" data-structured-medium-brief="${esc(activeMedium?.id || '')}" aria-expanded="${briefOpen ? 'true' : 'false'}" aria-controls="structuredMediumBrief"><span><small>중분류</small><strong>${esc(activeMedium?.name || '중분류')}</strong></span><i class="structured-split-title-caret" aria-hidden="true">›</i></button><span class="structured-split-count">소분류 ${smalls.length} · 업무 ${taskCount}</span>${canManage ? `<button type="button" data-structured-medium-edit="${esc(activeMedium?.id || '')}">중분류 수정</button><button type="button" data-structured-small-create="${esc(activeMedium?.id || '')}">＋ 소분류 추가</button>` : ''}`;
+      detailBody = structuredMediumBrief(activeMedium, project, mediumTasks, briefOpen) + (smalls.length
         ? smalls.map(small => taskListMarkup(small, activeMedium)).join('')
         : '<div class="structured-split-note">소분류를 추가해 실행할 업무를 나눠 주세요.</div>');
     }
@@ -6604,6 +6606,12 @@
     newProjectsView.querySelectorAll('[data-structured-split-small]').forEach(button => button.addEventListener('click', () => {
       structuredSplitSmallId = String(button.dataset.structuredSplitSmall || '');
       renderStructuredProjectDetail();
+    }));
+    newProjectsView.querySelectorAll('[data-structured-medium-brief]').forEach(button => button.addEventListener('click', () => {
+      const id = String(button.dataset.structuredMediumBrief || '');
+      if (structuredMediumBriefOpenIds.has(id)) structuredMediumBriefOpenIds.delete(id);
+      else structuredMediumBriefOpenIds.add(id);
+      renderStructuredProjects();
     }));
     newProjectsView.querySelectorAll('[data-structured-split-medium]').forEach(button => button.addEventListener('click', () => {
       const mediumId = String(button.dataset.structuredSplitMedium || '');

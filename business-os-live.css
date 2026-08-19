@@ -17790,3 +17790,30 @@ html body #newProjectsView .structured-split-brief-status > em.status-review { b
 html body #newProjectsView .structured-split-brief-status > em.status-revision { background: #fdecec; color: #c0424b; }
 html body #newProjectsView .structured-split-brief-status > em.status-done { background: #e6f7ee; color: #2b8a5e; }
 html body #newProjectsView .structured-split-brief-status > em.is-empty { background: transparent; color: #9bb0bd; }
+
+/* 중분류 상세는 이름을 눌렀을 때만 연다 (늘 펼쳐 두니 목록 위 자리를 계속 먹었다) */
+html body #newProjectsView .structured-split-brief[hidden] { display: none; }
+html body #newProjectsView .structured-split-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  border: 0;
+  border-radius: 8px;
+  padding: 3px 6px 3px 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+html body #newProjectsView .structured-split-title:hover { background: #f2f6f9; }
+html body #newProjectsView .structured-split-title > span { display: grid; gap: 1px; min-width: 0; }
+html body #newProjectsView .structured-split-title-caret {
+  flex: 0 0 auto;
+  color: #9bb0bd;
+  font-size: 17px;
+  font-style: normal;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform 150ms ease;
+}
+html body #newProjectsView .structured-split-title[aria-expanded="true"] .structured-split-title-caret { transform: rotate(90deg); }

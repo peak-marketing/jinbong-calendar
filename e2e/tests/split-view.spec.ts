@@ -69,7 +69,7 @@ test('분할 보기는 중분류를 고르면 오른쪽에 그 중분류 전체�
   await expect.poll(() => actions).toContain('acknowledge');
 });
 
-test('분할 보기에서 중분류를 고르면 담당자와 진행 상황이 함께 나온다', async ({ page }) => {
+test('분할 보기에서 중분류 이름을 누르면 담당자와 진행 상황이 열린다', async ({ page }) => {
   await installFirebaseStub(page);
   await installPeakosStub(page, { name: '김대호', group_name: '본사 영업팀' });
   await page.route('**/new-projects', r => r.fulfill({ status:200, contentType:'application/json',
@@ -82,7 +82,10 @@ test('분할 보기에서 중분류를 고르면 담당자와 진행 상황이 �
   await page.locator('.nav-item[data-view="new-projects"]').click();
   await page.locator('[data-structured-project-open="p1"]').click();
 
+  // 처음에는 접혀 있고, 중분류 이름을 눌러야 열린다.
   const brief = page.locator('.structured-split-brief');
+  await expect(brief).toBeHidden();
+  await page.locator('.structured-split-title').click();
   await expect(brief).toBeVisible();
   // 담당자는 이름과 직급이 함께 보여야 한다.
   await expect(brief.locator('.structured-split-brief-person')).toContainText('김대호');
@@ -97,7 +100,12 @@ test('분할 보기에서 중분류를 고르면 담당자와 진행 상황이 �
   // 중분류 수정도 여기서 바로 열 수 있다.
   await expect(page.locator('.structured-split-head [data-structured-medium-edit]')).toBeVisible();
 
-  // 담당자가 없는 중분류는 미지정으로 뜬다.
+  // 다시 누르면 닫힌다.
+  await page.locator('.structured-split-title').click();
+  await expect(brief).toBeHidden();
+
+  // 업무가 없는 중분류도 열어서 볼 수 있다.
   await page.locator('[data-structured-split-medium="m2"]').click();
-  await expect(brief.locator('.structured-split-brief-status em')).toHaveText(['아직 배정된 업무가 없습니다']);
+  await page.locator('.structured-split-title').click();
+  await expect(page.locator('.structured-split-brief-status em')).toHaveText(['아직 배정된 업무가 없습니다']);
 });
