@@ -6437,7 +6437,23 @@
     return structuredProjectDetailTasks(project).find(task => String(task.id) === String(taskId));
   }
 
+  // 진행 단계 버튼은 목록이 다시 그려져도 동작해야 하므로 위임으로 한 번만 건다.
+  let structuredStepDelegationBound = false;
+  function bindStructuredStepDelegation() {
+    if (structuredStepDelegationBound || !newProjectsView) return;
+    structuredStepDelegationBound = true;
+    newProjectsView.addEventListener('click', event => {
+      const button = event.target instanceof Element ? event.target.closest('[data-work-item-step]') : null;
+      if (!button) return;
+      if (button.getAttribute('aria-pressed') === 'true') return;
+      const project = structuredProjectDetailState?.project;
+      if (!project) return showToast('프로젝트를 다시 불러온 뒤 시도해 주세요.');
+      reviewStructuredTask(project, button.dataset.workItemStep, button.dataset.stepAction);
+    });
+  }
+
   function wireStructuredDetailActions(project) {
+    bindStructuredStepDelegation();
     newProjectsView.querySelector('[data-structured-project-back]')?.addEventListener('click', closeStructuredProject);
     newProjectsView.querySelector('[data-structured-board-assign]')?.addEventListener('click', () => openStructuredBoardAssignmentEditor(project));
     newProjectsView.querySelectorAll('[data-structured-medium-toggle]').forEach(button => button.addEventListener('click', () => {
@@ -6574,10 +6590,7 @@
     // 같은 업무에 체크 버튼과 텍스트 버튼이 함께 있어도 한 요청만 실행한다.
     const submitButtons = [...newProjectsView.querySelectorAll('[data-work-item-submit]')];
     submitButtons.forEach(button => button.addEventListener('click', () => reviewStructuredTask(project, button.dataset.workItemSubmit, 'request')));
-    newProjectsView.querySelectorAll('[data-work-item-step]').forEach(button => button.addEventListener('click', () => {
-      if (button.getAttribute('aria-pressed') === 'true') return;
-      reviewStructuredTask(project, button.dataset.workItemStep, button.dataset.stepAction);
-    }));
+
     newProjectsView.querySelectorAll('[data-work-item-approve]').forEach(button => button.addEventListener('click', () => reviewStructuredTask(project, button.dataset.workItemApprove, 'approve')));
     newProjectsView.querySelectorAll('[data-work-item-revision]').forEach(button => button.addEventListener('click', () => openStructuredRevisionDialog(project, button.dataset.workItemRevision)));
   }
@@ -7013,7 +7026,8 @@
 
   async function reviewStructuredTask(project, taskId, action, note = '') {
     const task = findStructuredTask(project, taskId);
-    if (!task) return;
+    // 조용히 끝나면 사용자는 버튼이 안 눌린 것으로 오해한다. 반드시 이유를 알린다.
+    if (!task) return showToast('업무 정보를 찾지 못했습니다. 새로고침 후 다시 시도해 주세요.');
     // 담당자가 고르는 단계(확인완료·진행중)도 검토 요청과 같은 권한으로 다룬다.
     const capability = ['request', 'acknowledge', 'start'].includes(action)
       ? 'submit'
