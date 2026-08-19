@@ -3067,7 +3067,10 @@
     // 미리보기 중에는 채팅을 닫는다. 실제로는 로그인한 본인의 대화가 뜨는데
     // 남의 계정 화면처럼 보이면 오해를 부르고, 대화 내용은 미리 볼 것이 아니다.
     // 항상 값을 넣어야 미리보기에서 돌아왔을 때 다시 켜진다.
-    locks.chat = !previewPersona;
+    // 기존 파라곤에 붙어 있던 탭은 PEAK OS 메뉴에서 감춘다.
+    // 채팅 전용 계정은 채팅이 유일한 화면이라 그 계정에만 남긴다.
+    locks.chat = collaborationAccess().chatOnly === true && !previewPersona;
+    locks.review = false;
     // 나머지 신규 화면은 지정 인원에게만 통째로 연다.
     document.querySelectorAll('.app-sidebar .nav-item[data-view]').forEach(button => {
       const view = button.dataset.view;
