@@ -17404,3 +17404,46 @@ html body #newProjectsView .structured-task-check.status-done {
 .structured-split-group.is-expanded .structured-split-caret { transform: rotate(90deg); }
 .structured-split-medium { justify-content: flex-start; gap: 6px; }
 .structured-split-medium > span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── 업무 행 열 맞춤 ────────────────────────────────
+   내용 길이에 따라 흐르던 구조라 행마다 지시·이력·버튼 위치가 달랐다.
+   고정 격자로 바꿔 모든 행에서 같은 x 위치에 오게 한다. */
+@media (min-width: 1100px) {
+  html body #newProjectsView .structured-task-row {
+    grid-template-columns: 26px minmax(0, 1fr) 206px;
+    align-items: center;
+  }
+  html body #newProjectsView .structured-task-main {
+    display: grid;
+    grid-template-columns: 148px minmax(160px, 1fr) 238px 74px;
+    grid-template-rows: auto auto;
+    align-items: center;
+    gap: 0 10px;
+  }
+  html body #newProjectsView .structured-task-main > .structured-task-meta {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    flex-wrap: nowrap;
+  }
+  html body #newProjectsView .structured-task-main > strong { grid-column: 2; grid-row: 1; }
+  html body #newProjectsView .structured-task-main > p {
+    grid-column: 2;
+    grid-row: 2;
+    max-width: none;
+  }
+  html body #newProjectsView .structured-assignment-flow {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+  }
+  html body #newProjectsView .structured-task-history { grid-column: 4; grid-row: 1 / span 2; }
+  /* 액션 열도 오른쪽 끝에 맞춰 버튼이 어긋나지 않게 한다 */
+  html body #newProjectsView .structured-task-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+}
