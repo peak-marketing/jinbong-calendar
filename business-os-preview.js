@@ -5607,13 +5607,16 @@
   // ── 내 업무 ────────────────────────────────────────
   let myWorkState = { status: 'idle', tasks: [], error: '', contextKey: '' };
   let myWorkSelectedId = '';
+  // 그룹 이름은 상태 표기와 한 곳에서 맞춘다. 상태를 추가하고 여기를 빠뜨리면
+  // 그 상태의 업무가 목록에서 통째로 사라진다(확인완료가 그랬다).
   const MY_WORK_GROUPS = [
-    { key: 'revision', label: '수정 요청', tone: 'danger' },
-    { key: 'review', label: '검토 요청', tone: 'warn' },
-    { key: 'doing', label: '진행 중', tone: 'active' },
-    { key: 'todo', label: '대기', tone: 'idle' },
-    { key: 'done', label: '완료', tone: 'done' },
-  ];
+    { key: 'revision', tone: 'danger' },
+    { key: 'review', tone: 'warn' },
+    { key: 'doing', tone: 'active' },
+    { key: 'acknowledged', tone: 'active' },
+    { key: 'todo', tone: 'idle' },
+    { key: 'done', tone: 'done' },
+  ].map(group => ({ ...group, label: STRUCTURED_TASK_STATUS[group.key] || group.key }));
 
   function myWorkContextKey() {
     return [activeWorkspaceSlug || 'peak', currentUser?.uid || '', osAuthAccessGeneration, previewPersona || 'self'].join('|');

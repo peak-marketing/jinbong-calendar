@@ -19,6 +19,13 @@ const TASKS = {
       medium: { id: 'm2', name: '리워드스페이스' }, small: { id: 's2', name: 'TNK 팩토리' },
     },
     {
+      id: 't4', title: '확인만 한 업무', description: '', status: 'acknowledged',
+      dueDate: null, version: 1, attachments: [],
+      assignedBy: { uid: 'lead', name: '김대호' }, reviewer: { uid: 'lead', name: '김대호' },
+      project: { id: 'p1', name: '개발', status: 'active' },
+      medium: { id: 'm1', name: '리워드스페이스' }, small: { id: 's4', name: '퍼니지' },
+    },
+    {
       id: 't3', title: '미션 연동 점검', description: '', status: 'done',
       dueDate: '2026-08-10', version: 2, attachments: [],
       assignedBy: { uid: 'lead', name: '김대호' }, reviewer: { uid: 'lead', name: '김대호' },
@@ -47,11 +54,11 @@ test('업무 현황 탭은 내 업무만 상태별로 모으고 눌러서 상세
   await expect(view).toBeVisible();
 
   // 상태별 그룹은 왼쪽 목록에 남는다.
+  // 상태 이름은 업무 화면 표기와 같아야 하고, 어떤 상태도 누락되면 안 된다.
   const groups = view.locator('.my-work-group');
-  await expect(groups).toHaveCount(3);
-  await expect(groups.nth(0).locator('.my-work-group-label')).toHaveText('진행 중');
-  await expect(groups.nth(1).locator('.my-work-group-label')).toHaveText('대기');
-  await expect(groups.nth(2).locator('.my-work-group-label')).toHaveText('완료');
+  await expect(groups).toHaveCount(4);
+  await expect(groups.locator('.my-work-group-label')).toHaveText(['진행중', '확인완료', '지시 받음', '승인완료']);
+  await expect(view.locator('[data-my-work-open]')).toHaveCount(4);
 
   // 처음에는 첫 업무가 선택되어 오른쪽에 상세가 열린다.
   const detail = view.locator('.my-work-detail');
