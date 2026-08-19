@@ -101,6 +101,24 @@
     }
   }
 
+  // 주요 메뉴의 이름과 순서를 화면 기준으로 맞춘다.
+  {
+    const renames = { todo: '투두리스트', 'new-projects': '프로젝트', requests: '개발 수정요청' };
+    Object.entries(renames).forEach(([view, label]) => {
+      const button = document.querySelector(`.app-sidebar .nav-item[data-view="${view}"]`);
+      if (!button) return;
+      const textNode = [...button.childNodes].find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+      if (textNode) textNode.textContent = label;
+    });
+    const order = ['dashboard', 'calendar', 'todo', 'new-projects', 'my-work', 'ideas', 'requests'];
+    const first = document.querySelector(`.app-sidebar .nav-item[data-view="${order[0]}"]`);
+    const list = first?.parentElement;
+    if (list) order.forEach(view => {
+      const button = list.querySelector(`.nav-item[data-view="${view}"]`);
+      if (button) list.appendChild(button);
+    });
+  }
+
   // 사이드바 접기 — 버튼을 JS로 만들어 넣는다.
   // 배포 시 HTML은 복사하지 않으므로 마크업을 JS가 들고 있어야 실서비스에 반영된다.
   const OS_SIDEBAR_STORAGE_KEY = 'peakos-sidebar-collapsed';
@@ -18812,7 +18830,7 @@
     if (myWorkView) myWorkView.hidden = view !== 'my-work';
     moduleView.hidden = !isPlannedModule;
     permissionsView.hidden = view !== 'permissions';
-    const labels = { dashboard: '대시보드', calendar: '캘린더', chat: '채팅', todo: '할 일', review: '기존 프로젝트', 'new-projects': '신규 프로젝트', 'my-work': '내 업무', permissions: '조직 및 권한', ...PLANNED_MODULES };
+    const labels = { dashboard: '대시보드', calendar: '캘린더', chat: '채팅', todo: '투두리스트', review: '기존 프로젝트', 'new-projects': '프로젝트', 'my-work': '내 업무', permissions: '조직 및 권한', ...PLANNED_MODULES };
     pageCrumb.textContent = labels[view] || '피크마케팅';
     document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === view));
     const activeNav = document.querySelector(`.app-sidebar .nav-item[data-view="${view}"]`);
