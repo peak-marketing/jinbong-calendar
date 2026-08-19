@@ -141,7 +141,7 @@ function normalizeTaskAttachments(value) {
 function normalizeTaskCreateBody(body) {
   validationValue(normalizeStrictObject(
     body,
-    ['title', 'description', 'dueDate', 'assigneeUid', 'assignedByUid', 'sortOrder', 'attachments'],
+    ['title', 'description', 'dueDate', 'assigneeUid', 'assignedByUid', 'reviewerUid', 'sortOrder', 'attachments'],
     '체크리스트 업무',
   ));
   return {
@@ -151,6 +151,9 @@ function normalizeTaskCreateBody(body) {
     })),
     dueDate: validationValue(normalizeNewProjectDate(body.dueDate)),
     attachments: normalizeTaskAttachments(body.attachments) ?? [],
+    reviewerUid: body.reviewerUid === undefined || body.reviewerUid === ''
+      ? ''
+      : validationValue(normalizeNewProjectUid(body.reviewerUid, '업무 검토자')),
     assigneeUid: validationValue(normalizeNewProjectUid(body.assigneeUid, '업무 담당자')),
     // assignedByUid is optional only for a cached pre-rollout client. The
     // current UI always sends an explicit instructor; omission falls back to
@@ -165,7 +168,7 @@ function normalizeTaskCreateBody(body) {
 function normalizeTaskUpdateBody(body) {
   validationValue(normalizeStrictObject(
     body,
-    ['title', 'description', 'dueDate', 'assigneeUid', 'assignedByUid', 'sortOrder', 'expectedVersion', 'attachments'],
+    ['title', 'description', 'dueDate', 'assigneeUid', 'assignedByUid', 'reviewerUid', 'sortOrder', 'expectedVersion', 'attachments'],
     '체크리스트 업무 수정',
   ));
   const result = {
@@ -181,6 +184,11 @@ function normalizeTaskUpdateBody(body) {
   }
   if (body.attachments !== undefined) {
     result.attachments = normalizeTaskAttachments(body.attachments);
+  }
+  if (body.reviewerUid !== undefined) {
+    result.reviewerUid = body.reviewerUid === ''
+      ? ''
+      : validationValue(normalizeNewProjectUid(body.reviewerUid, '업무 검토자'));
   }
   if (body.dueDate !== undefined) result.dueDate = validationValue(normalizeNewProjectDate(body.dueDate));
   if (body.assigneeUid !== undefined) {
@@ -1379,13 +1387,13 @@ function registerPeakosNewProjectRoutes({
       const users = await resolveWorkspaceUsers(
         client,
         context.workspaceId,
-        [body.assigneeUid, selectedAssignerUid],
+        [body.assigneeUid, selectedAssignerUid, body.reviewerUid].filter(Boolean),
       );
       const members = await client.query(
         `SELECT user_uid FROM peakos_structured_project_members
           WHERE workspace_id = $1 AND project_id = $2
             AND user_uid = ANY($3::text[]) AND active = TRUE`,
-        [context.workspaceId, projectId, [body.assigneeUid, selectedAssignerUid]],
+        [context.workspaceId, projectId, [body.assigneeUid, selectedAssignerUid, body.reviewerUid].filter(Boolean)],
       );
       const activeMemberUids = new Set(members.rows.map(row => String(row.user_uid)));
       if (!activeMemberUids.has(body.assigneeUid) || !users.has(body.assigneeUid)) {
@@ -1394,12 +1402,18 @@ function registerPeakosNewProjectRoutes({
       if (!activeMemberUids.has(selectedAssignerUid) || !users.has(selectedAssignerUid)) {
         throw new NewProjectHttpError(400, 'NEW_PROJECT_ASSIGNER_NOT_MEMBER', '업무 지시자는 프로젝트 구성원이어야 합니다.');
       }
+      if (body.reviewerUid && (!activeMemberUids.has(body.reviewerUid) || !users.has(body.reviewerUid))) {
+        throw new NewProjectHttpError(400, 'NEW_PROJECT_REVIEWER_NOT_MEMBER', '업무 검토자는 프로젝트 구성원이어야 합니다.');
+      }
       const assignee = users.get(body.assigneeUid);
       const assigner = users.get(selectedAssignerUid);
+      const chosenReviewer = body.reviewerUid ? users.get(body.reviewerUid) : null;
       const reviewer = validationValue(resolveNewProjectReviewer({
         assigneeUid: assignee.uid,
         assignedByUid: assigner.uid,
         assignedByName: assigner.name,
+        reviewerUid: chosenReviewer?.uid || '',
+        reviewerName: chosenReviewer?.name || '',
         leadUid: access.project.lead_uid,
         leadName: access.project.lead_name_snapshot,
       }));
@@ -1514,7 +1528,7 @@ function registerPeakosNewProjectRoutes({
         const users = await resolveWorkspaceUsers(
           client,
           context.workspaceId,
-          [nextAssigneeUid, nextAssignerUid],
+          [nextAssigneeUid, nextAssignerUid, body.reviewerUid].filter(Boolean),
         );
         const members = await client.query(
           `SELECT user_uid FROM peakos_structured_project_members
@@ -1531,10 +1545,20 @@ function registerPeakosNewProjectRoutes({
         }
         const assignee = users.get(nextAssigneeUid);
         const assigner = users.get(nextAssignerUid);
+        // 검토자를 비워 보내면 예전처럼 지시자가 검토를 맡는다.
+        const nextReviewerUid = body.reviewerUid !== undefined
+          ? body.reviewerUid
+          : (task.reviewer_source === 'explicit' ? String(task.reviewer_uid || '') : '');
+        if (nextReviewerUid && !users.has(nextReviewerUid)) {
+          throw new NewProjectHttpError(400, 'NEW_PROJECT_REVIEWER_NOT_MEMBER', '업무 검토자는 프로젝트 구성원이어야 합니다.');
+        }
+        const chosenReviewer = nextReviewerUid ? users.get(nextReviewerUid) : null;
         const reviewer = validationValue(resolveNewProjectReviewer({
           assigneeUid: assignee.uid,
           assignedByUid: assigner.uid,
           assignedByName: assigner.name,
+          reviewerUid: chosenReviewer?.uid || '',
+          reviewerName: chosenReviewer?.name || '',
           leadUid: access.project.lead_uid,
           leadName: access.project.lead_name_snapshot,
         }));

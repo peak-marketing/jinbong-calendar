@@ -6929,6 +6929,7 @@
         <label class="wide"><span>할 일</span><input name="title" maxlength="200" required value="${esc(task?.title || '')}" ${canEdit ? '' : 'disabled'} placeholder="업무 완료 기준이 드러나게 적어 주세요."></label>
         <label><span>업무 지시자</span><select name="assignedByUid" required ${canReassign ? '' : 'disabled'}><option value="">지시자 선택</option>${structuredTaskMemberOptions(project, selectedAssigner)}</select><small class="structured-form-help">프로젝트의 활성 팀원만 선택할 수 있으며, 완료 요청은 이 지시자에게 돌아옵니다.</small></label>
         <label><span>업무 담당자</span><select name="assigneeUid" required ${canReassign ? '' : 'disabled'}><option value="">담당자 선택</option>${structuredTaskMemberOptions(project, selectedAssignee)}</select><small class="structured-form-help warning" data-structured-assignment-warning hidden>지시자와 담당자는 서로 달라야 합니다.</small></label>
+        <label><span>업무 검토자</span><select name="reviewerUid" ${canReassign ? '' : 'disabled'}><option value="">지시자가 검토</option>${structuredTaskMemberOptions(project, String(task?.reviewer?.source === 'explicit' ? (task?.reviewer?.uid || '') : ''))}</select><small class="structured-form-help">비워 두면 업무 지시자가 검토합니다. 담당자는 검토자로 지정할 수 없습니다.</small></label>
         <label><span>업무 마감일</span><input name="dueDate" type="date" value="${esc(task?.dueDate || '')}" ${quickAssign ? 'required' : ''} ${canEdit ? '' : 'disabled'}></label>
         ${canEdit ? `<div class="wide project-due-presets" aria-label="빠른 마감기한 선택"><span>기한 빠른 선택</span><div>${[[1, '내일'], [3, '3일 내'], [7, '7일 내'], [14, '14일 내']].map(([days, label]) => `<button type="button" data-structured-due-days="${days}">${label}</button>`).join('')}</div></div>` : ''}
         <label class="wide"><span>상세 내용</span><textarea name="description" rows="5" maxlength="5000" ${canEdit ? '' : 'disabled'} placeholder="필요 자료, 확인 항목, 결과물 형식을 적어 주세요.">${esc(task?.description || '')}</textarea></label>
@@ -7026,6 +7027,11 @@
         // 본문이 불필요하게 바뀐다.
         if (taskAttachments.length || (Array.isArray(task?.attachments) && task.attachments.length)) {
           record.attachments = taskAttachments;
+        }
+        // 검토자를 직접 고른 경우에만 보낸다. 늘 보내면 기존 저장 요청 본문이 불필요하게 바뀐다.
+        const pickedReviewer = String(data.get('reviewerUid') || '');
+        if (pickedReviewer || task?.reviewer?.source === 'explicit') {
+          record.reviewerUid = pickedReviewer;
         }
       }
       if (editing) record.expectedVersion = Number(task?.workflowVersion ?? task?.version ?? 1);

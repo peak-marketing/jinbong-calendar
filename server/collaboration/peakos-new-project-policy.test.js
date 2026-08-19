@@ -442,3 +442,28 @@ test('중분류 열람 범위는 담당자와 본인 업무 기준으로 좁혀�
   assert.deepEqual(newProjectVisibleMediums({ mediums, uid: 'stranger' }), []);
   assert.deepEqual(newProjectVisibleMediums({ mediums, uid: '' }), []);
 });
+
+test('검토자를 직접 고르면 그 사람이 검토자가 된다', () => {
+  const base = {
+    assigneeUid: 'worker-uid',
+    assignedByUid: 'lead-uid',
+    assignedByName: '김대호',
+    leadUid: 'owner-uid',
+    leadName: '전현우',
+  };
+  // 직접 고른 검토자가 최우선.
+  assert.deepEqual(
+    resolveNewProjectReviewer({ ...base, reviewerUid: 'checker-uid', reviewerName: '손명아' }),
+    { ok: true, reviewerUid: 'checker-uid', reviewerName: '손명아', source: 'explicit' },
+  );
+  // 비워 두면 예전처럼 지시자가 검토한다.
+  assert.deepEqual(
+    resolveNewProjectReviewer(base),
+    { ok: true, reviewerUid: 'lead-uid', reviewerName: '김대호', source: 'assigned_by' },
+  );
+  // 담당자를 검토자로 지정할 수는 없다.
+  assert.equal(
+    resolveNewProjectReviewer({ ...base, reviewerUid: 'worker-uid', reviewerName: '이사원' }).code,
+    'NEW_PROJECT_REVIEWER_SAME_AS_ASSIGNEE',
+  );
+});

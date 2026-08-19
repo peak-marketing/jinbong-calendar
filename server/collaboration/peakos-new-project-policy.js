@@ -147,7 +147,7 @@ const NEW_PROJECT_REQUIRED_CONSTRAINT_DEFINITIONS = Object.freeze({
     ['peakos_structured_project_tasks_reviewer_membership_fk', 'f', 'FOREIGN KEY (workspace_id, reviewer_uid) REFERENCES peakos_workspace_memberships(workspace_id, user_uid) ON UPDATE RESTRICT ON DELETE RESTRICT'],
     ['peakos_structured_project_tasks_creator_membership_fk', 'f', 'FOREIGN KEY (workspace_id, created_by_uid) REFERENCES peakos_workspace_memberships(workspace_id, user_uid) ON UPDATE RESTRICT ON DELETE RESTRICT'],
     ['peakos_structured_project_tasks_status_check', 'c', "CHECK ((status = ANY (ARRAY['todo'::text, 'acknowledged'::text, 'doing'::text, 'review'::text, 'revision'::text, 'done'::text])))"],
-    ['peakos_structured_project_tasks_reviewer_source_check', 'c', "CHECK ((reviewer_source = ANY (ARRAY['assigned_by'::text, 'lead_fallback'::text])))"],
+    ['peakos_structured_project_tasks_reviewer_source_check', 'c', "CHECK ((reviewer_source = ANY (ARRAY['assigned_by'::text, 'lead_fallback'::text, 'explicit'::text])))"],
     ['peakos_structured_project_tasks_reviewer_separation_check', 'c', 'CHECK ((reviewer_uid <> assignee_uid))'],
     ['peakos_structured_project_tasks_version_check', 'c', 'CHECK (((version >= 1) AND (version <= 2147483647)))'],
   ]),
@@ -833,11 +833,24 @@ function resolveNewProjectReviewer({
   assigneeUid = '',
   assignedByUid = '',
   assignedByName = '',
+  reviewerUid = '',
+  reviewerName = '',
   leadUid = '',
   leadName = '',
 } = {}) {
   const assignee = normalizeNewProjectUid(assigneeUid, '업무 담당자');
   if (!assignee.ok) return assignee;
+
+  // 지시자가 직접 검토자를 고른 경우를 먼저 존중한다.
+  // 담당자가 자기 일을 스스로 승인하는 것은 DB 제약으로도 막혀 있다.
+  const chosenUid = normalizeNewProjectUid(reviewerUid, '업무 검토자');
+  const chosenName = normalizeNewProjectDisplayName(reviewerName, '업무 검토자 이름');
+  if (reviewerUid && chosenUid.ok && chosenName.ok) {
+    if (chosenUid.value === assignee.value) {
+      return invalid('NEW_PROJECT_REVIEWER_SAME_AS_ASSIGNEE', '검토자는 업무 담당자와 달라야 합니다.');
+    }
+    return { ok: true, reviewerUid: chosenUid.value, reviewerName: chosenName.value, source: 'explicit' };
+  }
 
   const assignerUid = normalizeNewProjectUid(assignedByUid, '업무 지시자');
   const assignerName = normalizeNewProjectDisplayName(assignedByName, '업무 지시자 이름');
