@@ -5623,6 +5623,7 @@
   // ── 내 업무 ────────────────────────────────────────
   let myWorkState = { status: 'idle', tasks: [], error: '', contextKey: '' };
   let myWorkSelectedId = '';
+  const myWorkCollapsedGroups = new Set();
   // 그룹 이름은 상태 표기와 한 곳에서 맞춘다. 상태를 추가하고 여기를 빠뜨리면
   // 그 상태의 업무가 목록에서 통째로 사라진다(확인완료가 그랬다).
   const MY_WORK_GROUPS = STRUCTURED_TASK_STATUS_ORDER.map(key => ({
@@ -5741,15 +5742,25 @@
     myWorkView.innerHTML = `
       <section class="my-work-split">
         <nav class="my-work-list" aria-label="배정받은 업무 목록">
-          ${groups.map(group => `<section class="my-work-group tone-${esc(group.tone)}">
-            <header><i class="my-work-bullet" aria-hidden="true"></i><span class="my-work-group-label">${esc(group.label)}</span><em>${group.items.length}</em></header>
-            ${group.items.map(myWorkRow).join('')}
-          </section>`).join('')}
+          ${groups.map(group => {
+            const open = !myWorkCollapsedGroups.has(group.key);
+            const bodyId = `myWorkGroup-${group.key}`;
+            return `<section class="my-work-group tone-${esc(group.tone)} ${open ? 'is-expanded' : 'is-collapsed'}">
+            <header><button class="my-work-group-toggle" type="button" data-my-work-group="${esc(group.key)}" aria-expanded="${open ? 'true' : 'false'}" aria-controls="${esc(bodyId)}"><i class="my-work-bullet" aria-hidden="true"></i><span class="my-work-group-label">${esc(group.label)}</span><em>${group.items.length}</em><span class="my-work-caret" aria-hidden="true">›</span></button></header>
+            <div class="my-work-group-body" id="${esc(bodyId)}" ${open ? '' : 'hidden'}>${group.items.map(myWorkRow).join('')}</div>
+          </section>`;
+          }).join('')}
         </nav>
         <div class="my-work-detail">${myWorkDetail(selected)}</div>
       </section>`;
     myWorkView.querySelectorAll('[data-my-work-open]').forEach(button => button.addEventListener('click', () => {
       myWorkSelectedId = String(button.dataset.myWorkOpen || '');
+      renderMyWork();
+    }));
+    myWorkView.querySelectorAll('[data-my-work-group]').forEach(button => button.addEventListener('click', () => {
+      const key = String(button.dataset.myWorkGroup || '');
+      if (myWorkCollapsedGroups.has(key)) myWorkCollapsedGroups.delete(key);
+      else myWorkCollapsedGroups.add(key);
       renderMyWork();
     }));
   }

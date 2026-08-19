@@ -35,6 +35,21 @@ const TASKS = {
   ],
 };
 
+async function setup(page) {
+  await installFirebaseStub(page);
+  await installPeakosStub(page, { name: '김대호', group_name: '본사 영업팀' });
+  await page.route('**/new-projects/my-tasks', async route => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TASKS) });
+  });
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto('/business-os-preview.html');
+  for (const cluster of await page.locator('[data-nav-cluster] .nav-cluster-toggle').all()) {
+    if (await cluster.isVisible()) await cluster.click();
+  }
+  await page.locator('.nav-item[data-view="my-work"]').click();
+  await expect(page.locator('#myWorkView')).toBeVisible();
+}
+
 test('업무 현황 탭은 내 업무만 상태별로 모으고 눌러서 상세를 연다', async ({ page }) => {
   await installFirebaseStub(page);
   await installPeakosStub(page, { name: '김대호', group_name: '본사 영업팀' });
@@ -78,4 +93,25 @@ test('업무 현황 탭은 내 업무만 상태별로 모으고 눌러서 상세
 
   // 기존 파라곤 할 일 API는 건드리지 않는다.
   expect(myTasksCalls).toBeGreaterThan(0);
+});
+
+test('업무 현황 상태 묶음은 눌러서 접고 편다', async ({ page }) => {
+  await setup(page);
+  const view = page.locator('#myWorkView');
+  const group = view.locator('.my-work-group').first();
+  const toggle = group.locator('.my-work-group-toggle');
+
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(group.locator('[data-my-work-open]')).toHaveCount(1);
+
+  await toggle.click();
+  await expect(view.locator('.my-work-group').first().locator('.my-work-group-toggle'))
+    .toHaveAttribute('aria-expanded', 'false');
+  await expect(view.locator('.my-work-group').first().locator('[data-my-work-open]')).toBeHidden();
+  // 접어도 다른 묶음은 그대로 있고, 오른쪽 상세도 사라지지 않는다.
+  await expect(view.locator('.my-work-group')).toHaveCount(4);
+  await expect(view.locator('.my-work-detail')).not.toBeEmpty();
+
+  await view.locator('.my-work-group').first().locator('.my-work-group-toggle').click();
+  await expect(view.locator('.my-work-group').first().locator('[data-my-work-open]')).toBeVisible();
 });

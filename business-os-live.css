@@ -17688,3 +17688,41 @@ html body #newProjectsView .structured-task-viewbar { flex-wrap: wrap; row-gap: 
 @media (max-width: 760px) {
   html body #newProjectsView .structured-detail-actions { order: 4; margin-left: 0; }
 }
+
+/* ── 업무 현황 상태 묶음 접기 ─────────────────────────
+   머리를 통째로 버튼으로 만들어 눌러 접는다. */
+html body .my-work-group > header { margin-bottom: 0; }
+html body .my-work-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  padding: 5px 6px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+html body .my-work-group-toggle:hover { background: #f2f6f9; }
+html body .my-work-group-body { display: grid; gap: 2px; margin-top: 4px; }
+/* display:grid가 hidden 속성의 display:none을 이겨서 접어도 안 접혔다 */
+html body .my-work-group-body[hidden] { display: none; }
+html body .my-work-caret {
+  margin-left: auto;
+  color: #9bb0bd;
+  font-size: 17px;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform 150ms ease;
+}
+html body .my-work-group-toggle[aria-expanded="true"] .my-work-caret { transform: rotate(90deg); }
+
+/* 상태 이름표 색 — 상태 색과 같은 계열로 되돌린다
+   (상태 키를 바꾸면서 tone-danger/warn/active/done 규칙이 더는 안 맞았다) */
+html body .my-work-group.tone-todo .my-work-group-label { background: #eef3f7; color: #4a6478; }
+html body .my-work-group.tone-acknowledged .my-work-group-label { background: #e8f2fb; color: #2b6fa8; }
+html body .my-work-group.tone-doing .my-work-group-label { background: #fdf3d8; color: #9a7017; }
+html body .my-work-group.tone-review .my-work-group-label { background: #fff0e4; color: #c26124; }
+html body .my-work-group.tone-revision .my-work-group-label { background: #fdecec; color: #c0424b; }
+html body .my-work-group.tone-done .my-work-group-label { background: #e6f7ee; color: #2b8a5e; }
