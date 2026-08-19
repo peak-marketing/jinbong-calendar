@@ -715,6 +715,23 @@ function normalizeNewProjectEnum(value, allowed, field, { defaultValue } = {}) {
   return { ok: true, value: candidate };
 }
 
+// 중분류 열람 범위. 프로젝트 담당자·관리 권한자는 전체를 보고,
+// 그 밖의 팀원은 자기가 담당자인 중분류이거나 자기 업무가 들어 있는
+// 중분류만 본다. 서버에서 걸러야 실제로 가려지므로 여기서 판정한다.
+function newProjectVisibleMediums({ mediums = [], uid = '', seesEveryMedium = false } = {}) {
+  const list = Array.isArray(mediums) ? mediums : [];
+  if (seesEveryMedium) return list;
+  const actor = String(uid || '');
+  if (!actor) return [];
+  const involves = task => [task?.assignee?.uid, task?.assignedBy?.uid, task?.reviewer?.uid]
+    .some(value => String(value || '') === actor);
+  return list.filter(medium => {
+    if (String(medium?.managerUid || '') === actor) return true;
+    return (Array.isArray(medium?.smallCategories) ? medium.smallCategories : [])
+      .some(small => (Array.isArray(small?.tasks) ? small.tasks : []).some(involves));
+  });
+}
+
 function newProjectSchemaReadiness(row) {
   const missing = Array.isArray(row?.missing_requirements)
     ? row.missing_requirements.filter(value => typeof value === 'string' && value)
@@ -992,6 +1009,7 @@ module.exports = {
   newProjectExternalActionToInternal,
   newProjectReadDecision,
   newProjectSchemaReadiness,
+  newProjectVisibleMediums,
   newProjectTaskTransitionDecision,
   normalizeNewProjectDate,
   normalizeNewProjectDisplayName,

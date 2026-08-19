@@ -7,6 +7,7 @@ const {
   newProjectCreateDecision,
   newProjectReadDecision,
   newProjectSchemaReadiness,
+  newProjectVisibleMediums,
   newProjectTaskTransitionDecision,
   normalizeNewProjectDate,
   normalizeNewProjectDisplayName,
@@ -868,12 +869,24 @@ function registerPeakosNewProjectRoutes({
         });
         smallsByMedium.set(key, rows);
       }
-      const mediumCategories = mediumsResult.rows.map(row => ({
+      const allMediumCategories = mediumsResult.rows.map(row => ({
         id: String(row.id), name: row.name, description: row.description || '',
         manager: mapMediumManager(row),
         sortOrder: Number(row.sort_order || 0), version: Number(row.version || 1),
         smallCategories: smallsByMedium.get(String(row.id)) || [],
+        managerUid: String(row.manager_uid || ''),
       }));
+      // 프로젝트 담당자·관리 권한자는 전체를 보고, 그 밖의 팀원은 자기가
+      // 중분류 담당자이거나 그 안에 자기 업무가 있는 중분류만 본다.
+      // 화면이 아니라 서버에서 걸러야 실제로 가려진다.
+      const seesEveryMedium = access.canManage
+        || context.viewPortfolio === true
+        || String(access.project.lead_uid || '') === String(context.uid);
+      const mediumCategories = newProjectVisibleMediums({
+        mediums: allMediumCategories,
+        uid: context.uid,
+        seesEveryMedium,
+      }).map(({ managerUid, ...medium }) => medium);
       const project = access.project;
       return res.json({
         readOnly: context.readOnly,

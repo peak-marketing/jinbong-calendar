@@ -27,6 +27,7 @@ const {
   newProjectMutationDecision,
   newProjectReadDecision,
   newProjectSchemaReadiness,
+  newProjectVisibleMediums,
   newProjectTaskTransitionDecision,
   normalizeNewProjectDate,
   normalizeNewProjectExpectedVersion,
@@ -410,4 +411,34 @@ test('operator migration resets PUBLIC/runtime ACLs to exact least privilege wit
   assert.doesNotMatch(migration, /GRANT\s+USAGE,\s*SELECT\s+ON\s+SEQUENCE/i);
   assert.doesNotMatch(migration, /GRANT[^;]*\bDELETE\b/i);
   assert.doesNotMatch(migration, /ALTER\s+(?:TABLE|SEQUENCE)[\s\S]{0,100}\sOWNER\s+TO/i);
+});
+
+test('중분류 열람 범위는 담당자와 본인 업무 기준으로 좁혀진다', () => {
+  const mediums = [
+    { id: 'm1', managerUid: 'owner-uid', smallCategories: [{ tasks: [] }] },
+    { id: 'm2', managerUid: 'other-uid', smallCategories: [
+      { tasks: [{ assignee: { uid: 'worker-uid' }, assignedBy: { uid: 'lead-uid' }, reviewer: { uid: 'lead-uid' } }] },
+    ] },
+    { id: 'm3', managerUid: 'other-uid', smallCategories: [
+      { tasks: [{ assignee: { uid: 'someone' }, assignedBy: { uid: 'lead-uid' }, reviewer: { uid: 'lead-uid' } }] },
+    ] },
+  ];
+  // 관리 권한자는 전부 본다.
+  assert.deepEqual(
+    newProjectVisibleMediums({ mediums, uid: 'anyone', seesEveryMedium: true }).map(m => m.id),
+    ['m1', 'm2', 'm3'],
+  );
+  // 중분류 담당자는 자기 중분류를 본다.
+  assert.deepEqual(
+    newProjectVisibleMediums({ mediums, uid: 'owner-uid' }).map(m => m.id),
+    ['m1'],
+  );
+  // 담당자가 아니어도 자기 업무가 있으면 그 중분류는 보인다.
+  assert.deepEqual(
+    newProjectVisibleMediums({ mediums, uid: 'worker-uid' }).map(m => m.id),
+    ['m2'],
+  );
+  // 아무 접점이 없으면 하나도 보이지 않는다.
+  assert.deepEqual(newProjectVisibleMediums({ mediums, uid: 'stranger' }), []);
+  assert.deepEqual(newProjectVisibleMediums({ mediums, uid: '' }), []);
 });
