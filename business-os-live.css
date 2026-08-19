@@ -17234,3 +17234,18 @@ html body #moduleView .platform-api-location .module-action { min-height: 44px; 
   html body #newProjectsView .structured-search { height: 32px; min-height: 0; }
   html body #newProjectsView .structured-search input { min-height: 0; height: 30px; }
 }
+
+/* 상단 제목 블록은 빼고 버튼만 남긴다.
+   페이지 이름은 상단 브레드크럼에 이미 있다.
+   h1은 화면에서만 감추고 문서 구조에는 남겨 접근성을 지킨다. */
+html body #newProjectsView .structured-page-head > div:first-child > h1 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

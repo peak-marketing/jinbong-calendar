@@ -6001,7 +6001,7 @@
     const scopeLabel = state.capabilities.viewPortfolio === true ? '전체 포트폴리오' : '내 참여 프로젝트';
     newProjectsView.innerHTML = `<section class="structured-project-page" data-structured-project-list>
       <header class="structured-page-head">
-        <div><span class="structured-eyebrow">NEW PROJECT WORKFLOW · ${esc(scopeLabel)}</span><h1>신규 프로젝트</h1><p>PEAK OS에서 새로 만든 독립 프로젝트입니다. 기존 Paragon 프로젝트·할 일 원장과 연결되지 않습니다.</p></div>
+        <div><h1>신규 프로젝트</h1></div>
         <div class="structured-page-actions">${structuredProjectReadOnlyNotice()}${structuredProjectCan('createProject') ? '<button class="structured-primary-button" type="button" data-structured-project-create>＋ 대분류 생성</button>' : ''}</div>
       </header>
       <section class="structured-summary" aria-label="신규 프로젝트 요약">
