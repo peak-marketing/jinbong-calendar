@@ -17309,7 +17309,7 @@ html body #newProjectsView .structured-page-head > div:first-child > h1 {
   /* 제목 자체가 버튼이 된 뒤로는 여기서 빼야 한다 — 안 그러면 제목이
      "중분류 수정" 같은 작은 테두리 버튼 모양이 되어버린다. */
   html body #newProjectsView .structured-split-head > button:not(.structured-split-title),
-  html body #newProjectsView .structured-split-block-head > button {
+  html body #newProjectsView .structured-split-block-head .structured-category-actions > button {
     min-height: 24px;
     height: 24px;
     border: 1px solid #c9dce9;
@@ -17991,4 +17991,20 @@ html body .structured-action-item-done {
 html body .structured-action-item-empty { margin: 0; color: #9bb0bd; font-size: 11px; }
 @media (max-width: 720px) {
   html body .structured-action-item { grid-template-columns: minmax(0, 1fr) auto; }
+}
+
+/* 소분류 머리의 버튼들은 한 묶음으로 오른쪽에 붙는다 (계층 보기와 같은 모양) */
+html body #newProjectsView .structured-split-block-head { justify-content: flex-start; }
+html body #newProjectsView .structured-split-block-head > .structured-category-actions { margin-left: auto; }
+
+/* 보드 검색: 전역 input 규칙이 min-height 40px + 흰 배경을 얹어, 38px 상자를
+   덮고 2px 삐져나왔다. 테두리와 돋보기가 가려져 상자가 깨져 보였다. */
+html body #newProjectsView .structured-board-search input {
+  min-height: 0;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
 }

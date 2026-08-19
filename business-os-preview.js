@@ -6345,7 +6345,7 @@
     const taskListMarkup = (small, medium) => {
       const tasks = tasksOf(small);
       return `<section class="structured-split-block">
-        <header class="structured-split-block-head"><strong>${esc(small.name || '소분류')}</strong>${canManage ? `<button type="button" data-structured-meeting-create data-medium-id="${esc(medium.id)}" data-small-id="${esc(small.id)}">＋ 회의 일정</button><button type="button" data-structured-task-create data-medium-id="${esc(medium.id)}" data-small-id="${esc(small.id)}">＋ 할 일 배정</button>` : ''}</header>
+        <header class="structured-split-block-head"><strong>${esc(small.name || '소분류')}</strong>${canManage ? `<span class="structured-category-actions"><button type="button" data-structured-meeting-create data-medium-id="${esc(medium.id)}" data-small-id="${esc(small.id)}">＋ 회의 일정</button><button type="button" data-structured-task-create data-medium-id="${esc(medium.id)}" data-small-id="${esc(small.id)}">＋ 할 일 배정</button></span>` : ''}</header>
         ${structuredMeetingList(small.meetings, project)}
         <div class="structured-task-list">${tasks.map(task => structuredTaskRow(task, project)).join('')
           || '<div class="structured-split-note">이 소분류에는 아직 업무가 없습니다.</div>'}</div>
@@ -6414,7 +6414,7 @@
     const canManage = project?.status === 'active'
       && structuredProjectCan('manageProject', structuredProjectDetailState);
     return `<section class="structured-board-view" data-structured-task-board>
-      <header class="structured-board-head"><div><span>BOARD TEST VIEW</span><strong>업무 진행 보드</strong><small>카드를 선택하면 오른쪽에서 상세 내용과 검토 이력을 확인할 수 있습니다.</small></div><div class="structured-board-head-actions"><b>${filtered.length}/${records.length}개 업무</b>${canManage ? '<button type="button" data-structured-board-assign>＋ 체크리스트·담당자 배정</button>' : ''}</div></header>
+      <header class="structured-board-head"><div><span>BOARD TEST VIEW</span><strong>업무 진행 보드</strong><small>카드를 선택하면 오른쪽에서 상세 내용과 검토 이력을 확인할 수 있습니다.</small></div><div class="structured-board-head-actions"><b>${filtered.length}/${records.length}개 업무</b>${canManage ? `<button type="button" data-structured-board-meeting>＋ 회의 일정</button><button type="button" data-structured-board-assign>＋ 체크리스트·담당자 배정</button>` : ''}</div></header>
       <div class="structured-board-controls">
         <label class="structured-board-search"><span aria-hidden="true">⌕</span><input type="search" data-structured-board-search value="${esc(structuredBoardSearch)}" placeholder="업무명, 분류, 담당자 검색" aria-label="보드 업무 검색"></label>
         <label><span>업무 중분류</span><select data-structured-board-medium-filter aria-label="업무 중분류 필터"><option value="all">전체 중분류</option>${mediums.map(medium => `<option value="${esc(medium.id)}" ${String(medium.id) === String(structuredBoardMediumFilter) ? 'selected' : ''}>${esc(medium.name || '이름 없는 중분류')}</option>`).join('')}</select></label>
@@ -6613,6 +6613,15 @@
       mediumId: String(button.dataset.mediumId || ''),
       smallId: String(button.dataset.smallId || ''),
     })));
+    newProjectsView.querySelector('[data-structured-board-meeting]')?.addEventListener('click', () => {
+      if (structuredBoardMediumFilter === 'all') {
+        return showToast('회의를 잡을 업무 중분류를 위 필터에서 먼저 골라 주세요.');
+      }
+      openStructuredMeetingEditor(project, {
+        mediumId: String(structuredBoardMediumFilter),
+        smallId: structuredBoardSmallFilter === 'all' ? '' : String(structuredBoardSmallFilter),
+      });
+    });
     newProjectsView.querySelectorAll('[data-structured-meeting-notes]').forEach(button => button.addEventListener('click', () => {
       const found = structuredFindMeeting(project, button.dataset.structuredMeetingNotes);
       if (!found) return showToast('회의를 찾지 못했습니다. 새로고침 후 다시 시도해 주세요.');

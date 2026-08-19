@@ -96,3 +96,44 @@ test('종료일·종료 시간이 거꾸로면 보내지 않고 막는다', asyn
   await expect(page.locator('.toast, [data-toast]').first()).toContainText('종료 시간이 시작 시간보다');
   expect(sent).toBeNull();
 });
+
+test('보드 보기에서도 회의를 잡되, 중분류를 먼저 고르게 한다', async ({ page }) => {
+  let sent: any = null;
+  await open(page, { onCreate: body => { sent = body; } });
+  await page.locator('[data-structured-task-view="board"]').click();
+
+  // 보드는 여러 중분류를 한 번에 본다. 어디에 잡을지 모른 채로 열지 않는다.
+  await page.locator('[data-structured-board-meeting]').click();
+  await expect(page.locator('.toast, [data-toast]').first()).toContainText('업무 중분류를 위 필터에서 먼저');
+  await expect(page.locator('#structuredMeetingForm')).toHaveCount(0);
+
+  await page.locator('[data-structured-board-medium-filter]').selectOption('m1');
+  await page.locator('[data-structured-board-meeting]').click();
+  const form = page.locator('#structuredMeetingForm');
+  await expect(form).toBeVisible();
+  await form.locator('[name="title"]').fill('보드에서 잡은 회의');
+  await form.locator('[name="startDate"]').fill('2026-09-05');
+  await form.locator('button[type="submit"]').click();
+  await expect.poll(() => sent).not.toBeNull();
+  expect(sent.title).toBe('보드에서 잡은 회의');
+  expect(sent.startDate).toBe('2026-09-05');
+});
+
+test('보드 검색칸은 테두리 안에 들어맞는다', async ({ page }) => {
+  await open(page);
+  await page.locator('[data-structured-task-view="board"]').click();
+  // 안쪽 input이 상자보다 크면 테두리와 돋보기를 덮어 상자가 깨져 보인다.
+  const fit = await page.evaluate(() => {
+    const box = document.querySelector('.structured-board-search') as HTMLElement;
+    const input = box.querySelector('input') as HTMLElement;
+    return {
+      boxH: Math.round(box.getBoundingClientRect().height),
+      inputH: Math.round(input.getBoundingClientRect().height),
+      bg: getComputedStyle(input).backgroundColor,
+      iconVisible: (box.querySelector('span') as HTMLElement).getBoundingClientRect().width > 0,
+    };
+  });
+  expect(fit.inputH).toBeLessThanOrEqual(fit.boxH);
+  expect(fit.bg).toBe('rgba(0, 0, 0, 0)');
+  expect(fit.iconVisible).toBe(true);
+});
