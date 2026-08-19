@@ -921,15 +921,15 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await sidebarToggle.click();
     await expect(page.locator('.app')).not.toHaveClass(/sidebar-collapsed/);
 
-    // 분할 보기: 왼쪽에서 소분류를 고르면 오른쪽에 그 소분류 업무만 펼쳐진다.
+    // 분할 보기: 처음에는 첫 중분류가 선택되고, 소분류를 고르면 그 하나만 펼쳐진다.
     await page.locator('[data-structured-task-view="split"]').click();
-    const splitItems = page.locator('[data-structured-split-small]');
-    await expect(splitItems.first()).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-structured-split-medium]').first()).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('.structured-split-detail')).toBeVisible();
-    if (await splitItems.count() > 1) {
-      await splitItems.nth(1).click();
-      await expect(splitItems.nth(1)).toHaveAttribute('aria-pressed', 'true');
-      await expect(splitItems.first()).toHaveAttribute('aria-pressed', 'false');
+    const splitItems = page.locator('[data-structured-split-small]');
+    if (await splitItems.count() > 0) {
+      await splitItems.first().click();
+      await expect(splitItems.first()).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.locator('[data-structured-split-medium]').first()).toHaveAttribute('aria-pressed', 'false');
     }
 
     await page.locator('[data-structured-task-view="board"]').click();

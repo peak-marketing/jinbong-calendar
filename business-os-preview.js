@@ -177,6 +177,8 @@
   let structuredProjectTaskView = 'split';
   // 분할 보기에서 오른쪽에 펼칠 소분류. 비어 있으면 첫 소분류를 고른다.
   let structuredSplitSmallId = '';
+  // 왼쪽에서 중분류를 고르면 오른쪽에 그 중분류 전체가 펼쳐진다.
+  let structuredSplitMediumId = '';
   let structuredBoardSearch = '';
   let structuredBoardMediumFilter = 'all';
   let structuredBoardSmallFilter = 'all';
@@ -6181,34 +6183,68 @@
 
   function structuredProjectSplit(project) {
     const mediums = Array.isArray(project?.mediumCategories) ? project.mediumCategories : [];
-    const entries = [];
-    mediums.forEach(medium => {
-      (Array.isArray(medium?.smallCategories) ? medium.smallCategories : []).forEach(small => {
-        entries.push({ medium, small, tasks: Array.isArray(small?.tasks) ? small.tasks : [] });
-      });
-    });
-    if (!entries.length) {
-      return '<section class="structured-empty"><strong>아직 소분류가 없습니다.</strong><span>계층 보기에서 중분류와 소분류를 먼저 만들어 주세요.</span></section>';
+    const smallsOf = medium => (Array.isArray(medium?.smallCategories) ? medium.smallCategories : []);
+    const tasksOf = small => (Array.isArray(small?.tasks) ? small.tasks : []);
+    if (!mediums.length) {
+      return '<section class="structured-empty"><strong>아직 중분류가 없습니다.</strong><span>중분류를 추가해 업무를 나눠 주세요.</span></section>';
     }
-    const active = entries.find(entry => String(entry.small.id) === String(structuredSplitSmallId)) || entries[0];
     const canManage = structuredProjectCan('manageProject', structuredProjectDetailState);
+
+    // 선택 우선순위: 고른 소분류 → 고른 중분류 → 첫 중분류
+    let activeSmall = null;
+    let activeMedium = null;
+    mediums.forEach(medium => smallsOf(medium).forEach(small => {
+      if (String(small.id) === String(structuredSplitSmallId)) { activeSmall = small; activeMedium = medium; }
+    }));
+    if (!activeSmall) {
+      activeMedium = mediums.find(medium => String(medium.id) === String(structuredSplitMediumId)) || mediums[0];
+    }
+
     const navMarkup = mediums.map(medium => {
-      const smalls = Array.isArray(medium?.smallCategories) ? medium.smallCategories : [];
+      const smalls = smallsOf(medium);
+      const taskCount = smalls.reduce((sum, small) => sum + tasksOf(small).length, 0);
+      const mediumSelected = !activeSmall && String(medium.id) === String(activeMedium?.id);
       const items = smalls.map(small => {
-        const tasks = Array.isArray(small?.tasks) ? small.tasks : [];
+        const tasks = tasksOf(small);
         const done = tasks.filter(task => task?.status === 'done').length;
-        const selected = String(small.id) === String(active.small.id);
+        const selected = Boolean(activeSmall) && String(small.id) === String(activeSmall.id);
         return `<button class="structured-split-item ${selected ? 'active' : ''}" type="button" data-structured-split-small="${esc(small.id)}" aria-pressed="${selected ? 'true' : 'false'}"><span>${esc(small.name || '이름 없는 소분류')}</span><em>${done}/${tasks.length}</em></button>`;
       }).join('');
-      return `<div class="structured-split-group"><h3>${esc(medium.name || '이름 없는 중분류')}</h3>${items || '<p class="structured-split-note">소분류 없음</p>'}</div>`;
+      return `<div class="structured-split-group">
+        <button class="structured-split-medium ${mediumSelected ? 'active' : ''}" type="button" data-structured-split-medium="${esc(medium.id)}" aria-pressed="${mediumSelected ? 'true' : 'false'}"><span>${esc(medium.name || '이름 없는 중분류')}</span><em>${taskCount}</em></button>
+        ${items}
+      </div>`;
     }).join('');
-    const taskMarkup = active.tasks.map(task => structuredTaskRow(task, project)).join('')
-      || '<div class="structured-split-note">이 소분류에는 아직 업무가 없습니다.</div>';
+
+    const taskListMarkup = (small, medium) => {
+      const tasks = tasksOf(small);
+      return `<section class="structured-split-block">
+        <header class="structured-split-block-head"><strong>${esc(small.name || '소분류')}</strong>${canManage ? `<button type="button" data-structured-task-create data-medium-id="${esc(medium.id)}" data-small-id="${esc(small.id)}">＋ 할 일 배정</button>` : ''}</header>
+        <div class="structured-task-list">${tasks.map(task => structuredTaskRow(task, project)).join('')
+          || '<div class="structured-split-note">이 소분류에는 아직 업무가 없습니다.</div>'}</div>
+      </section>`;
+    };
+
+    let detailHead = '';
+    let detailBody = '';
+    if (activeSmall) {
+      detailHead = `<div><small>${esc(activeMedium?.name || '중분류')}</small><strong>${esc(activeSmall.name || '소분류')}</strong></div>${canManage ? `<button type="button" data-structured-task-create data-medium-id="${esc(activeMedium?.id || '')}" data-small-id="${esc(activeSmall.id)}">＋ 할 일 배정</button>` : ''}`;
+      detailBody = `<div class="structured-task-list">${tasksOf(activeSmall).map(task => structuredTaskRow(task, project)).join('')
+        || '<div class="structured-split-note">이 소분류에는 아직 업무가 없습니다.</div>'}</div>`;
+    } else {
+      const smalls = smallsOf(activeMedium);
+      const taskCount = smalls.reduce((sum, small) => sum + tasksOf(small).length, 0);
+      detailHead = `<div><small>중분류</small><strong>${esc(activeMedium?.name || '중분류')}</strong></div><span class="structured-split-count">소분류 ${smalls.length} · 업무 ${taskCount}</span>${canManage ? `<button type="button" data-structured-small-create="${esc(activeMedium?.id || '')}">＋ 소분류 추가</button>` : ''}`;
+      detailBody = smalls.length
+        ? smalls.map(small => taskListMarkup(small, activeMedium)).join('')
+        : '<div class="structured-split-note">소분류를 추가해 실행할 업무를 나눠 주세요.</div>';
+    }
+
     return `<section class="structured-split">
-      <nav class="structured-split-nav" aria-label="업무 소분류 목록">${navMarkup}</nav>
+      <nav class="structured-split-nav" aria-label="업무 분류 목록">${navMarkup}</nav>
       <div class="structured-split-detail">
-        <header class="structured-split-head"><div><small>${esc(active.medium.name || '중분류')}</small><strong>${esc(active.small.name || '소분류')}</strong></div>${canManage ? `<button type="button" data-structured-task-create data-medium-id="${esc(active.medium.id)}" data-small-id="${esc(active.small.id)}">＋ 할 일 배정</button>` : ''}</header>
-        <div class="structured-task-list">${taskMarkup}</div>
+        <header class="structured-split-head">${detailHead}</header>
+        ${detailBody}
       </div>
     </section>`;
   }
@@ -6343,7 +6379,7 @@
         </div>
         <div class="structured-detail-progress"><span><b>전체 진행률</b><strong>${percent}%</strong></span><i><b style="width:${percent}%"></b></i><small>승인 완료 ${done}/${tasks.length} · 검토 요청 ${review} · 수정 요청 ${revision}</small></div>
       </section>
-      <section class="structured-task-viewbar"><div><strong>업무 보기</strong><small>대분류 › 중분류 › 소분류 › 할 일 흐름과 상태 보드를 전환합니다.</small></div>${structuredProjectTaskView === 'hierarchy' && mediums.length ? '<span class="structured-hierarchy-bulk" role="group" aria-label="계층 접기 및 펼치기"><button type="button" data-structured-hierarchy-expand-all>모두 펼치기</button><button type="button" data-structured-hierarchy-collapse-all>모두 접기</button></span>' : ''}<nav data-structured-task-view-toggle aria-label="업무 보기 방식"><button type="button" data-structured-task-view="hierarchy" class="${structuredProjectTaskView === 'hierarchy' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'hierarchy' ? 'true' : 'false'}">계층 보기</button><button type="button" data-structured-task-view="split" class="${structuredProjectTaskView === 'split' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'split' ? 'true' : 'false'}">분할 보기</button><button type="button" data-structured-task-view="board" class="${structuredProjectTaskView === 'board' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'board' ? 'true' : 'false'}">보드 보기</button></nav></section>
+      <section class="structured-task-viewbar"><div><strong>업무 보기</strong><small>대분류 › 중분류 › 소분류 › 할 일 흐름과 상태 보드를 전환합니다.</small></div>${structuredProjectTaskView === 'hierarchy' && mediums.length ? '<span class="structured-hierarchy-bulk" role="group" aria-label="계층 접기 및 펼치기"><button type="button" data-structured-hierarchy-expand-all>모두 펼치기</button><button type="button" data-structured-hierarchy-collapse-all>모두 접기</button></span>' : ''}<nav data-structured-task-view-toggle aria-label="업무 보기 방식"><button type="button" data-structured-task-view="split" class="${structuredProjectTaskView === 'split' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'split' ? 'true' : 'false'}">분할 보기</button><button type="button" data-structured-task-view="hierarchy" class="${structuredProjectTaskView === 'hierarchy' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'hierarchy' ? 'true' : 'false'}">계층 보기</button><button type="button" data-structured-task-view="board" class="${structuredProjectTaskView === 'board' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'board' ? 'true' : 'false'}">보드 보기</button></nav></section>
       ${structuredProjectTaskView === 'board'
         ? structuredProjectBoard(project)
         : structuredProjectTaskView === 'split'
@@ -6435,6 +6471,11 @@
     });
     newProjectsView.querySelectorAll('[data-structured-split-small]').forEach(button => button.addEventListener('click', () => {
       structuredSplitSmallId = String(button.dataset.structuredSplitSmall || '');
+      renderStructuredProjectDetail();
+    }));
+    newProjectsView.querySelectorAll('[data-structured-split-medium]').forEach(button => button.addEventListener('click', () => {
+      structuredSplitMediumId = String(button.dataset.structuredSplitMedium || '');
+      structuredSplitSmallId = '';
       renderStructuredProjectDetail();
     }));
     newProjectsView.querySelectorAll('[data-structured-task-view]').forEach(button => button.addEventListener('click', () => {
