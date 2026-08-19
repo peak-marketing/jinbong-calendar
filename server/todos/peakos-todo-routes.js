@@ -95,18 +95,28 @@ function createPeakosTodoService({
     return readinessPromise;
   }
 
-  async function list(req, dateValue) {
+  async function list(req, dateValue, { carryOver = false } = {}) {
     const access = todoAccess(req, { action: 'read' });
     const date = normalizeDate(dateValue);
     await ready();
+    // carryOver: 지난 날짜의 미완료 할 일도 함께 내려준다. 저장된 날짜는 그대로
+    // 두고 목록에만 합쳐, 어느 날 일인지 화면에서 구분할 수 있게 한다.
     const result = await pool.query(
-      `SELECT ${TODO_COLUMNS}
-         FROM peakos_todos
-        WHERE workspace_id = $1
-          AND owner_uid = $2
-          AND todo_date = $3::date
-          AND archived = FALSE
-        ORDER BY sort_order, created_at, id`,
+      carryOver
+        ? `SELECT ${TODO_COLUMNS}
+             FROM peakos_todos
+            WHERE workspace_id = $1
+              AND owner_uid = $2
+              AND archived = FALSE
+              AND (todo_date = $3::date OR (todo_date < $3::date AND done = FALSE))
+            ORDER BY todo_date, sort_order, created_at, id`
+        : `SELECT ${TODO_COLUMNS}
+             FROM peakos_todos
+            WHERE workspace_id = $1
+              AND owner_uid = $2
+              AND todo_date = $3::date
+              AND archived = FALSE
+            ORDER BY sort_order, created_at, id`,
       [access.workspaceId, access.uid, date],
     );
     const items = Object.freeze(result.rows.map(mapTodo));
@@ -312,7 +322,9 @@ function registerPeakosTodoRoutes({
 
   app.get(TODO_BASE_PATH, ...readMiddlewares, markPrivate, async (req, res) => {
     try {
-      return res.json(await service.list(req, req.query?.date));
+      return res.json(await service.list(req, req.query?.date, {
+        carryOver: String(req.query?.carryOver || '') === '1',
+      }));
     } catch (error) {
       return sendError(res, error);
     }

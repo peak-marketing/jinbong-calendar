@@ -2663,7 +2663,7 @@
       ? { ...previousDayState, status: 'refreshing', error: '' }
       : { status: 'loading', contextKey, date, todos: [], readOnly: true, capabilities: {}, error: '' };
     try {
-      const payload = await callApi('GET', `/peakos/todos?date=${encodeURIComponent(date)}`, null, {
+      const payload = await callApi('GET', `/peakos/todos?date=${encodeURIComponent(date)}&carryOver=1`, null, {
         headers: { 'X-PeakOS-Preview': '0' }
       });
       if (generation !== todoDateLoadGeneration
@@ -2709,7 +2709,7 @@
     }
     const generation = ++todoTodayBadgeLoadGeneration;
     try {
-      const payload = await callApi('GET', `/peakos/todos?date=${encodeURIComponent(date)}`, null, {
+      const payload = await callApi('GET', `/peakos/todos?date=${encodeURIComponent(date)}&carryOver=1`, null, {
         headers: { 'X-PeakOS-Preview': '0' }
       });
       if (generation !== todoTodayBadgeLoadGeneration || contextKey !== collaborationEventContextKey()) return null;
@@ -4594,6 +4594,7 @@
         <button class="todo-task-check ${todo.done ? 'checked' : ''}" type="button" ${capabilities.edit ? `data-peakos-todo-toggle="${esc(todo.id)}"` : 'disabled'} aria-label="${esc(todo.title)} ${todo.done ? '미완료로 변경' : '완료'}">${todo.done ? '✓' : ''}</button>
         <div class="todo-dashboard-task-copy">
           ${taskOpenMarkup(todo)}
+          ${todo.date && todo.date !== today ? `<span class="todo-dashboard-task-carry" title="${esc(todo.date)}에 적은 일">${esc(formatDate(`${todo.date}T00:00:00+09:00`, { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric' }))} 이월</span>` : ''}
           <span class="todo-dashboard-task-state ${todo.done ? 'complete' : ''}">${todo.done ? '완료' : `${priority || 1}순위`}</span>
         </div>
         <div class="todo-dashboard-priority-actions" aria-label="${esc(todo.title)} 우선순위">
@@ -4624,12 +4625,7 @@
           <span class="todo-dashboard-source-note">PEAK OS 전용 · 기존 Paragon과 분리</span>
           <div class="todo-dashboard-toolbar-actions">
             ${readonlyNotice}
-            <nav class="todo-dashboard-date-nav" aria-label="할 일 날짜 이동">
-              <button type="button" data-todo-date-prev aria-label="이전 날짜">‹</button>
-              <time data-todo-selected-date datetime="${esc(selectedDate)}">${esc(selectedDateLabel)}</time>
-              <button type="button" data-todo-date-next aria-label="다음 날짜">›</button>
-              <button class="today" type="button" data-todo-date-today ${isToday ? 'disabled' : ''}>오늘</button>
-            </nav>
+            <time class="todo-dashboard-today" data-todo-selected-date datetime="${esc(selectedDate)}">${esc(selectedDateLabel)}</time>
           </div>
         </header>
         <section class="todo-dashboard-overview" aria-label="선택 날짜 할 일 현황">
