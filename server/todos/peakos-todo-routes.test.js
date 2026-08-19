@@ -7,6 +7,7 @@ const express = require('express');
 
 const {
   registerPeakosTodoRoutes,
+  serializeDate,
 } = require('./peakos-todo-routes');
 
 const TODO_ID = '11111111-1111-4111-8111-111111111111';
@@ -325,4 +326,14 @@ test('DELETE performs a versioned soft archive and never issues SQL DELETE', asy
   assert.equal(tx.statements.some(entry => /^DELETE\s/i.test(entry.sql)), false);
   const update = tx.statements.find(entry => /UPDATE peakos_todos/.test(entry.sql));
   assert.match(update.sql, /archived = TRUE[\s\S]*last_action = 'ARCHIVE'/);
+});
+
+test('DATE 직렬화는 로컬 자정 Date를 그대로 같은 날짜로 낸다', () => {
+  // node-pg는 DATE 컬럼을 "로컬 자정" Date로 만든다. 예전 구현은
+  // toISOString()을 써서 KST 프로세스에서 하루가 밀렸다.
+  assert.equal(serializeDate(new Date(2026, 7, 19)), '2026-08-19');
+  assert.equal(serializeDate(new Date(2026, 0, 1)), '2026-01-01');
+  assert.equal(serializeDate(new Date(2026, 11, 31)), '2026-12-31');
+  assert.equal(serializeDate('2026-08-19'), '2026-08-19');
+  assert.equal(serializeDate(null), '');
 });

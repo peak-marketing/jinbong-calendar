@@ -22,7 +22,15 @@ const TODO_COLUMNS = `workspace_id, id, owner_uid, owner_name_snapshot,
   archived, archived_at, version, created_at, updated_at`;
 
 function serializeDate(value) {
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  // node-pg는 DATE를 "로컬 자정" Date로 만든다. toISOString()을 쓰면 프로세스
+  // 시간대가 UTC가 아닐 때 하루가 밀린다(KST면 8/19가 8/18로 나갔다).
+  // 로컬 구성요소를 그대로 조합해야 시간대와 무관하게 같은 날짜가 나온다.
+  if (value instanceof Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
   return String(value || '').slice(0, 10);
 }
 
@@ -361,6 +369,7 @@ function registerPeakosTodoRoutes({
 }
 
 module.exports = {
+  serializeDate,
   TODO_BASE_PATH,
   TODO_COLUMNS,
   createPeakosTodoService,
