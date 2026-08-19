@@ -76,6 +76,11 @@ const COLLABORATION_ROUTE_RULES = Object.freeze([
   route(['POST'], /^\/new-projects\/[^/]+\/mediums\/[^/]+\/smalls\/[^/]+\/tasks$/),
   route(['PUT', 'DELETE'], /^\/new-projects\/[^/]+\/tasks\/[^/]+$/),
   route(['POST'], /^\/new-projects\/[^/]+\/tasks\/[^/]+\/review$/),
+  // 분류별 회의. 여기에 없으면 프런트가 아무리 잘 보내도 프록시가 막는다.
+  route(['POST'], /^\/new-projects\/[^/]+\/mediums\/[^/]+\/meetings$/),
+  route(['PATCH', 'DELETE'], /^\/new-projects\/[^/]+\/meetings\/[^/]+$/),
+  route(['PUT'], /^\/new-projects\/[^/]+\/meetings\/[^/]+\/notes$/),
+  route(['POST'], /^\/new-projects\/[^/]+\/meetings\/[^/]+\/action-items\/[^/]+\/task$/),
 ]);
 
 function splitRawUrl(rawUrl) {

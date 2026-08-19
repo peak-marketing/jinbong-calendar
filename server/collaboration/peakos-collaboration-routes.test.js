@@ -65,6 +65,8 @@ test('resolves the reviewed collaboration surface to the identical legacy API UR
     ['POST', '/new-projects'],
     ['GET', '/new-projects/11111111-1111-4111-8111-111111111111'],
     ['POST', '/new-projects/11111111-1111-4111-8111-111111111111/tasks/22222222-2222-4222-8222-222222222222/review'],
+    ['POST', '/new-projects/11111111-1111-4111-8111-111111111111/mediums/33333333-3333-4333-8333-333333333333/meetings'],
+    ['PUT', '/new-projects/11111111-1111-4111-8111-111111111111/meetings/44444444-4444-4444-8444-444444444444/notes'],
   ];
 
   for (const [method, suffix] of cases) {
@@ -123,6 +125,10 @@ test('allowlist covers every collaboration handler exposed to PEAK OS', () => {
     ['POST', '/new-projects/p-1/mediums/m-1/smalls/s-1/tasks'],
     ['PUT', '/new-projects/p-1/tasks/t-1'], ['DELETE', '/new-projects/p-1/tasks/t-1'],
     ['POST', '/new-projects/p-1/tasks/t-1/review'],
+    ['POST', '/new-projects/p-1/mediums/m-1/meetings'],
+    ['PATCH', '/new-projects/p-1/meetings/mt-1'], ['DELETE', '/new-projects/p-1/meetings/mt-1'],
+    ['PUT', '/new-projects/p-1/meetings/mt-1/notes'],
+    ['POST', '/new-projects/p-1/meetings/mt-1/action-items/ai-1/task'],
   ];
 
   for (const [method, suffix] of cases) {
