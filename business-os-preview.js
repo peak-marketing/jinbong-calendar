@@ -6261,6 +6261,48 @@
     document.querySelector('[data-collab-cancel]')?.addEventListener('click', () => closeDetailModal());
   }
 
+  // 중분류 응답은 manager { uid, name }만 보장하므로 프로젝트 팀원 DTO의
+  // 표시용 직급을 보강하되, 권한 판단에는 쓰지 않는다.
+  // 중분류를 고르면 누가 맡고 있고 어디까지 왔는지를 목록 위에 먼저 보여 준다.
+  function structuredMediumBrief(medium, project, tasks) {
+    const { name: managerName, rank: managerRank } = structuredMediumManager(medium, project);
+    const done = tasks.filter(task => structuredTaskStatusKey(task) === 'done').length;
+    const percent = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
+    const counts = STRUCTURED_TASK_STATUS_ORDER
+      .map(key => ({ key, label: STRUCTURED_TASK_STATUS[key], count: tasks.filter(task => structuredTaskStatusKey(task) === key).length }))
+      .filter(entry => entry.count);
+    return `<section class="structured-split-brief">
+      <span class="structured-split-brief-person">
+        <b>중분류 담당자</b>
+        ${managerName
+          ? `<strong>${esc(managerName)}<small>${esc(managerRank || '직급 미지정')}</small></strong>`
+          : '<strong class="is-empty">미지정</strong>'}
+      </span>
+      <span class="structured-split-brief-progress">
+        <b>진행률</b><strong>${percent}%</strong>
+        <i><b style="width:${percent}%"></b></i>
+        <small>업무완료 ${done}/${tasks.length}</small>
+      </span>
+      <span class="structured-split-brief-status">
+        ${counts.length
+          ? counts.map(entry => `<em class="status-${esc(entry.key)}">${esc(entry.label)} ${entry.count}</em>`).join('')
+          : '<em class="is-empty">아직 배정된 업무가 없습니다</em>'}
+      </span>
+    </section>`;
+  }
+
+  function structuredMediumManager(medium, project) {
+    const manager = medium?.manager && typeof medium.manager === 'object' ? medium.manager : null;
+    if (!manager) return { name: '', rank: '' };
+    const member = manager.uid
+      ? [project?.lead, ...(Array.isArray(project?.members) ? project.members : [])]
+        .find(entry => String(entry?.uid || '') === String(manager.uid))
+      : null;
+    const display = { ...(member || {}), ...manager };
+    const name = structuredProjectMemberName(display, '');
+    return { name, rank: name ? structuredProjectMemberRank(display) : '' };
+  }
+
   function structuredProjectSplit(project) {
     const mediums = Array.isArray(project?.mediumCategories) ? project.mediumCategories : [];
     const smallsOf = medium => (Array.isArray(medium?.smallCategories) ? medium.smallCategories : []);
@@ -6316,11 +6358,12 @@
         || '<div class="structured-split-note">이 소분류에는 아직 업무가 없습니다.</div>'}</div>`;
     } else {
       const smalls = smallsOf(activeMedium);
-      const taskCount = smalls.reduce((sum, small) => sum + tasksOf(small).length, 0);
-      detailHead = `<div><small>중분류</small><strong>${esc(activeMedium?.name || '중분류')}</strong></div><span class="structured-split-count">소분류 ${smalls.length} · 업무 ${taskCount}</span>${canManage ? `<button type="button" data-structured-small-create="${esc(activeMedium?.id || '')}">＋ 소분류 추가</button>` : ''}`;
-      detailBody = smalls.length
+      const mediumTasks = smalls.flatMap(small => tasksOf(small));
+      const taskCount = mediumTasks.length;
+      detailHead = `<div><small>중분류</small><strong>${esc(activeMedium?.name || '중분류')}</strong></div><span class="structured-split-count">소분류 ${smalls.length} · 업무 ${taskCount}</span>${canManage ? `<button type="button" data-structured-medium-edit="${esc(activeMedium?.id || '')}">중분류 수정</button><button type="button" data-structured-small-create="${esc(activeMedium?.id || '')}">＋ 소분류 추가</button>` : ''}`;
+      detailBody = structuredMediumBrief(activeMedium, project, mediumTasks) + (smalls.length
         ? smalls.map(small => taskListMarkup(small, activeMedium)).join('')
-        : '<div class="structured-split-note">소분류를 추가해 실행할 업무를 나눠 주세요.</div>';
+        : '<div class="structured-split-note">소분류를 추가해 실행할 업무를 나눠 주세요.</div>');
     }
 
     return `<section class="structured-split">
@@ -6406,16 +6449,7 @@
     const mediumId = String(medium.id || '');
     const expanded = structuredExpandedMediumIds.has(mediumId);
     const bodyId = structuredHierarchyPanelId('medium', mediumId);
-    const manager = medium?.manager && typeof medium.manager === 'object' ? medium.manager : null;
-    const managerMember = manager?.uid
-      ? [project?.lead, ...(Array.isArray(project?.members) ? project.members : [])]
-        .find(member => String(member?.uid || '') === String(manager.uid))
-      : null;
-    // 중분류 응답은 manager { uid, name }만 보장하므로 프로젝트 팀원 DTO의
-    // 표시용 직급을 보강하되, 권한 판단에는 사용하지 않는다.
-    const managerDisplay = manager ? { ...(managerMember || {}), ...manager } : null;
-    const managerName = managerDisplay ? structuredProjectMemberName(managerDisplay, '') : '';
-    const managerRank = managerName ? structuredProjectMemberRank(managerDisplay) : '';
+    const { name: managerName, rank: managerRank } = structuredMediumManager(medium, project);
     const managerMarkup = managerName
       ? `<span>중분류 담당자</span><strong class="structured-medium-manager-name">${esc(managerName)}</strong><small>${esc(managerRank || '직급 미지정')}</small>`
       : '<strong class="structured-medium-manager-empty">중분류 담당자 미지정</strong>';

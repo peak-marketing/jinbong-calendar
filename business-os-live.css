@@ -17726,3 +17726,67 @@ html body .my-work-group.tone-doing .my-work-group-label { background: #fdf3d8; 
 html body .my-work-group.tone-review .my-work-group-label { background: #fff0e4; color: #c26124; }
 html body .my-work-group.tone-revision .my-work-group-label { background: #fdecec; color: #c0424b; }
 html body .my-work-group.tone-done .my-work-group-label { background: #e6f7ee; color: #2b8a5e; }
+
+/* ── 분할 보기: 고른 중분류 요약 ───────────────────────
+   중분류를 눌러도 담당자·진행 상황이 어디에도 없어 소분류 목록만 나왔다. */
+html body #newProjectsView .structured-split-brief {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 22px;
+  margin: 0 0 4px;
+  border-bottom: 1px solid #e6eef3;
+  padding: 11px 16px;
+  background: #f8fafb;
+}
+html body #newProjectsView .structured-split-brief > span { display: flex; align-items: center; gap: 7px; min-width: 0; }
+html body #newProjectsView .structured-split-brief b {
+  color: #7b909f;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+html body #newProjectsView .structured-split-brief-person > strong {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  color: #1d4a67;
+  font-size: 13px;
+  font-weight: 900;
+}
+html body #newProjectsView .structured-split-brief-person > strong > small {
+  color: #7b909f;
+  font-size: 10px;
+  font-weight: 700;
+}
+html body #newProjectsView .structured-split-brief-person > strong.is-empty { color: #9bb0bd; font-weight: 800; }
+html body #newProjectsView .structured-split-brief-progress > strong { color: #2b88be; font-size: 13px; font-weight: 900; }
+html body #newProjectsView .structured-split-brief-progress > i {
+  display: block;
+  overflow: hidden;
+  width: 92px;
+  height: 5px;
+  border-radius: 999px;
+  background: #dfeaf1;
+}
+html body #newProjectsView .structured-split-brief-progress > i > b { display: block; height: 100%; border-radius: 999px; background: #2b88be; }
+html body #newProjectsView .structured-split-brief-progress > small { color: #7b909f; font-size: 10px; font-weight: 700; white-space: nowrap; }
+html body #newProjectsView .structured-split-brief-status { flex-wrap: wrap; gap: 5px; }
+html body #newProjectsView .structured-split-brief-status > em {
+  border-radius: 6px;
+  padding: 3px 8px;
+  background: #eef3f7;
+  color: #4a6478;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+  white-space: nowrap;
+}
+/* 상태 색은 업무 배지와 같은 걸 쓴다 */
+html body #newProjectsView .structured-split-brief-status > em.status-todo { background: #fff; color: #5b7080; box-shadow: inset 0 0 0 1px #d3e0e9; }
+html body #newProjectsView .structured-split-brief-status > em.status-acknowledged { background: #e8f2fb; color: #2b6fa8; }
+html body #newProjectsView .structured-split-brief-status > em.status-doing { background: #fdf3d8; color: #9a7017; }
+html body #newProjectsView .structured-split-brief-status > em.status-review { background: #fff0e4; color: #c26124; }
+html body #newProjectsView .structured-split-brief-status > em.status-revision { background: #fdecec; color: #c0424b; }
+html body #newProjectsView .structured-split-brief-status > em.status-done { background: #e6f7ee; color: #2b8a5e; }
+html body #newProjectsView .structured-split-brief-status > em.is-empty { background: transparent; color: #9bb0bd; }

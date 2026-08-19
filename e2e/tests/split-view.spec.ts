@@ -68,3 +68,36 @@ test('분할 보기는 중분류를 고르면 오른쪽에 그 중분류 전체�
   await steps.nth(0).click();
   await expect.poll(() => actions).toContain('acknowledge');
 });
+
+test('분할 보기에서 중분류를 고르면 담당자와 진행 상황이 함께 나온다', async ({ page }) => {
+  await installFirebaseStub(page);
+  await installPeakosStub(page, { name: '김대호', group_name: '본사 영업팀' });
+  await page.route('**/new-projects', r => r.fulfill({ status:200, contentType:'application/json',
+    body: JSON.stringify({ readOnly:false, capabilities:{viewPortfolio:true,createProject:true}, projects:[PROJECT] }) }));
+  await page.route('**/new-projects/p1', r => r.fulfill({ status:200, contentType:'application/json',
+    body: JSON.stringify({ readOnly:false, capabilities:{manageProject:true}, project: PROJECT }) }));
+  await page.setViewportSize({ width: 1500, height: 900 });
+  await page.goto('/business-os-preview.html');
+  for (const c of await page.locator('[data-nav-cluster] .nav-cluster-toggle').all()) if (await c.isVisible()) await c.click();
+  await page.locator('.nav-item[data-view="new-projects"]').click();
+  await page.locator('[data-structured-project-open="p1"]').click();
+
+  const brief = page.locator('.structured-split-brief');
+  await expect(brief).toBeVisible();
+  // 담당자는 이름과 직급이 함께 보여야 한다.
+  await expect(brief.locator('.structured-split-brief-person')).toContainText('김대호');
+  await expect(brief.locator('.structured-split-brief-person')).toContainText('부장');
+  // 업무 1건 전부 지시받음이므로 진행률 0%.
+  await expect(brief.locator('.structured-split-brief-progress')).toContainText('0%');
+  await expect(brief.locator('.structured-split-brief-status em')).toHaveText(['지시받음 1']);
+  // 요약은 소분류 목록보다 위에 선다.
+  const briefY = (await brief.boundingBox())!.y;
+  const listY = (await page.locator('.structured-split-block').first().boundingBox())!.y;
+  expect(briefY).toBeLessThan(listY);
+  // 중분류 수정도 여기서 바로 열 수 있다.
+  await expect(page.locator('.structured-split-head [data-structured-medium-edit]')).toBeVisible();
+
+  // 담당자가 없는 중분류는 미지정으로 뜬다.
+  await page.locator('[data-structured-split-medium="m2"]').click();
+  await expect(brief.locator('.structured-split-brief-status em')).toHaveText(['아직 배정된 업무가 없습니다']);
+});
