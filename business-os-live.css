@@ -17392,3 +17392,15 @@ html body #newProjectsView .structured-task-check.status-done {
   border-color: #3f8f68;
   background: #3f8f68;
 }
+
+/* 분할 보기 왼쪽 — 고른 중분류만 펼쳐진다 */
+.structured-split-caret {
+  flex: 0 0 auto;
+  margin-right: 2px;
+  color: #9bb0bd;
+  font-style: normal;
+  transition: transform .12s ease;
+}
+.structured-split-group.is-expanded .structured-split-caret { transform: rotate(90deg); }
+.structured-split-medium { justify-content: flex-start; gap: 6px; }
+.structured-split-medium > span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }

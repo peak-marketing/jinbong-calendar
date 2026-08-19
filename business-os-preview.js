@@ -6213,14 +6213,16 @@
       const smalls = smallsOf(medium);
       const taskCount = smalls.reduce((sum, small) => sum + tasksOf(small).length, 0);
       const mediumSelected = !activeSmall && String(medium.id) === String(activeMedium?.id);
-      const items = smalls.map(small => {
+      // 고른 중분류의 소분류만 펼친다. 나머지는 접어 목록을 짧게 유지한다.
+      const expanded = String(medium.id) === String(activeMedium?.id);
+      const items = expanded ? smalls.map(small => {
         const tasks = tasksOf(small);
         const done = tasks.filter(task => task?.status === 'done').length;
         const selected = Boolean(activeSmall) && String(small.id) === String(activeSmall.id);
         return `<button class="structured-split-item ${selected ? 'active' : ''}" type="button" data-structured-split-small="${esc(small.id)}" aria-pressed="${selected ? 'true' : 'false'}"><span>${esc(small.name || '이름 없는 소분류')}</span><em>${done}/${tasks.length}</em></button>`;
-      }).join('');
-      return `<div class="structured-split-group">
-        <button class="structured-split-medium ${mediumSelected ? 'active' : ''}" type="button" data-structured-split-medium="${esc(medium.id)}" aria-pressed="${mediumSelected ? 'true' : 'false'}"><span>${esc(medium.name || '이름 없는 중분류')}</span><em>${taskCount}</em></button>
+      }).join('') : '';
+      return `<div class="structured-split-group ${expanded ? 'is-expanded' : ''}">
+        <button class="structured-split-medium ${mediumSelected ? 'active' : ''}" type="button" data-structured-split-medium="${esc(medium.id)}" aria-expanded="${expanded ? 'true' : 'false'}" aria-pressed="${mediumSelected ? 'true' : 'false'}"><i class="structured-split-caret" aria-hidden="true">›</i><span>${esc(medium.name || '이름 없는 중분류')}</span><em>${taskCount}</em></button>
         ${items}
       </div>`;
     }).join('');
@@ -6388,7 +6390,7 @@
         </div>
         <div class="structured-detail-progress"><span><b>전체 진행률</b><strong>${percent}%</strong></span><i><b style="width:${percent}%"></b></i><small>승인 완료 ${done}/${tasks.length} · 검토 요청 ${review} · 수정 요청 ${revision}</small></div>
       </section>
-      <section class="structured-task-viewbar"><div><strong>업무 보기</strong><small>대분류 › 중분류 › 소분류 › 할 일 흐름과 상태 보드를 전환합니다.</small></div>${structuredProjectTaskView === 'hierarchy' && mediums.length ? '<span class="structured-hierarchy-bulk" role="group" aria-label="계층 접기 및 펼치기"><button type="button" data-structured-hierarchy-expand-all>모두 펼치기</button><button type="button" data-structured-hierarchy-collapse-all>모두 접기</button></span>' : ''}<nav data-structured-task-view-toggle aria-label="업무 보기 방식"><button type="button" data-structured-task-view="split" class="${structuredProjectTaskView === 'split' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'split' ? 'true' : 'false'}">분할 보기</button><button type="button" data-structured-task-view="hierarchy" class="${structuredProjectTaskView === 'hierarchy' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'hierarchy' ? 'true' : 'false'}">계층 보기</button><button type="button" data-structured-task-view="board" class="${structuredProjectTaskView === 'board' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'board' ? 'true' : 'false'}">보드 보기</button></nav></section>
+      <section class="structured-task-viewbar"><div><strong>업무 보기</strong></div>${structuredProjectTaskView === 'hierarchy' && mediums.length ? '<span class="structured-hierarchy-bulk" role="group" aria-label="계층 접기 및 펼치기"><button type="button" data-structured-hierarchy-expand-all>모두 펼치기</button><button type="button" data-structured-hierarchy-collapse-all>모두 접기</button></span>' : ''}<nav data-structured-task-view-toggle aria-label="업무 보기 방식"><button type="button" data-structured-task-view="split" class="${structuredProjectTaskView === 'split' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'split' ? 'true' : 'false'}">분할 보기</button><button type="button" data-structured-task-view="hierarchy" class="${structuredProjectTaskView === 'hierarchy' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'hierarchy' ? 'true' : 'false'}">계층 보기</button><button type="button" data-structured-task-view="board" class="${structuredProjectTaskView === 'board' ? 'active' : ''}" aria-pressed="${structuredProjectTaskView === 'board' ? 'true' : 'false'}">보드 보기</button></nav></section>
       ${structuredProjectTaskView === 'board'
         ? structuredProjectBoard(project)
         : structuredProjectTaskView === 'split'

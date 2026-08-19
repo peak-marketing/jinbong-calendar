@@ -30,6 +30,15 @@ test('분할 보기는 중분류를 고르면 오른쪽에 그 중분류 전체�
   await expect(page.locator('[data-structured-split-medium="m1"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.structured-split-detail')).toContainText('체리그라운드');
   await expect(page.locator('.structured-split-detail')).toContainText('TNK 팩토리');
+  // 고른 중분류만 소분류가 펼쳐지고 나머지는 접혀 있다.
+  await expect(page.locator('[data-structured-split-medium="m1"]')).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('[data-structured-split-medium="m2"]')).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('[data-structured-split-small]')).toHaveCount(2);
+  await page.locator('[data-structured-split-medium="m2"]').click();
+  await expect(page.locator('[data-structured-split-small]')).toHaveCount(0);
+  await page.locator('[data-structured-split-medium="m1"]').click();
+  await expect(page.locator('[data-structured-split-small]')).toHaveCount(2);
+
   // 소분류를 고르면 그 하나만 보인다.
   await page.locator('[data-structured-split-small="s1"]').click();
   await expect(page.locator('.structured-split-detail')).not.toContainText('TNK 팩토리');
