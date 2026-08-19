@@ -32,10 +32,11 @@ async function open(page, handlers: any = {}) {
     await route.fulfill({ status: 200, contentType: 'application/json',
       body: JSON.stringify({ meeting: { ...MEETING, version: 3, actionItems: [ITEM, { id: 'ai2', title: '리뷰 소재 3종 준비', assignee: null, dueDate: null, taskId: null }] } }) });
   });
-  await page.route('**/new-projects/p1/meetings/mt1/action-items/ai1/task', async route => {
+  await page.route('**/new-projects/p1/meetings/mt1/action-items/*/task', async route => {
     handlers.onConvert?.(route.request().postDataJSON());
+    const id = route.request().url().match(/action-items\/([^/]+)\/task/)?.[1];
     await route.fulfill({ status: 201, contentType: 'application/json',
-      body: JSON.stringify({ task: { id: 't9' }, actionItem: { ...ITEM, taskId: 't9' } }) });
+      body: JSON.stringify({ task: { id: 't9' }, actionItem: { ...ITEM, id, taskId: 't9' } }) });
   });
   await page.route('**/new-projects/p1', r => r.fulfill({ status: 200, contentType: 'application/json',
     body: JSON.stringify({ readOnly: false, capabilities: { manageProject: true }, project: PROJECT }) }));
@@ -99,8 +100,40 @@ test('담당자가 있는 할 일은 한 번에 업무가 되고, 없으면 막�
   // 담당자 없는 줄은 업무로 만들 수 없다.
   await form.locator('[data-action-item-add]').click();
   await form.locator('[data-action-item-title="1"]').fill('담당자 없는 할 일');
-  await form.locator('button[type="submit"]').click();
-  await expect(form.locator('[data-action-item-convert="1"]')).toBeEnabled();
   await form.locator('[data-action-item-convert="1"]').click();
   await expect(page.locator('.toast, [data-toast]').first()).toContainText('담당자를 정해야');
+});
+
+test('방금 적은 할 일도 저장 없이 바로 업무가 된다', async ({ page }) => {
+  const calls: any[] = [];
+  let converted: any = 'none';
+  await open(page, {
+    onNotes: (method, body) => calls.push(body),
+    onConvert: body => { converted = body; },
+  });
+  await page.locator('[data-structured-meeting-notes]').click();
+  const form = page.locator('#structuredMeetingNotesForm');
+
+  // 새 줄을 적고 곧바로 업무로 만들기를 누른다. 회의록 저장을 먼저 시키지 않는다.
+  await form.locator('[data-action-item-add]').click();
+  await expect(form.locator('[data-action-item-convert="1"]')).toBeEnabled();
+  await form.locator('[data-action-item-title="1"]').fill('리뷰 소재 3종 준비');
+  await form.locator('[data-action-item-assignee="1"]').selectOption('l');
+  await form.locator('[data-action-item-convert="1"]').click();
+
+  // 회의록이 먼저 저장되고, 서버가 준 ID로 업무 전환까지 이어져야 한다.
+  await expect.poll(() => calls.length).toBe(1);
+  expect(calls[0].actionItems.at(-1)).toEqual({ title: '리뷰 소재 3종 준비', assigneeUid: 'l' });
+  await expect.poll(() => converted).not.toBe('none');
+});
+
+test('내용이 비어 있는 줄은 업무로 만들지 않는다', async ({ page }) => {
+  let converted: any = 'none';
+  await open(page, { onConvert: body => { converted = body; } });
+  await page.locator('[data-structured-meeting-notes]').click();
+  const form = page.locator('#structuredMeetingNotesForm');
+  await form.locator('[data-action-item-add]').click();
+  await form.locator('[data-action-item-convert="1"]').click();
+  await expect(page.locator('.toast, [data-toast]').first()).toContainText('할 일 내용을 먼저');
+  expect(converted).toBe('none');
 });

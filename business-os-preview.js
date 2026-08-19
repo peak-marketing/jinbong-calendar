@@ -7096,7 +7096,7 @@
       <div class="structured-action-items">
         <div class="structured-action-items-head"><strong>회의에서 나온 할 일</strong><button type="button" data-action-item-add>＋ 할 일 추가</button></div>
         <div class="structured-action-item-rows" data-action-item-rows></div>
-        <small class="structured-form-help">담당자를 정하면 그 줄을 그대로 업무로 만들 수 있습니다. 업무로 만든 줄은 지워지지 않습니다.</small>
+        <small class="structured-form-help">담당자를 정하고 <b>업무로 만들기</b>를 누르면 회의록 저장과 업무 생성이 함께 이뤄집니다. 업무로 만든 줄은 지워지지 않습니다.</small>
       </div>
       <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>닫기</button><button class="primary" type="submit">회의록 저장</button></div>
     </form>`, { locked: true });
@@ -7112,7 +7112,7 @@
         <input type="date" data-action-item-due="${index}" value="${esc(row.dueDate)}" ${row.taskId ? 'disabled' : ''}>
         ${row.taskId
           ? '<span class="structured-action-item-done">업무 생성됨</span>'
-          : `<button type="button" data-action-item-convert="${index}" ${row.id ? '' : 'disabled'} title="${row.id ? '' : '먼저 회의록을 저장해 주세요.'}">업무로 만들기</button>`}
+          : `<button type="button" data-action-item-convert="${index}">업무로 만들기</button>`}
         ${row.taskId ? '' : `<button type="button" class="structured-action-item-remove" data-action-item-remove="${index}" aria-label="할 일 삭제">×</button>`}
       </div>`).join('') : '<p class="structured-action-item-empty">아직 적은 할 일이 없습니다.</p>';
 
@@ -7164,9 +7164,19 @@
     };
 
     const convertRow = async index => {
-      const row = rows[index];
-      if (!row?.id) return showToast('먼저 회의록을 저장해 주세요.');
+      let row = rows[index];
+      if (!row) return;
+      if (!row.title.trim()) return showToast('할 일 내용을 먼저 적어 주세요.');
       if (!row.assigneeUid) return showToast('담당자를 정해야 업무로 만들 수 있습니다.');
+      if (!row.id) {
+        // 아직 저장 안 된 줄이다. 저장을 먼저 시키지 말고 여기서 같이 처리한다.
+        const title = row.title.trim();
+        // 빈 줄은 저장 대상이 아니라서, 남겨 두면 저장 후 줄 순서가 밀린다.
+        rows = rows.filter(entry => entry.title.trim());
+        if (!await saveNotes()) return;
+        row = rows.find(entry => entry.title.trim() === title && !entry.taskId);
+        if (!row?.id) return showToast('회의록은 저장했습니다. 업무로 만들기를 한 번 더 눌러 주세요.');
+      }
       // 소분류 회의는 어디에 만들지 이미 정해져 있다. 중분류 회의만 골라야 한다.
       let smallId = '';
       if (needsSmall) {
