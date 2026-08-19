@@ -5156,7 +5156,7 @@
       <div class="project-detail-task-copy">
         <div class="project-detail-task-meta"><span class="review-card-status ${statusClass}">${esc(TASK_STATUS[taskStatus] || taskStatus)}${completion}</span>${projectDeadlineBadge(task.due_date || task.dueDate, taskStatus)}<span class="project-task-role">역할 · ${esc(role)}</span></div>
         <strong>${esc(task.title || '업무명 없음')}</strong>
-        <div class="project-task-command-line"><span><b>지시</b>${esc(creator)}</span><i aria-hidden="true">→</i><span><b>담당</b>${esc(assigneeLabel)}</span>${reviewer ? `<i aria-hidden="true">→</i><span><b>검토</b>${esc(reviewer)}</span>` : ''}</div>
+        <div class="project-task-command-line"><span><b>지시</b>${esc(creator)}</span><span><b>담당</b>${esc(assigneeLabel)}</span>${reviewer ? `<span><b>검토</b>${esc(reviewer)}</span>` : ''}</div>
         ${task.description ? `<p>${esc(task.description)}</p>` : ''}
         ${taskStatus === 'doing' && (task.review_note || task.reviewNote) ? `<div class="project-review-note"><b>반려 사유</b><span>${esc(task.review_note || task.reviewNote)}</span></div>` : ''}
         ${allProgress}
@@ -5593,10 +5593,26 @@
   const STRUCTURED_PROJECT_STATUS = Object.freeze({
     active: '진행 중', completed: '완료', archived: '보관'
   });
+  // 업무가 흘러가는 순서 그대로 적는다. 목록 정렬과 상태 그룹 순서가 모두 이 배열을 따른다.
+  const STRUCTURED_TASK_STATUS_ORDER = Object.freeze([
+    'todo', 'acknowledged', 'doing', 'review', 'revision', 'done'
+  ]);
   const STRUCTURED_TASK_STATUS = Object.freeze({
-    todo: '지시 받음', acknowledged: '확인완료', doing: '진행중',
-    review: '진행완료', revision: '수정 요청', done: '승인완료'
+    todo: '지시받음', acknowledged: '확인완료', doing: '진행중',
+    review: '진행완료', revision: '수정요청', done: '업무완료'
   });
+  function structuredTaskStatusKey(task) {
+    const status = typeof task === 'string' ? task : task?.status;
+    return STRUCTURED_TASK_STATUS[status] ? status : 'todo';
+  }
+  // 같은 상태끼리는 서버가 준 차례를 흐트러뜨리지 않게 원래 자리로 되돌린다.
+  function structuredTasksInStatusOrder(tasks) {
+    return (Array.isArray(tasks) ? tasks : [])
+      .map((task, index) => ({ task, index }))
+      .sort((a, b) => (STRUCTURED_TASK_STATUS_ORDER.indexOf(structuredTaskStatusKey(a.task))
+        - STRUCTURED_TASK_STATUS_ORDER.indexOf(structuredTaskStatusKey(b.task))) || (a.index - b.index))
+      .map(entry => entry.task);
+  }
   // 담당자가 직접 고르는 세 단계. 마지막 단계에서 지시자에게 검토 요청이 올라간다.
   const STRUCTURED_TASK_STEPS = Object.freeze([
     Object.freeze({ action: 'acknowledge', status: 'acknowledged', label: '확인완료' }),
@@ -5609,14 +5625,11 @@
   let myWorkSelectedId = '';
   // 그룹 이름은 상태 표기와 한 곳에서 맞춘다. 상태를 추가하고 여기를 빠뜨리면
   // 그 상태의 업무가 목록에서 통째로 사라진다(확인완료가 그랬다).
-  const MY_WORK_GROUPS = [
-    { key: 'revision', tone: 'danger' },
-    { key: 'review', tone: 'warn' },
-    { key: 'doing', tone: 'active' },
-    { key: 'acknowledged', tone: 'active' },
-    { key: 'todo', tone: 'idle' },
-    { key: 'done', tone: 'done' },
-  ].map(group => ({ ...group, label: STRUCTURED_TASK_STATUS[group.key] || group.key }));
+  const MY_WORK_GROUPS = STRUCTURED_TASK_STATUS_ORDER.map(key => ({
+    key,
+    tone: key,
+    label: STRUCTURED_TASK_STATUS[key],
+  }));
 
   function myWorkContextKey() {
     return [activeWorkspaceSlug || 'peak', currentUser?.uid || '', osAuthAccessGeneration, previewPersona || 'self'].join('|');
@@ -6098,7 +6111,7 @@
         <div class="structured-task-meta">${structuredTaskStatusBadge(status)}${projectDeadlineBadge(task.dueDate, status)}<span>v${Number(task.workflowVersion ?? task.version ?? 1)}</span></div>
         <strong data-structured-task-detail="${esc(task.id)}" role="button" tabindex="0">${esc(task.title || '업무명 없음')}</strong>
         ${task.description ? `<p>${esc(task.description)}</p>` : ''}
-        <div class="structured-assignment-flow"><span><b>지시</b>${esc(assignedBy)}</span><i aria-hidden="true">→</i><span><b>담당</b>${esc(assignee)}</span><i aria-hidden="true">→</i><span><b>검토</b>${esc(reviewer)}</span></div>
+        <div class="structured-assignment-flow"><span><b>지시</b>${esc(assignedBy)}</span><span><b>담당</b>${esc(assignee)}</span><span><b>검토</b>${esc(reviewer)}</span></div>
         ${status === 'revision' && task.revisionReason ? `<div class="structured-revision-reason"><b>수정 요청 사유</b><span>${esc(task.revisionReason)}</span></div>` : ''}
         ${historyMarkup}
       </div>
@@ -6154,7 +6167,7 @@
         <strong>${esc(task.title || '업무명 없음')}</strong>
         ${task.description ? `<span class="structured-board-card-description">${esc(task.description)}</span>` : ''}
         ${status === 'revision' && task.revisionReason ? `<span class="structured-board-revision"><b>수정 요청</b>${esc(task.revisionReason)}</span>` : ''}
-        <span class="structured-board-flow"><span><b>지시</b>${esc(assignedBy)}</span><i aria-hidden="true">→</i><span><b>담당</b>${esc(assignee)}</span></span>
+        <span class="structured-board-flow"><span><b>지시</b>${esc(assignedBy)}</span><span><b>담당</b>${esc(assignee)}</span></span>
       </button>
     </article>`;
   }
@@ -6240,7 +6253,7 @@
   function structuredProjectSplit(project) {
     const mediums = Array.isArray(project?.mediumCategories) ? project.mediumCategories : [];
     const smallsOf = medium => (Array.isArray(medium?.smallCategories) ? medium.smallCategories : []);
-    const tasksOf = small => (Array.isArray(small?.tasks) ? small.tasks : []);
+    const tasksOf = small => structuredTasksInStatusOrder(small?.tasks);
     if (!mediums.length) {
       return '<section class="structured-empty"><strong>아직 중분류가 없습니다.</strong><span>중분류를 추가해 업무를 나눠 주세요.</span></section>';
     }
@@ -6363,7 +6376,7 @@
   }
 
   function structuredSmallCategory(small, project, medium) {
-    const tasks = Array.isArray(small.tasks) ? small.tasks : [];
+    const tasks = structuredTasksInStatusOrder(small.tasks);
     const done = tasks.filter(task => task.status === 'done').length;
     const canManage = structuredProjectCan('manageProject', structuredProjectDetailState);
     const smallId = String(small.id || '');

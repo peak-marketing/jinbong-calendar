@@ -17595,3 +17595,51 @@ html body #newProjectsView .structured-task-check.status-done {
 @media (max-width: 1100px) {
   .my-work-split { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ── 업무 상태 색 ──────────────────────────────────────
+   지시받음 흰색 · 확인완료 파랑 · 진행중 노랑 · 진행완료 주황 · 수정요청 빨강 · 업무완료 초록.
+   앞쪽에 같은 특정도의 규칙(진행중 파랑 등)이 있어 파일 맨 끝에서 덮어쓴다. */
+html body .structured-task-status.todo,
+html[data-theme="dark"] body .structured-task-status.todo { background: #fff; color: #5b7080; box-shadow: inset 0 0 0 1px #d3e0e9; }
+html body .structured-task-status.acknowledged,
+html[data-theme="dark"] body .structured-task-status.acknowledged { background: #e8f2fb; color: #2b6fa8; }
+html body .structured-task-status.doing,
+html[data-theme="dark"] body .structured-task-status.doing { background: #fdf3d8; color: #9a7017; }
+html body .structured-task-status.review,
+html[data-theme="dark"] body .structured-task-status.review { background: #fff0e4; color: #c26124; }
+html body .structured-task-status.revision,
+html[data-theme="dark"] body .structured-task-status.revision { background: #fdecec; color: #c0424b; }
+html body .structured-task-status.done,
+html[data-theme="dark"] body .structured-task-status.done { background: #e6f7ee; color: #2b8a5e; }
+
+/* 프로젝트 업무 줄 앞 동그라미 */
+html body #newProjectsView .structured-task-check.status-todo { border-color: #cfdce6; background: #fff; }
+html body #newProjectsView .structured-task-check.status-acknowledged { border-color: #2b88be; background: #2b88be; }
+html body #newProjectsView .structured-task-check.status-doing { border-color: #e0a93f; background: #f2c14e; }
+html body #newProjectsView .structured-task-check.status-review { border-color: #e07c3c; background: #ea885c; }
+html body #newProjectsView .structured-task-check.status-revision { border-color: #d2686f; background: #d2686f; }
+html body #newProjectsView .structured-task-check.status-done { border-color: #3f8f68; background: #3f8f68; }
+
+/* 업무 현황 목록 동그라미 — 같은 색을 쓴다 */
+html body .my-work-mark.status-todo { border-color: #cfdce6; background: #fff; }
+html body .my-work-mark.status-acknowledged { border-color: #2b88be; background: #2b88be; }
+html body .my-work-mark.status-doing { border-color: #e0a93f; background: #f2c14e; }
+html body .my-work-mark.status-review { border-color: #e07c3c; background: #ea885c; }
+html body .my-work-mark.status-revision { border-color: #d2686f; background: #d2686f; }
+html body .my-work-mark.status-done { border-color: #3f8f68; background: #3f8f68; }
+
+/* 상태 그룹 머리의 점도 같은 색 */
+html body .my-work-group.tone-todo .my-work-bullet { border: 1.5px solid #cfdce6; background: #fff; }
+html body .my-work-group.tone-acknowledged .my-work-bullet { background: #2b88be; }
+html body .my-work-group.tone-doing .my-work-bullet { background: #f2c14e; }
+html body .my-work-group.tone-review .my-work-bullet { background: #ea885c; }
+html body .my-work-group.tone-revision .my-work-bullet { background: #d2686f; }
+html body .my-work-group.tone-done .my-work-bullet { background: #3f8f68; }
+
+/* 업무 줄 왼쪽 띠도 상태 색을 그대로 따른다 (진행완료가 배지는 주황, 띠는 노랑이었다) */
+html body :is(.structured-task-row, .structured-board-card).status-todo { border-left-color: #cfdce6; }
+html body :is(.structured-task-row, .structured-board-card).status-acknowledged { border-left-color: #2b88be; }
+html body :is(.structured-task-row, .structured-board-card).status-doing { border-left-color: #e0a93f; }
+html body :is(.structured-task-row, .structured-board-card).status-review { border-left-color: #e07c3c; }
+html body :is(.structured-task-row, .structured-board-card).status-revision { border-left-color: #d2686f; }
+html body :is(.structured-task-row, .structured-board-card).status-done { border-left-color: #3f8f68; }

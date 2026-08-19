@@ -1119,7 +1119,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     drawer = page.locator('[data-structured-task-drawer]');
     await drawer.locator('[data-work-item-approve="board-project-review"]').click();
     await expect(page.locator('[data-structured-board-column="done"] [data-work-item-id="board-project-review"]')).toBeVisible();
-    await expect(page.locator('[data-structured-task-drawer]')).toContainText('승인완료');
+    await expect(page.locator('[data-structured-task-drawer]')).toContainText('업무완료');
 
     const actions = fixture.calls
       .filter(call => call.path.endsWith('/tasks/board-project-review/review'))
@@ -1454,13 +1454,13 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     expect(fixture.calls.filter(call => call.body?.action === 'revision')).toHaveLength(0);
     await revisionForm.locator('[name="note"]').fill('모바일 시안의 버튼 간격을 다시 맞춰 주세요.');
     await revisionForm.getByRole('button', { name: '수정 요청 보내기' }).click();
-    await expect(task).toContainText('수정 요청');
+    await expect(task).toContainText('수정요청');
     await expect(task).toContainText('모바일 시안의 버튼 간격을 다시 맞춰 주세요.');
 
     await task.locator('[data-work-item-submit]').first().click();
     await expect(task).toContainText('진행완료');
     await task.locator('[data-work-item-approve]').click();
-    await expect(task).toContainText('승인완료');
+    await expect(task).toContainText('업무완료');
 
     const actions = fixture.calls
       .filter(call => call.path.endsWith('/tasks/workflow-project-task-1/review'))

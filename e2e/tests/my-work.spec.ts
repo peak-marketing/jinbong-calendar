@@ -57,7 +57,7 @@ test('업무 현황 탭은 내 업무만 상태별로 모으고 눌러서 상세
   // 상태 이름은 업무 화면 표기와 같아야 하고, 어떤 상태도 누락되면 안 된다.
   const groups = view.locator('.my-work-group');
   await expect(groups).toHaveCount(4);
-  await expect(groups.locator('.my-work-group-label')).toHaveText(['진행중', '확인완료', '지시 받음', '승인완료']);
+  await expect(groups.locator('.my-work-group-label')).toHaveText(['지시받음', '확인완료', '진행중', '업무완료']);
   await expect(view.locator('[data-my-work-open]')).toHaveCount(4);
 
   // 처음에는 첫 업무가 선택되어 오른쪽에 상세가 열린다.
