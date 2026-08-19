@@ -228,9 +228,13 @@ test('reviewer is the delegator with a non-self project lead fallback', () => {
 });
 
 test('external checklist actions map to explicit internal history actions', () => {
-  assert.deepEqual(NEW_PROJECT_TASK_ACTIONS, ['request', 'approve', 'revision']);
-  assert.deepEqual(NEW_PROJECT_INTERNAL_TASK_ACTIONS, ['submit', 'resubmit', 'approve', 'request_revision']);
+  assert.deepEqual(NEW_PROJECT_TASK_ACTIONS, ['acknowledge', 'start', 'request', 'approve', 'revision']);
+  assert.deepEqual(NEW_PROJECT_INTERNAL_TASK_ACTIONS, ['acknowledge', 'start', 'submit', 'resubmit', 'approve', 'request_revision']);
   assert.deepEqual(newProjectExternalActionToInternal('request', 'todo'), { ok: true, action: 'submit' });
+  // 담당자가 직접 고르는 단계
+  assert.deepEqual(newProjectExternalActionToInternal('acknowledge', 'todo'), { ok: true, action: 'acknowledge' });
+  assert.deepEqual(newProjectExternalActionToInternal('start', 'acknowledged'), { ok: true, action: 'start' });
+  assert.deepEqual(newProjectExternalActionToInternal('request', 'acknowledged'), { ok: true, action: 'submit' });
   assert.deepEqual(newProjectExternalActionToInternal('request', 'doing'), { ok: true, action: 'submit' });
   assert.deepEqual(newProjectExternalActionToInternal('request', 'revision'), { ok: true, action: 'resubmit' });
   assert.deepEqual(newProjectExternalActionToInternal('revision', 'review'), { ok: true, action: 'request_revision' });

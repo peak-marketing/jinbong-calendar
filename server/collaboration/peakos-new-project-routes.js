@@ -225,7 +225,7 @@ function taskCapabilities(task, context) {
     // A manager must be able to recover a review that can no longer reach its
     // stored reviewer after membership or project access was revoked.
     reassign: assignmentMutable,
-    submit: !context.readOnly && isAssignee && ['todo', 'doing', 'revision'].includes(task.status),
+    submit: !context.readOnly && isAssignee && ['todo', 'acknowledged', 'doing', 'revision'].includes(task.status),
     approve: canReview,
     requestRevision: canReview,
   };

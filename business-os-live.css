@@ -17322,3 +17322,34 @@ html body #newProjectsView .structured-page-head > div:first-child > h1 {
   }
   html body #newProjectsView .structured-split-head { padding: 6px 14px; }
 }
+
+/* 담당자 진행 단계 선택 — 확인완료 · 진행중 · 진행완료 */
+.structured-task-steps {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid #cfdce6;
+  border-radius: 8px;
+  background: #fff;
+}
+.structured-task-steps > button {
+  border: 0;
+  border-left: 1px solid #e6eef3;
+  padding: 0 9px;
+  min-height: 22px;
+  height: 22px;
+  background: transparent;
+  color: #6d8291;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 850;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.structured-task-steps > button:first-child { border-left: 0; }
+.structured-task-steps > button:hover { background: #eef6fb; color: #2b6d94; }
+.structured-task-steps > button.active { background: #2b88be; color: #fff; cursor: default; }
+@media (max-width: 760px) {
+  /* 모바일 터치 영역 44px 규칙을 지킨다. */
+  .structured-task-steps > button { min-height: 44px; height: 44px; padding: 0 12px; font-size: 11px; }
+}

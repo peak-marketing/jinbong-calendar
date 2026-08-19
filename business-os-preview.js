@@ -5578,8 +5578,15 @@
     active: '진행 중', completed: '완료', archived: '보관'
   });
   const STRUCTURED_TASK_STATUS = Object.freeze({
-    todo: '대기', doing: '진행 중', review: '검토 요청', revision: '수정 요청', done: '승인 완료'
+    todo: '지시 받음', acknowledged: '확인완료', doing: '진행중',
+    review: '진행완료', revision: '수정 요청', done: '승인완료'
   });
+  // 담당자가 직접 고르는 세 단계. 마지막 단계에서 지시자에게 검토 요청이 올라간다.
+  const STRUCTURED_TASK_STEPS = Object.freeze([
+    Object.freeze({ action: 'acknowledge', status: 'acknowledged', label: '확인완료' }),
+    Object.freeze({ action: 'start', status: 'doing', label: '진행중' }),
+    Object.freeze({ action: 'request', status: 'review', label: '진행완료' }),
+  ]);
 
   // ── 내 업무 ────────────────────────────────────────
   let myWorkState = { status: 'idle', tasks: [], error: '', contextKey: '' };
@@ -6052,7 +6059,8 @@
         ${historyMarkup}
       </div>
       <div class="structured-task-actions">
-        ${canSubmit ? `<button class="submit" type="button" data-work-item-submit="${esc(task.id)}">${esc(submitLabel)}</button>` : ''}
+        ${canSubmit && status !== 'revision' ? `<div class="structured-task-steps" role="group" aria-label="${esc(task.title || '업무')} 진행 상태">${STRUCTURED_TASK_STEPS.map(step => `<button type="button" class="${status === step.status ? 'active' : ''}" data-work-item-step="${esc(task.id)}" data-step-action="${esc(step.action)}" aria-pressed="${status === step.status ? 'true' : 'false'}">${esc(step.label)}</button>`).join('')}</div>` : ''}
+        ${canSubmit && status === 'revision' ? `<button class="submit" type="button" data-work-item-submit="${esc(task.id)}">${esc(submitLabel)}</button>` : ''}
         ${canApprove ? `<button class="approve" type="button" data-work-item-approve="${esc(task.id)}">승인</button>` : ''}
         ${canRevision ? `<button class="revision" type="button" data-work-item-revision="${esc(task.id)}">수정 요청</button>` : ''}
         ${canEdit ? `<button class="edit" type="button" data-work-item-edit="${esc(task.id)}">업무 수정</button>` : ''}
@@ -6566,6 +6574,10 @@
     // 같은 업무에 체크 버튼과 텍스트 버튼이 함께 있어도 한 요청만 실행한다.
     const submitButtons = [...newProjectsView.querySelectorAll('[data-work-item-submit]')];
     submitButtons.forEach(button => button.addEventListener('click', () => reviewStructuredTask(project, button.dataset.workItemSubmit, 'request')));
+    newProjectsView.querySelectorAll('[data-work-item-step]').forEach(button => button.addEventListener('click', () => {
+      if (button.getAttribute('aria-pressed') === 'true') return;
+      reviewStructuredTask(project, button.dataset.workItemStep, button.dataset.stepAction);
+    }));
     newProjectsView.querySelectorAll('[data-work-item-approve]').forEach(button => button.addEventListener('click', () => reviewStructuredTask(project, button.dataset.workItemApprove, 'approve')));
     newProjectsView.querySelectorAll('[data-work-item-revision]').forEach(button => button.addEventListener('click', () => openStructuredRevisionDialog(project, button.dataset.workItemRevision)));
   }
@@ -7002,7 +7014,10 @@
   async function reviewStructuredTask(project, taskId, action, note = '') {
     const task = findStructuredTask(project, taskId);
     if (!task) return;
-    const capability = action === 'request' ? 'submit' : action === 'approve' ? 'approve' : 'requestRevision';
+    // 담당자가 고르는 단계(확인완료·진행중)도 검토 요청과 같은 권한으로 다룬다.
+    const capability = ['request', 'acknowledge', 'start'].includes(action)
+      ? 'submit'
+      : action === 'approve' ? 'approve' : 'requestRevision';
     if (!structuredTaskCan(task, capability)) return showToast('현재 상태에서 이 업무를 처리할 권한이 없습니다.');
     if (action === 'revision' && !String(note || '').trim()) return showToast('수정 요청 사유를 입력해 주세요.');
     const saved = await runCollaborationMutation(
@@ -7011,7 +7026,10 @@
         note: String(note || '').trim(),
         expectedVersion: Number(task.workflowVersion ?? task.version ?? 1)
       }),
-      action === 'request' ? '업무 지시자에게 검토를 요청했습니다.' : action === 'approve' ? '업무를 승인 완료했습니다.' : '사유와 함께 수정을 요청했습니다.'
+      action === 'acknowledge' ? '확인완료로 표시했습니다.'
+        : action === 'start' ? '진행중으로 표시했습니다.'
+        : action === 'request' ? '진행완료로 표시하고 지시자에게 검토를 요청했습니다.'
+        : action === 'approve' ? '업무를 승인 완료했습니다.' : '사유와 함께 수정을 요청했습니다.'
     );
     if (!saved) {
       await refreshStructuredProjectDetail(project.id, { render: true, quiet: true }).catch(() => {});

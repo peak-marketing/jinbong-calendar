@@ -588,12 +588,12 @@ SELECT NOT EXISTS (SELECT 1 FROM missing) AS ready,
 `.trim();
 
 const NEW_PROJECT_PROJECT_STATUSES = Object.freeze(['active', 'completed', 'archived']);
-const NEW_PROJECT_TASK_STATUSES = Object.freeze(['todo', 'doing', 'review', 'revision', 'done']);
+const NEW_PROJECT_TASK_STATUSES = Object.freeze(['todo', 'acknowledged', 'doing', 'review', 'revision', 'done']);
 // These are the only actions accepted from the UI/API. `request` is mapped to
 // submit or resubmit from the locked row's current status. Internal action names
 // are history labels only and must never be trusted from a client body.
-const NEW_PROJECT_TASK_ACTIONS = Object.freeze(['request', 'approve', 'revision']);
-const NEW_PROJECT_INTERNAL_TASK_ACTIONS = Object.freeze(['submit', 'resubmit', 'approve', 'request_revision']);
+const NEW_PROJECT_TASK_ACTIONS = Object.freeze(['acknowledge', 'start', 'request', 'approve', 'revision']);
+const NEW_PROJECT_INTERNAL_TASK_ACTIONS = Object.freeze(['acknowledge', 'start', 'submit', 'resubmit', 'approve', 'request_revision']);
 const NEW_PROJECT_MEMBER_ROLES = Object.freeze(['lead', 'member']);
 const NOTE_REQUIRED_ACTIONS = new Set(['revision']);
 const SORT_ORDER_BOUND = 1_000_000;
@@ -603,7 +603,10 @@ const UID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,199}$/;
 const ISO_DATE_PATTERN = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 
 const ACTION_TRANSITIONS = Object.freeze({
-  submit: Object.freeze({ from: Object.freeze(['todo', 'doing']), to: 'review', actor: 'assignee' }),
+  // 담당자가 스스로 고르는 단계: 확인완료 → 진행중 → 진행완료(검토 요청)
+  acknowledge: Object.freeze({ from: Object.freeze(['todo', 'doing']), to: 'acknowledged', actor: 'assignee' }),
+  start: Object.freeze({ from: Object.freeze(['todo', 'acknowledged']), to: 'doing', actor: 'assignee' }),
+  submit: Object.freeze({ from: Object.freeze(['todo', 'acknowledged', 'doing']), to: 'review', actor: 'assignee' }),
   resubmit: Object.freeze({ from: Object.freeze(['revision']), to: 'review', actor: 'assignee' }),
   approve: Object.freeze({ from: Object.freeze(['review']), to: 'done', actor: 'reviewer' }),
   request_revision: Object.freeze({ from: Object.freeze(['review']), to: 'revision', actor: 'reviewer' }),
@@ -850,9 +853,11 @@ function resolveNewProjectReviewer({
 function newProjectExternalActionToInternal(action, status) {
   if (action === 'request') {
     if (status === 'revision') return { ok: true, action: 'resubmit' };
-    if (status === 'todo' || status === 'doing') return { ok: true, action: 'submit' };
+    if (['todo', 'acknowledged', 'doing'].includes(status)) return { ok: true, action: 'submit' };
     return invalid('NEW_PROJECT_TASK_TRANSITION_FORBIDDEN', '현재 상태에서는 검토를 요청할 수 없습니다.');
   }
+  if (action === 'acknowledge') return { ok: true, action: 'acknowledge' };
+  if (action === 'start') return { ok: true, action: 'start' };
   if (action === 'approve') return { ok: true, action: 'approve' };
   if (action === 'revision') return { ok: true, action: 'request_revision' };
   return invalid('NEW_PROJECT_ENUM_INVALID', '업무 처리 방식 값이 올바르지 않습니다.');

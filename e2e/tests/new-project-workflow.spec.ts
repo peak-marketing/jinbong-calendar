@@ -1118,7 +1118,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     drawer = page.locator('[data-structured-task-drawer]');
     await drawer.locator('[data-work-item-approve="board-project-review"]').click();
     await expect(page.locator('[data-structured-board-column="done"] [data-work-item-id="board-project-review"]')).toBeVisible();
-    await expect(page.locator('[data-structured-task-drawer]')).toContainText('승인 완료');
+    await expect(page.locator('[data-structured-task-drawer]')).toContainText('승인완료');
 
     const actions = fixture.calls
       .filter(call => call.path.endsWith('/tasks/board-project-review/review'))
@@ -1425,7 +1425,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('[data-structured-project-lead-edit]')).toHaveCount(0);
     await expect(page.locator('[data-structured-medium-create]')).toHaveCount(0);
     await page.locator('[data-work-item-id="member-project-task-1"] [data-work-item-submit]').first().click();
-    await expect(page.locator('[data-work-item-id="member-project-task-1"]')).toContainText('검토 요청');
+    await expect(page.locator('[data-work-item-id="member-project-task-1"]')).toContainText('진행완료');
     const request = fixture.calls.find(call => call.path.endsWith('/tasks/member-project-task-1/review'));
     expect(request?.body).toMatchObject({ action: 'request', expectedVersion: 7 });
   });
@@ -1445,7 +1445,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
 
     const task = page.locator('[data-work-item-id="workflow-project-task-1"]');
     await task.locator('[data-work-item-submit]').first().click();
-    await expect(task).toContainText('검토 요청');
+    await expect(task).toContainText('진행완료');
     await task.locator('[data-work-item-revision]').click();
     const revisionForm = page.locator('#structuredRevisionForm');
     await expect(revisionForm).toBeVisible();
@@ -1457,9 +1457,9 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(task).toContainText('모바일 시안의 버튼 간격을 다시 맞춰 주세요.');
 
     await task.locator('[data-work-item-submit]').first().click();
-    await expect(task).toContainText('검토 요청');
+    await expect(task).toContainText('진행완료');
     await task.locator('[data-work-item-approve]').click();
-    await expect(task).toContainText('승인 완료');
+    await expect(task).toContainText('승인완료');
 
     const actions = fixture.calls
       .filter(call => call.path.endsWith('/tasks/workflow-project-task-1/review'))
