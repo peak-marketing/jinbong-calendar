@@ -2663,7 +2663,7 @@
       ? { ...previousDayState, status: 'refreshing', error: '' }
       : { status: 'loading', contextKey, date, todos: [], readOnly: true, capabilities: {}, error: '' };
     try {
-      const payload = await callApi('GET', `/peakos/todos?date=${encodeURIComponent(date)}&carryOver=1`, null, {
+      const payload = await callApi('GET', `/peakos/todos?date=${encodeURIComponent(date)}${date === koreaDateKey(new Date()) ? '&carryOver=1' : ''}`, null, {
         headers: { 'X-PeakOS-Preview': '0' }
       });
       if (generation !== todoDateLoadGeneration
@@ -2709,7 +2709,7 @@
     }
     const generation = ++todoTodayBadgeLoadGeneration;
     try {
-      const payload = await callApi('GET', `/peakos/todos?date=${encodeURIComponent(date)}&carryOver=1`, null, {
+      const payload = await callApi('GET', `/peakos/todos?date=${encodeURIComponent(date)}${date === koreaDateKey(new Date()) ? '&carryOver=1' : ''}`, null, {
         headers: { 'X-PeakOS-Preview': '0' }
       });
       if (generation !== todoTodayBadgeLoadGeneration || contextKey !== collaborationEventContextKey()) return null;
@@ -4623,14 +4623,6 @@
 
     todoView.innerHTML = `
       <section class="todo-dashboard" data-todo-dashboard data-todo-source="peakos" aria-label="개인 할 일 대시보드">
-        <header class="todo-dashboard-toolbar">
-          <strong>할 일</strong>
-          <span class="todo-dashboard-source-note">PEAK OS 전용 · 기존 Paragon과 분리</span>
-          <div class="todo-dashboard-toolbar-actions">
-            ${readonlyNotice}
-            <time class="todo-dashboard-today" data-todo-selected-date datetime="${esc(selectedDate)}">${esc(selectedDateLabel)}</time>
-          </div>
-        </header>
         <section class="todo-dashboard-overview" aria-label="선택 날짜 할 일 현황">
           <article class="todo-dashboard-progress" data-todo-progress role="progressbar" aria-label="${isToday ? '오늘' : selectedDateLabel} 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPercent}">
             <div><span>${isToday ? '오늘 진행률' : `${formatDate(`${selectedDate}T00:00:00+09:00`, { timeZone: 'Asia/Seoul', month: 'long', day: 'numeric' })} 진행률`}</span><strong>${progressPercent}%</strong></div>
@@ -4654,7 +4646,13 @@
             <div class="todo-dashboard-inbox" aria-live="polite">${captureListMarkup}</div>
           </section>
           <section class="todo-dashboard-panel list" data-todo-panel="list" aria-labelledby="todoListHeading">
-            <header><div><span>DAILY PLAN</span><strong id="todoListHeading">투두리스트</strong></div><em>${openItems.length}건 남음</em></header>
+            <header><div><span>DAILY PLAN</span><strong id="todoListHeading">투두리스트</strong></div>
+              <div class="todo-list-head-actions">${readonlyNotice}
+                <label class="todo-date-picker"><span class="sr-only">조회 날짜</span><input type="date" data-todo-date-input value="${esc(selectedDate)}" aria-label="조회 날짜"></label>
+                ${isToday ? '' : '<button type="button" class="todo-date-today" data-todo-date-today>오늘</button>'}
+                <em>${openItems.length}건 남음</em>
+              </div>
+            </header>
             <div class="todo-dashboard-list-guide" aria-hidden="true"><span>업무</span><span>우선순위</span><span>시작 ~ 종료</span></div>
             <div class="todo-dashboard-list" aria-live="polite">${todoListMarkup}</div>
           </section>
@@ -4695,6 +4693,9 @@
     todoView.querySelector('[data-todo-date-prev]')?.addEventListener('click', () => changeSelectedDate(shiftDateKey(selectedDate, -1)));
     todoView.querySelector('[data-todo-date-next]')?.addEventListener('click', () => changeSelectedDate(shiftDateKey(selectedDate, 1)));
     todoView.querySelector('[data-todo-date-today]')?.addEventListener('click', () => changeSelectedDate(today));
+    todoView.querySelector('[data-todo-date-input]')?.addEventListener('change', event => {
+      changeSelectedDate(String(event.target.value || ''));
+    });
     todoView.querySelectorAll('[data-peakos-todo-retry]').forEach(button => button.addEventListener('click', () => {
       button.disabled = true;
       refreshTodoDate(selectedDate).catch(error => showToast(error.message));

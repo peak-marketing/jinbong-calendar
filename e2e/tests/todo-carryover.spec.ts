@@ -27,9 +27,10 @@ test('지난 미완료 할 일이 오늘 목록으로 넘어온다', async ({ pa
   await page.locator('.nav-item[data-view="todo"]').click();
   await page.locator('[data-todo-progress]').waitFor();
   expect(carryFlag).toBe('1');
-  // 날짜 이동 바는 사라졌다.
+  // 상단 제목 바는 사라지고, 날짜 조회는 투두리스트 헤더로 옮겼다.
+  await expect(page.locator('.todo-dashboard-toolbar')).toHaveCount(0);
   await expect(page.locator('[data-todo-date-prev]')).toHaveCount(0);
-  await expect(page.locator('[data-todo-date-today]')).toHaveCount(0);
+  await expect(page.locator('[data-todo-date-input]')).toBeVisible();
   // 어제 일은 이월 표시와 함께 같은 목록에 있다.
   const carried = page.locator('[data-personal-todo-id="old"]');
   await expect(carried).toContainText('어제 못 끝낸 일');

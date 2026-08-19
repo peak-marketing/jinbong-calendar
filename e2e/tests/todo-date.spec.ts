@@ -31,6 +31,12 @@ test('할 일 화면은 언제 열어도 한국시간 오늘 기준으로 조회
   await page.locator('.nav-item[data-view="dashboard"]').click();
   await openTodo();
   expect(seen.at(-1)).toBe(todayKey());
-  await expect(page.locator('[data-todo-selected-date]')).toHaveAttribute('datetime', todayKey());
+  await expect(page.locator('[data-todo-date-input]')).toHaveValue(todayKey());
+
+  // 날짜를 직접 골라 지난 날짜도 조회할 수 있다.
+  await page.locator('[data-todo-date-input]').fill('2026-08-01');
+  await expect.poll(() => seen.at(-1)).toBe('2026-08-01');
+  await page.locator('[data-todo-date-today]').click();
+  await expect.poll(() => seen.at(-1)).toBe(todayKey());
   console.log('PROBE ' + JSON.stringify(seen));
 });

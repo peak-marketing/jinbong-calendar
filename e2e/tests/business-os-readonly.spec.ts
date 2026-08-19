@@ -308,12 +308,14 @@ test.describe('Business OS read-only operating data', () => {
     await expect(page.locator('#homeCalendarAgenda .agenda-date span')).toContainText(`${nextMonth.getFullYear()}년 ${nextMonth.getMonth() + 1}월 1일`);
     await page.locator('#calendarPrev').click();
 
-    await page.locator('.nav-item[data-view="chat"]').click();
+    // 채팅 탭은 메뉴에서 감췄지만 화면 자체는 살아 있다(채팅 전용 계정용).
+    await page.evaluate(() => (document.querySelector('.nav-item[data-view="chat"]') as HTMLElement)?.click());
     await page.locator('[data-room-id="room-live-1"]').click();
     await expect(page.locator('#chatThreadMessages')).toContainText('실제 채팅 메시지');
     await expect(page.locator('#chatMessageInput')).toBeEnabled();
 
-    await page.locator('.nav-item[data-view="review"]').click();
+    // 기존 프로젝트 탭도 메뉴에서 감췄지만 화면은 남아 있다.
+    await page.evaluate(() => (document.querySelector('.nav-item[data-view="review"]') as HTMLElement)?.click());
     await expect(page.locator('#reviewView .review-page-toolbar')).toHaveCount(1);
     await expect(page.locator('#reviewSearchInput')).toHaveCount(0);
     await page.locator('[data-project-id="project-live-1"]').click();
