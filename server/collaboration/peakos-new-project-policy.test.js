@@ -56,8 +56,8 @@ function stripSqlStringLiterals(sql) {
 }
 
 test('readiness contract fail-closes on exact columns, constraints, indexes, functions, triggers and runtime ACLs using SELECT only', () => {
-  assert.equal(NEW_PROJECT_REQUIRED_TABLES.length, 8);
-  assert.equal(new Set(NEW_PROJECT_REQUIRED_TABLES).size, 8);
+  assert.equal(NEW_PROJECT_REQUIRED_TABLES.length, 9);
+  assert.equal(new Set(NEW_PROJECT_REQUIRED_TABLES).size, 9);
   assert.ok(NEW_PROJECT_REQUIRED_TABLES.every(name => name.startsWith('peakos_structured_')));
   assert.ok(Object.values(NEW_PROJECT_REQUIRED_COLUMNS).every(columns => columns.includes('workspace_id')));
   assert.ok(NEW_PROJECT_REQUIRED_COLUMNS.peakos_structured_project_medium_categories.includes('manager_uid'));

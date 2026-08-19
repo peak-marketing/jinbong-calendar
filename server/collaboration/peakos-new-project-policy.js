@@ -9,6 +9,7 @@ const NEW_PROJECT_TABLES = Object.freeze({
   history: 'peakos_structured_project_history',
   meetings: 'peakos_structured_project_meetings',
   meetingAttendees: 'peakos_structured_project_meeting_attendees',
+  meetingActionItems: 'peakos_structured_project_meeting_action_items',
 });
 
 function freezeDefinitionMap(definitions) {
@@ -73,7 +74,22 @@ const NEW_PROJECT_REQUIRED_COLUMN_DEFINITIONS = freezeDefinitionMap({
     start_time: ['text', true, "''::text"], end_time: ['text', true, "''::text"],
     organizer_uid: ['text', true, null], organizer_name_snapshot: ['text', true, null],
     status: ['text', true, "'scheduled'::text"], event_id: ['text', false, null],
+    notes: ['text', true, "''::text"],
+    notes_written_at: ['timestamp with time zone', false, null],
+    notes_written_by_uid: ['text', false, null],
+    notes_written_by_name_snapshot: ['text', false, null],
     version: ['integer', true, '1'], created_by_uid: ['text', true, null],
+    created_by_name_snapshot: ['text', true, null],
+    created_at: ['timestamp with time zone', true, 'now()'],
+    updated_at: ['timestamp with time zone', true, 'now()'],
+  },
+  [NEW_PROJECT_TABLES.meetingActionItems]: {
+    workspace_id: ['text', true, null], project_id: ['uuid', true, null],
+    meeting_id: ['uuid', true, null], id: ['uuid', true, 'gen_random_uuid()'],
+    title: ['text', true, null], assignee_uid: ['text', false, null],
+    assignee_name_snapshot: ['text', false, null], due_date: ['date', false, null],
+    task_id: ['uuid', false, null], sort_order: ['integer', true, '0'],
+    active: ['boolean', true, 'true'], created_by_uid: ['text', true, null],
     created_by_name_snapshot: ['text', true, null],
     created_at: ['timestamp with time zone', true, 'now()'],
     updated_at: ['timestamp with time zone', true, 'now()'],
@@ -187,6 +203,16 @@ const NEW_PROJECT_REQUIRED_CONSTRAINT_DEFINITIONS = Object.freeze({
     ['peakos_structured_project_meetings_end_time_check', 'c', "CHECK (((end_time = ''::text) OR ((start_time <> ''::text) AND (end_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'::text))))"],
     ['peakos_structured_project_meetings_time_order_check', 'c', "CHECK (((end_time = ''::text) OR (end_date > start_date) OR (end_time > start_time)))"],
     ['peakos_structured_project_meetings_version_check', 'c', 'CHECK (((version >= 1) AND (version <= 2147483647)))'],
+  ]),
+  [NEW_PROJECT_TABLES.meetingActionItems]: Object.freeze([
+    ['peakos_structured_project_meeting_action_items_pkey', 'p', 'PRIMARY KEY (workspace_id, project_id, id)'],
+    ['peakos_structured_project_meeting_action_items_meeting_fk', 'f', 'FOREIGN KEY (workspace_id, project_id, meeting_id) REFERENCES peakos_structured_project_meetings(workspace_id, project_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT'],
+    ['peakos_structured_project_meeting_action_items_assignee_fk', 'f', 'FOREIGN KEY (workspace_id, project_id, assignee_uid) REFERENCES peakos_structured_project_members(workspace_id, project_id, user_uid) ON UPDATE RESTRICT ON DELETE RESTRICT'],
+    ['peakos_structured_project_meeting_action_items_task_fk', 'f', 'FOREIGN KEY (workspace_id, project_id, task_id) REFERENCES peakos_structured_project_tasks(workspace_id, project_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT'],
+    ['peakos_structured_project_meeting_action_items_title_check', 'c', "CHECK (((btrim(title) <> ''::text) AND (length(title) <= 200)))"],
+    // 이름이 63자에서 잘려 DB에 저장된다. 잘린 이름 그대로 적어야 점검이 통과한다.
+    ['peakos_structured_project_meeting_action_items_task_assignee_ch', 'c', 'CHECK (((task_id IS NULL) OR (assignee_uid IS NOT NULL)))'],
+    ['peakos_structured_project_meeting_action_items_assignee_pair_ch', 'c', 'CHECK (((assignee_uid IS NULL) = (assignee_name_snapshot IS NULL)))'],
   ]),
   [NEW_PROJECT_TABLES.meetingAttendees]: Object.freeze([
     ['peakos_structured_project_meeting_attendees_pkey', 'p', 'PRIMARY KEY (workspace_id, project_id, meeting_id, user_uid)'],

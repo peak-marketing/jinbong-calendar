@@ -656,7 +656,7 @@ function normalizeMeetingBody(body, { update = false } = {}) {
   return result;
 }
 
-function mapMeeting(row, attendees = []) {
+function mapMeeting(row, attendees = [], actionItems = []) {
   return {
     id: String(row.id),
     mediumId: String(row.medium_category_id),
@@ -672,7 +672,13 @@ function mapMeeting(row, attendees = []) {
     status: row.status,
     version: Number(row.version || 1),
     eventId: row.event_id ? String(row.event_id) : null,
+    notes: row.notes || '',
+    notesWrittenAt: row.notes_written_at ? new Date(row.notes_written_at).toISOString() : null,
+    notesWrittenBy: row.notes_written_by_uid
+      ? { uid: String(row.notes_written_by_uid), name: row.notes_written_by_name_snapshot || '' }
+      : null,
     attendees: attendees.map(entry => ({ uid: String(entry.user_uid), name: entry.user_name_snapshot || '' })),
+    actionItems: actionItems.map(mapMeetingActionItem),
   };
 }
 
@@ -686,6 +692,45 @@ function serializeMeetingDate(value) {
     return `${year}-${month}-${day}`;
   }
   return String(value || '').slice(0, 10);
+}
+
+
+const MEETING_ACTION_ITEM_LIMIT = 50;
+
+function normalizeMeetingNotesBody(body) {
+  validationValue(normalizeStrictObject(body, ['notes', 'actionItems', 'expectedVersion'], '회의록'));
+  const notes = validationValue(normalizeNewProjectText(body.notes, {
+    field: '회의 결정사항', required: false, max: 20000,
+  }));
+  if (body.actionItems !== undefined && !Array.isArray(body.actionItems)) {
+    throw new NewProjectHttpError(400, 'NEW_PROJECT_MEETING_ACTION_ITEMS_INVALID', '회의에서 나온 할 일 목록이 올바르지 않습니다.');
+  }
+  const raw = Array.isArray(body.actionItems) ? body.actionItems : [];
+  if (raw.length > MEETING_ACTION_ITEM_LIMIT) {
+    throw new NewProjectHttpError(400, 'NEW_PROJECT_MEETING_ACTION_ITEMS_INVALID',
+      `회의에서 나온 할 일은 ${MEETING_ACTION_ITEM_LIMIT}개까지 적을 수 있습니다.`);
+  }
+  const actionItems = raw.map((entry, index) => {
+    validationValue(normalizeStrictObject(entry, ['id', 'title', 'assigneeUid', 'dueDate'], '회의 할 일'));
+    return {
+      id: entry.id ? validationValue(normalizeNewProjectId(entry.id, '회의 할 일 ID')) : null,
+      title: validationValue(normalizeNewProjectDisplayName(entry.title, '회의 할 일')),
+      assigneeUid: entry.assigneeUid ? validationValue(normalizeNewProjectUid(entry.assigneeUid, '회의 할 일 담당자')) : '',
+      dueDate: validationValue(normalizeNewProjectDate(entry.dueDate)),
+      sortOrder: index,
+    };
+  });
+  return { notes, actionItems, expectedVersion: validationValue(normalizeNewProjectExpectedVersion(body.expectedVersion)) };
+}
+
+function mapMeetingActionItem(row) {
+  return {
+    id: String(row.id),
+    title: row.title,
+    assignee: row.assignee_uid ? { uid: String(row.assignee_uid), name: row.assignee_name_snapshot || '' } : null,
+    dueDate: row.due_date ? serializeMeetingDate(row.due_date) : null,
+    taskId: row.task_id ? String(row.task_id) : null,
+  };
 }
 
 function registerPeakosNewProjectRoutes({
@@ -925,7 +970,7 @@ function registerPeakosNewProjectRoutes({
       const id = validationValue(normalizeNewProjectId(req.params.id, '프로젝트 ID'));
       const access = await loadProjectAccess(pool, context, id);
       const [membersResult, mediumsResult, smallsResult, tasksResult, historyResult,
-        meetingsResult, attendeesResult] = await Promise.all([
+        meetingsResult, attendeesResult, actionItemsResult] = await Promise.all([
         pool.query(
           `SELECT * FROM peakos_structured_project_members
             WHERE workspace_id = $1 AND project_id = $2 AND active = TRUE
@@ -968,7 +1013,20 @@ function registerPeakosNewProjectRoutes({
             ORDER BY user_name_snapshot`,
           [context.workspaceId, id],
         ),
+        pool.query(
+          `SELECT * FROM peakos_structured_project_meeting_action_items
+            WHERE workspace_id = $1 AND project_id = $2 AND active = TRUE
+            ORDER BY sort_order, created_at`,
+          [context.workspaceId, id],
+        ),
       ]);
+      const actionItemsByMeeting = new Map();
+      for (const row of actionItemsResult.rows) {
+        const key = String(row.meeting_id);
+        const rows = actionItemsByMeeting.get(key) || [];
+        rows.push(row);
+        actionItemsByMeeting.set(key, rows);
+      }
       const attendeesByMeeting = new Map();
       for (const row of attendeesResult.rows) {
         const key = String(row.meeting_id);
@@ -980,7 +1038,8 @@ function registerPeakosNewProjectRoutes({
       const meetingsByMedium = new Map();
       const meetingsBySmall = new Map();
       for (const row of meetingsResult.rows) {
-        const meeting = mapMeeting(row, attendeesByMeeting.get(String(row.id)) || []);
+        const meeting = mapMeeting(row, attendeesByMeeting.get(String(row.id)) || [],
+          actionItemsByMeeting.get(String(row.id)) || []);
         const bucket = meeting.smallId ? meetingsBySmall : meetingsByMedium;
         const key = meeting.smallId || meeting.mediumId;
         const rows = bucket.get(key) || [];
@@ -1533,6 +1592,194 @@ function registerPeakosNewProjectRoutes({
       });
       await client.query('COMMIT');
       return res.json({ ok: true });
+    } catch (error) {
+      if (client) await client.query('ROLLBACK').catch(() => {});
+      return sendError(res, error);
+    } finally {
+      client?.release();
+    }
+  });
+
+
+  // 회의록 저장. 결정사항 본문과 "회의에서 나온 할 일"을 한 번에 갈아 끼운다.
+  app.put(`${NEW_PROJECT_BASE_PATH}/:id/meetings/:meetingId/notes`, ...writeMiddlewares, async (req, res) => {
+    let client;
+    try {
+      const context = createContext(req, { peakWorkspaceId, isPortfolioViewer, isPortfolioCreator });
+      const projectId = validationValue(normalizeNewProjectId(req.params.id, '프로젝트 ID'));
+      const meetingId = validationValue(normalizeNewProjectId(req.params.meetingId, '회의 ID'));
+      const body = normalizeMeetingNotesBody(req.body);
+      client = await pool.connect();
+      await client.query('BEGIN');
+      const current = await client.query(
+        `SELECT * FROM peakos_structured_project_meetings
+          WHERE workspace_id = $1 AND project_id = $2 AND id = $3 FOR UPDATE`,
+        [context.workspaceId, projectId, meetingId],
+      );
+      if (!current.rows[0]) throw new NewProjectHttpError(404, 'NEW_PROJECT_MEETING_NOT_FOUND', '회의를 찾을 수 없습니다.');
+      await loadMeetingAccess(client, context, projectId, String(current.rows[0].medium_category_id));
+      const assigneeUids = [...new Set(body.actionItems.map(item => item.assigneeUid).filter(Boolean))];
+      const people = await resolveProjectMembers(client, context, projectId, assigneeUids);
+      const updated = await client.query(
+        `UPDATE peakos_structured_project_meetings
+            SET notes = $1, notes_written_at = NOW(), notes_written_by_uid = $2,
+                notes_written_by_name_snapshot = $3, version = version + 1, updated_at = NOW()
+          WHERE workspace_id = $4 AND project_id = $5 AND id = $6 AND version = $7
+          RETURNING *`,
+        [body.notes, context.uid, context.name, context.workspaceId, projectId, meetingId, body.expectedVersion],
+      );
+      if (!updated.rows[0]) {
+        throw new NewProjectHttpError(409, 'NEW_PROJECT_VERSION_CONFLICT', '다른 사용자가 먼저 회의록을 저장했습니다.');
+      }
+      // 목록에서 빠진 줄은 내린다. 이미 업무로 만든 줄은 링크가 끊기지 않게 남긴다.
+      const keptIds = body.actionItems.map(item => item.id).filter(Boolean);
+      await client.query(
+        `UPDATE peakos_structured_project_meeting_action_items
+            SET active = FALSE, updated_at = NOW()
+          WHERE workspace_id = $1 AND project_id = $2 AND meeting_id = $3
+            AND task_id IS NULL AND NOT (id = ANY($4::uuid[]))`,
+        [context.workspaceId, projectId, meetingId, keptIds],
+      );
+      const saved = [];
+      for (const item of body.actionItems) {
+        const person = item.assigneeUid ? people.get(item.assigneeUid) : null;
+        if (item.id) {
+          const row = await client.query(
+            `UPDATE peakos_structured_project_meeting_action_items
+                SET title = $1, assignee_uid = $2, assignee_name_snapshot = $3,
+                    due_date = $4, sort_order = $5, active = TRUE, updated_at = NOW()
+              WHERE workspace_id = $6 AND project_id = $7 AND meeting_id = $8 AND id = $9
+              RETURNING *`,
+            [item.title, person?.uid || null, person?.name || null, item.dueDate, item.sortOrder,
+              context.workspaceId, projectId, meetingId, item.id],
+          );
+          if (row.rows[0]) { saved.push(row.rows[0]); continue; }
+        }
+        const row = await client.query(
+          `INSERT INTO peakos_structured_project_meeting_action_items
+             (workspace_id, project_id, meeting_id, title, assignee_uid, assignee_name_snapshot,
+              due_date, sort_order, created_by_uid, created_by_name_snapshot)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           RETURNING *`,
+          [context.workspaceId, projectId, meetingId, item.title, person?.uid || null,
+            person?.name || null, item.dueDate, item.sortOrder, context.uid, context.name],
+        );
+        saved.push(row.rows[0]);
+      }
+      const attendees = await client.query(
+        `SELECT user_uid, user_name_snapshot FROM peakos_structured_project_meeting_attendees
+          WHERE workspace_id = $1 AND project_id = $2 AND meeting_id = $3 AND active = TRUE
+          ORDER BY user_name_snapshot`,
+        [context.workspaceId, projectId, meetingId],
+      );
+      await recordHistory(client, {
+        context, projectId, entityType: 'meeting', entityId: meetingId,
+        action: 'noted', version: Number(updated.rows[0].version),
+        metadata: { actionItemCount: saved.length },
+      });
+      await client.query('COMMIT');
+      return res.json({ meeting: mapMeeting(updated.rows[0], attendees.rows, saved) });
+    } catch (error) {
+      if (client) await client.query('ROLLBACK').catch(() => {});
+      return sendError(res, error);
+    } finally {
+      client?.release();
+    }
+  });
+
+  // 회의에서 나온 할 일 한 줄을 실제 업무로 만든다. 지시자는 회의 주최자다.
+  app.post(`${NEW_PROJECT_BASE_PATH}/:id/meetings/:meetingId/action-items/:itemId/task`, ...writeMiddlewares, async (req, res) => {
+    let client;
+    try {
+      const context = createContext(req, { peakWorkspaceId, isPortfolioViewer, isPortfolioCreator });
+      const projectId = validationValue(normalizeNewProjectId(req.params.id, '프로젝트 ID'));
+      const meetingId = validationValue(normalizeNewProjectId(req.params.meetingId, '회의 ID'));
+      const itemId = validationValue(normalizeNewProjectId(req.params.itemId, '회의 할 일 ID'));
+      validationValue(normalizeStrictObject(req.body || {}, ['smallId'], '업무 전환'));
+      const requestedSmallId = req.body?.smallId
+        ? validationValue(normalizeNewProjectId(req.body.smallId, '소분류 ID'))
+        : '';
+      const taskId = crypto.randomUUID();
+      client = await pool.connect();
+      await client.query('BEGIN');
+      const meetingRow = await client.query(
+        `SELECT * FROM peakos_structured_project_meetings
+          WHERE workspace_id = $1 AND project_id = $2 AND id = $3 FOR UPDATE`,
+        [context.workspaceId, projectId, meetingId],
+      );
+      if (!meetingRow.rows[0]) throw new NewProjectHttpError(404, 'NEW_PROJECT_MEETING_NOT_FOUND', '회의를 찾을 수 없습니다.');
+      const meeting = meetingRow.rows[0];
+      const access = await loadMeetingAccess(client, context, projectId, String(meeting.medium_category_id));
+      const itemRow = await client.query(
+        `SELECT * FROM peakos_structured_project_meeting_action_items
+          WHERE workspace_id = $1 AND project_id = $2 AND meeting_id = $3 AND id = $4 AND active = TRUE
+          FOR UPDATE`,
+        [context.workspaceId, projectId, meetingId, itemId],
+      );
+      if (!itemRow.rows[0]) throw new NewProjectHttpError(404, 'NEW_PROJECT_MEETING_ACTION_ITEM_NOT_FOUND', '회의에서 나온 할 일을 찾을 수 없습니다.');
+      const item = itemRow.rows[0];
+      if (item.task_id) {
+        throw new NewProjectHttpError(409, 'NEW_PROJECT_MEETING_ACTION_ITEM_CONVERTED', '이미 업무로 만든 할 일입니다.');
+      }
+      if (!item.assignee_uid) {
+        throw new NewProjectHttpError(400, 'NEW_PROJECT_MEETING_ACTION_ITEM_UNASSIGNED', '담당자를 정해야 업무로 만들 수 있습니다.');
+      }
+      // 업무는 소분류 아래에만 존재한다. 소분류 회의면 그 소분류를, 중분류 회의면 고른 소분류를 쓴다.
+      const smallId = meeting.small_category_id ? String(meeting.small_category_id) : requestedSmallId;
+      if (!smallId) {
+        throw new NewProjectHttpError(400, 'NEW_PROJECT_MEETING_SMALL_REQUIRED', '업무를 만들 소분류를 골라 주세요.');
+      }
+      const small = await client.query(
+        `SELECT 1 FROM peakos_structured_project_small_categories
+          WHERE workspace_id = $1 AND project_id = $2 AND medium_category_id = $3 AND id = $4 AND active = TRUE`,
+        [context.workspaceId, projectId, String(meeting.medium_category_id), smallId],
+      );
+      if (!small.rows[0]) throw new NewProjectHttpError(404, 'NEW_PROJECT_SMALL_NOT_FOUND', '업무 소분류를 찾을 수 없습니다.');
+      const people = await resolveProjectMembers(client, context, projectId,
+        [String(item.assignee_uid), String(meeting.organizer_uid)]);
+      const assignee = people.get(String(item.assignee_uid));
+      const assigner = people.get(String(meeting.organizer_uid));
+      const reviewer = validationValue(resolveNewProjectReviewer({
+        assigneeUid: assignee.uid,
+        assignedByUid: assigner.uid,
+        assignedByName: assigner.name,
+        leadUid: access.project.lead_uid,
+        leadName: access.project.lead_name_snapshot,
+      }));
+      const description = `${meeting.title} 회의에서 나온 할 일입니다.`;
+      const inserted = await client.query(
+        `INSERT INTO peakos_structured_project_tasks
+           (workspace_id, project_id, medium_category_id, small_category_id, id,
+            title, description, assignee_uid, assignee_name_snapshot,
+            assigned_by_uid, assigned_by_name_snapshot,
+            reviewer_uid, reviewer_name_snapshot, reviewer_source,
+            due_date, sort_order, created_by_uid, created_by_name_snapshot, attachments)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,0,$16,$17,'[]'::jsonb)
+         RETURNING *`,
+        [context.workspaceId, projectId, String(meeting.medium_category_id), smallId, taskId,
+          item.title, description, assignee.uid, assignee.name, assigner.uid, assigner.name,
+          reviewer.reviewerUid, reviewer.reviewerName, reviewer.source,
+          item.due_date || null, context.uid, context.name],
+      );
+      await client.query(
+        `UPDATE peakos_structured_project_meeting_action_items
+            SET task_id = $1, updated_at = NOW()
+          WHERE workspace_id = $2 AND project_id = $3 AND id = $4`,
+        [taskId, context.workspaceId, projectId, itemId],
+      );
+      await recordHistory(client, {
+        context, projectId, entityType: 'task', entityId: taskId, taskId,
+        action: 'assigned', toStatus: 'todo', version: 1,
+        metadata: { assigneeUid: assignee.uid, assignedByUid: assigner.uid, meetingId },
+      });
+      await client.query('COMMIT');
+      await safeNotify(notifyUser, assignee.uid, '회의에서 나온 업무가 배정되었습니다',
+        `${item.title} · ${meeting.title}`,
+        { link: structuredProjectNotificationLink(context, projectId, taskId) });
+      return res.status(201).json({
+        task: mapTask(inserted.rows[0], { uid: context.uid, readOnly: context.readOnly, canManage: access.canManage }, []),
+        actionItem: mapMeetingActionItem({ ...item, task_id: taskId }),
+      });
     } catch (error) {
       if (client) await client.query('ROLLBACK').catch(() => {});
       return sendError(res, error);

@@ -6613,6 +6613,11 @@
       mediumId: String(button.dataset.mediumId || ''),
       smallId: String(button.dataset.smallId || ''),
     })));
+    newProjectsView.querySelectorAll('[data-structured-meeting-notes]').forEach(button => button.addEventListener('click', () => {
+      const found = structuredFindMeeting(project, button.dataset.structuredMeetingNotes);
+      if (!found) return showToast('회의를 찾지 못했습니다. 새로고침 후 다시 시도해 주세요.');
+      openStructuredMeetingNotes(project, found.meeting, found.medium, found.small);
+    }));
     newProjectsView.querySelectorAll('[data-structured-meeting-edit]').forEach(button => button.addEventListener('click', () => {
       const found = structuredFindMeeting(project, button.dataset.structuredMeetingEdit);
       if (!found) return showToast('회의를 찾지 못했습니다. 새로고침 후 다시 시도해 주세요.');
@@ -7018,6 +7023,14 @@
     return `${span} ${meeting.startTime}${meeting.endTime ? `~${meeting.endTime}` : ''}`;
   }
 
+  // 회의가 실제로 뭘 굴렸는지 카드에서 바로 보이게 한다.
+  function structuredMeetingOutcome(meeting) {
+    const items = Array.isArray(meeting.actionItems) ? meeting.actionItems : [];
+    if (!items.length && !meeting.notes) return '';
+    const converted = items.filter(item => item.taskId).length;
+    return `<span class="structured-meeting-outcome">${meeting.notes ? '<em>회의록 작성됨</em>' : ''}${items.length ? `<em>할 일 ${items.length}건${converted ? ` · 업무 ${converted}건` : ' · 아직 업무 없음'}</em>` : ''}</span>`;
+  }
+
   function structuredMeetingList(meetings, project) {
     const rows = Array.isArray(meetings) ? meetings : [];
     if (!rows.length) return '';
@@ -7028,7 +7041,8 @@
       ${meeting.location ? `<span class="structured-meeting-where">${esc(meeting.location)}</span>` : ''}
       <span class="structured-meeting-people"><b>주최</b>${esc(meeting.organizer?.name || '')}${meeting.attendees.length ? `<b>참석</b>${esc(meeting.attendees.map(person => person.name).join(', '))}` : ''}</span>
       ${meeting.description ? `<p>${esc(meeting.description)}</p>` : ''}
-      ${canManage ? `<span class="structured-meeting-actions"><button type="button" data-structured-meeting-edit="${esc(meeting.id)}">수정</button><button type="button" data-structured-meeting-cancel="${esc(meeting.id)}">취소</button></span>` : ''}
+      ${structuredMeetingOutcome(meeting)}
+      ${canManage ? `<span class="structured-meeting-actions"><button class="structured-meeting-notes-button" type="button" data-structured-meeting-notes="${esc(meeting.id)}">${(meeting.actionItems || []).length || meeting.notes ? '회의록 보기' : '회의록 작성'}</button><button type="button" data-structured-meeting-edit="${esc(meeting.id)}">수정</button><button type="button" data-structured-meeting-cancel="${esc(meeting.id)}">취소</button></span>` : ''}
     </article>`).join('')}</div>`;
   }
 
@@ -7042,6 +7056,144 @@
       }
     }
     return null;
+  }
+
+
+  // ── 회의록 ─────────────────────────────────────────
+  // 회의에서 나온 할 일 한 줄이 그대로 업무가 된다. 어느 분류인지는 회의가 이미
+  // 알고 있으므로 다시 묻지 않는다(중분류 회의만 소분류를 고른다).
+  function openStructuredMeetingNotes(project, meeting, medium, small) {
+    if (!structuredProjectCan('manageProject', structuredProjectDetailState)) {
+      return showToast('회의록을 쓸 권한이 없습니다.');
+    }
+    const members = structuredProjectDirectory([], project);
+    const smalls = Array.isArray(medium?.smallCategories) ? medium.smallCategories : [];
+    let rows = (meeting.actionItems || []).map(item => ({
+      id: item.id,
+      title: item.title,
+      assigneeUid: String(item.assignee?.uid || ''),
+      dueDate: item.dueDate || '',
+      taskId: item.taskId || null,
+    }));
+    let expectedVersion = Number(meeting.version || 1);
+
+    const memberOptions = selected => members.map(member =>
+      `<option value="${esc(member.uid)}" ${String(member.uid) === String(selected) ? 'selected' : ''}>${esc(structuredProjectMemberName(member))}</option>`).join('');
+
+    openDetailModal(`회의록 · ${meeting.title}`, `<form class="collaboration-form structured-meeting-notes-form" id="structuredMeetingNotesForm">
+      <div class="collaboration-form-grid">
+        <label class="wide"><span>결정사항</span><textarea name="notes" rows="6" maxlength="20000" placeholder="회의에서 정해진 내용을 적어 주세요.">${esc(meeting.notes || '')}</textarea></label>
+      </div>
+      <div class="structured-action-items">
+        <div class="structured-action-items-head"><strong>회의에서 나온 할 일</strong><button type="button" data-action-item-add>＋ 할 일 추가</button></div>
+        <div class="structured-action-item-rows" data-action-item-rows></div>
+        <small class="structured-form-help">담당자를 정하면 그 줄을 그대로 업무로 만들 수 있습니다. 업무로 만든 줄은 지워지지 않습니다.</small>
+      </div>
+      <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>닫기</button><button class="primary" type="submit">회의록 저장</button></div>
+    </form>`, { locked: true });
+
+    const form = document.getElementById('structuredMeetingNotesForm');
+    const rowsHost = form.querySelector('[data-action-item-rows]');
+    const needsSmall = !meeting.smallId;
+
+    const renderRows = () => {
+      rowsHost.innerHTML = rows.length ? rows.map((row, index) => `<div class="structured-action-item ${row.taskId ? 'is-converted' : ''}">
+        <input type="text" maxlength="200" data-action-item-title="${index}" value="${esc(row.title)}" placeholder="예: 공급사에 단가 확정 회신" ${row.taskId ? 'readonly' : ''}>
+        <select data-action-item-assignee="${index}" ${row.taskId ? 'disabled' : ''}><option value="">담당자 미정</option>${memberOptions(row.assigneeUid)}</select>
+        <input type="date" data-action-item-due="${index}" value="${esc(row.dueDate)}" ${row.taskId ? 'disabled' : ''}>
+        ${row.taskId
+          ? '<span class="structured-action-item-done">업무 생성됨</span>'
+          : `<button type="button" data-action-item-convert="${index}" ${row.id ? '' : 'disabled'} title="${row.id ? '' : '먼저 회의록을 저장해 주세요.'}">업무로 만들기</button>`}
+        ${row.taskId ? '' : `<button type="button" class="structured-action-item-remove" data-action-item-remove="${index}" aria-label="할 일 삭제">×</button>`}
+      </div>`).join('') : '<p class="structured-action-item-empty">아직 적은 할 일이 없습니다.</p>';
+
+      rowsHost.querySelectorAll('[data-action-item-title]').forEach(input => input.addEventListener('input', () => {
+        rows[Number(input.dataset.actionItemTitle)].title = input.value;
+      }));
+      rowsHost.querySelectorAll('[data-action-item-assignee]').forEach(select => select.addEventListener('change', () => {
+        rows[Number(select.dataset.actionItemAssignee)].assigneeUid = select.value;
+      }));
+      rowsHost.querySelectorAll('[data-action-item-due]').forEach(input => input.addEventListener('change', () => {
+        rows[Number(input.dataset.actionItemDue)].dueDate = input.value;
+      }));
+      rowsHost.querySelectorAll('[data-action-item-remove]').forEach(button => button.addEventListener('click', () => {
+        rows.splice(Number(button.dataset.actionItemRemove), 1);
+        renderRows();
+      }));
+      rowsHost.querySelectorAll('[data-action-item-convert]').forEach(button => button.addEventListener('click', () => {
+        convertRow(Number(button.dataset.actionItemConvert));
+      }));
+    };
+
+    const saveNotes = async () => {
+      const payload = {
+        notes: String(form.elements.notes.value || '').trim(),
+        actionItems: rows
+          .filter(row => row.title.trim())
+          .map(row => ({
+            ...(row.id ? { id: row.id } : {}),
+            title: row.title.trim(),
+            ...(row.assigneeUid ? { assigneeUid: row.assigneeUid } : {}),
+            ...(row.dueDate ? { dueDate: row.dueDate } : {}),
+          })),
+        expectedVersion,
+      };
+      const saved = await runCollaborationMutation(
+        () => collaborationApi('PUT', `/new-projects/${encodeURIComponent(project.id)}/meetings/${encodeURIComponent(meeting.id)}/notes`, payload),
+        '회의록을 저장했습니다.',
+      );
+      if (!saved?.meeting) return null;
+      // 서버가 준 ID를 받아 둬야 다음 저장이 새 줄을 또 만들지 않는다.
+      expectedVersion = Number(saved.meeting.version || expectedVersion + 1);
+      rows = (saved.meeting.actionItems || []).map(item => ({
+        id: item.id, title: item.title,
+        assigneeUid: String(item.assignee?.uid || ''),
+        dueDate: item.dueDate || '', taskId: item.taskId || null,
+      }));
+      renderRows();
+      return saved.meeting;
+    };
+
+    const convertRow = async index => {
+      const row = rows[index];
+      if (!row?.id) return showToast('먼저 회의록을 저장해 주세요.');
+      if (!row.assigneeUid) return showToast('담당자를 정해야 업무로 만들 수 있습니다.');
+      // 소분류 회의는 어디에 만들지 이미 정해져 있다. 중분류 회의만 골라야 한다.
+      let smallId = '';
+      if (needsSmall) {
+        if (!smalls.length) return showToast('업무를 넣을 소분류가 없습니다. 소분류를 먼저 만들어 주세요.');
+        smallId = String(small?.id || smalls[0].id);
+        const picked = window.prompt(
+          `어느 소분류에 업무를 만들까요?\n${smalls.map((entry, order) => `${order + 1}. ${entry.name}`).join('\n')}`,
+          '1',
+        );
+        if (picked === null) return;
+        const chosen = smalls[Number(picked) - 1];
+        if (!chosen) return showToast('소분류 번호를 다시 확인해 주세요.');
+        smallId = String(chosen.id);
+      }
+      const made = await runCollaborationMutation(
+        () => collaborationApi('POST', `/new-projects/${encodeURIComponent(project.id)}/meetings/${encodeURIComponent(meeting.id)}/action-items/${encodeURIComponent(row.id)}/task`, smallId ? { smallId } : {}),
+        '회의에서 나온 할 일을 업무로 만들었습니다.',
+      );
+      if (!made) return;
+      row.taskId = made.actionItem?.taskId || 'created';
+      renderRows();
+      await refreshStructuredProjectDetail(project.id, { quiet: true });
+    };
+
+    form.querySelector('[data-action-item-add]').addEventListener('click', () => {
+      rows.push({ id: null, title: '', assigneeUid: '', dueDate: '', taskId: null });
+      renderRows();
+      rowsHost.querySelector(`[data-action-item-title="${rows.length - 1}"]`)?.focus();
+    });
+    form.querySelector('[data-collab-cancel]').addEventListener('click', () => closeDetailModal());
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const saved = await saveNotes();
+      if (saved) await refreshStructuredProjectDetail(project.id, { quiet: true });
+    });
+    renderRows();
   }
 
   function openStructuredMeetingEditor(project, { mediumId = '', smallId = '', meeting = null } = {}) {
