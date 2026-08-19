@@ -28,7 +28,7 @@ const TASKS = {
   ],
 };
 
-test('내 업무 탭은 신규 프로젝트 배정 업무만 상태별로 모은다', async ({ page }) => {
+test('업무 현황 탭은 내 업무만 상태별로 모으고 눌러서 상세를 연다', async ({ page }) => {
   await installFirebaseStub(page);
   await installPeakosStub(page, { name: '김대호', group_name: '본사 영업팀' });
   let myTasksCalls = 0;
@@ -57,6 +57,18 @@ test('내 업무 탭은 신규 프로젝트 배정 업무만 상태별로 모은
   await expect(groups.nth(0)).toContainText('개발');
   await expect(groups.nth(0)).toContainText('리워드스페이스 › 체리그라운드');
   await expect(groups.nth(1)).toContainText('기한 없음');
+
+  // 업무를 누르면 그 업무의 상세가 열린다.
+  await view.locator('[data-my-work-open="t1"]').click();
+  const detail = page.locator('.task-detail');
+  await expect(detail).toBeVisible();
+  // 제목은 모달 헤더에, 나머지는 본문에 들어간다.
+  await expect(page.locator('#readonlyDetailModal')).toContainText('API 연동 마무리');
+  await expect(detail).toContainText('postBack URL 검증');
+  await expect(detail).toContainText('리워드스페이스');
+  await expect(detail).toContainText('체리그라운드');
+  await detail.getByRole('button', { name: '닫기', exact: true }).click();
+  await expect(detail).toBeHidden();
 
   // 기존 파라곤 할 일 API는 건드리지 않는다.
   expect(myTasksCalls).toBeGreaterThan(0);

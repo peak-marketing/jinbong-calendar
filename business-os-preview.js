@@ -88,7 +88,7 @@
       navItem.type = 'button';
       navItem.dataset.view = 'my-work';
       navItem.dataset.tabSearch = 'MY WORK 내 업무 배정 받은 업무 체크리스트';
-      navItem.innerHTML = '<span class="nav-icon">☑</span>내 업무';
+      navItem.innerHTML = '<span class="nav-icon">☑</span>업무 현황';
       newProjectsNav.after(navItem);
     }
     if (newProjectsSection && !myWorkView) {
@@ -103,7 +103,7 @@
 
   // 주요 메뉴의 이름과 순서를 화면 기준으로 맞춘다.
   {
-    const renames = { todo: '투두리스트', 'new-projects': '프로젝트', requests: '개발 수정요청' };
+    const renames = { todo: '투두리스트', 'new-projects': '프로젝트', 'my-work': '업무 현황', requests: '개발 수정요청' };
     Object.entries(renames).forEach(([view, label]) => {
       const button = document.querySelector(`.app-sidebar .nav-item[data-view="${view}"]`);
       if (!button) return;
@@ -5662,7 +5662,7 @@
     const path = [task.medium?.name, task.small?.name].filter(Boolean).join(' › ');
     const status = STRUCTURED_TASK_STATUS[task.status] ? task.status : 'todo';
     const projectName = task.project?.name || '프로젝트';
-    return `<div class="my-work-row">
+    return `<div class="my-work-row" role="button" tabindex="0" data-my-work-open="${esc(task.id)}">
       <span class="my-work-name">
         <i class="my-work-mark status-${esc(status)}" aria-hidden="true">${status === 'done' ? '✓' : status === 'review' ? '↗' : status === 'revision' ? '!' : ''}</i>
         <span><strong>${esc(task.title || '업무명 없음')}${Array.isArray(task.attachments) && task.attachments.length ? `<em class="my-work-meta" title="첨부파일 ${task.attachments.length}개">📎${task.attachments.length}</em>` : ''}</strong>${task.description ? `<small>${esc(task.description)}</small>` : ''}</span>
@@ -5676,6 +5676,34 @@
       </span>
       <span class="my-work-state">${structuredTaskStatusBadge(status)}</span>
     </div>`;
+  }
+
+  // 업무 현황에서 행을 누르면 그 업무의 상세를 연다.
+  // 목록 자체가 내 업무만 담고 있어 남의 업무는 열 수 없다.
+  function openMyWorkDetail(taskId) {
+    const task = (myWorkState.tasks || []).find(item => String(item.id) === String(taskId));
+    if (!task) return showToast('업무를 찾지 못했습니다. 새로고침 후 다시 시도해 주세요.');
+    const status = STRUCTURED_TASK_STATUS[task.status] ? task.status : 'todo';
+    const path = [task.medium?.name, task.small?.name].filter(Boolean).join(' › ');
+    const attachments = Array.isArray(task.attachments) ? task.attachments : [];
+    const row = (label, value) => `<div class="task-detail-row"><span>${esc(label)}</span><div>${value}</div></div>`;
+    openDetailModal(task.title || '업무', `<div class="task-detail">
+      <div class="task-detail-people">
+        <div class="task-detail-person"><span>업무 지시</span><strong>${esc(task.assignedBy?.name || '지시자 미지정')}</strong></div>
+        <div class="task-detail-person"><span>검토</span><strong>${esc(task.reviewer?.name || '검토자 미지정')}</strong></div>
+      </div>
+      ${row('기한', task.dueDate
+        ? `${esc(formatDate(task.dueDate, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' }))}${projectDeadlineBadge(task.dueDate, status)}`
+        : '<span class="task-detail-muted">마감일 없음</span>')}
+      ${row('분류', `<span class="task-detail-tag">${esc(task.project?.name || '프로젝트')}</span>${path ? path.split(' › ').map(part => `<span class="task-detail-tag">${esc(part)}</span>`).join('') : ''}`)}
+      ${row('진행 상태', `${structuredTaskStatusBadge(status)}<span class="task-detail-muted">v${Number(task.version || 1)}</span>`)}
+      <div class="task-detail-section"><h4>업무 내용</h4><p>${task.description ? esc(task.description) : '<span class="task-detail-muted">등록된 내용이 없습니다.</span>'}</p></div>
+      <div class="task-detail-section"><h4>첨부파일 ${attachments.length}개</h4>${attachments.length
+        ? `<div class="task-attach-list">${attachments.map(file => `<div class="task-attach-item"><a href="${esc(file.url)}" target="_blank" rel="noopener">${esc(file.name || '첨부파일')}</a><em>${esc(formatFileSize(file.size))}</em></div>`).join('')}</div>`
+        : '<p class="task-detail-muted">첨부된 파일이 없습니다.</p>'}</div>
+      <div class="collaboration-form-actions"><span></span><span></span><button type="button" data-collab-cancel>닫기</button></div>
+    </div>`);
+    document.querySelector('[data-collab-cancel]')?.addEventListener('click', () => closeDetailModal());
   }
 
   function renderMyWork() {
@@ -5693,6 +5721,14 @@
       myWorkView.querySelector('[data-my-work-retry]')?.addEventListener('click', () => refreshMyWork());
       return;
     }
+    const bindMyWorkRows = () => myWorkView.querySelectorAll('[data-my-work-open]').forEach(node => {
+      node.addEventListener('click', () => openMyWorkDetail(node.dataset.myWorkOpen));
+      node.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        openMyWorkDetail(node.dataset.myWorkOpen);
+      });
+    });
     const tasks = myWorkState.tasks;
     const open = tasks.filter(task => task.status !== 'done').length;
     const groups = MY_WORK_GROUPS
@@ -5700,7 +5736,7 @@
       .filter(group => group.items.length);
     myWorkView.innerHTML = `
       <header class="my-work-head">
-        <div><strong>내 업무</strong><small>신규 프로젝트에서 나에게 배정된 업무입니다. 기존 프로젝트와는 분리되어 있습니다.</small></div>
+        <div><strong>업무 현황</strong><small>나에게 배정된 업무를 상태별로 모았습니다. 업무를 누르면 상세가 열립니다.</small></div>
         <em>${open}건 남음 · 전체 ${tasks.length}건</em>
       </header>
       ${groups.length ? groups.map(group => `<section class="my-work-group tone-${esc(group.tone)}">
@@ -5711,6 +5747,7 @@
         </div>
       </section>`).join('')
         : '<div class="my-work-empty"><strong>배정받은 업무가 없습니다</strong><small>신규 프로젝트에서 업무가 배정되면 여기에 모입니다.</small></div>'}`;
+    bindMyWorkRows();
   }
 
   function structuredProjectContextKey() {
@@ -18828,7 +18865,7 @@
     if (myWorkView) myWorkView.hidden = view !== 'my-work';
     moduleView.hidden = !isPlannedModule;
     permissionsView.hidden = view !== 'permissions';
-    const labels = { dashboard: '대시보드', calendar: '캘린더', chat: '채팅', todo: '투두리스트', review: '기존 프로젝트', 'new-projects': '프로젝트', 'my-work': '내 업무', permissions: '조직 및 권한', ...PLANNED_MODULES };
+    const labels = { dashboard: '대시보드', calendar: '캘린더', chat: '채팅', todo: '투두리스트', review: '기존 프로젝트', 'new-projects': '프로젝트', 'my-work': '업무 현황', permissions: '조직 및 권한', ...PLANNED_MODULES };
     pageCrumb.textContent = labels[view] || '피크마케팅';
     document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === view));
     const activeNav = document.querySelector(`.app-sidebar .nav-item[data-view="${view}"]`);

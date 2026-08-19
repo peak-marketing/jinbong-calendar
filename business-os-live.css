@@ -17537,3 +17537,5 @@ html body #newProjectsView .structured-task-check.status-done {
   html body #newProjectsView .structured-task-viewbar > nav { order: 1; }
   html body #newProjectsView .structured-task-viewbar > .structured-hierarchy-bulk { order: 2; margin-left: auto; }
 }
+.my-work-row[data-my-work-open] { cursor: pointer; }
+.my-work-row[data-my-work-open]:hover .my-work-name > span > strong { text-decoration: underline; }
