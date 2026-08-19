@@ -6138,6 +6138,9 @@
         <section><span>마감 기한</span><div class="structured-task-drawer-deadline">${dueDate ? `<strong>${esc(dueDate)}</strong>` : '<strong>마감일 미지정</strong>'}${projectDeadlineBadge(task.dueDate, status)}</div></section>
         <section><span>업무 전달</span><div class="structured-task-drawer-flow"><span><b>업무 지시자</b><strong>${esc(assignedBy)}</strong></span><i aria-hidden="true">→</i><span><b>업무 담당자</b><strong>${esc(assignee)}</strong></span><i aria-hidden="true">→</i><span><b>검토자</b><strong>${esc(reviewer)}</strong></span></div></section>
         ${status === 'revision' ? `<section class="structured-task-drawer-revision"><span>수정 요청 사유</span><p>${esc(task.revisionReason || '수정 요청 내용을 확인해 주세요.')}</p></section>` : ''}
+        <section><span>첨부파일</span>${Array.isArray(task.attachments) && task.attachments.length
+          ? `<div class="task-attach-list">${task.attachments.map(file => `<div class="task-attach-item"><a href="${esc(file.url)}" target="_blank" rel="noopener">${esc(file.name || '첨부파일')}</a><em>${esc(formatFileSize(file.size))}</em></div>`).join('')}</div>`
+          : '<p class="task-attach-empty">첨부된 파일이 없습니다.</p>'}</section>
         <section><span>처리 이력</span>${structuredBoardTaskHistory(task)}</section>
       </div>
       <footer class="structured-task-drawer-actions">
