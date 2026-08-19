@@ -6002,20 +6002,19 @@
     newProjectsView.innerHTML = `<section class="structured-project-page" data-structured-project-list>
       <h1 class="sr-only">신규 프로젝트</h1>
       <section class="structured-summary" aria-label="신규 프로젝트 요약">
-        <article><span>조회 대분류</span><strong>${state.projects.length}</strong><small>${esc(scopeLabel)}</small></article>
-        <article><span>전체 체크리스트</span><strong>${totals.tasks}</strong><small>${totals.done}건 승인 완료</small></article>
-        <article class="review"><span>검토 요청</span><strong>${totals.review}</strong><small>승인 또는 수정 요청 필요</small></article>
+        <article><span>프로젝트 진행중</span><strong>${state.projects.filter(item => item.status === 'active').length}</strong></article>
+        <article><span>전체 체크리스트</span><strong>${totals.tasks}</strong></article>
+        <article class="review"><span>검토 요청</span><strong>${totals.review}</strong></article>
       </section>
       <section class="structured-project-controls">
         <label class="structured-search"><span aria-hidden="true">⌕</span><input type="search" data-structured-search value="${esc(structuredProjectSearch)}" placeholder="대분류명, 담당자, 팀원 검색" aria-label="대분류 프로젝트 검색"></label>
         <nav class="structured-status-filters" aria-label="프로젝트 상태 필터">
           ${[['all', '전체'], ['active', '진행 중'], ['completed', '완료'], ['archived', '보관']].map(([key, label]) => `<button type="button" class="${structuredProjectStatusFilter === key ? 'active' : ''}" data-structured-status-filter="${key}">${label}</button>`).join('')}
         </nav>
-        <span class="structured-result-count">${visible.length}개 표시</span>
         ${structuredProjectReadOnlyNotice()}${structuredProjectCan('createProject') ? '<button class="structured-primary-button" type="button" data-structured-project-create>＋ 프로젝트 생성</button>' : ''}
       </section>
       <section class="structured-project-grid" aria-label="신규 프로젝트 목록">
-        ${visible.map(structuredProjectPortfolioCard).join('') || `<div class="structured-empty"><strong>${state.projects.length ? '검색 조건에 맞는 대분류가 없습니다.' : '표시할 대분류 프로젝트가 없습니다.'}</strong><span>${state.capabilities.viewPortfolio === true ? '매출과 같은 대분류를 만들거나 필터를 변경해 주세요.' : '프로젝트 팀원 또는 업무 담당자로 배정되면 이곳에 표시됩니다.'}</span></div>`}
+        ${visible.map(structuredProjectPortfolioCard).join('') || `<div class="structured-empty"><strong>${state.projects.length ? '검색 조건에 맞는 프로젝트가 없습니다.' : '표시할 프로젝트가 없습니다.'}</strong><span>${state.capabilities.viewPortfolio === true ? '프로젝트를 만들거나 필터를 변경해 주세요.' : '프로젝트 팀원 또는 업무 담당자로 배정되면 이곳에 표시됩니다.'}</span></div>`}
       </section>
     </section>`;
     wireStructuredPortfolioActions();

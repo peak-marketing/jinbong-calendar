@@ -619,7 +619,6 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await setup(page, fixture);
 
     await openNewProjects(page);
-    await expect(page.locator('[data-structured-project-list]')).toContainText('전체 포트폴리오');
     await expect(page.locator('[data-structured-project-id="new-project-1"]')).toContainText('브랜드 리뉴얼 프로젝트');
     await page.locator('[data-structured-project-open="new-project-1"]').click();
     await page.locator('[data-structured-task-view="hierarchy"]').click();
@@ -1189,7 +1188,6 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     };
     await setup(page, fixture);
     await openNewProjects(page);
-    await expect(page.getByText('전체 포트폴리오', { exact: false }).first()).toBeVisible();
     await expect(page.locator('[data-structured-project-create]')).toBeVisible();
     await page.locator('[data-structured-project-open="portfolio-project"]').click();
     await page.locator('[data-structured-task-view="hierarchy"]').click();
