@@ -3838,20 +3838,6 @@
         data-dashboard-finance-state="${financeState}"
         data-dashboard-finance-scope="${previewPersona ? 'preview' : (companyFinanceReady ? 'company' : 'self')}"
         data-dashboard-latest-date="${esc(latestFinanceDate)}">
-      <section class="executive-dashboard-hero" aria-label="대시보드 현황">
-        <div class="executive-dashboard-heading">
-          <span class="executive-dashboard-eyebrow"><i></i> PEAK OS / DASHBOARD</span>
-          <h1>운영 대시보드</h1>
-          <p>${esc(userDoc.group_name || '소속 미지정')} · ${esc(name)}</p>
-        </div>
-        <div class="executive-dashboard-scope">
-          <span class="executive-dashboard-date">${esc(formatDate(today, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' }))}</span>
-          ${previewPersona
-            ? '<span class="executive-dashboard-mode readonly" data-collab-readonly>계정 미리보기 · 읽기 전용</span>'
-            : '<span class="executive-dashboard-mode"><i></i> 운영 데이터 연결됨</span>'}
-        </div>
-      </section>
-
       <section class="executive-metric-grid executive-metric-strip" aria-label="핵심 운영 지표">
         <article class="executive-metric-card revenue">
           <div class="executive-metric-top"><span>${esc(currentMonthLabel)} ${esc(revenueLabel)}</span><i>↗</i></div>
