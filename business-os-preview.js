@@ -179,6 +179,8 @@
   let structuredSplitSmallId = '';
   // 왼쪽에서 중분류를 고르면 오른쪽에 그 중분류 전체가 펼쳐진다.
   let structuredSplitMediumId = '';
+  // 고른 중분류를 다시 누르면 소분류 목록만 접는다. 오른쪽 상세는 그대로 둔다.
+  const structuredSplitCollapsedMediums = new Set();
   let structuredBoardSearch = '';
   let structuredBoardMediumFilter = 'all';
   let structuredBoardSmallFilter = 'all';
@@ -6214,7 +6216,8 @@
       const taskCount = smalls.reduce((sum, small) => sum + tasksOf(small).length, 0);
       const mediumSelected = !activeSmall && String(medium.id) === String(activeMedium?.id);
       // 고른 중분류의 소분류만 펼친다. 나머지는 접어 목록을 짧게 유지한다.
-      const expanded = String(medium.id) === String(activeMedium?.id);
+      const expanded = String(medium.id) === String(activeMedium?.id)
+        && !structuredSplitCollapsedMediums.has(String(medium.id));
       const items = expanded ? smalls.map(small => {
         const tasks = tasksOf(small);
         const done = tasks.filter(task => task?.status === 'done').length;
@@ -6501,7 +6504,15 @@
       renderStructuredProjectDetail();
     }));
     newProjectsView.querySelectorAll('[data-structured-split-medium]').forEach(button => button.addEventListener('click', () => {
-      structuredSplitMediumId = String(button.dataset.structuredSplitMedium || '');
+      const mediumId = String(button.dataset.structuredSplitMedium || '');
+      if (!mediumId) return;
+      // 이미 열려 있는 중분류를 다시 누르면 소분류 목록을 접는다.
+      if (button.getAttribute('aria-expanded') === 'true') {
+        structuredSplitCollapsedMediums.add(mediumId);
+      } else {
+        structuredSplitCollapsedMediums.delete(mediumId);
+      }
+      structuredSplitMediumId = mediumId;
       structuredSplitSmallId = '';
       renderStructuredProjectDetail();
     }));

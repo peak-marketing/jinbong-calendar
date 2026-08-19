@@ -39,6 +39,14 @@ test('분할 보기는 중분류를 고르면 오른쪽에 그 중분류 전체�
   await page.locator('[data-structured-split-medium="m1"]').click();
   await expect(page.locator('[data-structured-split-small]')).toHaveCount(2);
 
+  // 열려 있는 중분류를 다시 누르면 소분류만 접히고 오른쪽 상세는 유지된다.
+  await page.locator('[data-structured-split-medium="m1"]').click();
+  await expect(page.locator('[data-structured-split-medium="m1"]')).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('[data-structured-split-small]')).toHaveCount(0);
+  await expect(page.locator('.structured-split-detail')).toContainText('체리그라운드');
+  await page.locator('[data-structured-split-medium="m1"]').click();
+  await expect(page.locator('[data-structured-split-small]')).toHaveCount(2);
+
   // 소분류를 고르면 그 하나만 보인다.
   await page.locator('[data-structured-split-small="s1"]').click();
   await expect(page.locator('.structured-split-detail')).not.toContainText('TNK 팩토리');
