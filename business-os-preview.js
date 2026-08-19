@@ -6000,10 +6000,7 @@
     }, { tasks: 0, done: 0, review: 0 });
     const scopeLabel = state.capabilities.viewPortfolio === true ? '전체 포트폴리오' : '내 참여 프로젝트';
     newProjectsView.innerHTML = `<section class="structured-project-page" data-structured-project-list>
-      <header class="structured-page-head">
-        <div><h1>신규 프로젝트</h1></div>
-        <div class="structured-page-actions">${structuredProjectReadOnlyNotice()}${structuredProjectCan('createProject') ? '<button class="structured-primary-button" type="button" data-structured-project-create>＋ 대분류 생성</button>' : ''}</div>
-      </header>
+      <h1 class="sr-only">신규 프로젝트</h1>
       <section class="structured-summary" aria-label="신규 프로젝트 요약">
         <article><span>조회 대분류</span><strong>${state.projects.length}</strong><small>${esc(scopeLabel)}</small></article>
         <article><span>전체 체크리스트</span><strong>${totals.tasks}</strong><small>${totals.done}건 승인 완료</small></article>
@@ -6015,6 +6012,7 @@
           ${[['all', '전체'], ['active', '진행 중'], ['completed', '완료'], ['archived', '보관']].map(([key, label]) => `<button type="button" class="${structuredProjectStatusFilter === key ? 'active' : ''}" data-structured-status-filter="${key}">${label}</button>`).join('')}
         </nav>
         <span class="structured-result-count">${visible.length}개 표시</span>
+        ${structuredProjectReadOnlyNotice()}${structuredProjectCan('createProject') ? '<button class="structured-primary-button" type="button" data-structured-project-create>＋ 프로젝트 생성</button>' : ''}
       </section>
       <section class="structured-project-grid" aria-label="신규 프로젝트 목록">
         ${visible.map(structuredProjectPortfolioCard).join('') || `<div class="structured-empty"><strong>${state.projects.length ? '검색 조건에 맞는 대분류가 없습니다.' : '표시할 대분류 프로젝트가 없습니다.'}</strong><span>${state.capabilities.viewPortfolio === true ? '매출과 같은 대분류를 만들거나 필터를 변경해 주세요.' : '프로젝트 팀원 또는 업무 담당자로 배정되면 이곳에 표시됩니다.'}</span></div>`}
@@ -6577,7 +6575,7 @@
           <label class="wide"><span>대분류 설명</span><textarea name="description" rows="4" maxlength="5000" placeholder="예: 플랫폼별 매출 업무와 콜 진행 기준을 관리합니다.">${esc(project?.description || '')}</textarea></label>
           <fieldset class="wide collaboration-member-field"><legend>프로젝트 팀원</legend><p class="structured-form-help">프로젝트 담당자는 자동으로 팀원에 포함됩니다. 저장 후에도 추가하거나 교체할 수 있습니다.</p><div class="collaboration-member-list">${structuredMemberCheckboxes(users, selectedIds)}</div></fieldset>
         </div>
-        <div class="collaboration-form-actions">${project && structuredProjectCan('manageProject', source) ? '<button class="danger" type="button" data-structured-project-delete>대분류 삭제</button>' : '<span></span>'}<span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">${project ? '변경 저장' : '대분류 생성'}</button></div>
+        <div class="collaboration-form-actions">${project && structuredProjectCan('manageProject', source) ? '<button class="danger" type="button" data-structured-project-delete>프로젝트 삭제</button>' : '<span></span>'}<span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">${project ? '변경 저장' : '프로젝트 생성'}</button></div>
       </form>`, { locked: true });
     const form = document.getElementById('structuredProjectForm');
     const syncLeadMember = () => {
