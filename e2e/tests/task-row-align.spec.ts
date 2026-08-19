@@ -44,7 +44,7 @@ test('업무 행은 내용 길이와 상관없이 같은 열에 정렬된다', a
   const xs = await page.evaluate(() => {
     const rows = [...document.querySelectorAll('.structured-task-row')];
     return rows.map(r => ({
-      title: Math.round((r.querySelector('.structured-task-main > strong') as HTMLElement).getBoundingClientRect().x),
+      title: Math.round((r.querySelector('.structured-task-title > strong') as HTMLElement).getBoundingClientRect().x),
       flow: Math.round((r.querySelector('.structured-assignment-flow') as HTMLElement).getBoundingClientRect().x),
       hist: Math.round((r.querySelector('.structured-task-history') as HTMLElement)?.getBoundingClientRect().x ?? -1),
     }));
@@ -69,7 +69,7 @@ for (const width of [1000, 1100, 1269, 1280, 1440, 1680]) {
         clipped: detail.scrollWidth - detail.clientWidth,
         flow: xs('.structured-task-row .structured-assignment-flow'),
         actions: xs('.structured-task-row .structured-task-actions'),
-        title: xs('.structured-task-main > strong'),
+        title: xs('.structured-task-title > strong'),
         rows: detail.querySelectorAll('.structured-task-row').length,
       };
     });
@@ -80,5 +80,32 @@ for (const width of [1000, 1100, 1269, 1280, 1440, 1680]) {
     expect(result.flow).toHaveLength(1);
     expect(result.actions).toHaveLength(1);
     expect(result.title).toHaveLength(1);
+  });
+}
+
+// 가로만 맞아서는 가지런해 보이지 않는다. 행 안에서 위아래로도 가운데여야 한다.
+for (const width of [1280, 1600]) {
+  test(`업무 행의 각 칸은 ${width}px에서 위아래 가운데에 선다`, async ({ page }) => {
+    await setupAlignPage(page, width);
+    const rows = await page.evaluate(() => [...document.querySelectorAll('.structured-task-row')].map(row => {
+      const r = row as HTMLElement;
+      const rb = r.getBoundingClientRect();
+      const gap = (sel: string) => {
+        const e = r.querySelector(sel) as HTMLElement;
+        if (!e) return null;
+        const b = e.getBoundingClientRect();
+        // 위 여백과 아래 여백의 차이. 0에 가까울수록 가운데.
+        return Math.abs((b.y - rb.y) - (rb.bottom - b.bottom));
+      };
+      return [gap('.structured-task-check'), gap('.structured-task-meta'),
+        gap('.structured-task-title'), gap('.structured-assignment-flow'),
+        gap('.structured-task-actions')].filter(v => v !== null) as number[];
+    }));
+    expect(rows.length).toBeGreaterThan(2);
+    for (const offsets of rows) {
+      expect(offsets.length).toBeGreaterThanOrEqual(4);
+      // 반올림 오차 1px까지만 봐준다.
+      for (const off of offsets) expect(off).toBeLessThanOrEqual(1);
+    }
   });
 }

@@ -6120,8 +6120,7 @@
       <span class="structured-task-check status-${esc(status)} ${checked ? 'checked' : ''}" role="img" aria-label="${esc(STRUCTURED_TASK_STATUS[status] || status)}" title="${esc(STRUCTURED_TASK_STATUS[status] || status)}">${status === 'review' ? '↗' : status === 'revision' ? '!' : ''}</span>
       <div class="structured-task-main">
         <div class="structured-task-meta">${structuredTaskStatusBadge(status)}${projectDeadlineBadge(task.dueDate, status)}<span>v${Number(task.workflowVersion ?? task.version ?? 1)}</span></div>
-        <strong data-structured-task-detail="${esc(task.id)}" role="button" tabindex="0">${esc(task.title || '업무명 없음')}</strong>
-        ${task.description ? `<p>${esc(task.description)}</p>` : ''}
+        <div class="structured-task-title"><strong data-structured-task-detail="${esc(task.id)}" role="button" tabindex="0">${esc(task.title || '업무명 없음')}</strong>${task.description ? `<p>${esc(task.description)}</p>` : ''}</div>
         <div class="structured-assignment-flow"><span><b>지시</b>${esc(assignedBy)}</span><span><b>담당</b>${esc(assignee)}</span><span><b>검토</b>${esc(reviewer)}</span></div>
         ${status === 'revision' && task.revisionReason ? `<div class="structured-revision-reason"><b>수정 요청 사유</b><span>${esc(task.revisionReason)}</span></div>` : ''}
         ${historyMarkup}

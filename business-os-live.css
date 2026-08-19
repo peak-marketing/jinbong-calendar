@@ -17438,31 +17438,25 @@ html body #newProjectsView .structured-task-list { container-type: inline-size; 
    그보다 좁은 열을 주면 조용히 잘려 나간다. */
 @container (min-width: 640px) {
   html body #newProjectsView .structured-task-row { align-items: center; }
+  /* 한 줄짜리 격자다. 제목과 설명을 각각 다른 줄에 놓으면, 설명이 없는 행에서
+     제목만 위로 떠서 다른 칸과 위아래가 안 맞는다. 둘을 한 칸으로 묶는다. */
   html body #newProjectsView .structured-task-main {
     display: grid;
-    grid-template-rows: auto auto;
+    grid-template-rows: auto;
     align-items: center;
     gap: 0 10px;
   }
   html body #newProjectsView .structured-task-main > .structured-task-meta {
     grid-column: 1;
-    grid-row: 1 / span 2;
     flex-wrap: nowrap;
   }
-  html body #newProjectsView .structured-task-main > strong { grid-column: 2; grid-row: 1; }
-  html body #newProjectsView .structured-task-main > p {
-    grid-column: 2;
-    grid-row: 2;
-    max-width: none;
-    overflow-wrap: anywhere;
-  }
+  html body #newProjectsView .structured-task-title { grid-column: 2; }
   html body #newProjectsView .structured-assignment-flow {
     grid-column: 3;
-    grid-row: 1 / span 2;
     flex-wrap: nowrap;
     justify-content: flex-start;
   }
-  html body #newProjectsView .structured-task-history { grid-column: 4; grid-row: 1 / span 2; }
+  html body #newProjectsView .structured-task-history { grid-column: 4; }
   html body #newProjectsView .structured-task-actions {
     display: flex;
     align-items: center;
@@ -18052,3 +18046,27 @@ html body #newProjectsView .structured-board-search input {
   background: transparent;
   box-shadow: none;
 }
+
+/* 제목 + 설명은 한 덩어리다 */
+html body #newProjectsView .structured-task-title { display: grid; gap: 3px; min-width: 0; }
+html body #newProjectsView .structured-task-title > strong {
+  display: block;
+  margin: 0;
+  color: #173d57;
+  font-size: 13px;
+  line-height: 1.45;
+}
+/* 설명은 한 줄 말줄임을 유지한다. 여러 줄로 풀면 설명 있는 행만 키가 커져서
+   행 높이가 들쭉날쭉해진다(1280px에서 56px 대 144px까지 벌어졌다). */
+html body #newProjectsView .structured-task-title > p {
+  margin: 0;
+  overflow: hidden;
+  color: #6d8393;
+  font-size: 10px;
+  line-height: 1.65;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-theme="dark"] body #newProjectsView .structured-task-title > p { color: #9fb3bd; }
+/* 행 키를 하나로 고정해 1px씩 어긋나던 것도 없앤다 */
+html body #newProjectsView .structured-task-row { min-height: 56px; }
