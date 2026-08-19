@@ -17205,3 +17205,32 @@ html body #moduleView .platform-api-location .module-action { min-height: 44px; 
 /* "업무 소분류" 접두 라벨은 .structured-small-summary 안에 있다.
    앞선 선택자가 빗나가 계속 남아 있었다. */
 .structured-small-summary > span:first-child { display: none; }
+
+/* ── 신규 프로젝트 상단 여백 압축 ────────────────────
+   헤더 93 · 카드 100 · 검색 66에 사이 간격 18px씩 붙어
+   목록이 화면 한참 아래에서 시작했다. 데스크톱에서 위로 끌어올린다. */
+@media (min-width: 761px) {
+  html body #newProjectsView .structured-project-page { gap: 10px; }
+  html body #newProjectsView .structured-page-head { padding: 0; gap: 16px; }
+  html body #newProjectsView .structured-page-head h1 { margin: 2px 0 3px; font-size: clamp(19px, 1.7vw, 24px); }
+  html body #newProjectsView .structured-page-head p { font-size: 11px; line-height: 1.5; }
+  html body #newProjectsView .structured-summary { gap: 10px; }
+  html body #newProjectsView .structured-summary article { min-height: 0; padding: 10px 14px; border-radius: 10px; }
+  html body #newProjectsView .structured-project-controls { padding: 8px 12px; }
+}
+
+@media (min-width: 761px) {
+  html body #newProjectsView .structured-page-head { gap: 12px; }
+  html body #newProjectsView .structured-page-head h1 { margin: 1px 0 2px; font-size: clamp(18px, 1.5vw, 21px); }
+  html body #newProjectsView .structured-page-head p { font-size: 10px; line-height: 1.45; }
+  html body #newProjectsView .structured-project-controls input[type="search"],
+  html body #newProjectsView .structured-search input { min-height: 34px; }
+  html body #newProjectsView .structured-project-controls button { min-height: 30px; height: 30px; }
+  html body #newProjectsView .structured-project-page { gap: 8px; }
+}
+
+@media (min-width: 761px) {
+  html body #newProjectsView .structured-project-controls { padding: 7px 10px; gap: 10px; }
+  html body #newProjectsView .structured-search { height: 32px; min-height: 0; }
+  html body #newProjectsView .structured-search input { min-height: 0; height: 30px; }
+}
