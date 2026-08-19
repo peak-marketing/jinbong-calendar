@@ -18,6 +18,8 @@ const {
   NEW_PROJECT_REQUIRED_FUNCTIONS,
   NEW_PROJECT_REQUIRED_INDEXES,
   NEW_PROJECT_REQUIRED_TABLES,
+  NEW_PROJECT_TASK_STATUSES,
+  MEETING_STATUSES,
   NEW_PROJECT_REQUIRED_TRIGGERS,
   NEW_PROJECT_SCHEMA_READINESS_SQL,
   NEW_PROJECT_TABLE_PRIVILEGES,
@@ -470,4 +472,48 @@ test('검토자를 직접 고르면 그 사람이 검토자가 된다', () => {
     resolveNewProjectReviewer({ ...base, reviewerUid: 'worker-uid', reviewerName: '이사원' }).code,
     'NEW_PROJECT_REVIEWER_SAME_AS_ASSIGNEE',
   );
+});
+
+// 회의를 붙이면서 히스토리 표의 entity_type CHECK와 from/to_status CHECK를
+// 두 번 연속 빠뜨렸다. 둘 다 트랜잭션을 통째로 되돌려서, 화면에서는 그냥
+// "저장이 안 된다"로만 보였다. 코드가 쓰는 값이 마이그레이션이 허용하는
+// 값 안에 있는지 소스로 확인한다.
+test('히스토리에 쓰는 entity_type과 상태값은 마이그레이션이 허용하는 값이어야 한다', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const dir = path.join(__dirname, '..', 'migrations');
+  const sql = fs.readdirSync(dir)
+    .filter(name => name.endsWith('.sql'))
+    .sort()
+    .map(name => fs.readFileSync(path.join(dir, name), 'utf8'))
+    .join('\n');
+  const routes = fs.readFileSync(path.join(__dirname, 'peakos-new-project-routes.js'), 'utf8');
+
+  // 마이그레이션 파일들에서 마지막으로 선언된 허용 목록을 읽는다.
+  const lastList = (pattern) => {
+    const matches = [...sql.matchAll(pattern)];
+    assert.ok(matches.length, `허용 목록을 찾지 못했습니다: ${pattern}`);
+    return new Set([...matches.at(-1)[1].matchAll(/'([a-z_]+)'/g)].map(m => m[1]));
+  };
+  const entityTypes = lastList(/entity_type = ANY \(ARRAY\[([^\]]+)\]/g);
+  const toStatuses = lastList(/to_status = ANY \(ARRAY\[([^\]]+)\]/g);
+
+  // entityType은 리터럴로도, 삼항식으로도 쓰인다. 같은 줄의 따옴표 값을 모두 본다.
+  const usedEntityTypes = new Set(routes.split('\n')
+    .filter(line => line.includes('entityType:'))
+    .map(line => line.slice(line.indexOf('entityType:')))
+    // 삼항식 조건("level === 'small' ? ...")의 비교값은 기록되는 값이 아니다.
+    .map(line => line.replace(/[=!]==?\s*'[a-z_]+'/g, ''))
+    .flatMap(line => [...line.matchAll(/'([a-z_]+)'/g)].map(m => m[1])));
+  assert.ok(usedEntityTypes.size >= 3, `entityType을 못 찾았습니다: ${[...usedEntityTypes]}`);
+  assert.ok(usedEntityTypes.has('meeting'));
+  for (const used of usedEntityTypes) {
+    assert.ok(entityTypes.has(used), `history entity_type '${used}'가 CHECK에 없습니다`);
+  }
+  for (const status of MEETING_STATUSES) {
+    assert.ok(toStatuses.has(status), `회의 상태 '${status}'가 history status CHECK에 없습니다`);
+  }
+  for (const status of NEW_PROJECT_TASK_STATUSES) {
+    assert.ok(toStatuses.has(status), `업무 상태 '${status}'가 history status CHECK에 없습니다`);
+  }
 });

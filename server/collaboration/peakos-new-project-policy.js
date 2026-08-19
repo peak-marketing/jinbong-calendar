@@ -224,6 +224,7 @@ const NEW_PROJECT_REQUIRED_CONSTRAINT_DEFINITIONS = Object.freeze({
     ['peakos_structured_project_history_project_fk', 'f', 'FOREIGN KEY (workspace_id, project_id) REFERENCES peakos_structured_projects(workspace_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT'],
     ['peakos_structured_project_history_actor_membership_fk', 'f', 'FOREIGN KEY (workspace_id, actor_uid) REFERENCES peakos_workspace_memberships(workspace_id, user_uid) ON UPDATE RESTRICT ON DELETE RESTRICT'],
     ['peakos_structured_project_history_task_fk', 'f', 'FOREIGN KEY (workspace_id, project_id, task_id) REFERENCES peakos_structured_project_tasks(workspace_id, project_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT'],
+    ['peakos_structured_project_history_entity_type_check', 'c', "CHECK ((entity_type = ANY (ARRAY['project'::text, 'member'::text, 'medium_category'::text, 'small_category'::text, 'task'::text, 'meeting'::text])))"],
     ['peakos_structured_project_history_task_entity_check', 'c', "CHECK ((((entity_type = 'task'::text) AND (task_id IS NOT NULL)) OR ((entity_type <> 'task'::text) AND (task_id IS NULL))))"],
     ['peakos_structured_project_history_action_check', 'c', "CHECK ((action ~ '^[a-z][a-z0-9_]{0,63}$'::text))"],
     ['peakos_structured_project_history_version_check', 'c', 'CHECK (((entity_version >= 1) AND (entity_version <= 2147483647)))'],

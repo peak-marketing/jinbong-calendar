@@ -53,6 +53,13 @@ function sendError(res, error) {
   const status = Number(error?.status || error?.statusCode) || 500;
   const code = String(error?.code || 'NEW_PROJECT_INTERNAL_ERROR');
   const message = status >= 500 ? '신규 프로젝트를 처리하지 못했습니다.' : error.message;
+  // 500은 사용자에게 자세히 말해 주지 않는다. 대신 서버 로그에는 남겨야 한다.
+  // 안 남기면 제약 위반 하나 찾는 데 화면만 보고 헤매게 된다.
+  if (status >= 500) {
+    console.error('[new-projects] %s %s%s%s', code, error?.message || '',
+      error?.constraint ? ` constraint=${error.constraint}` : '',
+      error?.detail ? ` detail=${error.detail}` : '');
+  }
   return res.status(status).json({ code, error: message });
 }
 
