@@ -146,7 +146,7 @@ const NEW_PROJECT_REQUIRED_CONSTRAINT_DEFINITIONS = Object.freeze({
     ['peakos_structured_project_tasks_assigner_membership_fk', 'f', 'FOREIGN KEY (workspace_id, assigned_by_uid) REFERENCES peakos_workspace_memberships(workspace_id, user_uid) ON UPDATE RESTRICT ON DELETE RESTRICT'],
     ['peakos_structured_project_tasks_reviewer_membership_fk', 'f', 'FOREIGN KEY (workspace_id, reviewer_uid) REFERENCES peakos_workspace_memberships(workspace_id, user_uid) ON UPDATE RESTRICT ON DELETE RESTRICT'],
     ['peakos_structured_project_tasks_creator_membership_fk', 'f', 'FOREIGN KEY (workspace_id, created_by_uid) REFERENCES peakos_workspace_memberships(workspace_id, user_uid) ON UPDATE RESTRICT ON DELETE RESTRICT'],
-    ['peakos_structured_project_tasks_status_check', 'c', "CHECK ((status = ANY (ARRAY['todo'::text, 'doing'::text, 'review'::text, 'revision'::text, 'done'::text])))"],
+    ['peakos_structured_project_tasks_status_check', 'c', "CHECK ((status = ANY (ARRAY['todo'::text, 'acknowledged'::text, 'doing'::text, 'review'::text, 'revision'::text, 'done'::text])))"],
     ['peakos_structured_project_tasks_reviewer_source_check', 'c', "CHECK ((reviewer_source = ANY (ARRAY['assigned_by'::text, 'lead_fallback'::text])))"],
     ['peakos_structured_project_tasks_reviewer_separation_check', 'c', 'CHECK ((reviewer_uid <> assignee_uid))'],
     ['peakos_structured_project_tasks_version_check', 'c', 'CHECK (((version >= 1) AND (version <= 2147483647)))'],
