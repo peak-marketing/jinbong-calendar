@@ -3487,8 +3487,9 @@
     if (status === 'done') return { key, state: 'complete', label: `완료 · ${key}`, days: null };
     const today = projectDateNumber(koreaDateKey(new Date()));
     const days = deadline - today;
-    if (days < 0) return { key, state: 'overdue', label: `기한 초과 ${Math.abs(days)}일`, days };
-    if (days === 0) return { key, state: 'today', label: '오늘 마감', days };
+    // 마감 표기는 D-DAY 형식으로 통일한다. 지난 건 D+N.
+    if (days < 0) return { key, state: 'overdue', label: `D+${Math.abs(days)}`, days };
+    if (days === 0) return { key, state: 'today', label: 'D-DAY', days };
     if (days <= 3) return { key, state: 'soon', label: `D-${days}`, days };
     return { key, state: 'scheduled', label: `D-${days}`, days };
   }
