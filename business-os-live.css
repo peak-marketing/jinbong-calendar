@@ -17491,3 +17491,17 @@ html body #newProjectsView .structured-task-check.status-done {
 @media (max-width: 760px) {
   .todo-date-picker > input, .todo-date-today { min-height: 44px; }
 }
+
+/* 대시보드 카드 — 미완료는 빨강, 완료는 검정으로 한눈에 구분 */
+.executive-metric-split {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.executive-metric-split > b {
+  font-size: 11px;
+  font-weight: 900;
+}
+.executive-metric-split > b.pending { color: #c8474f; }
+.executive-metric-split > b.done { color: #1d2b36; }

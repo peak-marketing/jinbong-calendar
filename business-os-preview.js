@@ -3850,14 +3850,20 @@
           <small>${esc(profitStateCopy)}</small>
         </article>
         <article class="executive-metric-card tasks">
-          <div class="executive-metric-top"><span>오늘 할 일</span><i>✓</i></div>
+          <div class="executive-metric-top"><span>TODAY</span><i>✓</i></div>
           <strong>${todayTodos.length.toLocaleString('ko-KR')}건</strong>
-          <small>${todayTodos.filter(event => event.done).length.toLocaleString('ko-KR')}건 완료 · ${Math.max(0, todayTodos.length - todayTodos.filter(event => event.done).length).toLocaleString('ko-KR')}건 남음</small>
+          <small class="executive-metric-split">
+            <b class="pending">미완료 ${Math.max(0, todayTodos.length - todayTodos.filter(todo => todo.done).length).toLocaleString('ko-KR')}건</b>
+            <b class="done">완료 ${todayTodos.filter(todo => todo.done).length.toLocaleString('ko-KR')}건</b>
+          </small>
         </article>
         <article class="executive-metric-card projects">
-          <div class="executive-metric-top"><span>기존 프로젝트</span><i>◇</i></div>
+          <div class="executive-metric-top"><span>프로젝트</span><i>◇</i></div>
           <strong>${activeProjects.length.toLocaleString('ko-KR')}개</strong>
-          <small>확인 대기 ${reviewProjectCount.toLocaleString('ko-KR')}개 · 읽지 않은 채팅 ${unreadTotal.toLocaleString('ko-KR')}건</small>
+          <small class="executive-metric-split">
+            <b class="pending">미완료 ${Math.max(0, activeProjects.length - dashboardProjects.filter(project => project.status === 'done' || project.status === 'completed').length).toLocaleString('ko-KR')}개</b>
+            <b class="done">완료 ${dashboardProjects.filter(project => project.status === 'done' || project.status === 'completed').length.toLocaleString('ko-KR')}개</b>
+          </small>
         </article>
       </section>
 

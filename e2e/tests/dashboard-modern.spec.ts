@@ -272,7 +272,8 @@ test.describe('modern finance dashboard', () => {
     await expect(page.locator('.executive-metric-card.profit')).toContainText('14만원');
     await expect(page.locator('.executive-metric-card.tasks > strong')).toHaveText('1건');
     await expect(page.locator('.executive-metric-card.projects > strong')).toHaveText('1개');
-    await expect(page.locator('.executive-metric-card.projects')).toContainText('읽지 않은 채팅 7건');
+    // 카드는 이제 미완료·완료 건수를 나눠 보여준다 (채팅 미읽음 표기는 제거).
+    await expect(page.locator('.executive-metric-card.projects .executive-metric-split')).toBeVisible();
     await expect(page.locator('.executive-list')).toContainText('실계정 비공개 할 일');
     await expect(page.locator('.executive-project-list')).toContainText('실계정 비공개 프로젝트');
     const callCutoff = setup.calls.length;
@@ -295,7 +296,8 @@ test.describe('modern finance dashboard', () => {
       expect(sameFrame).toMatchObject({
         scope: 'preview', tasks: '0건', projects: '0개',
       });
-      expect(sameFrame.projectMeta).toContain('읽지 않은 채팅 0건');
+      // 미리보기 전환 프레임에서도 카드 수치가 즉시 0으로 비워져야 한다.
+      expect(sameFrame.projectMeta).toContain('미완료 0개');
       expect(sameFrame.todoList).not.toContain('실계정 비공개 할 일');
       expect(sameFrame.projectList).not.toContain('실계정 비공개 프로젝트');
       await expect(page.locator('.executive-dashboard')).toHaveAttribute('data-dashboard-finance-scope', 'preview');
