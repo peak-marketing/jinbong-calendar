@@ -708,7 +708,8 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('[data-work-item-id="new-project-1-task-1"]')).toBeVisible();
 
     await openMainCluster(page);
-    await page.locator('.nav-item[data-view="review"]').click();
+    // 기존 프로젝트 탭은 메뉴에서 감췄지만 화면은 남아 있다.
+    await page.evaluate(() => (document.querySelector('.nav-item[data-view="review"]') as HTMLElement)?.click());
     await expect(page.locator('#reviewView [data-project-id="legacy-project-1"]')).toContainText('기존 프로젝트 유지 확인');
     expect(fixture.calls.some(call => call.path === '/peakos/collaboration/projects')).toBe(true);
     expect(fixture.calls.some(call => call.path === '/peakos/collaboration/new-projects')).toBe(true);

@@ -17505,3 +17505,27 @@ html body #newProjectsView .structured-task-check.status-done {
 }
 .executive-metric-split > b.pending { color: #c8474f; }
 .executive-metric-split > b.done { color: #1d2b36; }
+
+/* ── 업무 보기 전환 바 ───────────────────────────────
+   토글이 오른쪽 끝에 홀로 떨어져 눈에 안 들어왔다.
+   바를 낮추고 제목 바로 옆으로 붙여 한 덩어리로 읽히게 한다. */
+@media (min-width: 761px) {
+  html body #newProjectsView .structured-task-viewbar {
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 5px 10px;
+    border-radius: 10px;
+  }
+  html body #newProjectsView .structured-task-viewbar > div { flex: 0 0 auto; }
+  html body #newProjectsView .structured-task-viewbar > div > strong { font-size: 10px; color: #7b909f; }
+  /* 접기·펼치기는 오른쪽 끝으로 밀어 전환 토글과 섞이지 않게 한다 */
+  html body #newProjectsView .structured-task-viewbar > .structured-hierarchy-bulk { margin-left: auto; }
+  html body #newProjectsView .structured-task-viewbar button { min-height: 26px; padding: 0 11px; font-size: 10px; }
+  html body #newProjectsView .structured-task-viewbar > nav { padding: 3px; gap: 3px; }
+  html body #newProjectsView .structured-task-viewbar button.active {
+    background: #2b88be;
+    border-color: #2b88be;
+    color: #fff;
+    box-shadow: none;
+  }
+}
