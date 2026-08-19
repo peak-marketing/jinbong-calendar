@@ -1697,11 +1697,21 @@ function registerPeakosNewProjectRoutes({
         note: decision.note, version: decision.nextVersion,
       });
       await client.query('COMMIT');
-      if (decision.action === 'submit' || decision.action === 'resubmit') {
+      if (decision.action === 'acknowledge' || decision.action === 'start') {
+        // 담당자가 스스로 올린 단계는 지시자에게 알린다.
+        // 이 분기가 없으면 확인완료를 눌러도 "수정 요청" 알림이 나갔다.
+        notification = {
+          uid: task.assigned_by_uid,
+          title: decision.action === 'acknowledge' ? '업무 확인완료' : '업무 진행 시작',
+          body: decision.action === 'acknowledge'
+            ? `${context.name}님이 "${task.title}" 업무를 확인했습니다.`
+            : `${context.name}님이 "${task.title}" 업무를 시작했습니다.`,
+        };
+      } else if (decision.action === 'submit' || decision.action === 'resubmit') {
         notification = {
           uid: task.reviewer_uid,
-          title: '업무 검토 요청',
-          body: `${context.name}님이 "${task.title}" 업무 검토를 요청했습니다.`,
+          title: '업무 진행완료',
+          body: `${context.name}님이 "${task.title}" 업무를 진행완료했습니다. 검토해 주세요.`,
         };
       } else {
         notification = {

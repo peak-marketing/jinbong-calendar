@@ -1006,7 +1006,7 @@ test('담당자가 검토를 요청하면 선택된 업무 지시자가 알림 �
     assert.equal(result.body.task.status, 'review');
     assert.equal(notifications.length, 1);
     assert.equal(notifications[0].uid, 'instructor-uid');
-    assert.equal(notifications[0].title, '업무 검토 요청');
+    assert.equal(notifications[0].title, '업무 진행완료');
     assert.equal(notifications[0].data.taskId, TASK_ID);
     assert.equal(
       notifications[0].data.link,
