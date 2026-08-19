@@ -5606,6 +5606,7 @@
 
   // ── 내 업무 ────────────────────────────────────────
   let myWorkState = { status: 'idle', tasks: [], error: '', contextKey: '' };
+  let myWorkSelectedId = '';
   const MY_WORK_GROUPS = [
     { key: 'revision', label: '수정 요청', tone: 'danger' },
     { key: 'review', label: '검토 요청', tone: 'warn' },
@@ -5659,35 +5660,26 @@
   }
 
   function myWorkRow(task) {
-    const path = [task.medium?.name, task.small?.name].filter(Boolean).join(' › ');
     const status = STRUCTURED_TASK_STATUS[task.status] ? task.status : 'todo';
-    const projectName = task.project?.name || '프로젝트';
-    return `<div class="my-work-row" role="button" tabindex="0" data-my-work-open="${esc(task.id)}">
-      <span class="my-work-name">
-        <i class="my-work-mark status-${esc(status)}" aria-hidden="true">${status === 'done' ? '✓' : status === 'review' ? '↗' : status === 'revision' ? '!' : ''}</i>
-        <span><strong>${esc(task.title || '업무명 없음')}${Array.isArray(task.attachments) && task.attachments.length ? `<em class="my-work-meta" title="첨부파일 ${task.attachments.length}개">📎${task.attachments.length}</em>` : ''}</strong>${task.description ? `<small>${esc(task.description)}</small>` : ''}</span>
-      </span>
-      <span class="my-work-due">${task.dueDate
-        ? `<b>${esc(myWorkDueLabel(task.dueDate))}</b>${projectDeadlineBadge(task.dueDate, status)}`
-        : '<em>기한 없음</em>'}</span>
-      <span class="my-work-project">
-        <span class="my-work-chip tone-${myWorkProjectTone(projectName)}"><i aria-hidden="true"></i>${esc(projectName)}</span>
-        ${path ? `<small>${esc(path)}</small>` : ''}
-      </span>
-      <span class="my-work-state">${structuredTaskStatusBadge(status)}</span>
-    </div>`;
+    const selected = String(task.id) === String(myWorkSelectedId);
+    return `<button class="my-work-row ${selected ? 'active' : ''}" type="button" data-my-work-open="${esc(task.id)}" aria-pressed="${selected ? 'true' : 'false'}">
+      <i class="my-work-mark status-${esc(status)}" aria-hidden="true"></i>
+      <span class="my-work-name"><strong>${esc(task.title || '업무명 없음')}</strong>${Array.isArray(task.attachments) && task.attachments.length ? `<em class="my-work-meta">📎${task.attachments.length}</em>` : ''}</span>
+      <span class="my-work-state">${task.dueDate ? projectDeadlineBadge(task.dueDate, status) : ''}${structuredTaskStatusBadge(status)}</span>
+    </button>`;
   }
 
-  // 업무 현황에서 행을 누르면 그 업무의 상세를 연다.
-  // 목록 자체가 내 업무만 담고 있어 남의 업무는 열 수 없다.
-  function openMyWorkDetail(taskId) {
-    const task = (myWorkState.tasks || []).find(item => String(item.id) === String(taskId));
-    if (!task) return showToast('업무를 찾지 못했습니다. 새로고침 후 다시 시도해 주세요.');
+  // 오른쪽 상세 — 목록에서 고른 업무를 그 자리에서 펼친다.
+  function myWorkDetail(task) {
+    if (!task) {
+      return '<div class="my-work-detail-empty"><strong>업무를 선택해 주세요</strong><small>왼쪽에서 업무를 누르면 여기에 상세가 열립니다.</small></div>';
+    }
     const status = STRUCTURED_TASK_STATUS[task.status] ? task.status : 'todo';
     const path = [task.medium?.name, task.small?.name].filter(Boolean).join(' › ');
     const attachments = Array.isArray(task.attachments) ? task.attachments : [];
     const row = (label, value) => `<div class="task-detail-row"><span>${esc(label)}</span><div>${value}</div></div>`;
-    openDetailModal(task.title || '업무', `<div class="task-detail">
+    return `<div class="task-detail">
+      <h3 class="my-work-detail-title">${esc(task.title || '업무')}</h3>
       <div class="task-detail-people">
         <div class="task-detail-person"><span>업무 지시</span><strong>${esc(task.assignedBy?.name || '지시자 미지정')}</strong></div>
         <div class="task-detail-person"><span>검토</span><strong>${esc(task.reviewer?.name || '검토자 미지정')}</strong></div>
@@ -5701,53 +5693,49 @@
       <div class="task-detail-section"><h4>첨부파일 ${attachments.length}개</h4>${attachments.length
         ? `<div class="task-attach-list">${attachments.map(file => `<div class="task-attach-item"><a href="${esc(file.url)}" target="_blank" rel="noopener">${esc(file.name || '첨부파일')}</a><em>${esc(formatFileSize(file.size))}</em></div>`).join('')}</div>`
         : '<p class="task-detail-muted">첨부된 파일이 없습니다.</p>'}</div>
-      <div class="collaboration-form-actions"><span></span><span></span><button type="button" data-collab-cancel>닫기</button></div>
-    </div>`);
-    document.querySelector('[data-collab-cancel]')?.addEventListener('click', () => closeDetailModal());
+    </div>`;
   }
 
   function renderMyWork() {
     if (!myWorkView) return;
     if (previewPersona) {
-      myWorkView.innerHTML = '<div class="my-work-empty"><strong>계정 미리보기에서는 내 업무를 볼 수 없습니다.</strong></div>';
+      myWorkView.innerHTML = '<div class="my-work-empty"><strong>계정 미리보기에서는 업무 현황을 볼 수 없습니다.</strong></div>';
       return;
     }
     if (myWorkState.status === 'loading' || myWorkState.status === 'idle') {
-      myWorkView.innerHTML = '<div class="my-work-empty loading"><strong>내 업무를 불러오는 중입니다</strong></div>';
+      myWorkView.innerHTML = '<div class="my-work-empty loading"><strong>업무를 불러오는 중입니다</strong></div>';
       return;
     }
     if (myWorkState.status === 'error') {
-      myWorkView.innerHTML = `<div class="my-work-empty error"><strong>내 업무를 불러오지 못했습니다</strong><small>${esc(myWorkState.error)}</small><button type="button" data-my-work-retry>다시 불러오기</button></div>`;
+      myWorkView.innerHTML = `<div class="my-work-empty error"><strong>업무를 불러오지 못했습니다</strong><small>${esc(myWorkState.error)}</small><button type="button" data-my-work-retry>다시 불러오기</button></div>`;
       myWorkView.querySelector('[data-my-work-retry]')?.addEventListener('click', () => refreshMyWork());
       return;
     }
-    const bindMyWorkRows = () => myWorkView.querySelectorAll('[data-my-work-open]').forEach(node => {
-      node.addEventListener('click', () => openMyWorkDetail(node.dataset.myWorkOpen));
-      node.addEventListener('keydown', event => {
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        event.preventDefault();
-        openMyWorkDetail(node.dataset.myWorkOpen);
-      });
-    });
     const tasks = myWorkState.tasks;
-    const open = tasks.filter(task => task.status !== 'done').length;
+    if (!tasks.length) {
+      myWorkView.innerHTML = '<div class="my-work-empty"><strong>배정받은 업무가 없습니다</strong><small>프로젝트에서 업무가 배정되면 여기에 모입니다.</small></div>';
+      return;
+    }
+    // 고른 업무가 사라졌으면 첫 업무로 되돌린다.
+    const selected = tasks.find(task => String(task.id) === String(myWorkSelectedId)) || tasks[0];
+    myWorkSelectedId = String(selected.id);
     const groups = MY_WORK_GROUPS
       .map(group => ({ ...group, items: tasks.filter(task => task.status === group.key) }))
       .filter(group => group.items.length);
     myWorkView.innerHTML = `
-      <header class="my-work-head">
-        <div><strong>업무 현황</strong><small>나에게 배정된 업무를 상태별로 모았습니다. 업무를 누르면 상세가 열립니다.</small></div>
-        <em>${open}건 남음 · 전체 ${tasks.length}건</em>
-      </header>
-      ${groups.length ? groups.map(group => `<section class="my-work-group tone-${esc(group.tone)}">
-        <header><i class="my-work-bullet" aria-hidden="true"></i><span class="my-work-group-label">${esc(group.label)}</span><em>${group.items.length}</em></header>
-        <div class="my-work-table">
-          <div class="my-work-row head"><span>업무명</span><span>기한</span><span>프로젝트</span><span>상태</span></div>
-          ${group.items.map(myWorkRow).join('')}
-        </div>
-      </section>`).join('')
-        : '<div class="my-work-empty"><strong>배정받은 업무가 없습니다</strong><small>신규 프로젝트에서 업무가 배정되면 여기에 모입니다.</small></div>'}`;
-    bindMyWorkRows();
+      <section class="my-work-split">
+        <nav class="my-work-list" aria-label="배정받은 업무 목록">
+          ${groups.map(group => `<section class="my-work-group tone-${esc(group.tone)}">
+            <header><i class="my-work-bullet" aria-hidden="true"></i><span class="my-work-group-label">${esc(group.label)}</span><em>${group.items.length}</em></header>
+            ${group.items.map(myWorkRow).join('')}
+          </section>`).join('')}
+        </nav>
+        <div class="my-work-detail">${myWorkDetail(selected)}</div>
+      </section>`;
+    myWorkView.querySelectorAll('[data-my-work-open]').forEach(button => button.addEventListener('click', () => {
+      myWorkSelectedId = String(button.dataset.myWorkOpen || '');
+      renderMyWork();
+    }));
   }
 
   function structuredProjectContextKey() {

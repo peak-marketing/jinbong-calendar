@@ -17539,3 +17539,59 @@ html body #newProjectsView .structured-task-check.status-done {
 }
 .my-work-row[data-my-work-open] { cursor: pointer; }
 .my-work-row[data-my-work-open]:hover .my-work-name > span > strong { text-decoration: underline; }
+
+/* ── 업무 현황 — 왼쪽 목록 · 오른쪽 상세 ───────────── */
+.my-work-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  min-width: 0;
+}
+.my-work-list {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  border: 1px solid #dbe6ed;
+  border-radius: 12px;
+  padding: 10px;
+  background: #fff;
+}
+.my-work-list .my-work-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.my-work-list .my-work-row:hover { background: #f2f8fc; }
+.my-work-list .my-work-row.active { background: #e4f0f8; }
+.my-work-list .my-work-name > strong { display: block; color: #1d445d; font-size: 12px; }
+.my-work-list .my-work-state { display: flex; align-items: center; gap: 5px; }
+.my-work-detail {
+  min-width: 0;
+  border: 1px solid #dbe6ed;
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: #fff;
+}
+.my-work-detail-title { margin: 0 0 12px; color: #143d59; font-size: 15px; }
+.my-work-detail-empty {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 60px 20px;
+  color: #8195a3;
+  text-align: center;
+}
+.my-work-detail-empty strong { color: #45647c; font-size: 13px; }
+@media (max-width: 1100px) {
+  .my-work-split { grid-template-columns: minmax(0, 1fr); }
+}
