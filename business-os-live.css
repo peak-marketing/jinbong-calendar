@@ -17353,3 +17353,42 @@ html body #newProjectsView .structured-page-head > div:first-child > h1 {
   /* 모바일 터치 영역 44px 규칙을 지킨다. */
   .structured-task-steps > button { min-height: 44px; height: 44px; padding: 0 12px; font-size: 11px; }
 }
+
+/* ── 업무 상태 동그라미 색 ─────────────────────────
+   지시 받음 초록 · 확인완료 공란 · 진행중 노랑
+   진행완료 파랑 · 수정 요청 빨강 · 승인완료 초록 채움 */
+html body #newProjectsView .structured-task-check {
+  display: grid;
+  place-items: center;
+  border: 2px solid #cfdce6;
+  border-radius: 50%;
+  background: #fff;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 900;
+  cursor: default;
+}
+html body #newProjectsView .structured-task-check.status-todo {
+  border-color: #4aa37c;
+  background: #fff;
+}
+html body #newProjectsView .structured-task-check.status-acknowledged {
+  border-color: #cfdce6;
+  background: #fff;
+}
+html body #newProjectsView .structured-task-check.status-doing {
+  border-color: #e0a93f;
+  background: #f7d98a;
+}
+html body #newProjectsView .structured-task-check.status-review {
+  border-color: #3d8fd0;
+  background: #3d8fd0;
+}
+html body #newProjectsView .structured-task-check.status-revision {
+  border-color: #d2686f;
+  background: #d2686f;
+}
+html body #newProjectsView .structured-task-check.status-done {
+  border-color: #3f8f68;
+  background: #3f8f68;
+}

@@ -1424,7 +1424,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expect(page.locator('[data-structured-project-edit]')).toHaveCount(0);
     await expect(page.locator('[data-structured-project-lead-edit]')).toHaveCount(0);
     await expect(page.locator('[data-structured-medium-create]')).toHaveCount(0);
-    await page.locator('[data-work-item-id="member-project-task-1"] [data-work-item-submit]').first().click();
+    await page.locator('[data-work-item-id="member-project-task-1"] [data-step-action="request"]').first().click();
     await expect(page.locator('[data-work-item-id="member-project-task-1"]')).toContainText('진행완료');
     const request = fixture.calls.find(call => call.path.endsWith('/tasks/member-project-task-1/review'));
     expect(request?.body).toMatchObject({ action: 'request', expectedVersion: 7 });
@@ -1444,7 +1444,7 @@ test.describe('신규 프로젝트 계층·검토 workflow', () => {
     await expandAllStructuredHierarchy(page);
 
     const task = page.locator('[data-work-item-id="workflow-project-task-1"]');
-    await task.locator('[data-work-item-submit]').first().click();
+    await task.locator('[data-step-action="request"]').first().click();
     await expect(task).toContainText('진행완료');
     await task.locator('[data-work-item-revision]').click();
     const revisionForm = page.locator('#structuredRevisionForm');

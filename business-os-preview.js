@@ -6049,7 +6049,7 @@
       return `<span><b>${esc(actionLabel)}</b><em>${esc(actor)}${createdAt ? ` · ${esc(formatDate(createdAt, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}` : ''}</em>${item.note ? `<small>${esc(item.note)}</small>` : ''}</span>`;
     }).join('')}</div></details>` : '';
     return `<article class="structured-task-row status-${esc(status)}" data-work-item-id="${esc(task.id)}">
-      <button class="structured-task-check ${checked ? 'checked' : ''}" type="button" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" ${canSubmit ? `data-work-item-submit="${esc(task.id)}"` : 'disabled'} aria-label="${esc(task.title || '업무')} ${esc(canSubmit ? submitLabel : STRUCTURED_TASK_STATUS[status])}">${status === 'done' ? '✓' : status === 'review' ? '↗' : status === 'revision' ? '!' : ''}</button>
+      <span class="structured-task-check status-${esc(status)} ${checked ? 'checked' : ''}" role="img" aria-label="${esc(STRUCTURED_TASK_STATUS[status] || status)}" title="${esc(STRUCTURED_TASK_STATUS[status] || status)}">${status === 'done' ? '✓' : status === 'review' ? '↗' : status === 'revision' ? '!' : ''}</span>
       <div class="structured-task-main">
         <div class="structured-task-meta">${structuredTaskStatusBadge(status)}${projectDeadlineBadge(task.dueDate, status)}<span>v${Number(task.workflowVersion ?? task.version ?? 1)}</span></div>
         <strong data-structured-task-detail="${esc(task.id)}" role="button" tabindex="0">${esc(task.title || '업무명 없음')}</strong>
