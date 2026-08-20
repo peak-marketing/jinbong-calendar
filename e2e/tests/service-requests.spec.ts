@@ -267,19 +267,22 @@ test('답이 온 요청은 메뉴 배지와 줄에서 바로 티가 난다', asy
 });
 
 // 제목만 눌리면 그 아래 미리보기를 눌렀을 때 아무 일도 안 일어나 고장으로 읽힌다.
-test('제목 칸 어디를 눌러도 상세가 열린다', async ({ page }) => {
+test('표에는 제목만 두고, 나머지는 상세에서 본다', async ({ page }) => {
   await open(page, { canManage: true });
   await dismissReminder(page);
   const cell = page.locator('.request-table tbody tr').nth(1).locator('th[scope="row"]');
 
-  // 미리보기 줄(처리 메모)도 버튼 안에 있어야 한다.
-  await expect(cell.locator('.request-title .request-note')).toHaveCount(1);
-  // 그 줄의 제목을 읽어 두고, 미리보기 줄을 눌러 같은 건이 열리는지 본다.
+  // 눌러서 볼 수 있으니 표에 내용 미리보기·처리 메모를 늘어놓지 않는다.
+  await expect(cell.locator('.request-note')).toHaveCount(0);
+  await expect(cell).not.toContainText('처리 메모');
+
+  // 제목 칸을 누르면 상세가 열리고, 거기에 처리 메모가 있다.
   const title = (await cell.locator('.request-title-name').innerText()).trim();
-  await cell.locator('.request-note').first().click();
+  await cell.locator('.request-title').click();
   await expect(page.locator('.request-detail')).toBeVisible();
   await expect(page.locator('#readonlyModalTitle, .readonly-modal-head strong').first())
     .toContainText(title);
+  await expect(page.locator('.request-detail')).toContainText('처리 메모');
 });
 
 // 상세와 대화는 다른 것이다. 제목을 누르면 무슨 요청인지 읽고,
