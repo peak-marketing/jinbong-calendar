@@ -37,6 +37,9 @@ async function open(page, { onWrite = null } = {}) {
   for (const c of await page.locator('[data-nav-cluster] .nav-cluster-toggle').all()) if (await c.isVisible()) await c.click();
   await page.locator('.nav-item[data-view="ideas"]').click();
   await expect(page.locator('#ideaForm')).toBeVisible();
+  // 폼 위에 붙어 있던 안내 문구는 없앴다. 화면이 설명 없이도 읽혀야 한다.
+  await expect(page.locator('#moduleView')).not.toContainText('누구나 올릴 수 있고');
+  await expect(page.locator('.module-statusbar small')).toHaveCount(0);
 }
 
 test('아이디어 탭에서 바로 글을 올릴 수 있다', async ({ page }) => {

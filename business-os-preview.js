@@ -8177,7 +8177,7 @@
 
   function moduleStatusbar(title, detail, badge = 'MVP 기획 · 데이터 연결 전') {
     return `<div class="module-statusbar">
-      <span><strong>${esc(title)}</strong><small>${esc(detail)}</small></span>
+      <span><strong>${esc(title)}</strong>${detail ? `<small>${esc(detail)}</small>` : ''}</span>
       <span class="module-plan-badge">${esc(badge)}</span>
     </div>`;
   }
@@ -16591,11 +16591,8 @@
     const option = (value, label, selected) => `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(label)}</option>`;
 
     moduleView.innerHTML = `
-      ${moduleStatusbar('아이디어', '떠오른 생각을 여기에 남겨 주세요.', `${liveIdeas.length}건`)}
+      ${moduleStatusbar('아이디어', '', `${liveIdeas.length}건`)}
       <section class="module-section">
-        <div class="module-section-head">
-          <span><strong>아이디어 올리기</strong><small>누구나 올릴 수 있고, 올린 사람이 고치거나 지울 수 있습니다.</small></span>
-        </div>
         <div class="module-section-body">
           <form class="idea-form" id="ideaForm">
             <div class="idea-form-grid">
