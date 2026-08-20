@@ -18952,3 +18952,40 @@ html body .request-table thead th:first-child,
 html body .request-table thead th:nth-child(2),
 html body .request-table tbody th[scope="row"],
 html body .request-table tfoot th[scope="row"] { text-align: center; }
+
+/* 새 배포 안내 */
+html body .deploy-notice {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--editor-action);
+  border-radius: 12px;
+  padding: 11px 14px;
+  background: var(--editor-surface);
+  box-shadow: var(--editor-float-shadow);
+}
+html body .deploy-notice > span { color: var(--editor-ink); font-size: 12px; font-weight: 800; }
+html body .deploy-notice > button {
+  min-height: 28px;
+  border: 1px solid var(--editor-action);
+  border-radius: 8px;
+  padding: 0 11px;
+  background: var(--editor-action);
+  color: #fff;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+}
+html body .deploy-notice > .deploy-notice-close {
+  min-height: 24px;
+  width: 24px;
+  padding: 0;
+  border-color: var(--editor-line-strong);
+  background: var(--editor-surface);
+  color: var(--editor-muted);
+}

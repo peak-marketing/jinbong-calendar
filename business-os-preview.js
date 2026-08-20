@@ -7318,6 +7318,55 @@
       + `<a class="attach-download" href="${esc(file.url)}" download="${esc(name)}" title="${esc(name)} 내려받기" aria-label="${esc(name)} 내려받기">↓</a>`;
   }
 
+
+  // 배포하면 이 탭은 여전히 옛 코드를 돌린다. 사용자가 "왜 안 바뀌지" 하다가
+  // 스스로 새로고침을 떠올려야 했다. 새 버전이 올라오면 화면이 먼저 말해 준다.
+  const LOADED_ASSET_VERSION = (() => {
+    const script = [...document.querySelectorAll('script[src]')]
+      .find(tag => /business-os-preview\.js/.test(tag.getAttribute('src') || ''));
+    return (script?.getAttribute('src') || '').split('?v=')[1] || '';
+  })();
+  let assetVersionNoticeShown = false;
+
+  async function checkDeployedVersion() {
+    if (!LOADED_ASSET_VERSION || assetVersionNoticeShown || document.hidden) return;
+    try {
+      // 지금 열려 있는 문서를 그대로 다시 읽는다. 상위 경로를 계산하면
+      // /os/ 에서는 맞지만 파일 경로로 열었을 때 엉뚱한 곳을 가리킨다.
+      const response = await fetch(`${location.pathname}?_=${Date.now()}`, {
+        cache: 'no-store', credentials: 'same-origin',
+      });
+      if (!response.ok) return;
+      const html = await response.text();
+      const latest = (html.match(/business-os-preview\.js\?v=([A-Za-z0-9._-]+)/) || [])[1] || '';
+      if (!latest || latest === LOADED_ASSET_VERSION) return;
+      assetVersionNoticeShown = true;
+      showDeployNotice();
+    } catch (_) {
+      // 확인에 실패해도 쓰던 화면을 방해하지 않는다.
+    }
+  }
+
+  function showDeployNotice() {
+    if (document.getElementById('deployNotice')) return;
+    const notice = document.createElement('div');
+    notice.id = 'deployNotice';
+    notice.className = 'deploy-notice';
+    notice.setAttribute('role', 'status');
+    notice.innerHTML = '<span>새 버전이 올라왔습니다. 새로고침하면 반영됩니다.</span>'
+      + '<button type="button" data-deploy-reload>새로고침</button>'
+      + '<button type="button" class="deploy-notice-close" data-deploy-dismiss aria-label="닫기">×</button>';
+    document.body.appendChild(notice);
+    notice.querySelector('[data-deploy-reload]').addEventListener('click', () => location.reload());
+    notice.querySelector('[data-deploy-dismiss]').addEventListener('click', () => notice.remove());
+  }
+
+  // 탭으로 돌아올 때와 10분마다 한 번씩만 본다. 자주 물어볼 이유가 없다.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) checkDeployedVersion();
+  });
+  setInterval(() => checkDeployedVersion(), 10 * 60 * 1000);
+
   function structuredMeetingWhen(meeting) {
     const sameDay = !meeting.endDate || meeting.endDate === meeting.startDate;
     const span = sameDay ? meeting.startDate : `${meeting.startDate} ~ ${meeting.endDate}`;
@@ -19950,6 +19999,20 @@
     const isPlannedModule = Object.prototype.hasOwnProperty.call(PLANNED_MODULES, view);
     if (view === 'sales-db') renderSalesDatabase();
     else if (isPlannedModule) renderPlannedModule(view);
+    // 아이디어·개발수정요청은 여러 사람이 같이 쓴다. 접속할 때 한 번만 읽으면
+    // 남이 올린 글이 새로고침 전까지 안 보인다. 탭을 열 때마다 다시 읽는다.
+    if (view === 'ideas' && !previewPersona) {
+      Promise.resolve().then(async () => {
+        await refreshIdeas();
+        if (activeView === 'ideas') renderIdeaModule();
+      }).catch(() => {});
+    }
+    if (view === 'requests' && !previewPersona) {
+      Promise.resolve().then(async () => {
+        await refreshRequests();
+        if (activeView === 'requests') renderRequestModule();
+      }).catch(() => {});
+    }
     if (view === 'dashboard') renderDashboard();
     if (view === 'calendar') renderCalendar();
     if (view === 'todo') {
