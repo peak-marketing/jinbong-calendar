@@ -19006,3 +19006,87 @@ html body .request-row-actions > button.has-unread > em {
   font-size: 9px;
   font-style: normal;
 }
+
+/* 개발수정요청 검색 */
+html body .request-search {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 10px;
+  border: 1px solid var(--editor-line-strong);
+  border-radius: 9px;
+  padding: 0 11px;
+  background: var(--editor-surface);
+  color: var(--editor-muted);
+}
+html body .request-search > input {
+  min-width: 0;
+  min-height: 36px;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--editor-ink);
+  font: inherit;
+  font-size: 12px;
+}
+html body .request-title {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--editor-ink);
+  font: inherit;
+  font-weight: 800;
+  text-align: inherit;
+  cursor: pointer;
+}
+html body .request-title:hover { color: var(--editor-action-deep); text-decoration: underline; }
+
+/* 리마인더 */
+html body .reminder-popup { display: grid; gap: 10px; }
+html body .reminder-item {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--editor-line);
+  border-left: 3px solid var(--editor-action);
+  border-radius: 10px;
+  padding: 11px 14px;
+  background: var(--editor-raised);
+}
+html body .reminder-item > strong { color: var(--editor-ink); font-size: 13px; }
+html body .reminder-item > p {
+  margin: 0;
+  overflow: hidden;
+  color: var(--editor-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html body .reminder-item > button {
+  justify-self: start;
+  min-height: 26px;
+  margin-top: 3px;
+  border: 1px solid var(--editor-action);
+  border-radius: 8px;
+  padding: 0 11px;
+  background: var(--editor-surface);
+  color: var(--editor-action-deep);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+}
+html body .reminder-actions { display: flex; justify-content: flex-end; gap: 8px; }
+html body .reminder-actions > button {
+  min-height: 32px;
+  border: 1px solid var(--editor-line-strong);
+  border-radius: 9px;
+  padding: 0 13px;
+  background: var(--editor-surface);
+  color: var(--editor-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}

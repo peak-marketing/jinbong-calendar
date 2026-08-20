@@ -44,9 +44,23 @@ async function open(page, { canManage = false, onWrite = null } = {}) {
   });
   await page.setViewportSize({ width: 1500, height: 1000 });
   await page.goto('/business-os-preview.html');
+  // 리마인더 팝업이 먼저 뜨면 메뉴 클릭을 가로막는다. 닫고 시작한다.
+  await dismissReminder(page);
   for (const c of await page.locator('[data-nav-cluster] .nav-cluster-toggle').all()) if (await c.isVisible()) await c.click();
   await page.locator('.nav-item[data-view="requests"]').click();
+  await dismissReminder(page);
   await expect(page.locator('#requestForm')).toBeVisible();
+  // 데이터가 다 들어온 뒤에야 뜨는 경우가 있어 마지막으로 한 번 더 확인한다.
+  await dismissReminder(page);
+}
+
+async function dismissReminder(page) {
+  // 팝업은 데이터를 다 읽은 뒤에 뜬다. 부하가 걸리면 늦게 나타나므로
+  // 잠깐 기다렸다가 닫는다. 없으면 그냥 지나간다.
+  const close = page.locator('.reminder-popup [data-reminder-close]');
+  if (await close.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await close.click().catch(() => {});
+  }
 }
 
 test('전 직원이 개발수정요청을 올릴 수 있고 받는 사람을 고른다', async ({ page }) => {
@@ -240,8 +254,10 @@ test('답이 온 요청은 메뉴 배지와 줄에서 바로 티가 난다', asy
   });
   await page.setViewportSize({ width: 1500, height: 900 });
   await page.goto('/business-os-preview.html');
+  await dismissReminder(page);
   for (const c of await page.locator('[data-nav-cluster] .nav-cluster-toggle').all()) if (await c.isVisible()) await c.click();
   await page.locator('.nav-item[data-view="requests"]').click();
+  await dismissReminder(page);
 
   // 메뉴에 숫자가 붙는다.
   const badge = page.locator('.nav-item[data-view="requests"] .nav-badge');

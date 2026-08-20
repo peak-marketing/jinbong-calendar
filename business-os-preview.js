@@ -3497,6 +3497,8 @@
       loadFundBoard(),
       loadIdeaData(),
     ]);
+    // 데이터가 다 들어온 뒤에 한 번 짚어 준다. 그 전에 부르면 셀 것이 없다.
+    showReminderPopup();
   }
 
 
@@ -7378,6 +7380,103 @@
     if (!document.hidden) checkDeployedVersion();
   });
   setInterval(() => checkDeployedVersion(), 10 * 60 * 1000);
+
+
+  // ── 리마인더 ───────────────────────────────────────
+  // 배지는 눈에 들어와야 보이고, 브라우저 푸시는 권한을 막아 두면 안 온다.
+  // 화면에 들어왔을 때 한 번 확실히 말해 주는 자리가 필요하다.
+  const REMINDER_SNOOZE_KEY = 'peakos-reminder-snoozed-until';
+  const REMINDER_SNOOZE_MS = 30 * 60 * 1000;
+  let reminderShown = false;
+
+  function reminderSnoozedUntil() {
+    try { return Number(window.localStorage.getItem(REMINDER_SNOOZE_KEY) || 0); } catch (_) { return 0; }
+  }
+
+  function snoozeReminders() {
+    try { window.localStorage.setItem(REMINDER_SNOOZE_KEY, String(Date.now() + REMINDER_SNOOZE_MS)); } catch (_) {}
+  }
+
+  function collectReminders() {
+    const notices = [];
+    // 개발 담당자에게: 아직 손대지 않은 요청
+    if (requestCanManage) {
+      const untouched = liveRequests.filter(row => row.status === 'requested');
+      if (untouched.length) {
+        notices.push({
+          view: 'requests',
+          title: `새로운 수정요청이 ${untouched.length}건 있습니다`,
+          detail: untouched.slice(0, 3).map(row => row.title).join(' · '),
+        });
+      }
+    }
+    // 답이 온 요청 (요청자·담당자 모두)
+    if (requestUnreadTotal) {
+      notices.push({
+        view: 'requests',
+        title: `개발수정요청에 새 글이 ${requestUnreadTotal}건 있습니다`,
+        detail: '대화를 열어 확인해 주세요.',
+      });
+    }
+    // 오늘 못 끝낸 할 일
+    const today = koreaDateKey(new Date());
+    if (todoTodayBadgeState.status === 'ready'
+      && todoTodayBadgeState.date === today
+      && todoTodayBadgeState.remaining > 0) {
+      notices.push({
+        view: 'todo',
+        title: `오늘 못 끝낸 업무가 ${todoTodayBadgeState.remaining}건 있습니다`,
+        detail: (todoTodayBadgeState.todos || []).filter(todo => !todo.done)
+          .slice(0, 3).map(todo => todo.title).join(' · '),
+      });
+    }
+    return notices;
+  }
+
+  function showReminderPopup(force = false) {
+    if (previewPersona || !currentUser) return;
+    if (!force && (reminderShown || Date.now() < reminderSnoozedUntil())) return;
+    // 일하는 중에 모달이 끼어들면 방해다. 막 들어와서 아직 아무것도 시작하지
+    // 않은 화면(대시보드·캘린더)에서만 붙잡는다.
+    if (!['dashboard', 'calendar'].includes(activeView)) return;
+    const notices = collectReminders().filter(notice => notice.view !== activeView);
+    if (!notices.length) return;
+    reminderShown = true;
+    openDetailModal('확인이 필요합니다', `<div class="reminder-popup">
+      ${notices.map(notice => `<article class="reminder-item">
+        <strong>${esc(notice.title)}</strong>
+        ${notice.detail ? `<p>${esc(notice.detail)}</p>` : ''}
+        <button type="button" data-reminder-go="${esc(notice.view)}">보러 가기</button>
+      </article>`).join('')}
+      <div class="reminder-actions">
+        <button type="button" data-reminder-snooze>30분 뒤 다시 알림</button>
+        <button class="structured-primary-button" type="button" data-reminder-close>확인</button>
+      </div>
+    </div>`, { locked: false });
+
+    const host = document.querySelector('.reminder-popup');
+    host?.querySelectorAll('[data-reminder-go]').forEach(button => button.addEventListener('click', () => {
+      const view = button.dataset.reminderGo;
+      closeDetailModal();
+      activateView(view);
+    }));
+    host?.querySelector('[data-reminder-snooze]')?.addEventListener('click', () => {
+      snoozeReminders();
+      // 다시 뜰 수 있게 열어 둔다. 30분 뒤 같은 자리에서 한 번 더 말해 준다.
+      reminderShown = false;
+      closeDetailModal();
+      showToast('30분 뒤에 다시 알려드릴게요.');
+    });
+    host?.querySelector('[data-reminder-close]')?.addEventListener('click', () => closeDetailModal());
+  }
+
+  // 30분마다, 그리고 탭으로 돌아올 때 한 번씩 본다.
+  setInterval(() => {
+    if (document.hidden) return;
+    if (Date.now() < reminderSnoozedUntil()) return;
+    reminderShown = false;
+    showReminderPopup();
+  }, REMINDER_SNOOZE_MS);
 
   function structuredMeetingWhen(meeting) {
     const sameDay = !meeting.endDate || meeting.endDate === meeting.startDate;
@@ -16489,6 +16588,7 @@
   let requestAssignees = [];
   let requestCanManage = false;
   let requestUnreadTotal = 0;
+  let requestSearch = '';
 
   async function refreshRequests() {
     const payload = await callApi('GET', '/peakos/service-requests', null, { headers: { 'X-PeakOS-Preview': '0' } });
@@ -16884,6 +16984,25 @@
       if (!ok && submit) submit.disabled = false;
     });
 
+    const search = moduleView.querySelector('[data-request-search]');
+    if (search) {
+      let composing = false;
+      search.addEventListener('compositionstart', () => { composing = true; });
+      search.addEventListener('compositionend', () => { composing = false; applySearch(); });
+      const applySearch = () => {
+        requestSearch = search.value;
+        const at = search.selectionStart;
+        renderRequestModule();
+        // 다시 그려도 타이핑을 이어갈 수 있게 커서를 되돌린다.
+        const next = moduleView.querySelector('[data-request-search]');
+        if (next) { next.focus(); next.setSelectionRange(at, at); }
+      };
+      search.addEventListener('input', () => { if (!composing) applySearch(); });
+    }
+    moduleView.querySelectorAll('[data-request-open]').forEach(button => button.addEventListener('click', () => {
+      const row = liveRequests.find(entry => String(entry.id) === String(button.dataset.requestOpen));
+      if (row) openRequestThread(row);
+    }));
     moduleView.querySelectorAll('[data-request-thread]').forEach(button => button.addEventListener('click', () => {
       const row = liveRequests.find(entry => String(entry.id) === String(button.dataset.requestThread));
       if (row) openRequestThread(row);
@@ -16913,10 +17032,12 @@
       <div class="request-thread-head">
         <span class="vendor-chip ${row.status === 'done' ? 'done' : ''}">${esc(REQUEST_STATUS[row.status] || row.status)}</span>
         <span>${esc(row.productName || '상품 미지정')}</span>
+        <span>${esc(REQUEST_PRIORITY[row.priority] || row.priority || '보통')}</span>
         <span>요청 ${esc(row.requester?.name || '-')}</span>
         <span>담당 ${esc(row.assignee?.name || '미지정')}</span>
       </div>
-      ${row.content ? `<p class="request-thread-body">${esc(row.content)}</p>` : ''}
+      ${row.content ? `<p class="request-thread-body">${esc(row.content)}</p>` : '<p class="structured-form-help">적어 둔 내용이 없습니다.</p>'}
+      ${(row.attachments || []).length ? `<div class="idea-attachments">${row.attachments.map(file => attachmentLinks(file)).join('')}</div>` : ''}
       <div class="request-thread-list">${comments.length
         ? comments.map(entry => `<article class="request-thread-item">
             <span class="request-thread-who"><strong>${esc(entry.author?.name || '작성자')}</strong><em>${esc(String(entry.createdAt || '').slice(0, 10))}</em></span>
@@ -17014,12 +17135,20 @@
   }
 
   function renderRequestModule() {
-    const shown = requestStatus ? liveRequests.filter(row => row.status === requestStatus) : liveRequests;
+    // 검색어를 먼저 적용한다. 상태별 건수도 검색 결과 기준이어야
+    // "요청 3" 을 눌렀는데 1건만 나오는 일이 없다.
+    const needle = requestSearch.trim().toLowerCase();
+    const searched = needle
+      ? liveRequests.filter(row => [row.title, row.content, row.productName,
+        row.requester?.name, row.assignee?.name, row.managerNote]
+        .some(value => String(value || '').toLowerCase().includes(needle)))
+      : liveRequests;
+    const shown = requestStatus ? searched.filter(row => row.status === requestStatus) : searched;
     const counts = Object.keys(REQUEST_STATUS).reduce((acc, key) => {
-      acc[key] = liveRequests.filter(row => row.status === key).length;
+      acc[key] = searched.filter(row => row.status === key).length;
       return acc;
     }, {});
-    const open = liveRequests.filter(row => !['done', 'rejected'].includes(row.status)).length;
+    const open = searched.filter(row => !['done', 'rejected'].includes(row.status)).length;
 
     moduleView.innerHTML = `
       ${moduleStatusbar('개발수정요청', '', `처리 대기 ${open}건`)}
@@ -17051,8 +17180,12 @@
           <span class="module-chip ${open ? 'restricted' : 'live'}">처리 대기 ${esc(String(open))}건</span>
         </div>
         <div class="module-section-body">
+          <label class="request-search">
+            <span aria-hidden="true">⌕</span>
+            <input type="search" data-request-search value="${esc(requestSearch)}" placeholder="제목, 내용, 상품, 요청자, 담당자 검색" aria-label="개발수정요청 검색">
+          </label>
           <div class="request-tabs">
-            <button class="intake-kind-btn ${requestStatus === '' ? 'active' : ''}" type="button" data-request-status="">전체 ${esc(String(liveRequests.length))}</button>
+            <button class="intake-kind-btn ${requestStatus === '' ? 'active' : ''}" type="button" data-request-status="">전체 ${esc(String(searched.length))}</button>
             ${Object.entries(REQUEST_STATUS).map(([key, label]) =>
               `<button class="intake-kind-btn ${requestStatus === key ? 'active' : ''}" type="button" data-request-status="${esc(key)}">${esc(label)} ${esc(String(counts[key] || 0))}</button>`).join('')}
           </div>
@@ -17067,7 +17200,7 @@
                   <td><span class="vendor-chip ${['done'].includes(row.status) ? 'done' : ''}">${esc(REQUEST_STATUS[row.status] || row.status || '-')}</span></td>
                   <td class="${['urgent', 'high'].includes(row.priority) ? 'monthly-minus' : ''}">${esc(REQUEST_PRIORITY[row.priority] || row.priority || '-')}</td>
                   <td>${esc(row.productName || '-')}</td>
-                  <th scope="row">${esc(row.title || '제목 없음')}${row.content ? `<span class="request-note">${esc(String(row.content).slice(0, 60))}${String(row.content).length > 60 ? '…' : ''}</span>` : ''}${(row.attachments || []).length ? `<span class="request-note">첨부 ${row.attachments.length}개</span>` : ''}${row.managerNote ? `<span class="request-note">처리 메모 · ${esc(row.managerNote)}</span>` : ''}</th>
+                  <th scope="row"><button class="request-title" type="button" data-request-open="${esc(row.id)}">${esc(row.title || '제목 없음')}</button>${row.content ? `<span class="request-note">${esc(String(row.content).slice(0, 60))}${String(row.content).length > 60 ? '…' : ''}</span>` : ''}${(row.attachments || []).length ? `<span class="request-note">첨부 ${row.attachments.length}개</span>` : ''}${row.managerNote ? `<span class="request-note">처리 메모 · ${esc(row.managerNote)}</span>` : ''}</th>
                   <td>${esc(row.requester?.name || '-')}</td>
                   <td class="${row.assignee ? '' : 'ledger-memo-empty'}">${esc(row.assignee?.name || '미지정')}</td>
                   <td>${esc(String(row.createdAt || '').slice(0, 10))}</td>
@@ -17078,7 +17211,7 @@
                 </tr>`).join('')}
               </tbody>
             </table>
-          </div>` : '<p class="sales-state">해당 상태의 개발수정요청이 없습니다.</p>'}
+          </div>` : `<p class="sales-state">${needle ? '검색 조건에 맞는 요청이 없습니다.' : '해당 상태의 개발수정요청이 없습니다.'}</p>`}
         </div>
       </section>`;
     wireRequestModule();

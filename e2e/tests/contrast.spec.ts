@@ -97,6 +97,9 @@ async function boot(page) {
   await page.setViewportSize({ width: 1600, height: 1000 });
   await page.goto('/business-os-preview.html');
   await page.waitForTimeout(1200);
+  // 리마인더 팝업이 떠 있으면 메뉴 클릭을 가로막는다.
+  const close = page.locator('.reminder-popup [data-reminder-close]');
+  if (await close.isVisible({ timeout: 800 }).catch(() => false)) await close.click();
 }
 
 // 색을 하드코딩하면 한쪽 테마에서 배경에 묻힌다. 실제로 회의·개발비·상태 색이
