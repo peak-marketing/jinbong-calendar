@@ -119,6 +119,7 @@ const {
 const {
   registerPeakosTodoRoutes,
 } = require('./todos/peakos-todo-routes');
+const { registerPeakosDevExpenseRoutes } = require('./expenses/peakos-dev-expense-routes');
 const {
   PEAK_WORKSPACE_ID,
   createPeakosWorkspaceService,
@@ -7500,6 +7501,23 @@ registerPeakosTodoRoutes({
   ],
   writeMiddlewares: [
     peakosWorkspaceService.requireWorkspace({ area: 'calendar', action: 'write', requireHeader: true }),
+  ],
+});
+
+// 개발비는 등록된 다섯 사람만 본다. 그 판단은 라우트 안에서 DB로 하고,
+// 여기서는 로그인·워크스페이스만 확인한다.
+registerPeakosDevExpenseRoutes({
+  app,
+  pool,
+  readMiddlewares: [
+    authMiddleware,
+    peakosOsEmailAuth.requireOsSession,
+    peakosWorkspaceService.requireWorkspace({ area: 'settlements', action: 'read', requireHeader: true }),
+  ],
+  writeMiddlewares: [
+    authMiddleware,
+    peakosOsEmailAuth.requireOsSession,
+    peakosWorkspaceService.requireWorkspace({ area: 'settlements', action: 'read', requireHeader: true }),
   ],
 });
 

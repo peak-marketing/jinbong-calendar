@@ -101,6 +101,38 @@
     }
   }
 
+
+  // 개발비 탭 — 서버비·호스팅비·AI 구독 같은 개발 지출을 적는 곳.
+  // 등록된 사람만 보므로, 서버가 목록을 내주기 전까지는 메뉴를 감춰 둔다.
+  // 이 두 값은 메뉴 잠금 계산(applyNavPermissions)이 읽는다. 그 계산은 화면이
+  // 뜨자마자 도는데, 선언이 아래쪽에 있으면 아직 초기화되기 전이라 참조 오류가
+  // 나면서 메뉴가 통째로 안 그려진다. 그래서 여기, 가장 먼저 둔다.
+  let devExpenseAllowed = false;
+  let devExpenseProbeKey = '';
+  let devExpenseView = document.getElementById('devExpenseView');
+  {
+    const closingNav = document.querySelector('.app-sidebar .nav-item[data-view="closing"]');
+    if (closingNav && !document.querySelector('.nav-item[data-view="dev-expense"]')) {
+      const navItem = document.createElement('button');
+      navItem.className = 'nav-item';
+      navItem.type = 'button';
+      navItem.dataset.view = 'dev-expense';
+      navItem.dataset.tabSearch = 'DEV EXPENSE 개발비 서버비 호스팅비 AI 구독 카드 결제';
+      navItem.innerHTML = '<span class="nav-icon">⌗</span>개발비';
+      navItem.hidden = true;
+      closingNav.before(navItem);
+    }
+    const anchorSection = document.getElementById('newProjectsView');
+    if (anchorSection && !devExpenseView) {
+      devExpenseView = document.createElement('section');
+      devExpenseView.className = 'dev-expense-view';
+      devExpenseView.id = 'devExpenseView';
+      devExpenseView.hidden = true;
+      devExpenseView.setAttribute('aria-live', 'polite');
+      anchorSection.after(devExpenseView);
+    }
+  }
+
   // 주요 메뉴의 이름과 순서를 화면 기준으로 맞춘다.
   {
     const renames = { todo: '투두리스트', 'new-projects': '프로젝트', 'my-work': '업무 현황', requests: '개발 수정요청' };
@@ -3046,6 +3078,7 @@
       </label>` : '';
     accountPreviewSlot.querySelector('#personaSelect')?.addEventListener('change', event => applyPersona(event.target.value));
     applyNavPermissions();
+    probeDevExpenseAccess().catch(() => {});
   }
 
   // 최종정산서 탭은 지정된 인원에게만 보인다.
@@ -3069,7 +3102,8 @@
       credit: canUseCreditRequests() || canNavigateFinanceOperation('credit'),
       closing: peakosOpen && canNavigateFinanceOperation('closing'),
       bank: canNavigateTaxBankingView('bank'),
-      receivable: peakosOpen && canNavigateFinanceOperation('receivable')
+      receivable: peakosOpen && canNavigateFinanceOperation('receivable'),
+      'dev-expense': devExpenseAllowed
     };
     TAX_BANKING_PUBLIC_VIEWS.forEach(view => {
       locks[view] = canNavigateTaxBankingView(view);
@@ -5763,6 +5797,217 @@
       else myWorkCollapsedGroups.add(key);
       renderMyWork();
     }));
+  }
+
+
+  // ── 개발비 ─────────────────────────────────────────
+  const DEV_EXPENSE_CATEGORY_LABELS = Object.freeze({
+    server: '서버비', hosting: '호스팅비', ai: 'AI 사용',
+    domain: '도메인', tool: '개발 도구', etc: '기타',
+  });
+  let devExpenseState = { status: 'idle', expenses: [], cards: [], error: '', contextKey: '' };
+  async function probeDevExpenseAccess() {
+    // 어느 워크스페이스인지는 서버가 판단한다. 여기서 또 막으면 판단이 두 곳으로
+    // 갈라지고, 한쪽이 틀리면 볼 수 있는 사람이 못 보게 된다.
+    if (previewPersona || !currentUser) {
+      devExpenseAllowed = false;
+      return;
+    }
+    const contextKey = devExpenseContextKey();
+    if (devExpenseProbeKey === contextKey) return;
+    devExpenseProbeKey = contextKey;
+    try {
+      const payload = await callApi('GET', '/peakos/dev-expenses', null, { headers: { 'X-PeakOS-Preview': '0' } });
+      devExpenseAllowed = true;
+      devExpenseState = {
+        status: 'ready',
+        expenses: Array.isArray(payload?.expenses) ? payload.expenses : [],
+        cards: Array.isArray(payload?.cards) ? payload.cards : [],
+        error: '', contextKey,
+      };
+    } catch (_) {
+      devExpenseAllowed = false;
+    }
+    applyNavPermissions();
+    if (activeView === 'dev-expense') renderDevExpenses();
+  }
+
+  function devExpenseContextKey() {
+    return [activeWorkspaceSlug || 'legacy', currentUser?.uid || ''].join('|');
+  }
+
+  function devExpenseMoney(amount) {
+    return `${Number(amount || 0).toLocaleString('ko-KR')}원`;
+  }
+
+  async function refreshDevExpenses() {
+    const contextKey = devExpenseContextKey();
+    devExpenseState = { ...devExpenseState, status: 'loading', contextKey };
+    renderDevExpenses();
+    try {
+      const payload = await callApi('GET', '/peakos/dev-expenses', null, { headers: { 'X-PeakOS-Preview': '0' } });
+      devExpenseState = {
+        status: 'ready',
+        expenses: Array.isArray(payload?.expenses) ? payload.expenses : [],
+        cards: Array.isArray(payload?.cards) ? payload.cards : [],
+        error: '',
+        contextKey,
+      };
+    } catch (error) {
+      // 권한이 없으면 조용히 탭을 감춘다. 볼 수 없는 메뉴를 남겨 두면 눌러 보게 된다.
+      devExpenseState = {
+        status: error?.status === 403 ? 'forbidden' : 'error',
+        expenses: [], cards: [], error: error?.message || '개발비 내역을 불러오지 못했습니다.', contextKey,
+      };
+    }
+    applyDevExpenseVisibility();
+    renderDevExpenses();
+  }
+
+  function applyDevExpenseVisibility() {
+    devExpenseAllowed = devExpenseState.status !== 'forbidden';
+    applyNavPermissions();
+  }
+
+  function devExpenseRow(expense) {
+    const category = DEV_EXPENSE_CATEGORY_LABELS[expense.category] || expense.category;
+    return `<article class="dev-expense-row" data-dev-expense-id="${esc(expense.id)}">
+      <span class="dev-expense-date">${esc(expense.spentOn)}</span>
+      <span class="dev-expense-category cat-${esc(expense.category)}">${esc(category)}</span>
+      <span class="dev-expense-name"><strong>${esc(expense.serviceName)}</strong>${expense.memo ? `<small>${esc(expense.memo)}</small>` : ''}</span>
+      <span class="dev-expense-amount">${esc(devExpenseMoney(expense.amount))}</span>
+      <span class="dev-expense-card">${expense.cardName ? esc(expense.cardName) : '<em>카드 미기재</em>'}</span>
+      <span class="dev-expense-cycle">${expense.isSubscription
+        ? `<b>구독</b><small>다음 ${esc(expense.renewsOn || '-')}</small>`
+        : '<small>1회 결제</small>'}</span>
+      <span class="dev-expense-paid ${expense.paid ? 'is-paid' : 'is-unpaid'}">${expense.paid ? '결제완료' : '미결제'}</span>
+      <span class="dev-expense-actions">
+        <button type="button" data-dev-expense-edit="${esc(expense.id)}">수정</button>
+        <button class="structured-danger-button" type="button" data-dev-expense-delete="${esc(expense.id)}">삭제</button>
+      </span>
+    </article>`;
+  }
+
+  function renderDevExpenses() {
+    if (!devExpenseView) return;
+    if (devExpenseState.status === 'loading' || devExpenseState.status === 'idle') {
+      devExpenseView.innerHTML = '<div class="dev-expense-empty loading"><strong>개발비 내역을 불러오는 중입니다</strong></div>';
+      return;
+    }
+    if (devExpenseState.status === 'forbidden') {
+      devExpenseView.innerHTML = '<div class="dev-expense-empty"><strong>개발비 내역을 볼 권한이 없습니다.</strong></div>';
+      return;
+    }
+    if (devExpenseState.status === 'error') {
+      devExpenseView.innerHTML = `<div class="dev-expense-empty error"><strong>개발비 내역을 불러오지 못했습니다</strong><small>${esc(devExpenseState.error)}</small><button type="button" data-dev-expense-retry>다시 불러오기</button></div>`;
+      devExpenseView.querySelector('[data-dev-expense-retry]')?.addEventListener('click', () => refreshDevExpenses());
+      return;
+    }
+    const expenses = devExpenseState.expenses;
+    const total = expenses.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+    const unpaid = expenses.filter(entry => !entry.paid);
+    const subscriptions = expenses.filter(entry => entry.isSubscription);
+    const monthly = subscriptions.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+
+    devExpenseView.innerHTML = `
+      <section class="dev-expense-shell">
+        <header class="dev-expense-head">
+          <div class="dev-expense-summary">
+            <span><b>전체</b><strong>${esc(devExpenseMoney(total))}</strong><small>${expenses.length}건</small></span>
+            <span><b>구독 합계</b><strong>${esc(devExpenseMoney(monthly))}</strong><small>${subscriptions.length}건</small></span>
+            <span class="${unpaid.length ? 'is-warning' : ''}"><b>미결제</b><strong>${esc(devExpenseMoney(unpaid.reduce((sum, entry) => sum + Number(entry.amount || 0), 0)))}</strong><small>${unpaid.length}건</small></span>
+          </div>
+          <button class="structured-primary-button" type="button" data-dev-expense-create>＋ 개발비 추가</button>
+        </header>
+        ${expenses.length ? `<div class="dev-expense-list">
+          <div class="dev-expense-row is-head">
+            <span>사용일</span><span>항목</span><span>서비스</span><span>금액</span>
+            <span>결제 카드</span><span>주기</span><span>결제</span><span></span>
+          </div>
+          ${expenses.map(devExpenseRow).join('')}
+        </div>` : '<div class="dev-expense-empty"><strong>아직 적은 개발비가 없습니다</strong><small>서버비·호스팅비·AI 구독료를 적어 두면 결산에서 한눈에 봅니다.</small></div>'}
+      </section>`;
+
+    devExpenseView.querySelector('[data-dev-expense-create]')?.addEventListener('click', () => openDevExpenseEditor());
+    devExpenseView.querySelectorAll('[data-dev-expense-edit]').forEach(button => button.addEventListener('click', () => {
+      const found = expenses.find(entry => String(entry.id) === String(button.dataset.devExpenseEdit));
+      if (found) openDevExpenseEditor(found);
+    }));
+    devExpenseView.querySelectorAll('[data-dev-expense-delete]').forEach(button => button.addEventListener('click', async () => {
+      const found = expenses.find(entry => String(entry.id) === String(button.dataset.devExpenseDelete));
+      if (!found) return;
+      if (!window.confirm(`"${found.serviceName}" 내역을 삭제할까요?`)) return;
+      try {
+        await callApi('DELETE', `/peakos/dev-expenses/${encodeURIComponent(found.id)}`, null, { headers: { 'X-PeakOS-Preview': '0' } });
+        showToast('개발비 내역을 삭제했습니다.');
+        await refreshDevExpenses();
+      } catch (error) {
+        showToast(error.message || '삭제하지 못했습니다.');
+      }
+    }));
+  }
+
+  function openDevExpenseEditor(expense = null) {
+    const editing = Boolean(expense);
+    const today = koreaDateKey(new Date());
+    const cards = devExpenseState.cards;
+    openDetailModal(editing ? '개발비 수정' : '개발비 추가', `<form class="collaboration-form dev-expense-form" id="devExpenseForm">
+      <div class="collaboration-form-grid">
+        <label><span>사용일</span><input name="spentOn" type="date" required value="${esc(expense?.spentOn || today)}"></label>
+        <label><span>항목</span><select name="category" required>${Object.entries(DEV_EXPENSE_CATEGORY_LABELS).map(([key, label]) =>
+          `<option value="${esc(key)}" ${String(expense?.category || 'ai') === key ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></label>
+        <label class="wide"><span>서비스명</span><input name="serviceName" maxlength="180" required value="${esc(expense?.serviceName || '')}" placeholder="예: ChatGPT Plus / AWS Lightsail / 가비아 도메인"></label>
+        <label><span>금액</span><input name="amount" inputmode="numeric" required value="${esc(expense ? String(expense.amount) : '')}" placeholder="29000"></label>
+        <label><span>결제 카드</span><input name="cardName" maxlength="80" list="devExpenseCards" value="${esc(expense?.cardName || '')}" placeholder="예: 국민카드 (∙8812)"><datalist id="devExpenseCards">${cards.map(card => `<option value="${esc(card)}"></option>`).join('')}</datalist><small class="structured-form-help">한 번 적은 카드는 다음부터 자동완성됩니다.</small></label>
+        <label class="dev-expense-check"><input name="isSubscription" type="checkbox" ${expense?.isSubscription ? 'checked' : ''}><span>구독제입니다</span></label>
+        <label><span>다음 결제일</span><input name="renewsOn" type="date" value="${esc(expense?.renewsOn || '')}" ${expense?.isSubscription ? '' : 'disabled'}><small class="structured-form-help">구독일 때만 적습니다.</small></label>
+        <label class="dev-expense-check"><input name="paid" type="checkbox" ${expense?.paid ? 'checked' : ''}><span>결제 완료</span></label>
+        <label class="wide"><span>메모</span><textarea name="memo" rows="3" maxlength="2000" placeholder="계정, 용도, 해지 조건 등">${esc(expense?.memo || '')}</textarea></label>
+      </div>
+      <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">${editing ? '저장' : '추가'}</button></div>
+    </form>`, { locked: true });
+
+    const form = document.getElementById('devExpenseForm');
+    const subscription = form.elements.isSubscription;
+    const renews = form.elements.renewsOn;
+    // 구독이 아니면 갱신일 자체를 못 적게 한다. 서버·DB도 같은 규칙으로 막는다.
+    subscription.addEventListener('change', () => {
+      renews.disabled = !subscription.checked;
+      if (!subscription.checked) renews.value = '';
+    });
+    form.querySelector('[data-collab-cancel]').addEventListener('click', () => closeDetailModal());
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const data = new FormData(form);
+      const record = {
+        spentOn: String(data.get('spentOn') || ''),
+        category: String(data.get('category') || ''),
+        serviceName: String(data.get('serviceName') || '').trim(),
+        amount: String(data.get('amount') || '').replace(/,/g, '').trim(),
+        cardName: String(data.get('cardName') || '').trim(),
+        isSubscription: subscription.checked,
+        renewsOn: subscription.checked ? String(data.get('renewsOn') || '') : '',
+        paid: form.elements.paid.checked,
+        memo: String(data.get('memo') || '').trim(),
+      };
+      if (!record.serviceName) return showToast('서비스명을 입력해 주세요.');
+      if (!/^\d+(?:\.\d{1,2})?$/.test(record.amount)) return showToast('금액을 숫자로 입력해 주세요.');
+      if (record.isSubscription && !record.renewsOn) return showToast('구독이면 다음 결제일을 정해 주세요.');
+      if (record.isSubscription && record.renewsOn < record.spentOn) {
+        return showToast('다음 결제일이 사용일보다 빠릅니다.');
+      }
+      if (editing) record.expectedVersion = Number(expense.version || 1);
+      try {
+        await callApi(editing ? 'PUT' : 'POST',
+          editing ? `/peakos/dev-expenses/${encodeURIComponent(expense.id)}` : '/peakos/dev-expenses',
+          record, { headers: { 'X-PeakOS-Preview': '0' } });
+        showToast(editing ? '개발비 내역을 저장했습니다.' : '개발비 내역을 추가했습니다.');
+        closeDetailModal();
+        await refreshDevExpenses();
+      } catch (error) {
+        showToast(error.message || '저장하지 못했습니다.');
+      }
+    });
   }
 
   function structuredProjectContextKey() {
@@ -19158,7 +19403,9 @@
       && view !== 'permissions' && !creditRequestAllowed && !salesOperationAllowed
       && !salesDatabaseAllowed && !monthlySettlementAllowed && !reportsAllowed
       && !specialSettlementAllowed && !taxBankingAllowed && !workspaceCoreAllowed
-      && !companyResourceAllowed) {
+      && !companyResourceAllowed
+      // 개발비는 자기 열람자 목록을 서버가 따로 확인한다. 다른 권한이 없어도 열려야 한다.
+      && !(view === 'dev-expense' && devExpenseAllowed)) {
       view = 'dashboard';
     }
     if (isWorkspaceRoute() && !workspaceCanAccessView(view)) view = workspaceLandingView();
@@ -19226,6 +19473,13 @@
         });
       }
     }
+    if (view === 'dev-expense') {
+      renderDevExpenses();
+      if (!previewPersona && (devExpenseState.status === 'idle'
+        || devExpenseState.contextKey !== devExpenseContextKey())) {
+        Promise.resolve().then(() => refreshDevExpenses()).catch(() => {});
+      }
+    }
     if (view === 'my-work') {
       renderMyWork();
       if (!previewPersona && collaborationScope.projects
@@ -19255,9 +19509,10 @@
     reviewView.hidden = view !== 'review';
     newProjectsView.hidden = view !== 'new-projects';
     if (myWorkView) myWorkView.hidden = view !== 'my-work';
+    if (devExpenseView) devExpenseView.hidden = view !== 'dev-expense';
     moduleView.hidden = !isPlannedModule;
     permissionsView.hidden = view !== 'permissions';
-    const labels = { dashboard: '대시보드', calendar: '캘린더', chat: '채팅', todo: '투두리스트', review: '기존 프로젝트', 'new-projects': '프로젝트', 'my-work': '업무 현황', permissions: '조직 및 권한', ...PLANNED_MODULES };
+    const labels = { dashboard: '대시보드', calendar: '캘린더', chat: '채팅', todo: '투두리스트', review: '기존 프로젝트', 'new-projects': '프로젝트', 'my-work': '업무 현황', 'dev-expense': '개발비', permissions: '조직 및 권한', ...PLANNED_MODULES };
     pageCrumb.textContent = labels[view] || '피크마케팅';
     document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === view));
     const activeNav = document.querySelector(`.app-sidebar .nav-item[data-view="${view}"]`);

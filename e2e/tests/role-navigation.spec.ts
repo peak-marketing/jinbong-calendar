@@ -358,7 +358,7 @@ test.describe('직무별 하위 메뉴', () => {
     const main = page.locator('[data-nav-cluster="main"]');
     await main.locator(':scope > .nav-cluster-toggle').click();
     const requestTab = page.locator('[data-view="requests"]');
-    await expect(requestTab).toHaveText(/개발수정요청/);
+    await expect(requestTab).toHaveText(/개발 ?수정요청/);
     await requestTab.click();
     await expect(page.locator('.module-statusbar strong', { hasText: '개발수정요청' })).toBeVisible();
     await expect(page.getByText('개발 요청 표시 확인', { exact: true })).toBeVisible();
