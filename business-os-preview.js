@@ -16405,6 +16405,7 @@
   let liveIdeas = [];
   let liveRequests = [];
   let ideaCategory = '';
+  let ideaVisibility = '';
   let requestStatus = '';
 
   const REQUEST_STATUS = {
@@ -16438,6 +16439,7 @@
   // ── 아이디어 창구 ──────────────────────────────────
   // 예전에는 파라곤 아이디어를 그대로 비추기만 해서 아무도 글을 못 올렸다.
   // 이제 PEAK OS가 직접 들고 있고, 여기서 바로 올린다.
+  const IDEA_VISIBILITY_LABELS = Object.freeze({ private: '개인', shared: '함께 보기' });
   const IDEA_STATUS_LABELS = Object.freeze({
     open: '접수', reviewing: '검토 중', adopted: '채택', dropped: '보류',
   });
@@ -16448,6 +16450,7 @@
     return `<article class="idea-card" data-idea-id="${esc(row.id)}">
       <div class="idea-card-head">
         <strong>${esc(row.title || '제목 없음')}</strong>
+        <span class="idea-visibility is-${esc(row.visibility === 'shared' ? 'shared' : 'private')}">${esc(IDEA_VISIBILITY_LABELS[row.visibility === 'shared' ? 'shared' : 'private'])}</span>
         <span class="idea-status is-${esc(status)}">${esc(IDEA_STATUS_LABELS[status])}</span>
         ${row.category ? `<span class="kind-badge added">${esc(row.category)}</span>` : ''}
       </div>
@@ -16469,7 +16472,9 @@
   function renderIdeaModule() {
     const cats = [...new Set(liveIdeas.map(row => row.category).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b, 'ko'));
-    const shown = ideaCategory ? liveIdeas.filter(row => row.category === ideaCategory) : liveIdeas;
+    const shown = liveIdeas
+      .filter(row => !ideaCategory || row.category === ideaCategory)
+      .filter(row => !ideaVisibility || (row.visibility === 'shared' ? 'shared' : 'private') === ideaVisibility);
     const option = (value, label, selected) => `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(label)}</option>`;
 
     moduleView.innerHTML = `
@@ -16485,6 +16490,11 @@
               <label><span>분류</span><input name="category" maxlength="60" list="ideaCategoryList" placeholder="예: 개발 / 영업 / 운영"><datalist id="ideaCategoryList">${cats.map(name => `<option value="${esc(name)}"></option>`).join('')}</datalist></label>
               <label><span>한 줄 요약</span><input name="summary" maxlength="2000" placeholder="한 문장으로"></label>
               <label class="wide"><span>내용</span><textarea name="detail" rows="4" maxlength="20000" placeholder="어떤 문제를 어떻게 풀자는 것인지 적어 주세요."></textarea></label>
+              <fieldset class="wide idea-visibility-field">
+                <legend>공개 범위</legend>
+                <label class="idea-visibility-option"><input type="radio" name="visibility" value="private" checked><span>개인 아이디어</span><em>나만 봅니다</em></label>
+                <label class="idea-visibility-option"><input type="radio" name="visibility" value="shared"><span>함께 볼 아이디어</span><em>조직 구성원이 함께 봅니다</em></label>
+              </fieldset>
             </div>
             <div class="idea-form-actions"><button class="structured-primary-button" type="submit">아이디어 올리기</button></div>
           </form>
@@ -16501,6 +16511,14 @@
               <select data-idea-category>
                 ${option('', '전체', ideaCategory)}
                 ${cats.map(name => option(name, name, ideaCategory)).join('')}
+              </select>
+            </label>
+            <label class="ledger-filter-field">
+              <span>공개 범위</span>
+              <select data-idea-visibility>
+                ${option('', '전체', ideaVisibility)}
+                ${option('private', '개인 아이디어', ideaVisibility)}
+                ${option('shared', '함께 볼 아이디어', ideaVisibility)}
               </select>
             </label>
           </div>
@@ -16534,6 +16552,8 @@
         category: String(data.get('category') || '').trim(),
         summary: String(data.get('summary') || '').trim(),
         detail: String(data.get('detail') || '').trim(),
+        // 고르지 않았으면 개인이다. 실수로 공개되는 쪽으로 기울지 않는다.
+        visibility: String(data.get('visibility') || 'private'),
       };
       if (!record.title) return showToast('제목을 입력해 주세요.');
       const submit = form.querySelector('button[type="submit"]');
@@ -16542,12 +16562,16 @@
       if (!ok && submit) submit.disabled = false;
     });
 
+    moduleView.querySelector('[data-idea-visibility]')?.addEventListener('change', event => {
+      ideaVisibility = event.target.value;
+      renderIdeaModule();
+    });
     moduleView.querySelectorAll('[data-idea-status]').forEach(select => select.addEventListener('change', async () => {
       const row = liveIdeas.find(entry => String(entry.id) === String(select.dataset.ideaStatus));
       if (!row) return;
       await saveIdea('PUT', `/peakos/ideas/${encodeURIComponent(row.id)}`, {
         title: row.title, category: row.category, summary: row.summary, detail: row.detail,
-        status: select.value, expectedVersion: Number(row.version || 1),
+        status: select.value, visibility: row.visibility, expectedVersion: Number(row.version || 1),
       }, '아이디어 상태를 바꿨습니다.');
     }));
 
@@ -16571,6 +16595,11 @@
         <label><span>분류</span><input name="category" maxlength="60" value="${esc(row.category || '')}"></label>
         <label><span>한 줄 요약</span><input name="summary" maxlength="2000" value="${esc(row.summary || '')}"></label>
         <label class="wide"><span>내용</span><textarea name="detail" rows="5" maxlength="20000">${esc(row.detail || '')}</textarea></label>
+        <fieldset class="wide idea-visibility-field">
+          <legend>공개 범위</legend>
+          <label class="idea-visibility-option"><input type="radio" name="visibility" value="private" ${row.visibility === 'shared' ? '' : 'checked'}><span>개인 아이디어</span><em>나만 봅니다</em></label>
+          <label class="idea-visibility-option"><input type="radio" name="visibility" value="shared" ${row.visibility === 'shared' ? 'checked' : ''}><span>함께 볼 아이디어</span><em>조직 구성원이 함께 봅니다</em></label>
+        </fieldset>
       </div>
       <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">저장</button></div>
     </form>`, { locked: true });
@@ -16586,6 +16615,7 @@
         category: String(data.get('category') || '').trim(),
         summary: String(data.get('summary') || '').trim(),
         detail: String(data.get('detail') || '').trim(),
+        visibility: String(data.get('visibility') || 'private'),
         expectedVersion: Number(row.version || 1),
       }, '아이디어를 수정했습니다.');
       if (ok) closeDetailModal();

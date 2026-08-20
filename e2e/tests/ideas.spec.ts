@@ -7,7 +7,7 @@ const IDEAS = [
     author: { uid: 'e2e-test-user', name: '김대호' },
     capabilities: { edit: true, remove: true, setStatus: true } },
   { id: 'i2', title: '남이 올린 아이디어', category: '영업', summary: '', detail: '',
-    status: 'adopted', version: 2, createdAt: '2026-08-10T01:00:00.000Z',
+    status: 'adopted', visibility: 'shared', version: 2, createdAt: '2026-08-10T01:00:00.000Z',
     author: { uid: 'other', name: '패션TV봉이' },
     capabilities: { edit: false, remove: false, setStatus: false } },
 ];
@@ -49,7 +49,43 @@ test('아이디어 탭에서 바로 글을 올릴 수 있다', async ({ page }) 
   expect(sent.body).toEqual({
     title: '리뷰 요청 폼을 카카오톡으로 받기', category: '개발',
     summary: '한 문장 요약', detail: '이렇게 하면 좋겠습니다',
+    // 아무것도 안 고르면 개인이다.
+    visibility: 'private',
   });
+});
+
+test('공개 범위를 고르지 않으면 개인으로 나간다', async ({ page }) => {
+  let sent: any = null;
+  await open(page, { onWrite: (_m, _u, body) => { sent = body; } });
+  const form = page.locator('#ideaForm');
+  await expect(form.locator('[name="visibility"][value="private"]')).toBeChecked();
+  await form.locator('[name="title"]').fill('기본값 확인');
+  await form.locator('button[type="submit"]').click();
+  await expect.poll(() => sent).not.toBeNull();
+  expect(sent.visibility).toBe('private');
+});
+
+test('함께 볼 아이디어로 고르면 그대로 보낸다', async ({ page }) => {
+  let sent: any = null;
+  await open(page, { onWrite: (_m, _u, body) => { sent = body; } });
+  const form = page.locator('#ideaForm');
+  await form.locator('[name="title"]').fill('같이 봅시다');
+  await form.locator('[name="visibility"][value="shared"]').check();
+  await form.locator('button[type="submit"]').click();
+  await expect.poll(() => sent).not.toBeNull();
+  expect(sent.visibility).toBe('shared');
+});
+
+test('카드마다 개인인지 함께 보는지 표시된다', async ({ page }) => {
+  await open(page);
+  const cards = page.locator('.idea-card');
+  await expect(cards.nth(0).locator('.idea-visibility')).toHaveText('개인');
+  await expect(cards.nth(1).locator('.idea-visibility')).toHaveText('함께 보기');
+
+  // 공개 범위로 걸러 볼 수 있다.
+  await page.locator('[data-idea-visibility]').selectOption('shared');
+  await expect(page.locator('.idea-card')).toHaveCount(1);
+  await expect(page.locator('.idea-card').first()).toContainText('남이 올린 아이디어');
 });
 
 test('파라곤 안내 문구가 사라지고 올라온 아이디어가 보인다', async ({ page }) => {

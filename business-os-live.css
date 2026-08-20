@@ -18682,3 +18682,57 @@ html body .idea-summary { color: var(--editor-text); }
 html body .idea-detail { color: var(--editor-muted); }
 html body .idea-card-foot,
 html body .idea-card-foot > span { color: var(--editor-muted); }
+
+/* 공개 범위 — 개인인지 함께 보는 것인지 한눈에 */
+html body .idea-visibility {
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+html body .idea-visibility.is-private {
+  background: var(--editor-surface);
+  color: var(--editor-text);
+  box-shadow: inset 0 0 0 1px var(--editor-line-strong);
+}
+html body .idea-visibility.is-shared { background: var(--editor-green-soft); color: var(--editor-green-ink); }
+html body .idea-visibility-field {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+html body .idea-visibility-field > legend {
+  padding: 0 0 5px;
+  color: var(--editor-muted);
+  font-size: 10px;
+  font-weight: 850;
+}
+html body .idea-visibility-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--editor-line-strong);
+  border-radius: 9px;
+  padding: 8px 12px;
+  background: var(--editor-surface);
+  cursor: pointer;
+}
+html body .idea-visibility-option:has(input:checked) {
+  border-color: var(--editor-action);
+  background: var(--editor-action-soft);
+}
+html body .idea-visibility-option > input[type="radio"] {
+  flex: 0 0 auto;
+  width: 15px;
+  min-width: 15px;
+  height: 15px;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--editor-action);
+}
+html body .idea-visibility-option > span { color: var(--editor-ink); font-size: 12px; font-weight: 800; }
+html body .idea-visibility-option > em { color: var(--editor-muted); font-size: 10px; font-style: normal; }
