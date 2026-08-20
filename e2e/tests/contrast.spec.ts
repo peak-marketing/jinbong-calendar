@@ -98,7 +98,7 @@ async function boot(page) {
   await page.goto('/business-os-preview.html');
   await page.waitForTimeout(1200);
   // 리마인더 팝업이 떠 있으면 메뉴 클릭을 가로막는다.
-  const close = page.locator('.reminder-popup [data-reminder-close]');
+  const close = page.locator('#reminderPanel [data-reminder-close]');
   if (await close.isVisible({ timeout: 800 }).catch(() => false)) await close.click();
 }
 

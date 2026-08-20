@@ -3496,6 +3496,8 @@
       loadCreditDraft(),
       loadFundBoard(),
       loadIdeaData(),
+      // 마감이 오늘인 업무를 세려면 내 업무도 미리 읽어 둬야 한다.
+      previewPersona ? Promise.resolve() : refreshMyWork().catch(() => {}),
     ]);
     // 데이터가 다 들어온 뒤에 한 번 짚어 준다. 그 전에 부르면 셀 것이 없다.
     showReminderPopup();
@@ -7046,9 +7048,29 @@
     return [...records.values()].sort((a, b) => structuredProjectMemberName(a).localeCompare(structuredProjectMemberName(b), 'ko'));
   }
 
+  // 같은 이름을 쓰는 계정이 실제로 있다(김주현 두 명). 이름·직급·팀까지 같으면
+  // 화면에서 구분할 방법이 없어 엉뚱한 사람을 고르게 된다. 겹칠 때만 계정을 덧붙인다.
+  function structuredDuplicateNames(users) {
+    const seen = new Map();
+    users.forEach(user => {
+      const name = structuredProjectMemberName(user);
+      seen.set(name, (seen.get(name) || 0) + 1);
+    });
+    return new Set([...seen.entries()].filter(([, count]) => count > 1).map(([name]) => name));
+  }
+
+  function structuredMemberHint(user, duplicates) {
+    if (!duplicates.has(structuredProjectMemberName(user))) return '';
+    const email = String(user.email || '').trim();
+    return email ? email.split('@')[0] : String(user.uid || '').slice(0, 6);
+  }
+
   function structuredMemberCheckboxes(users, selectedIds) {
+    const duplicates = structuredDuplicateNames(users);
     return users.map(user => {
-      const meta = [structuredProjectMemberRank(user), user.group_name || user.groupName || ''].filter(Boolean).join(' · ');
+      const hint = structuredMemberHint(user, duplicates);
+      const meta = [structuredProjectMemberRank(user), user.group_name || user.groupName || '', hint]
+        .filter(Boolean).join(' · ');
       return `<label class="collaboration-member-option"><input type="checkbox" name="memberUids" value="${esc(user.uid)}" ${selectedIds.has(String(user.uid)) ? 'checked' : ''}><span><strong>${esc(structuredProjectMemberName(user))}</strong><small>${esc(meta)}</small></span></label>`;
     }).join('');
   }
@@ -7073,7 +7095,13 @@
       <form class="collaboration-form structured-project-form" id="structuredProjectForm">
         <div class="collaboration-form-grid">
           <label class="wide"><span>대분류명</span><input name="name" maxlength="160" required value="${esc(project?.name || '')}" placeholder="예: 매출"></label>
-          <label><span>프로젝트 담당자</span><select name="leadUid" required>${users.map(user => `<option value="${esc(user.uid)}" ${String(user.uid) === leadUid ? 'selected' : ''}>${esc(structuredProjectMemberName(user))}</option>`).join('')}</select></label>
+          <label><span>프로젝트 담당자</span><select name="leadUid" required>${(() => {
+            const duplicates = structuredDuplicateNames(users);
+            return users.map(user => {
+              const hint = structuredMemberHint(user, duplicates);
+              return `<option value="${esc(user.uid)}" ${String(user.uid) === leadUid ? 'selected' : ''}>${esc(structuredProjectMemberName(user))}${hint ? ` (${esc(hint)})` : ''}</option>`;
+            }).join('');
+          })()}</select></label>
           ${project ? `<label><span>상태</span><select name="status">${Object.entries(STRUCTURED_PROJECT_STATUS).map(([key, label]) => `<option value="${key}" ${(project.status || 'active') === key ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></label>` : '<input name="status" type="hidden" value="active">'}
           <label class="wide"><span>대분류 설명</span><textarea name="description" rows="4" maxlength="5000" placeholder="예: 플랫폼별 매출 업무와 콜 진행 기준을 관리합니다.">${esc(project?.description || '')}</textarea></label>
           <fieldset class="wide collaboration-member-field"><legend>프로젝트 팀원</legend><p class="structured-form-help">프로젝트 담당자는 자동으로 팀원에 포함됩니다. 저장 후에도 추가하거나 교체할 수 있습니다.</p><div class="collaboration-member-list">${structuredMemberCheckboxes(users, selectedIds)}</div></fieldset>
@@ -7418,8 +7446,29 @@
         detail: '대화를 열어 확인해 주세요.',
       });
     }
-    // 오늘 못 끝낸 할 일
+    // 오늘까지인 프로젝트 업무와 이미 넘긴 업무
     const today = koreaDateKey(new Date());
+    if (myWorkState.status === 'ready') {
+      const live = myWorkState.tasks.filter(task => task.status !== 'done' && task.dueDate);
+      const dueToday = live.filter(task => task.dueDate === today);
+      const overdue = live.filter(task => task.dueDate < today);
+      if (overdue.length) {
+        notices.push({
+          view: 'my-work',
+          title: `마감일이 지난 업무가 ${overdue.length}건 있습니다`,
+          detail: overdue.slice(0, 3).map(task => `${task.title} (${task.dueDate})`).join(' · '),
+        });
+      }
+      if (dueToday.length) {
+        notices.push({
+          view: 'my-work',
+          title: `오늘까지인 업무가 ${dueToday.length}건 있습니다`,
+          detail: dueToday.slice(0, 3).map(task => task.title).join(' · '),
+        });
+      }
+    }
+
+    // 오늘 못 끝낸 할 일
     if (todoTodayBadgeState.status === 'ready'
       && todoTodayBadgeState.date === today
       && todoTodayBadgeState.remaining > 0) {
@@ -7433,41 +7482,47 @@
     return notices;
   }
 
+  // 모달로 띄웠더니 화면 전체를 덮어 사용자가 막 누르려던 것을 가로챘다.
+  // 같은 내용을 오른쪽 아래에 붙여, 눈에는 띄되 하던 일을 막지 않게 한다.
   function showReminderPopup(force = false) {
     if (previewPersona || !currentUser) return;
     if (!force && (reminderShown || Date.now() < reminderSnoozedUntil())) return;
-    // 일하는 중에 모달이 끼어들면 방해다. 막 들어와서 아직 아무것도 시작하지
-    // 않은 화면(대시보드·캘린더)에서만 붙잡는다.
-    if (!['dashboard', 'calendar'].includes(activeView)) return;
     const notices = collectReminders().filter(notice => notice.view !== activeView);
     if (!notices.length) return;
     reminderShown = true;
-    openDetailModal('확인이 필요합니다', `<div class="reminder-popup">
-      ${notices.map(notice => `<article class="reminder-item">
-        <strong>${esc(notice.title)}</strong>
-        ${notice.detail ? `<p>${esc(notice.detail)}</p>` : ''}
-        <button type="button" data-reminder-go="${esc(notice.view)}">보러 가기</button>
-      </article>`).join('')}
+    document.getElementById('reminderPanel')?.remove();
+
+    const panel = document.createElement('section');
+    panel.id = 'reminderPanel';
+    panel.className = 'reminder-panel';
+    panel.setAttribute('role', 'status');
+    panel.innerHTML = `<header><strong>확인이 필요합니다</strong>
+        <button type="button" class="reminder-panel-close" data-reminder-close aria-label="닫기">×</button></header>
+      <div class="reminder-popup">
+        ${notices.map(notice => `<article class="reminder-item">
+          <strong>${esc(notice.title)}</strong>
+          ${notice.detail ? `<p>${esc(notice.detail)}</p>` : ''}
+          <button type="button" data-reminder-go="${esc(notice.view)}">보러 가기</button>
+        </article>`).join('')}
+      </div>
       <div class="reminder-actions">
         <button type="button" data-reminder-snooze>30분 뒤 다시 알림</button>
-        <button class="structured-primary-button" type="button" data-reminder-close>확인</button>
-      </div>
-    </div>`, { locked: false });
+      </div>`;
+    document.body.appendChild(panel);
 
-    const host = document.querySelector('.reminder-popup');
-    host?.querySelectorAll('[data-reminder-go]').forEach(button => button.addEventListener('click', () => {
+    panel.querySelectorAll('[data-reminder-go]').forEach(button => button.addEventListener('click', () => {
       const view = button.dataset.reminderGo;
-      closeDetailModal();
+      panel.remove();
       activateView(view);
     }));
-    host?.querySelector('[data-reminder-snooze]')?.addEventListener('click', () => {
+    panel.querySelector('[data-reminder-snooze]').addEventListener('click', () => {
       snoozeReminders();
       // 다시 뜰 수 있게 열어 둔다. 30분 뒤 같은 자리에서 한 번 더 말해 준다.
       reminderShown = false;
-      closeDetailModal();
+      panel.remove();
       showToast('30분 뒤에 다시 알려드릴게요.');
     });
-    host?.querySelector('[data-reminder-close]')?.addEventListener('click', () => closeDetailModal());
+    panel.querySelector('[data-reminder-close]').addEventListener('click', () => panel.remove());
   }
 
   // 30분마다, 그리고 탭으로 돌아올 때 한 번씩 본다.

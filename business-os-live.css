@@ -19090,3 +19090,40 @@ html body .reminder-actions > button {
   font-weight: 800;
   cursor: pointer;
 }
+
+/* 리마인더 패널 — 오른쪽 아래에 붙되 화면을 덮지 않는다 */
+html body .reminder-panel {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 880;
+  display: grid;
+  gap: 10px;
+  width: min(360px, calc(100vw - 36px));
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  border: 1px solid var(--editor-action);
+  border-radius: 14px;
+  padding: 14px;
+  background: var(--editor-surface);
+  box-shadow: var(--editor-float-shadow);
+}
+html body .reminder-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+html body .reminder-panel > header > strong { color: var(--editor-ink); font-size: 13px; }
+html body .reminder-panel-close {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--editor-line-strong);
+  border-radius: 7px;
+  background: var(--editor-surface);
+  color: var(--editor-muted);
+  font: inherit;
+  cursor: pointer;
+}
+html body .reminder-panel .reminder-actions { justify-content: stretch; }
+html body .reminder-panel .reminder-actions > button { width: 100%; }

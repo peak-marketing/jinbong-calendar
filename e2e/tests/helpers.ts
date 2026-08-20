@@ -2285,3 +2285,12 @@ export async function installPeakosStub(
   });
   return store;
 }
+
+// 로그인 직후 뜨는 리마인더 팝업은 모달이라 메뉴 클릭을 가로막는다.
+// 팝업 자체를 검사하는 스펙이 아니면 닫고 시작한다.
+export async function dismissReminder(page: any) {
+  const close = page.locator('#reminderPanel [data-reminder-close]');
+  if (await close.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await close.click().catch(() => {});
+  }
+}

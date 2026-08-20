@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { installFirebaseStub, installPeakosStub } from './helpers';
+import { installFirebaseStub, installPeakosStub, dismissReminder } from './helpers';
 
 const TASKS = {
   readOnly: false,
@@ -43,6 +43,7 @@ async function setup(page) {
   });
   await page.setViewportSize({ width: 1400, height: 900 });
   await page.goto('/business-os-preview.html');
+  await dismissReminder(page);
   for (const cluster of await page.locator('[data-nav-cluster] .nav-cluster-toggle').all()) {
     if (await cluster.isVisible()) await cluster.click();
   }
@@ -60,6 +61,7 @@ test('업무 현황 탭은 내 업무만 상태별로 모으고 눌러서 상세
   });
   await page.setViewportSize({ width: 1400, height: 900 });
   await page.goto('/business-os-preview.html');
+  await dismissReminder(page);
   for (const cluster of await page.locator('[data-nav-cluster] .nav-cluster-toggle').all()) {
     if (await cluster.isVisible()) await cluster.click();
   }

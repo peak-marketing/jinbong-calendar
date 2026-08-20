@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { installFirebaseStub, installPeakosStub } from './helpers';
+import { installFirebaseStub, installPeakosStub, dismissReminder } from './helpers';
 
 const MINE = {
   id: 'r1', productName: '리뷰스페이스', title: '환불 버튼이 안 눌립니다',
@@ -54,14 +54,7 @@ async function open(page, { canManage = false, onWrite = null } = {}) {
   await dismissReminder(page);
 }
 
-async function dismissReminder(page) {
-  // 팝업은 데이터를 다 읽은 뒤에 뜬다. 부하가 걸리면 늦게 나타나므로
-  // 잠깐 기다렸다가 닫는다. 없으면 그냥 지나간다.
-  const close = page.locator('.reminder-popup [data-reminder-close]');
-  if (await close.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await close.click().catch(() => {});
-  }
-}
+
 
 test('전 직원이 개발수정요청을 올릴 수 있고 받는 사람을 고른다', async ({ page }) => {
   let sent: any = null;
@@ -210,6 +203,7 @@ test('완료된 내 요청은 이유를 적어야 다시 열 수 있다', async 
 // 왼쪽이었다. 열마다 기준이 다르면 표 전체가 어긋나 보인다.
 test('표는 머리와 칸이 모두 같은 축에 선다', async ({ page }) => {
   await open(page, { canManage: true });
+  await dismissReminder(page);
   const mismatched = await page.evaluate(() => {
     const table = document.querySelector('.request-table') as HTMLElement;
     const out: string[] = [];
