@@ -16953,8 +16953,7 @@
             </table>
           </div>` : '<p class="sales-state">해당 상태의 개발수정요청이 없습니다.</p>'}
         </div>
-      </section>
-      <div class="module-security"><span>▣</span><span><strong>기존 파라곤과 같은 자료입니다</strong><br>옮겨 담은 것이 아니라 같은 곳을 읽습니다. 파라곤에서 상태를 바꾸면 여기에도 바로 반영됩니다.</span></div>`;
+      </section>`;
     wireRequestModule();
   }
 

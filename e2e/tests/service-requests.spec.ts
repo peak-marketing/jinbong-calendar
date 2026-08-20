@@ -114,3 +114,22 @@ test('요청자에게는 상태·담당 칸이 보이지 않는다', async ({ pa
   await expect(form.locator('[name="assigneeUid"]')).toHaveCount(0);
   await expect(form.locator('[name="managerNote"]')).toHaveCount(0);
 });
+
+// 아이디어와 개발수정요청은 PEAK OS가 직접 들고 있다. 파라곤 표를 다시 읽기
+// 시작하면 한쪽에서 고친 내용이 다른 쪽을 덮어써 조용히 어긋난다.
+test('파라곤 쪽 데이터는 더 이상 읽지 않는다', async ({ page }) => {
+  const legacy: string[] = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (/^\/api\/(ideas|service-requests)(\/|\?|$)/.test(url.pathname)) legacy.push(url.pathname);
+  });
+  await open(page);
+  await page.locator('.nav-item[data-view="ideas"]').click();
+  await page.waitForTimeout(400);
+  await page.locator('.nav-item[data-view="requests"]').click();
+  await page.waitForTimeout(400);
+
+  expect(legacy, `파라곤 경로를 아직 부릅니다: ${legacy.join(', ')}`).toEqual([]);
+  // 화면에 파라곤 안내도 남아 있지 않아야 한다.
+  await expect(page.locator('#moduleView')).not.toContainText('파라곤');
+});
