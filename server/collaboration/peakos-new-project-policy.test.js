@@ -497,7 +497,9 @@ test('히스토리에 쓰는 entity_type과 상태값은 마이그레이션이 �
     return new Set([...matches.at(-1)[1].matchAll(/'([a-z_]+)'/g)].map(m => m[1]));
   };
   const entityTypes = lastList(/entity_type = ANY \(ARRAY\[([^\]]+)\]/g);
-  const toStatuses = lastList(/to_status = ANY \(ARRAY\[([^\]]+)\]/g);
+  // to_status 를 가진 표가 둘(히스토리·개발수정요청 댓글)이라 이름으로 좁힌다.
+  // 좁히지 않으면 엉뚱한 표의 허용 목록을 보고 통과해 버린다.
+  const toStatuses = lastList(/peakos_structured_project_history_to_status_check[\s\S]*?to_status = ANY \(ARRAY\[([^\]]+)\]/g);
 
   // entityType은 리터럴로도, 삼항식으로도 쓰인다. 같은 줄의 따옴표 값을 모두 본다.
   const usedEntityTypes = new Set(routes.split('\n')

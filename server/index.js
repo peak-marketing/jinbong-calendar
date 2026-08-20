@@ -122,6 +122,7 @@ const {
 const { registerPeakosDevExpenseRoutes } = require('./expenses/peakos-dev-expense-routes');
 const { registerPeakosIdeaRoutes } = require('./ideas/peakos-idea-routes');
 const { registerPeakosServiceRequestRoutes } = require('./requests/peakos-service-request-routes');
+const { registerPeakosChatRoutes } = require('./chat/peakos-chat-routes');
 const {
   PEAK_WORKSPACE_ID,
   createPeakosWorkspaceService,
@@ -7503,6 +7504,23 @@ registerPeakosTodoRoutes({
   ],
   writeMiddlewares: [
     peakosWorkspaceService.requireWorkspace({ area: 'calendar', action: 'write', requireHeader: true }),
+  ],
+});
+
+// PEAK OS 채팅은 자기 방과 자기 메시지만 쓴다. 파라곤 채팅과 섞이지 않는다.
+registerPeakosChatRoutes({
+  app,
+  pool,
+  notifyUser: sendPushToUser,
+  readMiddlewares: [
+    authMiddleware,
+    peakosOsEmailAuth.requireOsSession,
+    peakosWorkspaceService.requireWorkspace({ area: 'chat', action: 'read', requireHeader: true }),
+  ],
+  writeMiddlewares: [
+    authMiddleware,
+    peakosOsEmailAuth.requireOsSession,
+    peakosWorkspaceService.requireWorkspace({ area: 'chat', action: 'write', requireHeader: true }),
   ],
 });
 

@@ -107,6 +107,12 @@
   // 이 두 값은 메뉴 잠금 계산(applyNavPermissions)이 읽는다. 그 계산은 화면이
   // 뜨자마자 도는데, 선언이 아래쪽에 있으면 아직 초기화되기 전이라 참조 오류가
   // 나면서 메뉴가 통째로 안 그려진다. 그래서 여기, 가장 먼저 둔다.
+  // 메뉴 배지 계산(updateNavigationBadges)이 이 값을 읽는다. 그 계산은 파일
+  // 위쪽에서 훨씬 먼저 도는데, 선언이 아래에 있으면 아직 초기화 전이라
+  // 참조 오류가 나고 그 오류가 로그인 흐름을 통째로 멈춘다.
+  let peakChatState = { status: 'idle', rooms: [], unreadTotal: 0, contextKey: '' };
+  let peakChatRoomId = '';
+  let peakChatThread = { status: 'idle', roomId: '', room: null, messages: [], members: [] };
   let devExpenseAllowed = false;
   let devExpenseProbeKey = '';
   let devExpenseView = document.getElementById('devExpenseView');
@@ -142,7 +148,7 @@
       const textNode = [...button.childNodes].find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
       if (textNode) textNode.textContent = label;
     });
-    const order = ['dashboard', 'calendar', 'todo', 'new-projects', 'my-work', 'ideas', 'requests'];
+    const order = ['dashboard', 'calendar', 'todo', 'new-projects', 'my-work', 'ideas', 'requests', 'chat'];
     const first = document.querySelector(`.app-sidebar .nav-item[data-view="${order[0]}"]`);
     const list = first?.parentElement;
     if (list) order.forEach(view => {
@@ -3119,9 +3125,9 @@
     // 미리보기 중에는 채팅을 닫는다. 실제로는 로그인한 본인의 대화가 뜨는데
     // 남의 계정 화면처럼 보이면 오해를 부르고, 대화 내용은 미리 볼 것이 아니다.
     // 항상 값을 넣어야 미리보기에서 돌아왔을 때 다시 켜진다.
-    // 기존 파라곤에 붙어 있던 탭은 PEAK OS 메뉴에서 감춘다.
-    // 채팅 전용 계정은 채팅이 유일한 화면이라 그 계정에만 남긴다.
-    locks.chat = collaborationAccess().chatOnly === true && !previewPersona;
+    // 기존 파라곤 프로젝트 탭은 계속 감춘다.
+    // 채팅은 PEAK OS 전용 저장소로 다시 살렸으므로 모두에게 연다.
+    locks.chat = !previewPersona;
     locks.review = false;
     // 나머지 신규 화면은 지정 인원에게만 통째로 연다.
     document.querySelectorAll('.app-sidebar .nav-item[data-view]').forEach(button => {
@@ -3498,6 +3504,7 @@
       loadIdeaData(),
       // 마감이 오늘인 업무를 세려면 내 업무도 미리 읽어 둬야 한다.
       previewPersona ? Promise.resolve() : refreshMyWork().catch(() => {}),
+      previewPersona ? Promise.resolve() : refreshPeakChatRooms().catch(() => {}),
     ]);
     // 데이터가 다 들어온 뒤에 한 번 짚어 준다. 그 전에 부르면 셀 것이 없다.
     showReminderPopup();
@@ -3530,7 +3537,11 @@
       badge.textContent = requestUnreadTotal || '';
       badge.hidden = !requestUnreadTotal;
     }
-    if (chatBadge) chatBadge.textContent = unreadTotal || liveChatRooms.length;
+    // 배지는 PEAK OS 채팅의 안 읽은 수를 쓴다. 파라곤 수치와 섞지 않는다.
+    if (chatBadge) {
+      chatBadge.textContent = peakChatState.unreadTotal || '';
+      chatBadge.hidden = !peakChatState.unreadTotal;
+    }
     if (todoBadge) todoBadge.textContent = personalRemaining;
     if (projectBadge) projectBadge.textContent = reviewProjects;
   }
@@ -7446,6 +7457,15 @@
         detail: '대화를 열어 확인해 주세요.',
       });
     }
+    if (peakChatState.unreadTotal) {
+      notices.push({
+        view: 'chat',
+        title: `읽지 않은 대화가 ${peakChatState.unreadTotal}건 있습니다`,
+        detail: peakChatState.rooms.filter(room => room.unread)
+          .slice(0, 3).map(room => room.name).join(' · '),
+      });
+    }
+
     // 오늘까지인 프로젝트 업무와 이미 넘긴 업무
     const today = koreaDateKey(new Date());
     if (myWorkState.status === 'ready') {
@@ -7532,6 +7552,231 @@
     reminderShown = false;
     showReminderPopup();
   }, REMINDER_SNOOZE_MS);
+
+
+  // ── PEAK OS 채팅 ───────────────────────────────────
+  // 파라곤 채팅과 표를 나눠 쓴다. 여기서 쓴 말이 저쪽에 가지 않는다.
+
+  function peakChatContextKey() {
+    return [activeWorkspaceSlug || 'legacy', currentUser?.uid || ''].join('|');
+  }
+
+  async function refreshPeakChatRooms() {
+    const contextKey = peakChatContextKey();
+    try {
+      const payload = await callApi('GET', '/peakos/chat/rooms', null, { headers: { 'X-PeakOS-Preview': '0' } });
+      peakChatState = {
+        status: 'ready',
+        rooms: Array.isArray(payload?.rooms) ? payload.rooms : [],
+        unreadTotal: Number(payload?.unreadTotal || 0),
+        contextKey,
+      };
+    } catch (error) {
+      peakChatState = { status: 'error', rooms: [], unreadTotal: 0, contextKey };
+    }
+    updateNavigationBadges();
+    return peakChatState.rooms;
+  }
+
+  async function openPeakChatRoom(roomId) {
+    peakChatRoomId = String(roomId || '');
+    if (!peakChatRoomId) return;
+    peakChatThread = { ...peakChatThread, status: 'loading', roomId: peakChatRoomId };
+    renderChat();
+    try {
+      const payload = await callApi('GET', `/peakos/chat/rooms/${encodeURIComponent(peakChatRoomId)}/messages`,
+        null, { headers: { 'X-PeakOS-Preview': '0' } });
+      peakChatThread = {
+        status: 'ready',
+        roomId: peakChatRoomId,
+        room: payload?.room || null,
+        messages: Array.isArray(payload?.messages) ? payload.messages : [],
+        members: Array.isArray(payload?.members) ? payload.members : [],
+      };
+      // 열었으면 읽은 것이다.
+      await callApi('POST', `/peakos/chat/rooms/${encodeURIComponent(peakChatRoomId)}/read`, {},
+        { headers: { 'X-PeakOS-Preview': '0' } }).catch(() => {});
+      await refreshPeakChatRooms();
+    } catch (error) {
+      peakChatThread = { status: 'error', roomId: peakChatRoomId, room: null, messages: [], members: [] };
+      showToast(error.message || '대화를 불러오지 못했습니다.');
+    }
+    renderChat();
+  }
+
+  function peakChatMessageRow(message) {
+    const when = message.createdAt ? formatDate(message.createdAt, { hour: 'numeric', minute: '2-digit' }) : '';
+    return `<article class="peak-chat-message ${message.mine ? 'is-mine' : ''}">
+      <span class="peak-chat-who"><strong>${esc(message.author?.name || '보낸 사람')}</strong><em>${esc(when)}</em></span>
+      ${message.body ? `<p>${esc(message.body)}</p>` : ''}
+      ${(message.attachments || []).length ? `<div class="idea-attachments">${message.attachments.map(file => attachmentLinks(file)).join('')}</div>` : ''}
+    </article>`;
+  }
+
+  function renderChat() {
+    if (!chatView) return;
+    if (previewPersona) {
+      chatView.innerHTML = '<div class="peak-chat-empty"><strong>계정 미리보기에서는 대화를 볼 수 없습니다.</strong></div>';
+      return;
+    }
+    const rooms = peakChatState.rooms;
+    const thread = peakChatThread;
+    chatView.innerHTML = `
+      <section class="peak-chat">
+        <nav class="peak-chat-rooms" aria-label="채팅방 목록">
+          <header><strong>채팅방</strong><button type="button" data-chat-create>＋ 새 대화</button></header>
+          ${rooms.length ? rooms.map(room => `<button class="peak-chat-room ${String(room.id) === String(peakChatRoomId) ? 'active' : ''}" type="button" data-chat-open="${esc(room.id)}">
+            <span class="peak-chat-room-head"><strong>${esc(room.name)}</strong>${room.unread ? `<em>${room.unread}</em>` : ''}</span>
+            <small>${room.lastMessage
+              ? `${esc(room.lastMessage.name || '')} · ${esc(room.lastMessage.body || (room.lastMessage.attachments ? '파일을 보냈습니다' : ''))}`
+              : `참여 ${room.memberCount}명 · 아직 대화가 없습니다`}</small>
+          </button>`).join('') : '<p class="peak-chat-none">아직 채팅방이 없습니다. 새 대화를 시작해 보세요.</p>'}
+        </nav>
+        <div class="peak-chat-thread">
+          ${thread.status === 'ready' && thread.room ? `
+            <header class="peak-chat-thread-head">
+              <div><strong>${esc(thread.room.name)}</strong><small>${thread.members.map(person => esc(person.name)).join(', ')}</small></div>
+              <span class="peak-chat-thread-actions">
+                <button type="button" data-chat-invite>＋ 참여자</button>
+                <button class="structured-danger-button" type="button" data-chat-leave>나가기</button>
+              </span>
+            </header>
+            <div class="peak-chat-log" data-chat-log>${thread.messages.length
+              ? thread.messages.map(peakChatMessageRow).join('')
+              : '<p class="peak-chat-none">첫 마디를 남겨 보세요.</p>'}</div>
+            <form class="peak-chat-form" id="peakChatForm">
+              <div class="idea-attach-list" data-idea-attach-list hidden></div>
+              <div class="peak-chat-compose">
+                <textarea name="body" rows="2" maxlength="4000" placeholder="메시지를 적고 Enter로 보냅니다. 줄바꿈은 Shift+Enter."></textarea>
+                <input class="peak-chat-file" type="file" multiple data-idea-attach-input aria-label="파일 첨부">
+                <button class="structured-primary-button" type="submit">보내기</button>
+              </div>
+            </form>`
+            : `<div class="peak-chat-empty"><strong>${thread.status === 'loading' ? '대화를 불러오는 중입니다' : '왼쪽에서 채팅방을 골라 주세요'}</strong></div>`}
+        </div>
+      </section>`;
+    wirePeakChat();
+  }
+
+  function wirePeakChat() {
+    chatView.querySelector('[data-chat-create]')?.addEventListener('click', () => openPeakChatRoomCreator());
+    chatView.querySelectorAll('[data-chat-open]').forEach(button =>
+      button.addEventListener('click', () => openPeakChatRoom(button.dataset.chatOpen)));
+    chatView.querySelector('[data-chat-invite]')?.addEventListener('click', () => openPeakChatInvite());
+    chatView.querySelector('[data-chat-leave]')?.addEventListener('click', async () => {
+      if (!window.confirm(`"${peakChatThread.room?.name}" 방에서 나갈까요? 다시 초대받아야 들어올 수 있습니다.`)) return;
+      try {
+        await callApi('DELETE', `/peakos/chat/rooms/${encodeURIComponent(peakChatRoomId)}/members/me`, null,
+          { headers: { 'X-PeakOS-Preview': '0' } });
+        showToast('채팅방에서 나갔습니다.');
+        peakChatRoomId = '';
+        peakChatThread = { status: 'idle', roomId: '', room: null, messages: [], members: [] };
+        await refreshPeakChatRooms();
+        renderChat();
+      } catch (error) {
+        showToast(error.message || '나가지 못했습니다.');
+      }
+    });
+
+    const log = chatView.querySelector('[data-chat-log]');
+    if (log) log.scrollTop = log.scrollHeight;
+
+    const form = document.getElementById('peakChatForm');
+    if (!form) return;
+    const extras = wireIdeaForm(form);
+    const send = async () => {
+      const field = form.elements.body;
+      const body = String(field.value || '').trim();
+      const attachments = extras.read().attachments;
+      if (!body && !attachments.length) return;
+      try {
+        await callApi('POST', `/peakos/chat/rooms/${encodeURIComponent(peakChatRoomId)}/messages`,
+          { body, attachments }, { headers: { 'X-PeakOS-Preview': '0' } });
+        field.value = '';
+        await openPeakChatRoom(peakChatRoomId);
+      } catch (error) {
+        showToast(error.message || '보내지 못했습니다.');
+      }
+    };
+    form.addEventListener('submit', event => { event.preventDefault(); send(); });
+    // 채팅은 Enter로 보내는 것이 몸에 배어 있다. 줄바꿈은 Shift와 함께.
+    form.elements.body.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        send();
+      }
+    });
+  }
+
+  async function peakChatPeopleOptions(exclude = []) {
+    const people = await loadIdeaPeople();
+    const skip = new Set([String(currentUser?.uid || ''), ...exclude.map(String)]);
+    return people.filter(person => person.uid && !skip.has(String(person.uid)));
+  }
+
+  async function openPeakChatRoomCreator() {
+    const people = await peakChatPeopleOptions();
+    openDetailModal('새 대화', `<form class="collaboration-form" id="peakChatRoomForm">
+      <div class="idea-form-grid">
+        <label class="wide"><span>채팅방 이름</span><input name="name" maxlength="120" required placeholder="예: 리뷰스페이스 환불 건"></label>
+        <div class="wide idea-viewer-field">
+          <span>참여자</span>
+          <div class="idea-viewer-picker">${people.map(person =>
+            `<label class="idea-viewer-option"><input type="checkbox" value="${esc(person.uid)}"><span>${esc(person.name)}</span></label>`).join('')
+            || '<p class="structured-form-help">고를 수 있는 사람이 없습니다.</p>'}</div>
+        </div>
+      </div>
+      <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">만들기</button></div>
+    </form>`, { locked: true });
+    const form = document.getElementById('peakChatRoomForm');
+    form.querySelector('[data-collab-cancel]').addEventListener('click', () => closeDetailModal());
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const name = String(form.elements.name.value || '').trim();
+      if (!name) return showToast('채팅방 이름을 적어 주세요.');
+      const memberUids = [...form.querySelectorAll('.idea-viewer-option input:checked')].map(box => box.value);
+      try {
+        const made = await callApi('POST', '/peakos/chat/rooms', { name, memberUids },
+          { headers: { 'X-PeakOS-Preview': '0' } });
+        closeDetailModal();
+        await refreshPeakChatRooms();
+        await openPeakChatRoom(made?.room?.id);
+      } catch (error) {
+        showToast(error.message || '채팅방을 만들지 못했습니다.');
+      }
+    });
+  }
+
+  async function openPeakChatInvite() {
+    const already = peakChatThread.members.map(person => person.uid);
+    const people = await peakChatPeopleOptions(already);
+    openDetailModal('참여자 추가', `<form class="collaboration-form" id="peakChatInviteForm">
+      <div class="idea-form-grid">
+        <div class="wide idea-viewer-field">
+          <span>추가할 사람</span>
+          <div class="idea-viewer-picker">${people.map(person =>
+            `<label class="idea-viewer-option"><input type="checkbox" value="${esc(person.uid)}"><span>${esc(person.name)}</span></label>`).join('')
+            || '<p class="structured-form-help">더 넣을 사람이 없습니다.</p>'}</div>
+        </div>
+      </div>
+      <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">추가</button></div>
+    </form>`, { locked: true });
+    const form = document.getElementById('peakChatInviteForm');
+    form.querySelector('[data-collab-cancel]').addEventListener('click', () => closeDetailModal());
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const memberUids = [...form.querySelectorAll('.idea-viewer-option input:checked')].map(box => box.value);
+      if (!memberUids.length) return showToast('추가할 사람을 골라 주세요.');
+      try {
+        await callApi('POST', `/peakos/chat/rooms/${encodeURIComponent(peakChatRoomId)}/members`,
+          { memberUids }, { headers: { 'X-PeakOS-Preview': '0' } });
+        closeDetailModal();
+        await openPeakChatRoom(peakChatRoomId);
+      } catch (error) {
+        showToast(error.message || '추가하지 못했습니다.');
+      }
+    });
+  }
 
   function structuredMeetingWhen(meeting) {
     const sameDay = !meeting.endDate || meeting.endDate === meeting.startDate;
@@ -8056,45 +8301,6 @@
     });
   }
 
-  function renderChat() {
-    chatView.querySelector('.chat-page-toolbar').innerHTML = `<div class="chat-page-actions">${collaborationReadonlyMarkup()}${collaborationWritable('chat') ? '<button class="chat-action-button primary" type="button" data-collab-chat-create>＋ 새 채팅방</button>' : ''}</div>`;
-    const bulkToolbar = chatView.querySelector('.chat-bulk-toolbar');
-    if (bulkToolbar) bulkToolbar.hidden = true;
-    const input = document.getElementById('chatSearchInput');
-    input.value = '';
-    input.addEventListener('input', renderChatRoomList);
-    renderChatFilters();
-    renderChatRoomList();
-    chatView.querySelector('[data-collab-chat-create]')?.addEventListener('click', () => openChatRoomCreator());
-    const composer = document.getElementById('chatComposer');
-    composer.onsubmit = sendChatMessage;
-    const messageInput = document.getElementById('chatMessageInput');
-    messageInput.disabled = !collaborationWritable();
-    messageInput.placeholder = collaborationWritable('chat') ? '메시지 입력…' : '읽기 전용 워크스페이스에서는 메시지를 보낼 수 없습니다';
-    messageInput.onkeydown = event => {
-      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-        event.preventDefault();
-        composer.requestSubmit();
-      }
-    };
-    const attach = composer.querySelector('.chat-attach');
-    attach.id = 'chatAttachButton';
-    const attachmentsAvailable = collaborationAttachmentsAvailable();
-    attach.disabled = !collaborationWritable() || !attachmentsAvailable;
-    attach.hidden = !attachmentsAvailable;
-    attach.title = attachmentsAvailable ? '파일 첨부' : '워크스페이스 전용 보관함 준비 중';
-    attach.onclick = chooseChatAttachment;
-    composer.querySelector('[data-workspace-attachment-unavailable]')?.remove();
-    if (!attachmentsAvailable) {
-      const notice = document.createElement('small');
-      notice.dataset.workspaceAttachmentUnavailable = 'true';
-      notice.textContent = '첨부파일 보관함 준비 중';
-      composer.insertBefore(notice, composer.querySelector('.chat-send-button'));
-    }
-    composer.querySelector('.chat-send-button').disabled = !collaborationWritable();
-    document.getElementById('chatBackButton').onclick = closeChatRoom;
-  }
-
   function structuredMessageLabel(text) {
     if (!text || !text.startsWith('[')) return '';
     if (text.startsWith('[MEETING_BRIEF]')) return '회의 카드가 업데이트되었습니다.';
@@ -8112,8 +8318,12 @@
     const room = liveChatRooms.find(item => String(item.id) === String(roomId));
     if (!room) return;
     selectedChatRoomId = roomId;
-    document.getElementById('chatListPane').hidden = true;
-    document.getElementById('chatRoomPane').hidden = false;
+    // 채팅 화면을 PEAK OS 전용으로 다시 그리면서 이 두 칸은 사라졌다.
+    // 옛 코드가 아직 남아 있어 없는 요소를 만지면 시작 흐름이 통째로 멈춘다.
+    const listPane = document.getElementById('chatListPane');
+    const roomPane = document.getElementById('chatRoomPane');
+    if (listPane) listPane.hidden = true;
+    if (roomPane) roomPane.hidden = false;
     chatView.classList.add('room-open');
     body.classList.add('chat-preview-room-open');
     document.getElementById('chatThreadTitle').textContent = room.name;
@@ -8384,8 +8594,10 @@
     if (selectedChatRoomId) chatReadAckByRoom.delete(String(selectedChatRoomId));
     selectedChatRoomId = null;
     liveChatMessages = [];
-    document.getElementById('chatRoomPane').hidden = true;
-    document.getElementById('chatListPane').hidden = false;
+    const closingRoomPane = document.getElementById('chatRoomPane');
+    const closingListPane = document.getElementById('chatListPane');
+    if (closingRoomPane) closingRoomPane.hidden = true;
+    if (closingListPane) closingListPane.hidden = false;
     chatView.classList.remove('room-open');
     body.classList.remove('chat-preview-room-open');
   }
@@ -20251,6 +20463,16 @@
     else if (isPlannedModule) renderPlannedModule(view);
     // 아이디어·개발수정요청은 여러 사람이 같이 쓴다. 접속할 때 한 번만 읽으면
     // 남이 올린 글이 새로고침 전까지 안 보인다. 탭을 열 때마다 다시 읽는다.
+    if (view === 'chat' && !previewPersona) {
+      Promise.resolve().then(async () => {
+        await refreshPeakChatRooms();
+        if (activeView === 'chat') {
+          renderChat();
+          // 열려 있던 방이 있으면 그 대화도 최신으로 받아 온다.
+          if (peakChatRoomId) await openPeakChatRoom(peakChatRoomId);
+        }
+      }).catch(() => {});
+    }
     if (view === 'ideas' && !previewPersona) {
       Promise.resolve().then(async () => {
         await refreshIdeas();

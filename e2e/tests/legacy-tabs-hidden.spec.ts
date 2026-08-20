@@ -10,9 +10,10 @@ test('기존 파라곤 탭은 메뉴에서 보이지 않는다', async ({ page }
     .evaluateAll(els => els.map(e => (e as HTMLElement).dataset.view));
   console.log('PROBE ' + JSON.stringify(visible));
   expect(visible).not.toContain('review');
-  expect(visible).not.toContain('chat');
+  // 채팅은 PEAK OS 전용 저장소로 다시 살렸다. 파라곤 프로젝트만 계속 감춘다.
+  expect(visible).toContain('chat');
   // 주요 메뉴는 대시보드 → 캘린더 → 투두리스트 → 프로젝트 → 내 업무 → 아이디어 → 개발 수정요청 순서.
-  expect(visible.slice(0, 7)).toEqual(['dashboard', 'calendar', 'todo', 'new-projects', 'my-work', 'ideas', 'requests']);
+  expect(visible.slice(0, 8)).toEqual(['dashboard', 'calendar', 'todo', 'new-projects', 'my-work', 'ideas', 'requests', 'chat']);
   const label = async (view: string) => (await page.locator(`.app-sidebar .nav-item[data-view="${view}"]`).innerText()).trim();
   expect(await label('todo')).toContain('투두리스트');
   expect(await label('new-projects')).toContain('프로젝트');

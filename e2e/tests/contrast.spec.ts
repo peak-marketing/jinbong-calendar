@@ -90,6 +90,19 @@ async function boot(page) {
       statuses:['requested','reviewing','working','done','rejected'],
       priorities:['urgent','high','normal','low'],
       assignees:[{uid:'j',name:'이종혁'}], canManage:true }) }));
+  await page.route('**/peakos/chat/rooms', r => r.fulfill({ status:200, contentType:'application/json',
+    body: JSON.stringify({ rooms: [{ id:'c1', name:'리뷰스페이스 환불 건', memberCount:2, unread:2,
+      lastMessage:{ body:'오후에 봅시다', name:'이종혁', attachments:0 },
+      createdBy:{uid:'e2e-test-user',name:'김대호'} }], unreadTotal: 2 }) }));
+  await page.route('**/peakos/chat/rooms/*/messages', r => r.fulfill({ status:200, contentType:'application/json',
+    body: JSON.stringify({ room:{ id:'c1', name:'리뷰스페이스 환불 건' },
+      members:[{uid:'e2e-test-user',name:'김대호'},{uid:'j',name:'이종혁'}],
+      messages:[{ id:'m1', body:'환불 버튼 건 얘기 좀 하시죠', attachments:[],
+        author:{uid:'e2e-test-user',name:'김대호'}, mine:true, createdAt:'2026-08-20T01:00:00.000Z' },
+        { id:'m2', body:'오후에 봅시다', attachments:[],
+        author:{uid:'j',name:'이종혁'}, mine:false, createdAt:'2026-08-20T02:00:00.000Z' }] }) }));
+  await page.route('**/peakos/chat/rooms/*/read', r => r.fulfill({ status:200,
+    contentType:'application/json', body: JSON.stringify({ ok:true }) }));
   await page.route('**/peakos/ideas**', r => r.fulfill({ status:200, contentType:'application/json',
     body: JSON.stringify({ ideas: IDEAS, statuses:['open','reviewing','adopted','dropped'], canManage:true }) }));
   await page.route('**/peakos/dev-expenses**', r => r.fulfill({ status:200, contentType:'application/json',
@@ -130,6 +143,9 @@ for (const theme of ['dark', 'light']) {
     await grab('아이디어');
     await page.locator('.nav-item[data-view="requests"]').click();
     await grab('개발수정요청');
+    await page.locator('.nav-item[data-view="chat"]').click();
+    await page.locator('[data-chat-open="c1"]').click();
+    await grab('채팅');
     const uniq = new Map();
     found.forEach(r => { const k = r.where + '|' + r.sel + '|' + r.fg; if (!uniq.has(k)) uniq.set(k, r); });
     const failures = [...uniq.values()].sort((a, b) => a.ratio - b.ratio);
