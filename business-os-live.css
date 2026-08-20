@@ -18627,7 +18627,12 @@ html body .idea-form-grid {
   gap: 10px;
 }
 html body .idea-form-grid > label { display: grid; gap: 5px; min-width: 0; }
-html body .idea-form-grid > label.wide { grid-column: 1 / -1; }
+/* wide 를 label 에만 걸어 두는 바람에, div 로 만든 첨부·구성원 칸이 한 줄을
+   다 쓰지 못하고 옆자리를 차지했다. 그 칸이 높다 보니 옆의 고르기 칸까지
+   68px로 늘어나 혼자 커 보였다. */
+html body .idea-form-grid > .wide { grid-column: 1 / -1; }
+/* 칸은 내용만큼만 높으면 된다. 늘어나면 옆 칸 높이에 끌려간다. */
+html body .idea-form-grid > label { align-self: start; }
 html body .idea-form-grid > label > span { color: var(--editor-muted); font-size: 10px; font-weight: 850; }
 html body .idea-form-grid input,
 html body .idea-form-grid textarea {

@@ -315,3 +315,27 @@ test('대화 버튼은 곧바로 대화를 연다', async ({ page }) => {
   await expect(page.locator('.request-thread')).toBeVisible();
   await expect(page.locator('.request-detail')).toHaveCount(0);
 });
+
+// wide 를 label 에만 걸어 둔 탓에 div 로 만든 첨부 칸이 옆자리를 차지했고,
+// 그 칸이 높아서 옆의 고르기 칸까지 68px로 늘어나 혼자 커 보였다.
+test('입력 칸 높이가 서로 같고, 넓은 칸은 한 줄을 다 쓴다', async ({ page }) => {
+  await open(page);
+  await dismissReminder(page);
+  const shape = await page.evaluate(() => {
+    const form = document.querySelector('#requestForm') as HTMLElement;
+    const grid = form.querySelector('.idea-form-grid') as HTMLElement;
+    const h = (sel: string) => Math.round((form.querySelector(sel) as HTMLElement).getBoundingClientRect().height);
+    return {
+      title: h('[name="title"]'),
+      product: h('[name="productName"]'),
+      priority: h('[name="priority"]'),
+      assignee: h('[name="assigneeUid"]'),
+      gridWidth: Math.round(grid.getBoundingClientRect().width),
+      attachWidth: Math.round((form.querySelector('.idea-attach-field') as HTMLElement).getBoundingClientRect().width),
+    };
+  });
+  // 한 줄짜리 입력 칸은 모두 같은 높이여야 한다.
+  expect(new Set([shape.title, shape.product, shape.priority, shape.assignee]).size).toBe(1);
+  // 첨부 칸은 한 줄을 통째로 쓴다.
+  expect(shape.attachWidth).toBe(shape.gridWidth);
+});
