@@ -5742,7 +5742,7 @@
       ${row('진행 상태', `${structuredTaskStatusBadge(status)}<span class="task-detail-muted">v${Number(task.version || 1)}</span>`)}
       <div class="task-detail-section"><h4>업무 내용</h4><p>${task.description ? esc(task.description) : '<span class="task-detail-muted">등록된 내용이 없습니다.</span>'}</p></div>
       <div class="task-detail-section"><h4>첨부파일 ${attachments.length}개</h4>${attachments.length
-        ? `<div class="task-attach-list">${attachments.map(file => `<div class="task-attach-item"><a href="${esc(file.url)}" target="_blank" rel="noopener">${esc(file.name || '첨부파일')}</a><em>${esc(formatFileSize(file.size))}</em></div>`).join('')}</div>`
+        ? `<div class="task-attach-list">${attachments.map(file => `<div class="task-attach-item">${attachmentLinks(file)}<em>${esc(formatFileSize(file.size))}</em></div>`).join('')}</div>`
         : '<p class="task-detail-muted">첨부된 파일이 없습니다.</p>'}</div>
     </div>`;
   }
@@ -6449,7 +6449,7 @@
         <section><span>업무 전달</span><div class="structured-task-drawer-flow"><span><b>업무 지시자</b><strong>${esc(assignedBy)}</strong></span><i aria-hidden="true">→</i><span><b>업무 담당자</b><strong>${esc(assignee)}</strong></span><i aria-hidden="true">→</i><span><b>검토자</b><strong>${esc(reviewer)}</strong></span></div></section>
         ${status === 'revision' ? `<section class="structured-task-drawer-revision"><span>수정 요청 사유</span><p>${esc(task.revisionReason || '수정 요청 내용을 확인해 주세요.')}</p></section>` : ''}
         <section><span>첨부파일</span>${Array.isArray(task.attachments) && task.attachments.length
-          ? `<div class="task-attach-list">${task.attachments.map(file => `<div class="task-attach-item"><a href="${esc(file.url)}" target="_blank" rel="noopener">${esc(file.name || '첨부파일')}</a><em>${esc(formatFileSize(file.size))}</em></div>`).join('')}</div>`
+          ? `<div class="task-attach-list">${task.attachments.map(file => `<div class="task-attach-item">${attachmentLinks(file)}<em>${esc(formatFileSize(file.size))}</em></div>`).join('')}</div>`
           : '<p class="task-attach-empty">첨부된 파일이 없습니다.</p>'}</section>
         <section><span>처리 이력</span>${structuredBoardTaskHistory(task)}</section>
       </div>
@@ -6497,7 +6497,7 @@
       ${status === 'revision' && task.revisionReason ? row('수정 요청 사유', `<span class="task-detail-revision">${esc(task.revisionReason)}</span>`) : ''}
       <div class="task-detail-section"><h4>내용</h4><p>${task.description ? esc(task.description) : '<span class="task-detail-muted">등록된 내용이 없습니다.</span>'}</p></div>
       <div class="task-detail-section"><h4>첨부파일 ${attachments.length}개</h4>${attachments.length
-        ? `<div class="task-attach-list">${attachments.map(file => `<div class="task-attach-item"><a href="${esc(file.url)}" target="_blank" rel="noopener">${esc(file.name || '첨부파일')}</a><em>${esc(formatFileSize(file.size))}</em></div>`).join('')}</div>`
+        ? `<div class="task-attach-list">${attachments.map(file => `<div class="task-attach-item">${attachmentLinks(file)}<em>${esc(formatFileSize(file.size))}</em></div>`).join('')}</div>`
         : '<p class="task-detail-muted">첨부된 파일이 없습니다.</p>'}</div>
       <div class="task-detail-section"><h4>처리 이력 ${history.length}건</h4><ul class="task-detail-history">${historyMarkup}</ul></div>
       <div class="collaboration-form-actions"><span></span><span></span><button type="button" data-collab-cancel>닫기</button></div>
@@ -7309,6 +7309,15 @@
       + `<button class="structured-danger-button" type="button" data-structured-small-delete data-medium-id="${mediumId}" data-small-id="${smallId}" data-small-name="${esc(small?.name || '')}" ${blocked ? 'disabled title="할 일을 모두 지운 뒤에 삭제할 수 있습니다."' : ''}>소분류 삭제</button>`;
   }
 
+  // 첨부 한 줄. 이름은 눌러서 미리 보고, ↓ 는 원래 이름 그대로 내려받는다.
+  // download 속성이 없으면 브라우저가 저장할 때 "1776302453943_zryhg43xat.jpg"
+  // 같은 서버 파일명을 쓰거나, 아예 미리보기만 열고 저장이 안 된다.
+  function attachmentLinks(file) {
+    const name = String(file?.name || '첨부파일');
+    return `<a href="${esc(file.url)}" target="_blank" rel="noopener">${esc(name)}</a>`
+      + `<a class="attach-download" href="${esc(file.url)}" download="${esc(name)}" title="${esc(name)} 내려받기" aria-label="${esc(name)} 내려받기">↓</a>`;
+  }
+
   function structuredMeetingWhen(meeting) {
     const sameDay = !meeting.endDate || meeting.endDate === meeting.startDate;
     const span = sameDay ? meeting.startDate : `${meeting.startDate} ~ ${meeting.endDate}`;
@@ -7626,7 +7635,7 @@
     const renderAttachments = () => {
       if (!attachList) return;
       attachList.innerHTML = taskAttachments.length
-        ? taskAttachments.map((file, index) => `<div class="task-attach-item"><a href="${esc(file.url)}" target="_blank" rel="noopener">${esc(file.name || '첨부파일')}</a><em>${esc(formatFileSize(file.size))}</em><button type="button" data-task-attach-remove="${index}" aria-label="${esc(file.name || '첨부파일')} 삭제">×</button></div>`).join('')
+        ? taskAttachments.map((file, index) => `<div class="task-attach-item">${attachmentLinks(file)}<em>${esc(formatFileSize(file.size))}</em><button type="button" data-task-attach-remove="${index}" aria-label="${esc(file.name || '첨부파일')} 삭제">×</button></div>`).join('')
         : '<p class="task-attach-empty">첨부된 파일이 없습니다.</p>';
       attachList.querySelectorAll('[data-task-attach-remove]').forEach(button => button.addEventListener('click', () => {
         taskAttachments.splice(Number(button.dataset.taskAttachRemove), 1);
@@ -16459,7 +16468,7 @@
       ${row.visibility === 'members' && (row.viewers || []).length
         ? `<p class="idea-viewers"><b>함께 보는 사람</b>${esc((row.viewers || []).map(v => v.name).join(', '))}</p>` : ''}
       ${(row.attachments || []).length ? `<div class="idea-attachments">${row.attachments.map(file =>
-        `<a href="${esc(file.url)}" target="_blank" rel="noopener">${esc(file.name || '첨부파일')}</a>`).join('')}</div>` : ''}
+        `${attachmentLinks(file)}`).join('')}</div>` : ''}
       <div class="idea-card-foot">
         <span>${esc(row.author?.name || '작성자 미상')}</span>
         <span>${esc(when)}</span>
@@ -16513,7 +16522,7 @@
     const renderFiles = () => {
       if (!attachList) return;
       attachList.innerHTML = files.length
-        ? files.map((file, index) => `<div class="idea-attach-item"><a href="${esc(file.url)}" target="_blank" rel="noopener">${esc(file.name || '첨부파일')}</a><button type="button" data-idea-attach-remove="${index}" aria-label="${esc(file.name || '첨부파일')} 삭제">×</button></div>`).join('')
+        ? files.map((file, index) => `<div class="idea-attach-item">${attachmentLinks(file)}<button type="button" data-idea-attach-remove="${index}" aria-label="${esc(file.name || '첨부파일')} 삭제">×</button></div>`).join('')
         : '<p class="structured-form-help">첨부된 파일이 없습니다.</p>';
       attachList.querySelectorAll('[data-idea-attach-remove]').forEach(button => button.addEventListener('click', () => {
         files.splice(Number(button.dataset.ideaAttachRemove), 1);

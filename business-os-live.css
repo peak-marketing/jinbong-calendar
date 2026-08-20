@@ -18802,3 +18802,25 @@ html body .idea-attachments > a {
   font-weight: 800;
 }
 html body .idea-visibility.is-members { background: var(--editor-amber-soft); color: var(--editor-amber-ink); }
+
+/* 첨부 내려받기 — 이름은 미리보기, ↓ 는 원래 이름으로 저장 */
+html body .attach-download {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 6px;
+  border: 1px solid var(--editor-line-strong);
+  border-radius: 6px;
+  background: var(--editor-surface);
+  color: var(--editor-action-deep);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  text-decoration: none;
+}
+html body .attach-download:hover {
+  border-color: var(--editor-action);
+  background: var(--editor-action-soft);
+}
+html body .idea-attachments > a.attach-download { padding: 0; }
