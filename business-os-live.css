@@ -19127,3 +19127,24 @@ html body .reminder-panel-close {
 }
 html body .reminder-panel .reminder-actions { justify-content: stretch; }
 html body .reminder-panel .reminder-actions > button { width: 100%; }
+
+/* 제목 칸은 통째로 눌린다. 제목만 눌리면 그 아래 미리보기를 눌렀을 때
+   아무 일도 안 일어나 고장으로 읽힌다. */
+html body .request-table .request-title {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  padding: 6px 10px;
+  background: transparent;
+  text-align: center;
+  cursor: pointer;
+}
+html body .request-table .request-title:hover {
+  border-color: var(--editor-line-strong);
+  background: var(--editor-raised);
+}
+html body .request-table .request-title-name { color: var(--editor-ink); font-size: 12px; font-weight: 800; }
+html body .request-table .request-title:hover .request-title-name { color: var(--editor-action-deep); }
+html body .request-table .request-title .request-note { display: block; }

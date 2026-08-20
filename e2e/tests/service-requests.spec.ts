@@ -265,3 +265,19 @@ test('답이 온 요청은 메뉴 배지와 줄에서 바로 티가 난다', asy
   await page.locator('[data-request-thread]').click();
   await expect.poll(() => readCalled).toContain('/service-requests/r9/read');
 });
+
+// 제목만 눌리면 그 아래 미리보기를 눌렀을 때 아무 일도 안 일어나 고장으로 읽힌다.
+test('제목 칸 어디를 눌러도 상세가 열린다', async ({ page }) => {
+  await open(page, { canManage: true });
+  await dismissReminder(page);
+  const cell = page.locator('.request-table tbody tr').nth(1).locator('th[scope="row"]');
+
+  // 미리보기 줄(처리 메모)도 버튼 안에 있어야 한다.
+  await expect(cell.locator('.request-title .request-note')).toHaveCount(1);
+  // 그 줄의 제목을 읽어 두고, 미리보기 줄을 눌러 같은 건이 열리는지 본다.
+  const title = (await cell.locator('.request-title-name').innerText()).trim();
+  await cell.locator('.request-note').first().click();
+  await expect(page.locator('.request-thread')).toBeVisible();
+  await expect(page.locator('#readonlyModalTitle, .readonly-modal-head strong').first())
+    .toContainText(title);
+});

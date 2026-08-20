@@ -17255,7 +17255,7 @@
                   <td><span class="vendor-chip ${['done'].includes(row.status) ? 'done' : ''}">${esc(REQUEST_STATUS[row.status] || row.status || '-')}</span></td>
                   <td class="${['urgent', 'high'].includes(row.priority) ? 'monthly-minus' : ''}">${esc(REQUEST_PRIORITY[row.priority] || row.priority || '-')}</td>
                   <td>${esc(row.productName || '-')}</td>
-                  <th scope="row"><button class="request-title" type="button" data-request-open="${esc(row.id)}">${esc(row.title || '제목 없음')}</button>${row.content ? `<span class="request-note">${esc(String(row.content).slice(0, 60))}${String(row.content).length > 60 ? '…' : ''}</span>` : ''}${(row.attachments || []).length ? `<span class="request-note">첨부 ${row.attachments.length}개</span>` : ''}${row.managerNote ? `<span class="request-note">처리 메모 · ${esc(row.managerNote)}</span>` : ''}</th>
+                  <th scope="row"><button class="request-title" type="button" data-request-open="${esc(row.id)}" title="눌러서 상세 보기"><span class="request-title-name">${esc(row.title || '제목 없음')}</span>${row.content ? `<span class="request-note">${esc(String(row.content).slice(0, 60))}${String(row.content).length > 60 ? '…' : ''}</span>` : ''}${(row.attachments || []).length ? `<span class="request-note">첨부 ${row.attachments.length}개</span>` : ''}${row.managerNote ? `<span class="request-note">처리 메모 · ${esc(row.managerNote)}</span>` : ''}</button></th>
                   <td>${esc(row.requester?.name || '-')}</td>
                   <td class="${row.assignee ? '' : 'ledger-memo-empty'}">${esc(row.assignee?.name || '미지정')}</td>
                   <td>${esc(String(row.createdAt || '').slice(0, 10))}</td>
