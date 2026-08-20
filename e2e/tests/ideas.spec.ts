@@ -7,7 +7,7 @@ const IDEAS = [
     author: { uid: 'e2e-test-user', name: '김대호' },
     capabilities: { edit: true, remove: true, setStatus: true } },
   { id: 'i2', title: '남이 올린 아이디어', category: '영업', summary: '', detail: '',
-    status: 'adopted', visibility: 'shared', version: 2, createdAt: '2026-08-10T01:00:00.000Z',
+    status: 'adopted', visibility: 'shared', attachments: [], viewers: [], version: 2, createdAt: '2026-08-10T01:00:00.000Z',
     author: { uid: 'other', name: '패션TV봉이' },
     capabilities: { edit: false, remove: false, setStatus: false } },
 ];
@@ -15,6 +15,13 @@ const IDEAS = [
 async function open(page, { onWrite = null } = {}) {
   await installFirebaseStub(page);
   await installPeakosStub(page, { name: '김대호', group_name: '본사 영업팀' });
+  // 기본 스텁에는 나 혼자라 고를 사람이 없다. 동료를 한 명 세운다.
+  await page.route('**/users/all-approved', route => route.fulfill({ status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify([
+      { uid: 'e2e-test-user', name: '김대호', approved: true, is_active: true },
+      { uid: 'sonmyeonga', name: '손명아', approved: true, is_active: true },
+    ]) }));
   await page.route('**/peakos/ideas**', async route => {
     const method = route.request().method();
     if (method !== 'GET') {
@@ -50,7 +57,7 @@ test('아이디어 탭에서 바로 글을 올릴 수 있다', async ({ page }) 
     title: '리뷰 요청 폼을 카카오톡으로 받기', category: '개발',
     summary: '한 문장 요약', detail: '이렇게 하면 좋겠습니다',
     // 아무것도 안 고르면 개인이다.
-    visibility: 'private',
+    visibility: 'private', attachments: [], viewerUids: [],
   });
 });
 
@@ -118,4 +125,44 @@ test('제목이 비면 보내지 않는다', async ({ page }) => {
   await page.locator('#ideaForm button[type="submit"]').click();
   await page.waitForTimeout(400);
   expect(sent).toBeNull();
+});
+
+test('지정 구성원을 고르면 명단이 함께 나가고, 비우면 막는다', async ({ page }) => {
+  let sent: any = null;
+  await open(page, { onWrite: (_m, _u, body) => { sent = body; } });
+  const form = page.locator('#ideaForm');
+  await form.locator('[name="title"]').fill('재무만 봅니다');
+
+  // 개인·함께 보기일 때는 명단 칸이 아예 없다.
+  await expect(form.locator('[data-idea-viewer-field]')).toBeHidden();
+  await form.locator('[name="visibility"][value="members"]').check();
+  await expect(form.locator('[data-idea-viewer-field]')).toBeVisible();
+
+  // 아무도 안 고르고 올리면 막는다.
+  await form.locator('button[type="submit"]').click();
+  await expect(page.locator('.toast, [data-toast]').first()).toContainText('구성원을 한 명 이상');
+  expect(sent).toBeNull();
+
+  const first = form.locator('.idea-viewer-option input').first();
+  await first.check();
+  const uid = await first.inputValue();
+  await form.locator('button[type="submit"]').click();
+  await expect.poll(() => sent).not.toBeNull();
+  expect(sent.visibility).toBe('members');
+  expect(sent.viewerUids).toEqual([uid]);
+});
+
+test('함께 보기로 되돌리면 명단은 딸려 가지 않는다', async ({ page }) => {
+  let sent: any = null;
+  await open(page, { onWrite: (_m, _u, body) => { sent = body; } });
+  const form = page.locator('#ideaForm');
+  await form.locator('[name="title"]').fill('되돌리기');
+  await form.locator('[name="visibility"][value="members"]').check();
+  await form.locator('.idea-viewer-option input').first().check();
+  await form.locator('[name="visibility"][value="shared"]').check();
+  await expect(form.locator('[data-idea-viewer-field]')).toBeHidden();
+  await form.locator('button[type="submit"]').click();
+  await expect.poll(() => sent).not.toBeNull();
+  expect(sent.visibility).toBe('shared');
+  expect(sent.viewerUids).toEqual([]);
 });

@@ -18736,3 +18736,69 @@ html body .idea-visibility-option > input[type="radio"] {
 }
 html body .idea-visibility-option > span { color: var(--editor-ink); font-size: 12px; font-weight: 800; }
 html body .idea-visibility-option > em { color: var(--editor-muted); font-size: 10px; font-style: normal; }
+
+/* 구성원 지정 · 첨부 */
+html body .idea-viewer-field,
+html body .idea-attach-field { display: grid; gap: 5px; }
+html body .idea-viewer-field > span,
+html body .idea-attach-field > span { color: var(--editor-muted); font-size: 10px; font-weight: 850; }
+html body .idea-viewer-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+html body .idea-viewer-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--editor-line-strong);
+  border-radius: 9px;
+  padding: 6px 10px;
+  background: var(--editor-surface);
+  cursor: pointer;
+}
+html body .idea-viewer-option:has(input:checked) {
+  border-color: var(--editor-action);
+  background: var(--editor-action-soft);
+}
+html body .idea-viewer-option > input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 15px;
+  min-width: 15px;
+  height: 15px;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--editor-action);
+}
+html body .idea-viewer-option > span { color: var(--editor-ink); font-size: 12px; font-weight: 800; white-space: nowrap; }
+html body .idea-attach-list { display: grid; gap: 4px; }
+html body .idea-attach-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--editor-line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: var(--editor-raised);
+}
+html body .idea-attach-item > a { color: var(--editor-action-deep); font-size: 11px; font-weight: 800; }
+html body .idea-attach-item > button {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--editor-red-line);
+  border-radius: 7px;
+  background: var(--editor-surface);
+  color: var(--editor-red-ink);
+  cursor: pointer;
+}
+html body .idea-attach-input { font-size: 11px; color: var(--editor-text); }
+html body .idea-viewers { margin: 4px 0 0; color: var(--editor-muted); font-size: 11px; }
+html body .idea-viewers > b { margin-right: 6px; color: var(--editor-muted); font-size: 10px; font-weight: 850; }
+html body .idea-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+html body .idea-attachments > a {
+  border: 1px solid var(--editor-line);
+  border-radius: 7px;
+  padding: 4px 9px;
+  background: var(--editor-raised);
+  color: var(--editor-action-deep);
+  font-size: 10px;
+  font-weight: 800;
+}
+html body .idea-visibility.is-members { background: var(--editor-amber-soft); color: var(--editor-amber-ink); }

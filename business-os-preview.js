@@ -16439,7 +16439,7 @@
   // ── 아이디어 창구 ──────────────────────────────────
   // 예전에는 파라곤 아이디어를 그대로 비추기만 해서 아무도 글을 못 올렸다.
   // 이제 PEAK OS가 직접 들고 있고, 여기서 바로 올린다.
-  const IDEA_VISIBILITY_LABELS = Object.freeze({ private: '개인', shared: '함께 보기' });
+  const IDEA_VISIBILITY_LABELS = Object.freeze({ private: '개인', members: '지정 구성원', shared: '함께 보기' });
   const IDEA_STATUS_LABELS = Object.freeze({
     open: '접수', reviewing: '검토 중', adopted: '채택', dropped: '보류',
   });
@@ -16456,6 +16456,10 @@
       </div>
       ${row.summary ? `<p class="idea-summary">${esc(row.summary)}</p>` : ''}
       ${row.detail ? `<p class="idea-detail">${esc(row.detail)}</p>` : ''}
+      ${row.visibility === 'members' && (row.viewers || []).length
+        ? `<p class="idea-viewers"><b>함께 보는 사람</b>${esc((row.viewers || []).map(v => v.name).join(', '))}</p>` : ''}
+      ${(row.attachments || []).length ? `<div class="idea-attachments">${row.attachments.map(file =>
+        `<a href="${esc(file.url)}" target="_blank" rel="noopener">${esc(file.name || '첨부파일')}</a>`).join('')}</div>` : ''}
       <div class="idea-card-foot">
         <span>${esc(row.author?.name || '작성자 미상')}</span>
         <span>${esc(when)}</span>
@@ -16469,12 +16473,112 @@
     </article>`;
   }
 
+
+  // 공개 범위·첨부·구성원 명단을 한 폼에서 함께 다룬다. 올리기 폼과 수정 폼이
+  // 같은 코드를 쓰므로 한쪽만 고쳐져 어긋나는 일이 없다.
+  // 승인된 계정 명부. 한 번만 읽어 두고 폼마다 다시 쓴다.
+  let ideaPeopleCache = [];
+  async function loadIdeaPeople() {
+    if (ideaPeopleCache.length) return ideaPeopleCache;
+    const accounts = Array.isArray(orgDirectory?.accounts) && orgDirectory.accounts.length
+      ? orgDirectory.accounts
+      : await collaborationApi('GET', '/users/all-approved');
+    ideaPeopleCache = Array.isArray(accounts) ? accounts : [];
+    return ideaPeopleCache;
+  }
+
+  function wireIdeaForm(form, { attachments = [], viewerUids = [] } = {}) {
+    let files = attachments.slice();
+    let picked = new Set(viewerUids.map(String));
+    const viewerField = form.querySelector('[data-idea-viewer-field]');
+    const picker = form.querySelector('[data-idea-viewer-picker]');
+    const attachList = form.querySelector('[data-idea-attach-list]');
+    const me = String(currentUser?.uid || '');
+    // 조직도(orgRoster)에는 uid가 없다. 승인된 계정 명부에서 가져와야
+    // 고른 사람을 서버가 알아본다.
+    let people = ideaPeopleCache
+      .filter(row => String(row.uid || '') && String(row.uid) !== me)
+      .map(row => ({ uid: String(row.uid), name: String(row.name || '구성원') }));
+
+    const renderPicker = () => {
+      if (!picker) return;
+      picker.innerHTML = people.length
+        ? people.map(person => `<label class="idea-viewer-option"><input type="checkbox" value="${esc(person.uid)}" ${picked.has(person.uid) ? 'checked' : ''}><span>${esc(person.name)}</span></label>`).join('')
+        : '<p class="structured-form-help">고를 수 있는 구성원이 없습니다.</p>';
+      picker.querySelectorAll('input[type="checkbox"]').forEach(box => box.addEventListener('change', () => {
+        if (box.checked) picked.add(box.value); else picked.delete(box.value);
+      }));
+    };
+
+    const renderFiles = () => {
+      if (!attachList) return;
+      attachList.innerHTML = files.length
+        ? files.map((file, index) => `<div class="idea-attach-item"><a href="${esc(file.url)}" target="_blank" rel="noopener">${esc(file.name || '첨부파일')}</a><button type="button" data-idea-attach-remove="${index}" aria-label="${esc(file.name || '첨부파일')} 삭제">×</button></div>`).join('')
+        : '<p class="structured-form-help">첨부된 파일이 없습니다.</p>';
+      attachList.querySelectorAll('[data-idea-attach-remove]').forEach(button => button.addEventListener('click', () => {
+        files.splice(Number(button.dataset.ideaAttachRemove), 1);
+        renderFiles();
+      }));
+    };
+
+    const syncVisibility = () => {
+      const value = form.querySelector('input[name="visibility"]:checked')?.value || 'private';
+      if (viewerField) viewerField.hidden = value !== 'members';
+    };
+    form.querySelectorAll('input[name="visibility"]').forEach(radio =>
+      radio.addEventListener('change', syncVisibility));
+
+    form.querySelector('[data-idea-attach-input]')?.addEventListener('change', async event => {
+      const input = event.target;
+      const chosen = [...(input.files || [])];
+      if (!chosen.length) return;
+      if (files.length + chosen.length > 20) {
+        input.value = '';
+        return showToast('첨부파일은 20개까지 올릴 수 있습니다.');
+      }
+      const payload = new FormData();
+      chosen.forEach(file => payload.append('files', file));
+      input.disabled = true;
+      try {
+        const result = await collaborationApi('POST', '/new-projects/uploads', payload);
+        files = files.concat(Array.isArray(result?.attachments) ? result.attachments : []);
+        renderFiles();
+      } catch (error) {
+        showToast(error.message || '파일을 올리지 못했습니다.');
+      } finally {
+        input.disabled = false;
+        input.value = '';
+      }
+    });
+
+    renderPicker();
+    renderFiles();
+    syncVisibility();
+    if (!people.length) {
+      loadIdeaPeople().then(rows => {
+        people = rows.filter(row => String(row.uid || '') && String(row.uid) !== me)
+          .map(row => ({ uid: String(row.uid), name: String(row.name || '구성원') }));
+        renderPicker();
+      }).catch(() => {});
+    }
+    return {
+      read() {
+        const visibility = form.querySelector('input[name="visibility"]:checked')?.value || 'private';
+        return {
+          visibility,
+          attachments: files,
+          viewerUids: visibility === 'members' ? [...picked] : [],
+        };
+      },
+    };
+  }
+
   function renderIdeaModule() {
     const cats = [...new Set(liveIdeas.map(row => row.category).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b, 'ko'));
     const shown = liveIdeas
       .filter(row => !ideaCategory || row.category === ideaCategory)
-      .filter(row => !ideaVisibility || (row.visibility === 'shared' ? 'shared' : 'private') === ideaVisibility);
+      .filter(row => !ideaVisibility || (row.visibility || 'private') === ideaVisibility);
     const option = (value, label, selected) => `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(label)}</option>`;
 
     moduleView.innerHTML = `
@@ -16493,8 +16597,20 @@
               <fieldset class="wide idea-visibility-field">
                 <legend>공개 범위</legend>
                 <label class="idea-visibility-option"><input type="radio" name="visibility" value="private" checked><span>개인 아이디어</span><em>나만 봅니다</em></label>
+                <label class="idea-visibility-option"><input type="radio" name="visibility" value="members"><span>지정 구성원</span><em>고른 사람만 봅니다</em></label>
                 <label class="idea-visibility-option"><input type="radio" name="visibility" value="shared"><span>함께 볼 아이디어</span><em>조직 구성원이 함께 봅니다</em></label>
               </fieldset>
+              <div class="wide idea-viewer-field" data-idea-viewer-field hidden>
+                <span>함께 볼 구성원</span>
+                <div class="idea-viewer-picker" data-idea-viewer-picker></div>
+                <small class="structured-form-help">고른 사람만 이 아이디어를 볼 수 있습니다.</small>
+              </div>
+              <div class="wide idea-attach-field">
+                <span>첨부파일</span>
+                <div class="idea-attach-list" data-idea-attach-list></div>
+                <input class="idea-attach-input" type="file" multiple data-idea-attach-input aria-label="첨부파일 추가">
+                <small class="structured-form-help">최대 20개</small>
+              </div>
             </div>
             <div class="idea-form-actions"><button class="structured-primary-button" type="submit">아이디어 올리기</button></div>
           </form>
@@ -16518,6 +16634,7 @@
               <select data-idea-visibility>
                 ${option('', '전체', ideaVisibility)}
                 ${option('private', '개인 아이디어', ideaVisibility)}
+                ${option('members', '지정 구성원', ideaVisibility)}
                 ${option('shared', '함께 볼 아이디어', ideaVisibility)}
               </select>
             </label>
@@ -16544,6 +16661,7 @@
 
   function wireIdeaModule() {
     const form = document.getElementById('ideaForm');
+    const extras = form ? wireIdeaForm(form) : null;
     form?.addEventListener('submit', async event => {
       event.preventDefault();
       const data = new FormData(form);
@@ -16553,9 +16671,12 @@
         summary: String(data.get('summary') || '').trim(),
         detail: String(data.get('detail') || '').trim(),
         // 고르지 않았으면 개인이다. 실수로 공개되는 쪽으로 기울지 않는다.
-        visibility: String(data.get('visibility') || 'private'),
+        ...(extras ? extras.read() : { visibility: 'private' }),
       };
       if (!record.title) return showToast('제목을 입력해 주세요.');
+      if (record.visibility === 'members' && !record.viewerUids.length) {
+        return showToast('함께 볼 구성원을 한 명 이상 골라 주세요.');
+      }
       const submit = form.querySelector('button[type="submit"]');
       if (submit) submit.disabled = true;
       const ok = await saveIdea('POST', '/peakos/ideas', record, '아이디어를 올렸습니다.');
@@ -16571,7 +16692,10 @@
       if (!row) return;
       await saveIdea('PUT', `/peakos/ideas/${encodeURIComponent(row.id)}`, {
         title: row.title, category: row.category, summary: row.summary, detail: row.detail,
-        status: select.value, visibility: row.visibility, expectedVersion: Number(row.version || 1),
+        status: select.value, visibility: row.visibility,
+        attachments: row.attachments || [],
+        viewerUids: (row.viewers || []).map(person => person.uid),
+        expectedVersion: Number(row.version || 1),
       }, '아이디어 상태를 바꿨습니다.');
     }));
 
@@ -16597,27 +16721,48 @@
         <label class="wide"><span>내용</span><textarea name="detail" rows="5" maxlength="20000">${esc(row.detail || '')}</textarea></label>
         <fieldset class="wide idea-visibility-field">
           <legend>공개 범위</legend>
-          <label class="idea-visibility-option"><input type="radio" name="visibility" value="private" ${row.visibility === 'shared' ? '' : 'checked'}><span>개인 아이디어</span><em>나만 봅니다</em></label>
+          <label class="idea-visibility-option"><input type="radio" name="visibility" value="private" ${row.visibility === 'private' || !row.visibility ? 'checked' : ''}><span>개인 아이디어</span><em>나만 봅니다</em></label>
+          <label class="idea-visibility-option"><input type="radio" name="visibility" value="members" ${row.visibility === 'members' ? 'checked' : ''}><span>지정 구성원</span><em>고른 사람만 봅니다</em></label>
           <label class="idea-visibility-option"><input type="radio" name="visibility" value="shared" ${row.visibility === 'shared' ? 'checked' : ''}><span>함께 볼 아이디어</span><em>조직 구성원이 함께 봅니다</em></label>
         </fieldset>
+        <div class="wide idea-viewer-field" data-idea-viewer-field hidden>
+          <span>함께 볼 구성원</span>
+          <div class="idea-viewer-picker" data-idea-viewer-picker></div>
+          <small class="structured-form-help">고른 사람만 이 아이디어를 볼 수 있습니다.</small>
+        </div>
+        <div class="wide idea-attach-field">
+          <span>첨부파일</span>
+          <div class="idea-attach-list" data-idea-attach-list></div>
+          <input class="idea-attach-input" type="file" multiple data-idea-attach-input aria-label="첨부파일 추가">
+          <small class="structured-form-help">최대 20개</small>
+        </div>
       </div>
       <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">저장</button></div>
     </form>`, { locked: true });
     const form = document.getElementById('ideaEditForm');
+    const extras = wireIdeaForm(form, {
+      attachments: row.attachments || [],
+      viewerUids: (row.viewers || []).map(person => person.uid),
+    });
     form.querySelector('[data-collab-cancel]').addEventListener('click', () => closeDetailModal());
     form.addEventListener('submit', async event => {
       event.preventDefault();
       const data = new FormData(form);
       const title = String(data.get('title') || '').trim();
       if (!title) return showToast('제목을 입력해 주세요.');
-      const ok = await saveIdea('PUT', `/peakos/ideas/${encodeURIComponent(row.id)}`, {
+      const payload = {
         title,
         category: String(data.get('category') || '').trim(),
         summary: String(data.get('summary') || '').trim(),
         detail: String(data.get('detail') || '').trim(),
-        visibility: String(data.get('visibility') || 'private'),
+        ...extras.read(),
         expectedVersion: Number(row.version || 1),
-      }, '아이디어를 수정했습니다.');
+      };
+      if (payload.visibility === 'members' && !payload.viewerUids.length) {
+        return showToast('함께 볼 구성원을 한 명 이상 골라 주세요.');
+      }
+      const ok = await saveIdea('PUT', `/peakos/ideas/${encodeURIComponent(row.id)}`, payload,
+        '아이디어를 수정했습니다.');
       if (ok) closeDetailModal();
     });
   }
