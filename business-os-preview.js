@@ -16425,6 +16425,29 @@
     rejected: '반려'
   };
   const REQUEST_PRIORITY = { urgent: '긴급', high: '높음', normal: '보통', low: '낮음' };
+  let requestAssignees = [];
+  let requestCanManage = false;
+
+  async function refreshRequests() {
+    const payload = await callApi('GET', '/peakos/service-requests', null, { headers: { 'X-PeakOS-Preview': '0' } });
+    liveRequests = Array.isArray(payload?.requests) ? payload.requests : [];
+    requestAssignees = Array.isArray(payload?.assignees) ? payload.assignees : [];
+    requestCanManage = payload?.canManage === true;
+    return liveRequests;
+  }
+
+  async function saveRequest(method, path, payload, message) {
+    try {
+      await callApi(method, path, payload, { headers: { 'X-PeakOS-Preview': '0' } });
+      showToast(message);
+      await refreshRequests();
+      renderRequestModule();
+      return true;
+    } catch (error) {
+      showToast(error.message || '요청을 저장하지 못했습니다.');
+      return false;
+    }
+  }
 
   async function refreshIdeas() {
     const payload = await callApi('GET', '/peakos/ideas', null, { headers: { 'X-PeakOS-Preview': '0' } });
@@ -16436,13 +16459,13 @@
     const [ideaPayload, requestPayload] = await Promise.all([
       // 아이디어는 이제 PEAK OS가 직접 들고 있다. 파라곤을 더는 읽지 않는다.
       callApi('GET', '/peakos/ideas', null, { headers: { 'X-PeakOS-Preview': '0' } }).catch(() => null),
-      readOnlyApi('/service-requests').catch(() => [])
+      // 개발수정요청도 PEAK OS가 직접 들고 있다.
+      callApi('GET', '/peakos/service-requests', null, { headers: { 'X-PeakOS-Preview': '0' } }).catch(() => null)
     ]);
     liveIdeas = Array.isArray(ideaPayload?.ideas) ? ideaPayload.ideas : [];
-    const requests = Array.isArray(requestPayload)
-      ? requestPayload
-      : (Array.isArray(requestPayload?.requests) ? requestPayload.requests : []);
-    liveRequests = requests.filter(row => !row.deleted);
+    liveRequests = Array.isArray(requestPayload?.requests) ? requestPayload.requests : [];
+    requestAssignees = Array.isArray(requestPayload?.assignees) ? requestPayload.assignees : [];
+    requestCanManage = requestPayload?.canManage === true;
   }
 
   // ── 아이디어 창구 ──────────────────────────────────
@@ -16773,6 +16796,96 @@
     });
   }
 
+
+  // 첨부만 쓰는 폼(개발수정요청)도 아이디어 폼과 같은 업로드 코드를 쓴다.
+  function wireRequestModule() {
+    const form = document.getElementById('requestForm');
+    const extras = form ? wireIdeaForm(form) : null;
+    form?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const data = new FormData(form);
+      const record = {
+        title: String(data.get('title') || '').trim(),
+        productName: String(data.get('productName') || '').trim(),
+        content: String(data.get('content') || '').trim(),
+        priority: String(data.get('priority') || 'normal'),
+        assigneeUid: String(data.get('assigneeUid') || ''),
+        attachments: extras ? extras.read().attachments : [],
+      };
+      if (!record.title) return showToast('제목을 입력해 주세요.');
+      const submit = form.querySelector('button[type="submit"]');
+      if (submit) submit.disabled = true;
+      const ok = await saveRequest('POST', '/peakos/service-requests', record, '개발수정요청을 올렸습니다.');
+      if (!ok && submit) submit.disabled = false;
+    });
+
+    moduleView.querySelectorAll('[data-request-edit]').forEach(button => button.addEventListener('click', () => {
+      const row = liveRequests.find(entry => String(entry.id) === String(button.dataset.requestEdit));
+      if (row) openRequestEditor(row, { triage: false });
+    }));
+    moduleView.querySelectorAll('[data-request-triage]').forEach(button => button.addEventListener('click', () => {
+      const row = liveRequests.find(entry => String(entry.id) === String(button.dataset.requestTriage));
+      if (row) openRequestEditor(row, { triage: true });
+    }));
+    moduleView.querySelectorAll('[data-request-delete]').forEach(button => button.addEventListener('click', async () => {
+      const row = liveRequests.find(entry => String(entry.id) === String(button.dataset.requestDelete));
+      if (!row) return;
+      if (!window.confirm(`"${row.title}" 요청을 지울까요?`)) return;
+      await saveRequest('DELETE', `/peakos/service-requests/${encodeURIComponent(row.id)}`, undefined, '요청을 지웠습니다.');
+    }));
+  }
+
+  function openRequestEditor(row, { triage = false } = {}) {
+    openDetailModal(triage ? `요청 처리 · ${row.title}` : '개발수정요청 수정',
+      `<form class="collaboration-form request-edit-form" id="requestEditForm">
+      <div class="collaboration-form-grid">
+        <label class="wide"><span>제목</span><input name="title" maxlength="200" required value="${esc(row.title || '')}" ${triage ? 'readonly' : ''}></label>
+        <label><span>상품</span><input name="productName" maxlength="120" value="${esc(row.productName || '')}" ${triage ? 'readonly' : ''}></label>
+        <label><span>우선순위</span><select name="priority">${Object.entries(REQUEST_PRIORITY).map(([key, label]) =>
+          `<option value="${esc(key)}" ${key === row.priority ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></label>
+        <label class="wide"><span>내용</span><textarea name="content" rows="4" maxlength="20000" ${triage ? 'readonly' : ''}>${esc(row.content || '')}</textarea></label>
+        ${triage ? `<label><span>상태</span><select name="status">${Object.entries(REQUEST_STATUS).map(([key, label]) =>
+          `<option value="${esc(key)}" ${key === row.status ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></label>
+        <label><span>받는 사람</span><select name="assigneeUid"><option value="">미지정</option>${requestAssignees.map(person =>
+          `<option value="${esc(person.uid)}" ${String(person.uid) === String(row.assignee?.uid || '') ? 'selected' : ''}>${esc(person.name)}</option>`).join('')}</select></label>
+        <label class="wide"><span>처리 메모</span><textarea name="managerNote" rows="3" maxlength="5000" placeholder="어떻게 처리했는지 남겨 주세요.">${esc(row.managerNote || '')}</textarea></label>` : ''}
+        <div class="wide idea-attach-field">
+          <span>첨부파일</span>
+          <div class="idea-attach-list" data-idea-attach-list></div>
+          <input class="idea-attach-input" type="file" multiple data-idea-attach-input aria-label="첨부파일 추가">
+        </div>
+      </div>
+      <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">저장</button></div>
+    </form>`, { locked: true });
+
+    const form = document.getElementById('requestEditForm');
+    const extras = wireIdeaForm(form, { attachments: row.attachments || [] });
+    form.querySelector('[data-collab-cancel]').addEventListener('click', () => closeDetailModal());
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const data = new FormData(form);
+      const title = String(data.get('title') || '').trim();
+      if (!title) return showToast('제목을 입력해 주세요.');
+      const payload = {
+        title,
+        productName: String(data.get('productName') || '').trim(),
+        content: String(data.get('content') || '').trim(),
+        priority: String(data.get('priority') || 'normal'),
+        attachments: extras.read().attachments,
+        expectedVersion: Number(row.version || 1),
+      };
+      // 상태·담당·메모는 처리 화면에서만 함께 보낸다.
+      if (triage) {
+        payload.status = String(data.get('status') || row.status);
+        payload.assigneeUid = String(data.get('assigneeUid') || '');
+        payload.managerNote = String(data.get('managerNote') || '').trim();
+      }
+      const ok = await saveRequest('PUT', `/peakos/service-requests/${encodeURIComponent(row.id)}`,
+        payload, triage ? '요청을 처리했습니다.' : '요청을 수정했습니다.');
+      if (ok) closeDetailModal();
+    });
+  }
+
   function renderRequestModule() {
     const shown = requestStatus ? liveRequests.filter(row => row.status === requestStatus) : liveRequests;
     const counts = Object.keys(REQUEST_STATUS).reduce((acc, key) => {
@@ -16782,7 +16895,29 @@
     const open = liveRequests.filter(row => !['done', 'rejected'].includes(row.status)).length;
 
     moduleView.innerHTML = `
-      ${moduleStatusbar('개발수정요청', '접수된 개발수정요청을 상태별로 봅니다.', `처리 대기 ${open}건`)}
+      ${moduleStatusbar('개발수정요청', '', `처리 대기 ${open}건`)}
+      <section class="module-section">
+        <div class="module-section-body">
+          <form class="idea-form" id="requestForm">
+            <div class="idea-form-grid">
+              <label class="wide"><span>제목</span><input name="title" maxlength="200" required placeholder="예: 리뷰스페이스 환불 버튼이 눌리지 않습니다"></label>
+              <label><span>상품</span><input name="productName" maxlength="120" list="requestProductList" placeholder="예: 리뷰스페이스"><datalist id="requestProductList">${[...new Set(liveRequests.map(row => row.productName).filter(Boolean))].map(name => `<option value="${esc(name)}"></option>`).join('')}</datalist></label>
+              <label><span>우선순위</span><select name="priority">${Object.entries(REQUEST_PRIORITY).map(([key, label]) =>
+                `<option value="${esc(key)}" ${key === 'normal' ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></label>
+              <label class="wide"><span>내용</span><textarea name="content" rows="4" maxlength="20000" placeholder="무엇이 어떻게 안 되는지, 어떤 화면에서 그런지 적어 주세요."></textarea></label>
+              <label><span>받는 사람</span><select name="assigneeUid"><option value="">미지정 (개발팀이 확인)</option>${requestAssignees.map(person =>
+                `<option value="${esc(person.uid)}">${esc(person.name)}</option>`).join('')}</select></label>
+              <div class="wide idea-attach-field">
+                <span>첨부파일</span>
+                <div class="idea-attach-list" data-idea-attach-list></div>
+                <input class="idea-attach-input" type="file" multiple data-idea-attach-input aria-label="첨부파일 추가">
+                <small class="structured-form-help">화면 사진을 붙이면 훨씬 빨리 처리됩니다.</small>
+              </div>
+            </div>
+            <div class="idea-form-actions"><button class="structured-primary-button" type="submit">요청 올리기</button></div>
+          </form>
+        </div>
+      </section>
       <section class="module-section">
         <div class="module-section-head">
           <span><strong>개발수정요청</strong><small>${esc(String(shown.length))}건${requestStatus ? ` / 전체 ${liveRequests.length}건` : ''}</small></span>
@@ -16798,17 +16933,21 @@
             <table class="sales-table ledger-table">
               <thead><tr>
                 <th scope="col">상태</th><th scope="col">우선순위</th><th scope="col">상품</th>
-                <th scope="col">제목</th><th scope="col">요청자</th><th scope="col">담당</th><th scope="col">요청일</th>
+                <th scope="col">제목</th><th scope="col">요청자</th><th scope="col">담당</th><th scope="col">요청일</th><th scope="col"></th>
               </tr></thead>
               <tbody>
                 ${shown.map(row => `<tr>
                   <td><span class="vendor-chip ${['done'].includes(row.status) ? 'done' : ''}">${esc(REQUEST_STATUS[row.status] || row.status || '-')}</span></td>
                   <td class="${['urgent', 'high'].includes(row.priority) ? 'monthly-minus' : ''}">${esc(REQUEST_PRIORITY[row.priority] || row.priority || '-')}</td>
-                  <td>${esc(row.product_name || '-')}</td>
-                  <th scope="row">${esc(row.title || '제목 없음')}${row.content ? `<span class="request-note">${esc(String(row.content).slice(0, 60))}${String(row.content).length > 60 ? '…' : ''}</span>` : ''}</th>
-                  <td>${esc(row.requester_name || '-')}</td>
-                  <td class="${row.assignee_name ? '' : 'ledger-memo-empty'}">${esc(row.assignee_name || '미지정')}</td>
-                  <td>${esc(String(row.created_at || '').slice(0, 10))}</td>
+                  <td>${esc(row.productName || '-')}</td>
+                  <th scope="row">${esc(row.title || '제목 없음')}${row.content ? `<span class="request-note">${esc(String(row.content).slice(0, 60))}${String(row.content).length > 60 ? '…' : ''}</span>` : ''}${(row.attachments || []).length ? `<span class="request-note">첨부 ${row.attachments.length}개</span>` : ''}${row.managerNote ? `<span class="request-note">처리 메모 · ${esc(row.managerNote)}</span>` : ''}</th>
+                  <td>${esc(row.requester?.name || '-')}</td>
+                  <td class="${row.assignee ? '' : 'ledger-memo-empty'}">${esc(row.assignee?.name || '미지정')}</td>
+                  <td>${esc(String(row.createdAt || '').slice(0, 10))}</td>
+                  <td class="request-row-actions">${row.capabilities?.triage
+                    ? `<button type="button" data-request-triage="${esc(row.id)}">처리</button>` : ''}${row.capabilities?.edit
+                    ? `<button type="button" data-request-edit="${esc(row.id)}">수정</button>` : ''}${row.capabilities?.remove
+                    ? `<button class="structured-danger-button" type="button" data-request-delete="${esc(row.id)}">삭제</button>` : ''}</td>
                 </tr>`).join('')}
               </tbody>
             </table>
@@ -16816,6 +16955,7 @@
         </div>
       </section>
       <div class="module-security"><span>▣</span><span><strong>기존 파라곤과 같은 자료입니다</strong><br>옮겨 담은 것이 아니라 같은 곳을 읽습니다. 파라곤에서 상태를 바꾸면 여기에도 바로 반영됩니다.</span></div>`;
+    wireRequestModule();
   }
 
   // 통장 조회 — 은행 수집기가 보관한 공개 필드만 지연 조회한다.

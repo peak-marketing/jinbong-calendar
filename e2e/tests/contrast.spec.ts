@@ -81,6 +81,15 @@ async function boot(page) {
     body: JSON.stringify({ readOnly:false, capabilities:{viewPortfolio:true,createProject:true}, projects:[P] }) }));
   await page.route('**/new-projects/p1', r => r.fulfill({ status:200, contentType:'application/json',
     body: JSON.stringify({ readOnly:false, capabilities:{manageProject:true}, project: P }) }));
+  await page.route('**/peakos/service-requests**', r => r.fulfill({ status:200, contentType:'application/json',
+    body: JSON.stringify({ requests: [{ id:'r1', productName:'리뷰스페이스', title:'환불 버튼 오류',
+      content:'설명', status:'requested', priority:'high', managerNote:'확인 중', attachments:[],
+      version:1, createdAt:'2026-08-20T01:00:00.000Z',
+      requester:{uid:'e2e-test-user',name:'김대호'}, assignee:{uid:'j',name:'이종혁'},
+      capabilities:{edit:true,remove:true,triage:true} }],
+      statuses:['requested','reviewing','working','done','rejected'],
+      priorities:['urgent','high','normal','low'],
+      assignees:[{uid:'j',name:'이종혁'}], canManage:true }) }));
   await page.route('**/peakos/ideas**', r => r.fulfill({ status:200, contentType:'application/json',
     body: JSON.stringify({ ideas: IDEAS, statuses:['open','reviewing','adopted','dropped'], canManage:true }) }));
   await page.route('**/peakos/dev-expenses**', r => r.fulfill({ status:200, contentType:'application/json',
@@ -116,6 +125,8 @@ for (const theme of ['dark', 'light']) {
     await grab('개발비');
     await page.locator('.nav-item[data-view="ideas"]').click();
     await grab('아이디어');
+    await page.locator('.nav-item[data-view="requests"]').click();
+    await grab('개발수정요청');
     const uniq = new Map();
     found.forEach(r => { const k = r.where + '|' + r.sel + '|' + r.fg; if (!uniq.has(k)) uniq.set(k, r); });
     const failures = [...uniq.values()].sort((a, b) => a.ratio - b.ratio);

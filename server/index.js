@@ -121,6 +121,7 @@ const {
 } = require('./todos/peakos-todo-routes');
 const { registerPeakosDevExpenseRoutes } = require('./expenses/peakos-dev-expense-routes');
 const { registerPeakosIdeaRoutes } = require('./ideas/peakos-idea-routes');
+const { registerPeakosServiceRequestRoutes } = require('./requests/peakos-service-request-routes');
 const {
   PEAK_WORKSPACE_ID,
   createPeakosWorkspaceService,
@@ -7502,6 +7503,24 @@ registerPeakosTodoRoutes({
   ],
   writeMiddlewares: [
     peakosWorkspaceService.requireWorkspace({ area: 'calendar', action: 'write', requireHeader: true }),
+  ],
+});
+
+// 개발수정요청은 전 직원이 올린다. 상태·담당 배정은 개발 담당자만 한다.
+registerPeakosServiceRequestRoutes({
+  app,
+  pool,
+  isManager: canManageServiceRequests,
+  notifyUser: sendPushToUser,
+  readMiddlewares: [
+    authMiddleware,
+    peakosOsEmailAuth.requireOsSession,
+    peakosWorkspaceService.requireWorkspace({ area: 'projects', action: 'read', requireHeader: true }),
+  ],
+  writeMiddlewares: [
+    authMiddleware,
+    peakosOsEmailAuth.requireOsSession,
+    peakosWorkspaceService.requireWorkspace({ area: 'projects', action: 'write', requireHeader: true }),
   ],
 });
 

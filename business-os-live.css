@@ -18824,3 +18824,28 @@ html body .attach-download:hover {
   background: var(--editor-action-soft);
 }
 html body .idea-attachments > a.attach-download { padding: 0; }
+
+/* 개발수정요청 표의 처리 버튼 */
+html body .request-row-actions { white-space: nowrap; }
+html body .request-row-actions > button {
+  min-height: 24px;
+  margin-left: 4px;
+  border: 1px solid var(--editor-line-strong);
+  border-radius: 7px;
+  padding: 0 9px;
+  background: var(--editor-surface);
+  color: var(--editor-text);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+html body .request-row-actions > button:hover {
+  border-color: var(--editor-action);
+  color: var(--editor-action-deep);
+}
+
+/* 개발수정요청 화면의 남은 저대비 세 곳 */
+html body .request-tabs > .intake-kind-btn.active { background: #1f6493; border-color: #1f6493; color: #fff; }
+html body .request-note { color: var(--editor-muted); }
+html body .module-security > span { color: var(--editor-text); }
