@@ -16419,7 +16419,7 @@
 
   const REQUEST_STATUS = {
     requested: '요청',
-    reviewing: '검토 중',
+    reviewing: '확인완료',
     working: '진행 중',
     done: '완료',
     rejected: '반려'
@@ -16819,6 +16819,10 @@
       if (!ok && submit) submit.disabled = false;
     });
 
+    moduleView.querySelectorAll('[data-request-thread]').forEach(button => button.addEventListener('click', () => {
+      const row = liveRequests.find(entry => String(entry.id) === String(button.dataset.requestThread));
+      if (row) openRequestThread(row);
+    }));
     moduleView.querySelectorAll('[data-request-edit]').forEach(button => button.addEventListener('click', () => {
       const row = liveRequests.find(entry => String(entry.id) === String(button.dataset.requestEdit));
       if (row) openRequestEditor(row, { triage: false });
@@ -16833,6 +16837,56 @@
       if (!window.confirm(`"${row.title}" 요청을 지울까요?`)) return;
       await saveRequest('DELETE', `/peakos/service-requests/${encodeURIComponent(row.id)}`, undefined, '요청을 지웠습니다.');
     }));
+  }
+
+
+  // 요청 하나를 놓고 주고받는 자리. 상태가 바뀐 것도 같은 줄기에 남아
+  // "언제 무엇 때문에 이렇게 됐는지"가 한눈에 보인다.
+  function openRequestThread(row) {
+    const comments = Array.isArray(row.comments) ? row.comments : [];
+    openDetailModal(`대화 · ${row.title}`, `<div class="request-thread">
+      <div class="request-thread-head">
+        <span class="vendor-chip ${row.status === 'done' ? 'done' : ''}">${esc(REQUEST_STATUS[row.status] || row.status)}</span>
+        <span>${esc(row.productName || '상품 미지정')}</span>
+        <span>요청 ${esc(row.requester?.name || '-')}</span>
+        <span>담당 ${esc(row.assignee?.name || '미지정')}</span>
+      </div>
+      ${row.content ? `<p class="request-thread-body">${esc(row.content)}</p>` : ''}
+      <div class="request-thread-list">${comments.length
+        ? comments.map(entry => `<article class="request-thread-item">
+            <span class="request-thread-who"><strong>${esc(entry.author?.name || '작성자')}</strong><em>${esc(String(entry.createdAt || '').slice(0, 10))}</em></span>
+            ${entry.toStatus ? `<span class="request-thread-move">${esc(REQUEST_STATUS[entry.fromStatus] || entry.fromStatus || '-')} → ${esc(REQUEST_STATUS[entry.toStatus] || entry.toStatus)}</span>` : ''}
+            <p>${esc(entry.body)}</p>
+          </article>`).join('')
+        : '<p class="structured-form-help">아직 오간 말이 없습니다.</p>'}</div>
+      <form class="request-thread-form" id="requestThreadForm">
+        <textarea name="body" rows="3" maxlength="5000" placeholder="확인한 내용이나 물어볼 것을 적어 주세요."></textarea>
+        <div class="request-thread-actions">
+          ${row.capabilities?.reopen
+            ? '<button class="structured-danger-button" type="button" data-request-reopen>아직 안 됐습니다 (다시 요청)</button>' : ''}
+          <button class="structured-primary-button" type="submit">남기기</button>
+        </div>
+      </form>
+    </div>`, { locked: true });
+
+    const form = document.getElementById('requestThreadForm');
+    const read = () => String(form.elements.body.value || '').trim();
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const body = read();
+      if (!body) return showToast('남길 내용을 적어 주세요.');
+      const ok = await saveRequest('POST', `/peakos/service-requests/${encodeURIComponent(row.id)}/comments`,
+        { body }, '글을 남겼습니다.');
+      if (ok) closeDetailModal();
+    });
+    form.querySelector('[data-request-reopen]')?.addEventListener('click', async () => {
+      const body = read();
+      // 무엇이 아직 안 됐는지 없이 되돌리면 담당자가 다시 물어봐야 한다.
+      if (!body) return showToast('어떤 점이 아직 안 됐는지 적어 주세요.');
+      const ok = await saveRequest('POST', `/peakos/service-requests/${encodeURIComponent(row.id)}/reopen`,
+        { body }, '다시 요청했습니다. 담당자에게 알림이 갑니다.');
+      if (ok) closeDetailModal();
+    });
   }
 
   function openRequestEditor(row, { triage = false } = {}) {
@@ -16944,7 +16998,7 @@
                   <td>${esc(row.requester?.name || '-')}</td>
                   <td class="${row.assignee ? '' : 'ledger-memo-empty'}">${esc(row.assignee?.name || '미지정')}</td>
                   <td>${esc(String(row.createdAt || '').slice(0, 10))}</td>
-                  <td class="request-row-actions">${row.capabilities?.triage
+                  <td class="request-row-actions"><button type="button" data-request-thread="${esc(row.id)}">대화 ${(row.comments || []).length}</button>${row.capabilities?.triage
                     ? `<button type="button" data-request-triage="${esc(row.id)}">처리</button>` : ''}${row.capabilities?.edit
                     ? `<button type="button" data-request-edit="${esc(row.id)}">수정</button>` : ''}${row.capabilities?.remove
                     ? `<button class="structured-danger-button" type="button" data-request-delete="${esc(row.id)}">삭제</button>` : ''}</td>

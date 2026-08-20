@@ -18849,3 +18849,72 @@ html body .request-row-actions > button:hover {
 html body .request-tabs > .intake-kind-btn.active { background: #1f6493; border-color: #1f6493; color: #fff; }
 html body .request-note { color: var(--editor-muted); }
 html body .module-security > span { color: var(--editor-text); }
+
+/* ── 개발수정요청 대화 ─────────────────────────────── */
+html body .request-thread { display: grid; gap: 12px; }
+html body .request-thread-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--editor-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+html body .request-thread-body {
+  margin: 0;
+  border: 1px solid var(--editor-line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--editor-raised);
+  color: var(--editor-text);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+html body .request-thread-list {
+  display: grid;
+  gap: 8px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+html body .request-thread-item {
+  display: grid;
+  gap: 3px;
+  border-left: 3px solid var(--editor-line-strong);
+  border-radius: 0 9px 9px 0;
+  padding: 8px 12px;
+  background: var(--editor-raised);
+}
+html body .request-thread-who { display: flex; align-items: baseline; gap: 7px; }
+html body .request-thread-who > strong { color: var(--editor-ink); font-size: 12px; }
+html body .request-thread-who > em { color: var(--editor-muted); font-size: 10px; font-style: normal; }
+html body .request-thread-move {
+  justify-self: start;
+  border-radius: 6px;
+  padding: 2px 8px;
+  background: var(--editor-action-soft);
+  color: var(--editor-action-deep);
+  font-size: 10px;
+  font-weight: 850;
+}
+html body .request-thread-item > p {
+  margin: 0;
+  color: var(--editor-text);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+html body .request-thread-form { display: grid; gap: 8px; }
+html body .request-thread-form > textarea {
+  width: 100%;
+  border: 1px solid var(--editor-line-strong);
+  border-radius: 9px;
+  padding: 9px 11px;
+  background: var(--editor-surface);
+  color: var(--editor-ink);
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+html body .request-thread-actions { display: flex; justify-content: flex-end; gap: 8px; }

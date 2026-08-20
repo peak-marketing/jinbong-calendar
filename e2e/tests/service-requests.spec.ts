@@ -5,8 +5,8 @@ const MINE = {
   id: 'r1', productName: '리뷰스페이스', title: '환불 버튼이 안 눌립니다',
   content: '거래처환불 화면에서', status: 'requested', priority: 'high', managerNote: '',
   attachments: [], version: 1, createdAt: '2026-08-20T01:00:00.000Z',
-  requester: { uid: 'e2e-test-user', name: '김대호' }, assignee: null,
-  capabilities: { edit: true, remove: true, triage: false },
+  requester: { uid: 'e2e-test-user', name: '김대호' }, assignee: null, comments: [],
+  capabilities: { edit: true, remove: true, triage: false, reopen: false, comment: true },
 };
 const TRIAGED = {
   id: 'r2', productName: '리뷰스페이스', title: '이미 처리 중인 건',
@@ -14,7 +14,11 @@ const TRIAGED = {
   attachments: [], version: 3, createdAt: '2026-08-18T01:00:00.000Z',
   requester: { uid: 'e2e-test-user', name: '김대호' },
   assignee: { uid: 'jonghyuk', name: '이종혁' },
-  capabilities: { edit: false, remove: false, triage: false },
+  comments: [
+    { id: 'c1', body: '확인했습니다', fromStatus: 'requested', toStatus: 'reviewing',
+      author: { uid: 'jonghyuk', name: '이종혁' }, createdAt: '2026-08-19T01:00:00.000Z' },
+  ],
+  capabilities: { edit: false, remove: false, triage: false, reopen: false, comment: true },
 };
 
 async function open(page, { canManage = false, onWrite = null } = {}) {
@@ -132,4 +136,58 @@ test('파라곤 쪽 데이터는 더 이상 읽지 않는다', async ({ page }) 
   expect(legacy, `파라곤 경로를 아직 부릅니다: ${legacy.join(', ')}`).toEqual([]);
   // 화면에 파라곤 안내도 남아 있지 않아야 한다.
   await expect(page.locator('#moduleView')).not.toContainText('파라곤');
+});
+
+test('요청마다 대화가 오가고 상태 변화도 같은 줄기에 남는다', async ({ page }) => {
+  let sent: any = null;
+  await open(page, { onWrite: (method, url, body) => { sent = { method, url, body }; } });
+  await page.locator('.ledger-table tbody tr').nth(1).locator('[data-request-thread]').click();
+
+  const thread = page.locator('.request-thread');
+  await expect(thread).toBeVisible();
+  // 담당자가 상태를 바꾸며 남긴 말이 흐름으로 보인다.
+  await expect(thread.locator('.request-thread-item')).toHaveCount(1);
+  await expect(thread.locator('.request-thread-move')).toHaveText('요청 → 확인완료');
+  await expect(thread.locator('.request-thread-item p')).toHaveText('확인했습니다');
+
+  await thread.locator('textarea').fill('저도 같은 증상 봤습니다');
+  await thread.locator('button[type="submit"]').click();
+  await expect.poll(() => sent).not.toBeNull();
+  expect(sent.method).toBe('POST');
+  expect(sent.url).toContain('/service-requests/r2/comments');
+  expect(sent.body).toEqual({ body: '저도 같은 증상 봤습니다' });
+});
+
+test('완료된 내 요청은 이유를 적어야 다시 열 수 있다', async ({ page }) => {
+  let sent: any = null;
+  const DONE = { ...MINE, id: 'r3', status: 'done', comments: [],
+    capabilities: { edit: false, remove: false, triage: false, reopen: true, comment: true } };
+  await installFirebaseStub(page);
+  await installPeakosStub(page, { name: '김대호', group_name: '본사 영업팀' });
+  await page.route('**/peakos/ideas**', r => r.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify({ ideas: [], statuses: [], canManage: false }) }));
+  await page.route('**/peakos/service-requests**', async route => {
+    if (route.request().method() !== 'GET') {
+      sent = { url: route.request().url(), body: route.request().postDataJSON() };
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ requests: [DONE], statuses: [], priorities: [], assignees: [], canManage: false }) });
+  });
+  await page.setViewportSize({ width: 1500, height: 1000 });
+  await page.goto('/business-os-preview.html');
+  for (const c of await page.locator('[data-nav-cluster] .nav-cluster-toggle').all()) if (await c.isVisible()) await c.click();
+  await page.locator('.nav-item[data-view="requests"]').click();
+  await page.locator('[data-request-thread]').click();
+
+  // 이유 없이 되돌리면 담당자가 다시 물어봐야 한다.
+  await page.locator('[data-request-reopen]').click();
+  await expect(page.locator('.toast, [data-toast]').first()).toContainText('어떤 점이 아직 안 됐는지');
+  expect(sent).toBeNull();
+
+  await page.locator('.request-thread textarea').fill('환불 버튼은 됐는데 목록이 안 바뀝니다');
+  await page.locator('[data-request-reopen]').click();
+  await expect.poll(() => sent).not.toBeNull();
+  expect(sent.url).toContain('/service-requests/r3/reopen');
+  expect(sent.body).toEqual({ body: '환불 버튼은 됐는데 목록이 안 바뀝니다' });
 });
