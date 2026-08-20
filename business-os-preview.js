@@ -3514,6 +3514,18 @@
     const chatBadge = document.querySelector('[data-view="chat"] .nav-badge');
     const todoBadge = document.querySelector('[data-view="todo"] .nav-badge');
     const projectBadge = document.querySelector('[data-view="review"] .nav-badge');
+    // 개발수정요청에 답이 오면 탭을 열기 전에 알아야 한다.
+    const requestNav = document.querySelector('.nav-item[data-view="requests"]');
+    if (requestNav) {
+      let badge = requestNav.querySelector('.nav-badge');
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'nav-badge';
+        requestNav.appendChild(badge);
+      }
+      badge.textContent = requestUnreadTotal || '';
+      badge.hidden = !requestUnreadTotal;
+    }
     if (chatBadge) chatBadge.textContent = unreadTotal || liveChatRooms.length;
     if (todoBadge) todoBadge.textContent = personalRemaining;
     if (projectBadge) projectBadge.textContent = reviewProjects;
@@ -16476,12 +16488,15 @@
   const REQUEST_PRIORITY = { urgent: '긴급', high: '높음', normal: '보통', low: '낮음' };
   let requestAssignees = [];
   let requestCanManage = false;
+  let requestUnreadTotal = 0;
 
   async function refreshRequests() {
     const payload = await callApi('GET', '/peakos/service-requests', null, { headers: { 'X-PeakOS-Preview': '0' } });
     liveRequests = Array.isArray(payload?.requests) ? payload.requests : [];
     requestAssignees = Array.isArray(payload?.assignees) ? payload.assignees : [];
     requestCanManage = payload?.canManage === true;
+    requestUnreadTotal = Number(payload?.unreadTotal || 0);
+    updateNavigationBadges();
     return liveRequests;
   }
 
@@ -16515,6 +16530,7 @@
     liveRequests = Array.isArray(requestPayload?.requests) ? requestPayload.requests : [];
     requestAssignees = Array.isArray(requestPayload?.assignees) ? requestPayload.assignees : [];
     requestCanManage = requestPayload?.canManage === true;
+    requestUnreadTotal = Number(requestPayload?.unreadTotal || 0);
   }
 
   // ── 아이디어 창구 ──────────────────────────────────
@@ -16918,6 +16934,14 @@
       </form>
     </div>`, { locked: true });
 
+    // 열었으면 읽은 것이다. 배지가 계속 남으면 아무도 안 믿는다.
+    if (row.unreadCount) {
+      callApi('POST', `/peakos/service-requests/${encodeURIComponent(row.id)}/read`, {},
+        { headers: { 'X-PeakOS-Preview': '0' } })
+        .then(() => refreshRequests())
+        .then(() => { if (activeView === 'requests') renderRequestModule(); })
+        .catch(() => {});
+    }
     const form = document.getElementById('requestThreadForm');
     const read = () => String(form.elements.body.value || '').trim();
     form.addEventListener('submit', async event => {
@@ -17039,7 +17063,7 @@
                 <th scope="col">제목</th><th scope="col">요청자</th><th scope="col">담당</th><th scope="col">요청일</th><th scope="col"></th>
               </tr></thead>
               <tbody>
-                ${shown.map(row => `<tr>
+                ${shown.map(row => `<tr class="${row.unreadCount ? 'has-unread' : ''}">
                   <td><span class="vendor-chip ${['done'].includes(row.status) ? 'done' : ''}">${esc(REQUEST_STATUS[row.status] || row.status || '-')}</span></td>
                   <td class="${['urgent', 'high'].includes(row.priority) ? 'monthly-minus' : ''}">${esc(REQUEST_PRIORITY[row.priority] || row.priority || '-')}</td>
                   <td>${esc(row.productName || '-')}</td>
@@ -17047,7 +17071,7 @@
                   <td>${esc(row.requester?.name || '-')}</td>
                   <td class="${row.assignee ? '' : 'ledger-memo-empty'}">${esc(row.assignee?.name || '미지정')}</td>
                   <td>${esc(String(row.createdAt || '').slice(0, 10))}</td>
-                  <td class="request-row-actions"><button type="button" data-request-thread="${esc(row.id)}">대화 ${(row.comments || []).length}</button>${row.capabilities?.triage
+                  <td class="request-row-actions"><button class="${row.unreadCount ? 'has-unread' : ''}" type="button" data-request-thread="${esc(row.id)}">대화 ${(row.comments || []).length}${row.unreadCount ? ` <em>+${row.unreadCount}</em>` : ''}</button>${row.capabilities?.triage
                     ? `<button type="button" data-request-triage="${esc(row.id)}">처리</button>` : ''}${row.capabilities?.edit
                     ? `<button type="button" data-request-edit="${esc(row.id)}">수정</button>` : ''}${row.capabilities?.remove
                     ? `<button class="structured-danger-button" type="button" data-request-delete="${esc(row.id)}">삭제</button>` : ''}</td>

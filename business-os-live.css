@@ -18989,3 +18989,20 @@ html body .deploy-notice > .deploy-notice-close {
   background: var(--editor-surface);
   color: var(--editor-muted);
 }
+
+/* 답이 온 요청은 눈에 띄어야 한다 */
+html body .request-table tr.has-unread { background: var(--editor-action-soft); }
+html body .request-row-actions > button.has-unread {
+  border-color: var(--editor-red);
+  color: var(--editor-red-ink);
+  font-weight: 900;
+}
+html body .request-row-actions > button.has-unread > em {
+  margin-left: 3px;
+  border-radius: 99px;
+  padding: 1px 5px;
+  background: var(--editor-red);
+  color: #fff;
+  font-size: 9px;
+  font-style: normal;
+}

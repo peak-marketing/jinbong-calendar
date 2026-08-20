@@ -5,7 +5,7 @@ const MINE = {
   id: 'r1', productName: '리뷰스페이스', title: '환불 버튼이 안 눌립니다',
   content: '거래처환불 화면에서', status: 'requested', priority: 'high', managerNote: '',
   attachments: [], version: 1, createdAt: '2026-08-20T01:00:00.000Z',
-  requester: { uid: 'e2e-test-user', name: '김대호' }, assignee: null, comments: [],
+  requester: { uid: 'e2e-test-user', name: '김대호' }, assignee: null, comments: [], unreadCount: 0,
   capabilities: { edit: true, remove: true, triage: false, reopen: false, comment: true },
 };
 const TRIAGED = {
@@ -212,4 +212,46 @@ test('표는 머리와 칸이 모두 같은 축에 선다', async ({ page }) => 
     return out;
   });
   expect(mismatched, mismatched.join(' / ')).toEqual([]);
+});
+
+// 답이 와도 탭을 열어 한 줄씩 눌러 봐야 알 수 있으면 아무도 모른다.
+test('답이 온 요청은 메뉴 배지와 줄에서 바로 티가 난다', async ({ page }) => {
+  const UNREAD = { ...MINE, id: 'r9', title: '답이 온 요청', unreadCount: 2,
+    comments: [
+      { id: 'c1', body: '확인했습니다', fromStatus: '', toStatus: '',
+        author: { uid: 'jonghyuk', name: '이종혁' }, createdAt: '2026-08-20T02:00:00.000Z' },
+      { id: 'c2', body: '오늘 배포합니다', fromStatus: '', toStatus: '',
+        author: { uid: 'jonghyuk', name: '이종혁' }, createdAt: '2026-08-20T03:00:00.000Z' },
+    ] };
+  let readCalled = '';
+  await installFirebaseStub(page);
+  await installPeakosStub(page, { name: '김대호', group_name: '본사 영업팀' });
+  await page.route('**/peakos/ideas**', r => r.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify({ ideas: [], statuses: [], canManage: false }) }));
+  await page.route('**/peakos/service-requests**', async route => {
+    const url = route.request().url();
+    if (route.request().method() === 'POST' && url.endsWith('/read')) {
+      readCalled = url;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ requests: [UNREAD], statuses: [], priorities: [], assignees: [],
+        canManage: false, unreadTotal: 2 }) });
+  });
+  await page.setViewportSize({ width: 1500, height: 900 });
+  await page.goto('/business-os-preview.html');
+  for (const c of await page.locator('[data-nav-cluster] .nav-cluster-toggle').all()) if (await c.isVisible()) await c.click();
+  await page.locator('.nav-item[data-view="requests"]').click();
+
+  // 메뉴에 숫자가 붙는다.
+  const badge = page.locator('.nav-item[data-view="requests"] .nav-badge');
+  await expect(badge).toHaveText('2');
+  // 줄과 버튼에도 표시된다.
+  await expect(page.locator('.request-table tbody tr').first()).toHaveClass(/has-unread/);
+  await expect(page.locator('[data-request-thread]')).toHaveClass(/has-unread/);
+  await expect(page.locator('[data-request-thread] em')).toHaveText('+2');
+
+  // 열면 읽은 것으로 표시한다.
+  await page.locator('[data-request-thread]').click();
+  await expect.poll(() => readCalled).toContain('/service-requests/r9/read');
 });
