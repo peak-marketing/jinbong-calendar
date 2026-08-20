@@ -277,7 +277,38 @@ test('제목 칸 어디를 눌러도 상세가 열린다', async ({ page }) => {
   // 그 줄의 제목을 읽어 두고, 미리보기 줄을 눌러 같은 건이 열리는지 본다.
   const title = (await cell.locator('.request-title-name').innerText()).trim();
   await cell.locator('.request-note').first().click();
-  await expect(page.locator('.request-thread')).toBeVisible();
+  await expect(page.locator('.request-detail')).toBeVisible();
   await expect(page.locator('#readonlyModalTitle, .readonly-modal-head strong').first())
     .toContainText(title);
+});
+
+// 상세와 대화는 다른 것이다. 제목을 누르면 무슨 요청인지 읽고,
+// 대화는 대화대로 열려야 한다.
+test('제목은 상세를, 대화 버튼은 대화를 연다', async ({ page }) => {
+  await open(page, { canManage: true });
+  await dismissReminder(page);
+
+  // 제목 → 상세. 대화창이 아니다.
+  await page.locator('.request-table tbody tr').nth(1).locator('.request-title-name').click();
+  await expect(page.locator('.request-detail')).toBeVisible();
+  await expect(page.locator('.request-thread')).toHaveCount(0);
+  await expect(page.locator('.request-detail-facts')).toContainText('이종혁');
+  await expect(page.locator('.request-detail-block').first()).toContainText('요청 내용');
+
+  // 상세에서 대화로 건너갈 수 있다.
+  await page.locator('[data-detail-thread]').click();
+  await expect(page.locator('.request-thread')).toBeVisible();
+  await expect(page.locator('.request-thread-form')).toBeVisible();
+
+  // 대화에서 다시 요청 내용을 볼 수도 있다.
+  await page.locator('[data-thread-detail]').click();
+  await expect(page.locator('.request-detail')).toBeVisible();
+});
+
+test('대화 버튼은 곧바로 대화를 연다', async ({ page }) => {
+  await open(page, { canManage: true });
+  await dismissReminder(page);
+  await page.locator('.request-table tbody tr').nth(1).locator('[data-request-thread]').click();
+  await expect(page.locator('.request-thread')).toBeVisible();
+  await expect(page.locator('.request-detail')).toHaveCount(0);
 });

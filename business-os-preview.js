@@ -17056,7 +17056,7 @@
     }
     moduleView.querySelectorAll('[data-request-open]').forEach(button => button.addEventListener('click', () => {
       const row = liveRequests.find(entry => String(entry.id) === String(button.dataset.requestOpen));
-      if (row) openRequestThread(row);
+      if (row) openRequestDetail(row);
     }));
     moduleView.querySelectorAll('[data-request-thread]').forEach(button => button.addEventListener('click', () => {
       const row = liveRequests.find(entry => String(entry.id) === String(button.dataset.requestThread));
@@ -17079,6 +17079,44 @@
   }
 
 
+
+  // 상세와 대화는 다른 것이다. 제목을 누르면 무슨 요청인지 읽고,
+  // 대화는 대화대로 따로 연다.
+  function openRequestDetail(row) {
+    const when = String(row.createdAt || '').slice(0, 10);
+    openDetailModal(row.title || '개발수정요청', `<div class="request-detail">
+      <div class="request-detail-facts">
+        <span><b>상태</b><em class="vendor-chip ${row.status === 'done' ? 'done' : ''}">${esc(REQUEST_STATUS[row.status] || row.status)}</em></span>
+        <span><b>우선순위</b>${esc(REQUEST_PRIORITY[row.priority] || row.priority || '보통')}</span>
+        <span><b>상품</b>${esc(row.productName || '미지정')}</span>
+        <span><b>요청자</b>${esc(row.requester?.name || '-')}</span>
+        <span><b>담당</b>${esc(row.assignee?.name || '미지정')}</span>
+        <span><b>요청일</b>${esc(when)}</span>
+      </div>
+      <section class="request-detail-block">
+        <h4>요청 내용</h4>
+        ${row.content ? `<p>${esc(row.content)}</p>` : '<p class="structured-form-help">적어 둔 내용이 없습니다.</p>'}
+      </section>
+      ${(row.attachments || []).length ? `<section class="request-detail-block">
+        <h4>첨부파일 ${row.attachments.length}개</h4>
+        <div class="idea-attachments">${row.attachments.map(file => attachmentLinks(file)).join('')}</div>
+      </section>` : ''}
+      ${row.managerNote ? `<section class="request-detail-block">
+        <h4>처리 메모</h4><p>${esc(row.managerNote)}</p>
+      </section>` : ''}
+      <div class="request-detail-actions">
+        <button class="structured-primary-button" type="button" data-detail-thread>대화 ${(row.comments || []).length}건 보기${row.unreadCount ? ` · 새 글 ${row.unreadCount}` : ''}</button>
+        ${row.capabilities?.triage ? '<button type="button" data-detail-triage>처리</button>' : ''}
+        ${row.capabilities?.edit ? '<button type="button" data-detail-edit>수정</button>' : ''}
+      </div>
+    </div>`, { locked: false });
+
+    const host = document.querySelector('.request-detail');
+    host?.querySelector('[data-detail-thread]')?.addEventListener('click', () => openRequestThread(row));
+    host?.querySelector('[data-detail-triage]')?.addEventListener('click', () => openRequestEditor(row, { triage: true }));
+    host?.querySelector('[data-detail-edit]')?.addEventListener('click', () => openRequestEditor(row, { triage: false }));
+  }
+
   // 요청 하나를 놓고 주고받는 자리. 상태가 바뀐 것도 같은 줄기에 남아
   // "언제 무엇 때문에 이렇게 됐는지"가 한눈에 보인다.
   function openRequestThread(row) {
@@ -17091,8 +17129,7 @@
         <span>요청 ${esc(row.requester?.name || '-')}</span>
         <span>담당 ${esc(row.assignee?.name || '미지정')}</span>
       </div>
-      ${row.content ? `<p class="request-thread-body">${esc(row.content)}</p>` : '<p class="structured-form-help">적어 둔 내용이 없습니다.</p>'}
-      ${(row.attachments || []).length ? `<div class="idea-attachments">${row.attachments.map(file => attachmentLinks(file)).join('')}</div>` : ''}
+      <button class="request-thread-detail" type="button" data-thread-detail>요청 내용 보기</button>
       <div class="request-thread-list">${comments.length
         ? comments.map(entry => `<article class="request-thread-item">
             <span class="request-thread-who"><strong>${esc(entry.author?.name || '작성자')}</strong><em>${esc(String(entry.createdAt || '').slice(0, 10))}</em></span>
@@ -17118,6 +17155,7 @@
         .then(() => { if (activeView === 'requests') renderRequestModule(); })
         .catch(() => {});
     }
+    document.querySelector('[data-thread-detail]')?.addEventListener('click', () => openRequestDetail(row));
     const form = document.getElementById('requestThreadForm');
     const read = () => String(form.elements.body.value || '').trim();
     form.addEventListener('submit', async event => {

@@ -19148,3 +19148,60 @@ html body .request-table .request-title:hover {
 html body .request-table .request-title-name { color: var(--editor-ink); font-size: 12px; font-weight: 800; }
 html body .request-table .request-title:hover .request-title-name { color: var(--editor-action-deep); }
 html body .request-table .request-title .request-note { display: block; }
+
+/* 개발수정요청 상세 — 대화와 별개로 "무슨 요청인지" 읽는 자리 */
+html body .request-detail { display: grid; gap: 14px; }
+html body .request-detail-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  border: 1px solid var(--editor-line);
+  border-radius: 11px;
+  padding: 12px 14px;
+  background: var(--editor-raised);
+}
+html body .request-detail-facts > span {
+  display: grid;
+  gap: 3px;
+  align-content: start;
+  color: var(--editor-ink);
+  font-size: 12px;
+  font-weight: 800;
+}
+html body .request-detail-facts b { color: var(--editor-muted); font-size: 10px; font-weight: 800; }
+html body .request-detail-facts em { justify-self: start; font-style: normal; }
+html body .request-detail-block { display: grid; gap: 6px; }
+html body .request-detail-block > h4 { margin: 0; color: var(--editor-muted); font-size: 10px; font-weight: 850; }
+html body .request-detail-block > p {
+  margin: 0;
+  color: var(--editor-text);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+html body .request-detail-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+html body .request-detail-actions > button {
+  min-height: 32px;
+  border: 1px solid var(--editor-line-strong);
+  border-radius: 9px;
+  padding: 0 13px;
+  background: var(--editor-surface);
+  color: var(--editor-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+html body .request-thread-detail {
+  justify-self: start;
+  min-height: 28px;
+  border: 1px solid var(--editor-line-strong);
+  border-radius: 8px;
+  padding: 0 11px;
+  background: var(--editor-surface);
+  color: var(--editor-action-deep);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
