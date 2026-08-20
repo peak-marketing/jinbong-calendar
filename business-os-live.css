@@ -17640,17 +17640,11 @@ html body #newProjectsView .structured-task-list { container-type: inline-size; 
    지시받음 흰색 · 확인완료 파랑 · 진행중 노랑 · 진행완료 주황 · 수정요청 빨강 · 업무완료 초록.
    앞쪽에 같은 특정도의 규칙(진행중 파랑 등)이 있어 파일 맨 끝에서 덮어쓴다. */
 html body .structured-task-status.todo,
-html[data-theme="dark"] body .structured-task-status.todo { background: #fff; color: #5b7080; box-shadow: inset 0 0 0 1px #d3e0e9; }
 html body .structured-task-status.acknowledged,
-html[data-theme="dark"] body .structured-task-status.acknowledged { background: #e8f2fb; color: #2b6fa8; }
 html body .structured-task-status.doing,
-html[data-theme="dark"] body .structured-task-status.doing { background: #fdf3d8; color: #9a7017; }
 html body .structured-task-status.review,
-html[data-theme="dark"] body .structured-task-status.review { background: #fff0e4; color: #c26124; }
 html body .structured-task-status.revision,
-html[data-theme="dark"] body .structured-task-status.revision { background: #fdecec; color: #c0424b; }
 html body .structured-task-status.done,
-html[data-theme="dark"] body .structured-task-status.done { background: #e6f7ee; color: #2b8a5e; }
 
 /* 프로젝트 업무 줄 앞 동그라미 */
 html body #newProjectsView .structured-task-check.status-todo { border-color: #cfdce6; background: #fff; }
@@ -18227,4 +18221,400 @@ html body .dev-expense-check > input[type="checkbox"] {
   html body .dev-expense-row > .dev-expense-cycle { display: none; }
   html body .dev-expense-row.is-head > span:nth-child(5),
   html body .dev-expense-row.is-head > span:nth-child(6) { display: none; }
+}
+
+/* ══ 다크·라이트 색 맞춤 ═══════════════════════════════
+   오늘 새로 만든 화면들(회의·회의록·개발비·상태 색·분할 보기 요약)을
+   하드코딩한 밝은 색으로 칠하는 바람에 다크 모드에서 어두운 배경 위에
+   어두운 글자가 놓였다. 제목은 명암비 1.2까지 떨어져 사실상 안 보였다.
+   이 파일에는 테마별로 뒤집히는 토큰이 이미 있으니 그걸 쓴다. */
+
+/* 업무 제목·설명 — .structured-task-main > strong 을 쓰던 기존 다크 규칙이
+   내가 만든 래퍼 때문에 더는 맞지 않아 통째로 빗나갔다. */
+html body #newProjectsView .structured-task-title > strong { color: var(--editor-ink); }
+html body #newProjectsView .structured-task-title > p { color: var(--editor-muted); }
+
+/* 분할 보기 머리 */
+html body #newProjectsView .structured-split-title > span > small,
+html body #newProjectsView .structured-split-count { color: var(--editor-muted); }
+html body #newProjectsView .structured-split-title > span > strong { color: var(--editor-ink); }
+html body #newProjectsView .structured-split-title:hover { background: var(--editor-subtle); }
+html body #newProjectsView .structured-split-title-caret,
+html body .my-work-caret { color: var(--editor-text); }
+html body #newProjectsView .structured-detail-back { color: var(--editor-text); }
+html body #newProjectsView .structured-detail-back:hover { color: var(--editor-action-deep); }
+html body #newProjectsView .structured-detail-actions > button {
+  border-color: var(--editor-line-strong);
+  background: var(--editor-surface);
+  color: var(--editor-text);
+}
+
+/* 중분류 요약 */
+html body #newProjectsView .structured-split-brief {
+  border-bottom-color: var(--editor-line);
+  background: var(--editor-raised);
+}
+html body #newProjectsView .structured-split-brief b { color: var(--editor-muted); }
+html body #newProjectsView .structured-split-brief-person > strong { color: var(--editor-ink); }
+html body #newProjectsView .structured-split-brief-person > strong > small { color: var(--editor-muted); }
+html body #newProjectsView .structured-split-brief-progress > strong { color: var(--editor-action-deep); }
+html body #newProjectsView .structured-split-brief-progress > small { color: var(--editor-muted); }
+html body #newProjectsView .structured-split-brief-progress > i { background: var(--editor-line); }
+html body #newProjectsView .structured-split-brief-progress > i > b { background: var(--editor-action); }
+
+/* 회의 카드 */
+html body #newProjectsView .structured-meeting {
+  border-color: var(--editor-line);
+  border-left-color: var(--editor-action);
+  background: var(--editor-raised);
+}
+html body #newProjectsView .structured-meeting-when { color: var(--editor-action-deep); }
+html body #newProjectsView .structured-meeting > strong { color: var(--editor-ink); }
+html body #newProjectsView .structured-meeting-where,
+html body #newProjectsView .structured-meeting-people { color: var(--editor-text); }
+html body #newProjectsView .structured-meeting-people b { color: var(--editor-muted); }
+html body #newProjectsView .structured-meeting > p { color: var(--editor-muted); }
+html body #newProjectsView .structured-meeting-outcome > em {
+  background: var(--editor-action-soft);
+  color: var(--editor-action-deep);
+}
+html body #newProjectsView .structured-meeting-actions > button {
+  border-color: var(--editor-line-strong);
+  background: var(--editor-surface);
+  color: var(--editor-text);
+}
+html body #newProjectsView .structured-meeting-notes-button {
+  border-color: var(--editor-action);
+  color: var(--editor-action-deep);
+}
+
+/* 회의록 · 회의에서 나온 할 일 */
+html body .structured-action-items { border-top-color: var(--editor-line); }
+html body .structured-action-items-head > strong { color: var(--editor-ink); }
+html body .structured-action-items-head > button,
+html body .structured-action-item > input,
+html body .structured-action-item > select {
+  border-color: var(--editor-line-strong);
+  background: var(--editor-surface);
+  color: var(--editor-text);
+}
+html body .structured-action-item > button {
+  border-color: var(--editor-action);
+  background: var(--editor-surface);
+  color: var(--editor-action-deep);
+}
+html body .structured-action-item > button:disabled {
+  border-color: var(--editor-line);
+  color: var(--editor-muted);
+}
+html body .structured-action-item > .structured-action-item-remove {
+  border-color: var(--editor-red-line);
+  color: var(--editor-red);
+}
+html body .structured-action-item-done { color: var(--editor-green-ink); }
+html body .structured-action-item-empty { color: var(--editor-muted); }
+
+/* 참석자 고르기 */
+html body .structured-meeting-attendee {
+  border-color: var(--editor-line-strong);
+  background: var(--editor-surface);
+}
+html body .structured-meeting-attendee:has(input:checked) {
+  border-color: var(--editor-action);
+  background: var(--editor-action-soft);
+}
+html body .structured-meeting-attendee > span { color: var(--editor-ink); }
+html body .structured-meeting-attendee > em { color: var(--editor-muted); }
+
+/* 소분류·중분류 삭제 */
+html body #newProjectsView .structured-danger-button {
+  border-color: var(--editor-red-line);
+  background: var(--editor-surface);
+  color: var(--editor-red);
+}
+html body #newProjectsView .structured-danger-button:hover:not(:disabled) {
+  border-color: var(--editor-red);
+  background: var(--editor-red-soft);
+  color: var(--editor-red-ink);
+}
+html body #newProjectsView .structured-danger-button:disabled {
+  border-color: var(--editor-line);
+  color: var(--editor-muted);
+}
+
+/* 업무 현황 */
+html body .my-work-group-toggle:hover { background: var(--editor-subtle); }
+html body .my-work-detail-title { color: var(--editor-ink); }
+html body .task-detail-muted { color: var(--editor-muted); }
+
+/* 개발비 */
+html body .dev-expense-shell {
+  border-color: var(--editor-line);
+  background: var(--editor-surface);
+}
+html body .dev-expense-summary > span {
+  border-color: var(--editor-line);
+  background: var(--editor-raised);
+}
+html body .dev-expense-summary b,
+html body .dev-expense-summary small { color: var(--editor-muted); }
+html body .dev-expense-summary strong { color: var(--editor-ink); }
+html body .dev-expense-summary > span.is-warning {
+  border-color: var(--editor-red-line);
+  background: var(--editor-red-soft);
+}
+html body .dev-expense-summary > span.is-warning strong { color: var(--editor-red-ink); }
+html body .dev-expense-row:not(.is-head):nth-child(even) { background: var(--editor-raised); }
+html body .dev-expense-row.is-head {
+  border-bottom-color: var(--editor-line);
+  color: var(--editor-muted);
+}
+html body .dev-expense-date,
+html body .dev-expense-card { color: var(--editor-text); }
+html body .dev-expense-card > em { color: var(--editor-muted); }
+html body .dev-expense-name > strong { color: var(--editor-ink); }
+html body .dev-expense-name > small { color: var(--editor-muted); }
+html body .dev-expense-amount { color: var(--editor-ink); }
+html body .dev-expense-cycle b { color: var(--editor-action-deep); }
+html body .dev-expense-cycle small { color: var(--editor-muted); }
+html body .dev-expense-actions > button {
+  border-color: var(--editor-line-strong);
+  background: var(--editor-surface);
+  color: var(--editor-text);
+}
+html body .dev-expense-empty { border-color: var(--editor-line); color: var(--editor-muted); }
+html body .dev-expense-empty strong { color: var(--editor-text); }
+html body .dev-expense-category {
+  background: var(--editor-action-soft);
+  color: var(--editor-action-deep);
+}
+html body .dev-expense-category.cat-ai { background: var(--editor-action-soft); color: var(--editor-action-deep); }
+html body .dev-expense-category.cat-server { background: var(--editor-amber-soft); color: var(--editor-amber-ink); }
+html body .dev-expense-category.cat-hosting { background: var(--editor-red-soft); color: var(--editor-red-ink); }
+html body .dev-expense-category.cat-domain { background: var(--editor-green-soft); color: var(--editor-green-ink); }
+html body .dev-expense-paid.is-paid { background: var(--editor-green-soft); color: var(--editor-green-ink); }
+html body .dev-expense-paid.is-unpaid { background: var(--editor-red-soft); color: var(--editor-red-ink); }
+
+/* 상태 색 — 여섯 상태 모두 테마를 따른다 */
+html body .structured-task-status.todo,
+html body .my-work-group.tone-todo .my-work-group-label {
+  background: var(--editor-surface);
+  color: var(--editor-text);
+  box-shadow: inset 0 0 0 1px var(--editor-line-strong);
+}
+html body .structured-task-status.acknowledged,
+html body .my-work-group.tone-acknowledged .my-work-group-label {
+  background: var(--editor-action-soft);
+  color: var(--editor-action-deep);
+  box-shadow: none;
+}
+html body .structured-task-status.doing,
+html body .my-work-group.tone-doing .my-work-group-label {
+  background: var(--editor-amber-soft);
+  color: var(--editor-amber-ink);
+}
+html body .structured-task-status.review,
+html body .my-work-group.tone-review .my-work-group-label,
+html body .structured-split-brief-status > em.status-review {
+  background: var(--editor-amber-soft);
+  color: var(--editor-amber-ink);
+}
+html body .structured-task-status.revision,
+html body .my-work-group.tone-revision .my-work-group-label,
+html body .structured-split-brief-status > em.status-revision {
+  background: var(--editor-red-soft);
+  color: var(--editor-red-ink);
+}
+html body .structured-task-status.done,
+html body .my-work-group.tone-done .my-work-group-label,
+html body .structured-split-brief-status > em.status-done {
+  background: var(--editor-green-soft);
+  color: var(--editor-green-ink);
+}
+html body #newProjectsView .structured-split-brief-status > em {
+  background: var(--editor-action-soft);
+  color: var(--editor-action-deep);
+}
+html body #newProjectsView .structured-split-brief-status > em.status-todo {
+  background: var(--editor-surface);
+  color: var(--editor-text);
+  box-shadow: inset 0 0 0 1px var(--editor-line-strong);
+}
+html body #newProjectsView .structured-split-brief-status > em.status-doing {
+  background: var(--editor-amber-soft);
+  color: var(--editor-amber-ink);
+}
+html body #newProjectsView .structured-split-brief-status > em.is-empty {
+  background: transparent;
+  color: var(--editor-muted);
+}
+
+/* 동그라미 안의 ↗ · ! 는 흰 글자라 주황·빨강 위에서 잘 안 읽혔다. 색을 죽인다. */
+html body #newProjectsView .structured-task-check.status-review {
+  border-color: #a3521f;
+  background: #a3521f;
+}
+html body #newProjectsView .structured-task-check.status-revision {
+  border-color: #b4474f;
+  background: #b4474f;
+}
+html body #newProjectsView .structured-task-check { color: #fff; }
+
+/* 컨테이너 배경이 흰색으로 굳어 있어, 글자만 밝게 고쳐 봐야 다크에서
+   흰 바탕에 흰 글자가 됐다(명암비 1.1). 바탕도 테마를 따르게 한다. */
+html body .my-work-list,
+html body .my-work-detail {
+  border-color: var(--editor-line);
+  background: var(--editor-surface);
+}
+html body .my-work-row[data-my-work-open]:hover { background: var(--editor-subtle); }
+html body #newProjectsView .structured-split-detail,
+html body #newProjectsView .structured-split-nav {
+  border-color: var(--editor-line);
+  background: var(--editor-surface);
+}
+html body #newProjectsView .structured-split-head,
+html body #newProjectsView .structured-split-block-head { background: var(--editor-raised); }
+html body #newProjectsView .structured-split-block-head > strong { color: var(--editor-action-deep); }
+html body #newProjectsView .structured-split-note { color: var(--editor-muted); }
+html body #newProjectsView .structured-task-list { background: var(--editor-surface); }
+html body #newProjectsView .structured-task-row.status-todo,
+html body #newProjectsView .structured-task-row.status-acknowledged { background: var(--editor-surface); }
+html body #newProjectsView .structured-task-row.status-doing,
+html body #newProjectsView .structured-task-row.status-review,
+html body #newProjectsView .structured-task-row.status-revision,
+html body #newProjectsView .structured-task-row.status-done { background: var(--editor-raised); }
+html body #newProjectsView .structured-assignment-flow > span {
+  border-color: var(--editor-line);
+  background: var(--editor-raised);
+  color: var(--editor-text);
+}
+html body #newProjectsView .structured-assignment-flow b { color: var(--editor-muted); }
+html body #newProjectsView .structured-task-history > summary { color: var(--editor-text); }
+html body #newProjectsView .structured-task-actions button {
+  border-color: var(--editor-line-strong);
+  background: var(--editor-surface);
+  color: var(--editor-text);
+}
+html body #newProjectsView .project-deadline-badge.none {
+  background: var(--editor-subtle);
+  color: var(--editor-muted);
+}
+html body .my-work-mark.status-todo {
+  border-color: var(--editor-line-strong);
+  background: var(--editor-surface);
+}
+html body #newProjectsView .structured-task-check.status-todo {
+  border-color: var(--editor-line-strong);
+  background: var(--editor-surface);
+}
+
+/* 동그라미 안 글자(↗ · !)는 진한 바탕 위 흰색이어야 읽힌다.
+   다크 테마 규칙이 이 색까지 흐리게 덮고 있었다. */
+html[data-theme="dark"] body #newProjectsView .structured-task-check,
+html body #newProjectsView .structured-task-check.status-review,
+html body #newProjectsView .structured-task-check.status-revision,
+html body #newProjectsView .structured-task-check.status-done,
+html body #newProjectsView .structured-task-check.status-acknowledged { color: #fff; }
+html body #newProjectsView .structured-task-check.status-todo { color: transparent; }
+
+/* 할 일 줄 삭제 버튼이 흰 바탕에서 4.0 밖에 안 나왔다 */
+html body .structured-action-item > .structured-action-item-remove { color: var(--editor-red-ink); }
+
+/* ── 남은 기존 화면 색 맞춤 ─────────────────────────
+   프로젝트 히어로·분할 목록·업무 상세·사이드바가 밝은 값으로 굳어 있어
+   다크에서 명암비 1.3~2.8까지 떨어졌다. 라이트에서도 옅은 회색 글자가
+   4.5에 못 미쳤다. 같은 토큰으로 통일한다. */
+
+/* 사이드바 */
+html body .avatar { background: var(--editor-action-soft); color: var(--editor-action-deep); }
+html body .persona-switch-label,
+html body .member-signout { color: var(--editor-text); }
+
+/* 프로젝트 히어로 */
+html body #newProjectsView .structured-detail-hero { background: var(--editor-raised); }
+html body #newProjectsView .structured-detail-hero b,
+html body #newProjectsView .structured-detail-progress > span > b,
+html body #newProjectsView .structured-detail-progress > small { color: var(--editor-muted); }
+html body #newProjectsView .structured-detail-title > p { color: var(--editor-text); }
+html body #newProjectsView .structured-detail-people > span,
+html body #newProjectsView .structured-project-lead-card {
+  border-color: var(--editor-line);
+  background: var(--editor-surface);
+}
+html body #newProjectsView .structured-project-member-rank,
+html body #newProjectsView .structured-project-team-member > small { color: var(--editor-muted); }
+html body #newProjectsView .structured-project-team-member { color: var(--editor-ink); }
+
+/* 분할 보기 왼쪽 목록 */
+html body #newProjectsView .structured-split-medium,
+html body #newProjectsView .structured-split-small {
+  color: var(--editor-text);
+  background: transparent;
+}
+html body #newProjectsView .structured-split-medium > span,
+html body #newProjectsView .structured-split-small > span { color: var(--editor-ink); }
+html body #newProjectsView .structured-split-medium > em,
+html body #newProjectsView .structured-split-small > em { color: var(--editor-muted); }
+html body #newProjectsView .structured-split-small.active,
+html body #newProjectsView .structured-split-medium.active { background: var(--editor-action-soft); }
+html body #newProjectsView .structured-split-caret { color: var(--editor-muted); }
+
+/* 업무 상세 */
+html body .my-work-detail h4,
+html body .my-work-detail .task-detail-label,
+html body .my-work-detail span > small { color: var(--editor-muted); }
+html body .my-work-detail-card {
+  border-color: var(--editor-line);
+  background: var(--editor-raised);
+}
+
+/* 보기 전환 토글 — 흰 글자가 밝은 파랑 위에서 3.9밖에 안 나왔다 */
+html body #newProjectsView .structured-task-viewbar button.active {
+  background: #1f6493;
+  border-color: #1f6493;
+  color: #fff;
+}
+
+/* 배지·모달 */
+html body .structured-status.active { background: var(--editor-action-soft); color: var(--editor-action-deep); }
+html body .structured-review-count { background: var(--editor-amber-soft); color: var(--editor-amber-ink); }
+html body .readonly-modal-close { color: var(--editor-text); }
+html body .structured-form-help { color: var(--editor-muted); }
+html body #newProjectsView .structured-task-viewbar > div > strong { color: var(--editor-muted); }
+
+/* 마지막 남은 곳들 — 실제 DOM에서 뽑은 선택자 그대로 */
+html body .readonly-modal-head { background: var(--editor-raised); }
+html body .readonly-modal-card { background: var(--editor-surface); }
+html body .readonly-modal-head > .readonly-modal-close { color: var(--editor-text); }
+html body #newProjectsView .structured-split-item > span { color: var(--editor-ink); }
+html body #newProjectsView .structured-split-item > em { color: var(--editor-muted); }
+html body #newProjectsView .structured-task-history span > b { color: var(--editor-text); }
+html body #newProjectsView .structured-task-history span > em { color: var(--editor-muted); }
+html body .task-detail-person > span,
+html body .task-detail-row > span { color: var(--editor-muted); }
+html body .my-work-group-toggle > em { color: var(--editor-text); }
+html body #newProjectsView .structured-project-lead-card > strong > small { color: var(--editor-muted); }
+
+/* 이 두 곳은 뒤쪽의 다크 규칙이 밝은 배경을 그대로 유지해 글자를 삼켰다.
+   같은 특정도로는 못 이겨서 테마 선택자를 함께 붙인다. */
+html[data-theme="dark"] body .readonly-modal-head,
+html[data-theme="dark"] body .collaboration-modal-head,
+html[data-theme="dark"] body .detail-modal-head { background: var(--editor-raised); }
+html body .task-detail-person,
+html[data-theme="dark"] body .task-detail-person {
+  border-color: var(--editor-line);
+  background: var(--editor-raised);
+}
+html body .task-detail-person > strong,
+html[data-theme="dark"] body .task-detail-person > strong { color: var(--editor-ink); }
+/* 처리 이력 줄은 진한 호박색 위라 조금 더 밝아야 읽힌다 */
+html[data-theme="dark"] body #newProjectsView .structured-task-history span > em { color: var(--editor-text); }
+
+/* 닫기 버튼이 스스로 밝은 배경을 들고 있어, 글자만 밝게 바꾸니 흰 위에 흰 글자가 됐다 */
+html body .readonly-modal-close,
+html[data-theme="dark"] body .readonly-modal-close {
+  border-color: var(--editor-line-strong);
+  background: var(--editor-surface);
+  color: var(--editor-text);
 }

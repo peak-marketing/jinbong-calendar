@@ -34,8 +34,9 @@ test('업무 상태 동그라미는 상태별 색을 가진다', async ({ page }
     'status-todo': 'rgb(255, 255, 255)',
     'status-acknowledged': 'rgb(43, 136, 190)',
     'status-doing': 'rgb(242, 193, 78)',
-    'status-review': 'rgb(234, 136, 92)',
-    'status-revision': 'rgb(210, 104, 111)',
+    // 안쪽 ↗ · ! 가 흰 글자라, 흰 글자가 4.5:1을 넘도록 진하게 잡은 값이다.
+    'status-review': 'rgb(163, 82, 31)',
+    'status-revision': 'rgb(180, 71, 79)',
     'status-done': 'rgb(63, 143, 104)',
   };
   // 화면에 나온 상태는 하나도 빠짐없이 정해진 색이어야 한다.
