@@ -60,6 +60,16 @@ curl -sk https://paragon-info.kr/os/ | grep -oE '\?v=[a-z0-9-]+'
    다른 에이전트 작업이 사라집니다.
 4. **비밀값을 커밋하거나 출력하지 마세요** — `.env`, `firebase-service-account.json`, `PEAKOS_*` 시크릿.
 5. 공유 포트를 임의로 점유하지 마세요 (3장 참고).
+6. **파라곤 원본 데이터는 읽지도 쓰지도 마세요.** PEAK OS는 자기 저장소만 씁니다.
+   - 손대지 말 것: `ideas`, `service_requests`, `projects`, `project_members`, `project_tasks`
+   - PEAK OS가 쓸 곳: `peakos_ideas`, `peakos_service_requests`, `peakos_structured_project_*`
+   - 두 시스템이 같은 표를 보면 한쪽에서 고친 값이 다른 쪽을 조용히 덮어씁니다.
+     2026-08-20에 아이디어·개발수정요청을 PEAK OS 저장소로 분리했고,
+     `e2e/tests/service-requests.spec.ts`가 파라곤 경로 호출을 실제로 막습니다.
+   - **예외는 캘린더(`events`, `event_shares`) 하나뿐입니다.** 분류별 회의가 참석자
+     캘린더에 뜨려면 여기에 행을 만들어야 합니다. 단, PEAK OS가 만든 행만 건드리고
+     (`peakos_structured_project_meetings.event_id`로 연결됨) 파라곤이 만든 일정은
+     읽지도 고치지도 않습니다.
 
 ## 3. e2e 실행 규칙
 
