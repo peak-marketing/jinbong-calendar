@@ -16984,7 +16984,7 @@
               `<button class="intake-kind-btn ${requestStatus === key ? 'active' : ''}" type="button" data-request-status="${esc(key)}">${esc(label)} ${esc(String(counts[key] || 0))}</button>`).join('')}
           </div>
           ${shown.length ? `<div class="sales-table-scroll">
-            <table class="sales-table ledger-table">
+            <table class="sales-table ledger-table request-table">
               <thead><tr>
                 <th scope="col">상태</th><th scope="col">우선순위</th><th scope="col">상품</th>
                 <th scope="col">제목</th><th scope="col">요청자</th><th scope="col">담당</th><th scope="col">요청일</th><th scope="col"></th>

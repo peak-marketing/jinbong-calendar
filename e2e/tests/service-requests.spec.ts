@@ -191,3 +191,25 @@ test('완료된 내 요청은 이유를 적어야 다시 열 수 있다', async 
   expect(sent.url).toContain('/service-requests/r3/reopen');
   expect(sent.body).toEqual({ body: '환불 버튼은 됐는데 목록이 안 바뀝니다' });
 });
+
+// 공용 원장 표 스타일을 물려받아 머리는 왼쪽·칸은 오른쪽으로 갈렸고 제목만 또
+// 왼쪽이었다. 열마다 기준이 다르면 표 전체가 어긋나 보인다.
+test('표는 머리와 칸이 모두 같은 축에 선다', async ({ page }) => {
+  await open(page, { canManage: true });
+  const mismatched = await page.evaluate(() => {
+    const table = document.querySelector('.request-table') as HTMLElement;
+    const out: string[] = [];
+    [...table.querySelectorAll('thead th')].forEach((head, index) => {
+      const headAlign = getComputedStyle(head as HTMLElement).textAlign;
+      const cell = table.querySelector(`tbody tr:first-child > *:nth-child(${index + 1})`) as HTMLElement;
+      const cellAlign = getComputedStyle(cell).textAlign;
+      const headX = Math.round(head.getBoundingClientRect().x);
+      const cellX = Math.round(cell.getBoundingClientRect().x);
+      if (headAlign !== 'center' || cellAlign !== 'center' || Math.abs(headX - cellX) > 1) {
+        out.push(`${head.textContent!.trim() || '(빈칸)'}: 머리 ${headAlign}@${headX} · 칸 ${cellAlign}@${cellX}`);
+      }
+    });
+    return out;
+  });
+  expect(mismatched, mismatched.join(' / ')).toEqual([]);
+});
