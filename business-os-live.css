@@ -18082,3 +18082,20 @@ html body :is(.structured-meeting-form, .structured-meeting-notes-form) select {
   background-position: right 11px center;
   background-size: 12px 12px;
 }
+
+/* 삭제는 되돌릴 수 없으니 다른 버튼과 구별되게 둔다 */
+html body #newProjectsView .structured-danger-button {
+  border-color: #e3ccd0;
+  background: #fff;
+  color: #b0616a;
+}
+html body #newProjectsView .structured-danger-button:hover:not(:disabled) {
+  border-color: #d2686f;
+  background: #fdf2f3;
+  color: #a5505a;
+}
+html body #newProjectsView .structured-danger-button:disabled {
+  border-color: #e4ebf0;
+  color: #adbcc6;
+  cursor: not-allowed;
+}

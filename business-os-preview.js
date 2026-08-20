@@ -6344,7 +6344,7 @@
     const taskListMarkup = (small, medium) => {
       const tasks = tasksOf(small);
       return `<section class="structured-split-block">
-        <header class="structured-split-block-head"><strong>${esc(small.name || '소분류')}</strong>${canManage ? `<span class="structured-category-actions"><button type="button" data-structured-meeting-create data-medium-id="${esc(medium.id)}" data-small-id="${esc(small.id)}">＋ 회의 일정</button><button type="button" data-structured-task-create data-medium-id="${esc(medium.id)}" data-small-id="${esc(small.id)}">＋ 할 일 배정</button></span>` : ''}</header>
+        <header class="structured-split-block-head"><strong>${esc(small.name || '소분류')}</strong>${structuredCanManageMedium(medium) ? `<span class="structured-category-actions">${structuredSmallActions(medium, small, tasks.length)}</span>` : ''}</header>
         ${structuredMeetingList(small.meetings, project)}
         <div class="structured-task-list">${tasks.map(task => structuredTaskRow(task, project)).join('')
           || '<div class="structured-split-note">이 소분류에는 아직 업무가 없습니다.</div>'}</div>
@@ -6354,7 +6354,7 @@
     let detailHead = '';
     let detailBody = '';
     if (activeSmall) {
-      detailHead = `<div><small>${esc(activeMedium?.name || '중분류')}</small><strong>${esc(activeSmall.name || '소분류')}</strong></div>${canManage ? `<span class="structured-category-actions"><button type="button" data-structured-meeting-create data-medium-id="${esc(activeMedium?.id || '')}" data-small-id="${esc(activeSmall.id)}">＋ 회의 일정</button><button type="button" data-structured-task-create data-medium-id="${esc(activeMedium?.id || '')}" data-small-id="${esc(activeSmall.id)}">＋ 할 일 배정</button></span>` : ''}`;
+      detailHead = `<div><small>${esc(activeMedium?.name || '중분류')}</small><strong>${esc(activeSmall.name || '소분류')}</strong></div>${structuredCanManageMedium(activeMedium) ? `<span class="structured-category-actions">${structuredSmallActions(activeMedium, activeSmall, tasksOf(activeSmall).length)}</span>` : ''}`;
       detailBody = structuredMeetingList(activeSmall.meetings, project)
         + `<div class="structured-task-list">${tasksOf(activeSmall).map(task => structuredTaskRow(task, project)).join('')
         || '<div class="structured-split-note">이 소분류에는 아직 업무가 없습니다.</div>'}</div>`;
@@ -6363,7 +6363,7 @@
       const mediumTasks = smalls.flatMap(small => tasksOf(small));
       const taskCount = mediumTasks.length;
       const briefOpen = structuredMediumBriefOpenIds.has(String(activeMedium?.id || ''));
-      detailHead = `<button class="structured-split-title" type="button" data-structured-medium-brief="${esc(activeMedium?.id || '')}" aria-expanded="${briefOpen ? 'true' : 'false'}" aria-controls="structuredMediumBrief"><span><small>중분류</small><strong>${esc(activeMedium?.name || '중분류')}</strong></span><i class="structured-split-title-caret" aria-hidden="true">›</i></button><span class="structured-split-count">소분류 ${smalls.length} · 업무 ${taskCount}</span>${canManage ? `<button type="button" data-structured-meeting-create data-medium-id="${esc(activeMedium?.id || '')}">＋ 회의 일정</button><button type="button" data-structured-medium-edit="${esc(activeMedium?.id || '')}">중분류 수정</button><button type="button" data-structured-small-create="${esc(activeMedium?.id || '')}">＋ 소분류 추가</button>` : ''}`;
+      detailHead = `<button class="structured-split-title" type="button" data-structured-medium-brief="${esc(activeMedium?.id || '')}" aria-expanded="${briefOpen ? 'true' : 'false'}" aria-controls="structuredMediumBrief"><span><small>중분류</small><strong>${esc(activeMedium?.name || '중분류')}</strong></span><i class="structured-split-title-caret" aria-hidden="true">›</i></button><span class="structured-split-count">소분류 ${smalls.length} · 업무 ${taskCount}</span>${canManage ? `<button type="button" data-structured-meeting-create data-medium-id="${esc(activeMedium?.id || '')}">＋ 회의 일정</button><button type="button" data-structured-medium-edit="${esc(activeMedium?.id || '')}">중분류 수정</button><button type="button" data-structured-small-create="${esc(activeMedium?.id || '')}">＋ 소분류 추가</button><button class="structured-danger-button" type="button" data-structured-medium-delete="${esc(activeMedium?.id || '')}" data-medium-name="${esc(activeMedium?.name || '')}" ${smallsOf(activeMedium).length ? 'disabled title="소분류를 모두 지운 뒤에 삭제할 수 있습니다."' : ''}>중분류 삭제</button>` : ''}`;
       detailBody = structuredMediumBrief(activeMedium, project, mediumTasks, briefOpen)
         + structuredMeetingList(activeMedium?.meetings, project) + (smalls.length
         ? smalls.map(small => taskListMarkup(small, activeMedium)).join('')
@@ -6441,7 +6441,7 @@
     const expanded = structuredExpandedSmallIds.has(smallId);
     const bodyId = structuredHierarchyPanelId('small', smallId);
     return `<article class="structured-small-category ${expanded ? 'is-expanded' : 'is-collapsed'}" data-work-subcategory-id="${esc(smallId)}">
-      <header><button class="structured-small-toggle" type="button" data-structured-small-toggle="${esc(smallId)}" aria-expanded="${expanded ? 'true' : 'false'}" aria-controls="${esc(bodyId)}"><span class="structured-disclosure-caret" aria-hidden="true">›</span><span class="structured-small-summary"><span>업무 소분류</span><strong>${esc(small.name || '이름 없는 소분류')}</strong><small>체크리스트 ${done}/${tasks.length}</small></span></button>${canManage ? `<div class="structured-category-actions"><button type="button" data-structured-meeting-create data-medium-id="${esc(medium.id)}" data-small-id="${esc(smallId)}">＋ 회의 일정</button><button type="button" data-structured-small-edit data-medium-id="${esc(medium.id)}" data-small-id="${esc(smallId)}">이름 수정</button><button type="button" data-structured-task-create data-medium-id="${esc(medium.id)}" data-small-id="${esc(smallId)}">＋ 할 일 배정</button></div>` : ''}</header>
+      <header><button class="structured-small-toggle" type="button" data-structured-small-toggle="${esc(smallId)}" aria-expanded="${expanded ? 'true' : 'false'}" aria-controls="${esc(bodyId)}"><span class="structured-disclosure-caret" aria-hidden="true">›</span><span class="structured-small-summary"><span>업무 소분류</span><strong>${esc(small.name || '이름 없는 소분류')}</strong><small>체크리스트 ${done}/${tasks.length}</small></span></button>${structuredCanManageMedium(medium) ? `<div class="structured-category-actions">${structuredSmallActions(medium, small, tasks.length)}</div>` : ''}</header>
       <div class="structured-task-list" id="${esc(bodyId)}" ${expanded ? '' : 'hidden'}>${structuredMeetingList(small.meetings, project)}${tasks.map(task => structuredTaskRow(task, project)).join('') || '<div class="structured-task-empty">아직 등록된 체크리스트 업무가 없습니다.</div>'}</div>
     </article>`;
   }
@@ -6458,7 +6458,7 @@
       ? `<span>중분류 담당자</span><strong class="structured-medium-manager-name">${esc(managerName)}</strong><small>${esc(managerRank || '직급 미지정')}</small>`
       : '<strong class="structured-medium-manager-empty">중분류 담당자 미지정</strong>';
     return `<section class="structured-medium-category ${expanded ? 'is-expanded' : 'is-collapsed'}" data-work-category-id="${esc(mediumId)}">
-      <header class="structured-medium-head"><button class="structured-medium-toggle" type="button" data-structured-medium-toggle="${esc(mediumId)}" aria-expanded="${expanded ? 'true' : 'false'}" aria-controls="${esc(bodyId)}"><span class="structured-disclosure-caret" aria-hidden="true">›</span><span class="structured-medium-overview"><span class="structured-medium-title"><span>업무 중분류</span><h2>${esc(medium.name || '이름 없는 중분류')}</h2><small>소분류 ${smalls.length}개 · 체크리스트 ${taskCount}건</small></span><span class="structured-medium-manager" data-structured-medium-manager>${managerMarkup}</span></span></button>${canManage ? `<div class="structured-category-actions"><button type="button" data-structured-meeting-create data-medium-id="${esc(mediumId)}">＋ 회의 일정</button><button type="button" data-structured-medium-edit="${esc(mediumId)}">중분류 수정</button><button type="button" data-structured-small-create="${esc(mediumId)}">＋ 소분류 추가</button></div>` : ''}</header>
+      <header class="structured-medium-head"><button class="structured-medium-toggle" type="button" data-structured-medium-toggle="${esc(mediumId)}" aria-expanded="${expanded ? 'true' : 'false'}" aria-controls="${esc(bodyId)}"><span class="structured-disclosure-caret" aria-hidden="true">›</span><span class="structured-medium-overview"><span class="structured-medium-title"><span>업무 중분류</span><h2>${esc(medium.name || '이름 없는 중분류')}</h2><small>소분류 ${smalls.length}개 · 체크리스트 ${taskCount}건</small></span><span class="structured-medium-manager" data-structured-medium-manager>${managerMarkup}</span></span></button>${canManage ? `<div class="structured-category-actions"><button type="button" data-structured-meeting-create data-medium-id="${esc(mediumId)}">＋ 회의 일정</button><button type="button" data-structured-medium-edit="${esc(mediumId)}">중분류 수정</button><button type="button" data-structured-small-create="${esc(mediumId)}">＋ 소분류 추가</button>${canManage ? `<button class="structured-danger-button" type="button" data-structured-medium-delete="${esc(mediumId)}" data-medium-name="${esc(medium.name || '')}" ${smalls.length ? 'disabled title="소분류를 모두 지운 뒤에 삭제할 수 있습니다."' : ''}>중분류 삭제</button>` : ''}</div>` : ''}</header>
       <div class="structured-small-list" id="${esc(bodyId)}" ${expanded ? '' : 'hidden'}>${smalls.map(small => structuredSmallCategory(small, project, medium)).join('') || `<div class="structured-category-empty"><span>소분류를 추가해 실행할 업무를 구체적으로 나눠 주세요.</span>${canManage ? `<button class="structured-empty-action" type="button" data-structured-small-create="${esc(mediumId)}">＋ 업무 소분류 만들기</button>` : ''}</div>`}</div>
     </section>`;
   }
@@ -6608,6 +6608,24 @@
     newProjectsView.querySelectorAll('[data-structured-split-small]').forEach(button => button.addEventListener('click', () => {
       structuredSplitSmallId = String(button.dataset.structuredSplitSmall || '');
       renderStructuredProjectDetail();
+    }));
+    newProjectsView.querySelectorAll('[data-structured-small-delete]').forEach(button => button.addEventListener('click', async () => {
+      const name = String(button.dataset.smallName || '소분류');
+      if (!window.confirm(`"${name}" 소분류를 삭제할까요?`)) return;
+      const done = await runCollaborationMutation(
+        () => collaborationApi('DELETE', `/new-projects/${encodeURIComponent(project.id)}/mediums/${encodeURIComponent(button.dataset.mediumId)}/smalls/${encodeURIComponent(button.dataset.smallId)}`),
+        '소분류를 삭제했습니다.',
+      );
+      if (done) await refreshStructuredProjectDetail(project.id);
+    }));
+    newProjectsView.querySelectorAll('[data-structured-medium-delete]').forEach(button => button.addEventListener('click', async () => {
+      const name = String(button.dataset.mediumName || '중분류');
+      if (!window.confirm(`"${name}" 중분류를 삭제할까요?`)) return;
+      const done = await runCollaborationMutation(
+        () => collaborationApi('DELETE', `/new-projects/${encodeURIComponent(project.id)}/mediums/${encodeURIComponent(button.dataset.structuredMediumDelete)}`),
+        '중분류를 삭제했습니다.',
+      );
+      if (done) await refreshStructuredProjectDetail(project.id);
     }));
     newProjectsView.querySelectorAll('[data-structured-meeting-create]').forEach(button => button.addEventListener('click', () => openStructuredMeetingEditor(project, {
       mediumId: String(button.dataset.mediumId || ''),
@@ -7025,6 +7043,27 @@
 
 
   // ── 분류별 회의 ────────────────────────────────────
+  // 중분류 담당자는 자기 중분류 안의 소분류를 정리할 수 있다. 서버 권한과 같은 규칙.
+  function structuredCanManageMedium(medium) {
+    if (structuredProjectCan('manageProject', structuredProjectDetailState)) return true;
+    const me = String(currentUser?.uid || '');
+    if (!me) return false;
+    const project = structuredProjectDetailState?.project;
+    if (String(project?.lead?.uid || '') === me) return true;
+    return String(medium?.manager?.uid || '') === me;
+  }
+
+  // 소분류 줄의 버튼 묶음. 세 화면이 같은 걸 써야 어디서 지우든 똑같이 동작한다.
+  function structuredSmallActions(medium, small, taskCount) {
+    const mediumId = esc(medium?.id || '');
+    const smallId = esc(small?.id || '');
+    const blocked = taskCount > 0;
+    return `<button type="button" data-structured-meeting-create data-medium-id="${mediumId}" data-small-id="${smallId}">＋ 회의 일정</button>`
+      + `<button type="button" data-structured-small-edit data-medium-id="${mediumId}" data-small-id="${smallId}">이름 수정</button>`
+      + `<button type="button" data-structured-task-create data-medium-id="${mediumId}" data-small-id="${smallId}">＋ 할 일 배정</button>`
+      + `<button class="structured-danger-button" type="button" data-structured-small-delete data-medium-id="${mediumId}" data-small-id="${smallId}" data-small-name="${esc(small?.name || '')}" ${blocked ? 'disabled title="할 일을 모두 지운 뒤에 삭제할 수 있습니다."' : ''}>소분류 삭제</button>`;
+  }
+
   function structuredMeetingWhen(meeting) {
     const sameDay = !meeting.endDate || meeting.endDate === meeting.startDate;
     const span = sameDay ? meeting.startDate : `${meeting.startDate} ~ ${meeting.endDate}`;

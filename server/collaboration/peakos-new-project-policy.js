@@ -1090,17 +1090,20 @@ function normalizeMeetingSchedule({ startDate, endDate, startTime, endTime }) {
   return { ok: true, value: { startDate, endDate, startTime, endTime } };
 }
 
-// 회의를 잡을 수 있는 사람: 프로젝트를 관리하는 사람, 프로젝트 담당자,
-// 그리고 그 중분류를 맡은 사람. 남의 분류에 회의를 꽂지 못하게 한다.
-function newProjectMeetingManageDecision({ readOnly, canManage, isLead, uid, mediumManagerUid }) {
+// 중분류 하나를 맡은 사람은 그 안에서 스스로 정리할 수 있어야 한다.
+// 소분류를 만들고 이름을 고치고 지우는 일, 회의를 잡는 일이 여기에 해당한다.
+// 중분류 자체를 만들거나 지우는 것은 여전히 프로젝트 담당자·관리자만 한다.
+function newProjectMediumScopeDecision({
+  readOnly, canManage, isLead, uid, mediumManagerUid, action = '이 중분류를 관리할',
+}) {
   if (readOnly) {
-    return { allowed: false, status: 403, code: 'NEW_PROJECT_READ_ONLY', error: '열람 전용 계정은 회의를 잡을 수 없습니다.' };
+    return { allowed: false, status: 403, code: 'NEW_PROJECT_READ_ONLY', error: `열람 전용 계정은 ${action} 수 없습니다.` };
   }
   if (canManage === true || isLead === true) return { allowed: true };
   if (uid && mediumManagerUid && String(uid) === String(mediumManagerUid)) return { allowed: true };
   return {
-    allowed: false, status: 403, code: 'NEW_PROJECT_MEETING_FORBIDDEN',
-    error: '이 중분류에 회의를 잡을 권한이 없습니다.',
+    allowed: false, status: 403, code: 'NEW_PROJECT_MEDIUM_SCOPE_FORBIDDEN',
+    error: `${action} 권한이 없습니다.`,
   };
 }
 
@@ -1132,7 +1135,7 @@ module.exports = {
   SORT_ORDER_BOUND,
   VERSION_BOUND,
   newProjectCreateDecision,
-  newProjectMeetingManageDecision,
+  newProjectMediumScopeDecision,
   newProjectMutationDecision,
   newProjectExternalActionToInternal,
   newProjectReadDecision,

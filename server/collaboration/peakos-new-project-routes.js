@@ -22,7 +22,7 @@ const {
   resolveNewProjectReviewer,
   MEETING_ATTENDEE_LIMIT,
   MEETING_STATUSES,
-  newProjectMeetingManageDecision,
+  newProjectMediumScopeDecision,
   normalizeMeetingSchedule,
   normalizeMeetingTime,
 } = require('./peakos-new-project-policy');
@@ -1385,12 +1385,13 @@ function registerPeakosNewProjectRoutes({
       [context.workspaceId, projectId, mediumId],
     );
     if (!medium.rows[0]) throw new NewProjectHttpError(404, 'NEW_PROJECT_MEDIUM_NOT_FOUND', '업무 중분류를 찾을 수 없습니다.');
-    assertAllowed(newProjectMeetingManageDecision({
+    assertAllowed(newProjectMediumScopeDecision({
       readOnly: context.readOnly,
       canManage: access.canManage,
       isLead: String(access.project.lead_uid || '') === String(context.uid),
       uid: context.uid,
       mediumManagerUid: medium.rows[0].manager_uid,
+      action: '이 중분류에 회의를 잡을',
     }));
     return access;
   }
@@ -1795,6 +1796,26 @@ function registerPeakosNewProjectRoutes({
     }
   });
 
+
+  // 소분류 작업은 중분류 담당자에게도 열어 준다. 자기 중분류 안을 정리하려고
+  // 매번 프로젝트 담당자를 부르게 하면 분류가 그대로 방치된다.
+  async function assertCanManageMediumScope(client, context, access, projectId, mediumId, action) {
+    const medium = await client.query(
+      `SELECT manager_uid FROM peakos_structured_project_medium_categories
+        WHERE workspace_id = $1 AND project_id = $2 AND id = $3 AND active = TRUE`,
+      [context.workspaceId, projectId, mediumId],
+    );
+    if (!medium.rows[0]) throw new NewProjectHttpError(404, 'NEW_PROJECT_MEDIUM_NOT_FOUND', '업무 중분류를 찾을 수 없습니다.');
+    assertAllowed(newProjectMediumScopeDecision({
+      readOnly: context.readOnly,
+      canManage: access.canManage,
+      isLead: String(access.project.lead_uid || '') === String(context.uid),
+      uid: context.uid,
+      mediumManagerUid: medium.rows[0].manager_uid,
+      action,
+    }));
+  }
+
   async function createCategory(req, res, level) {
     let client;
     try {
@@ -1808,7 +1829,12 @@ function registerPeakosNewProjectRoutes({
       client = await pool.connect();
       await client.query('BEGIN');
       const access = await loadProjectAccess(client, context, projectId, { lock: true });
-      assertCanManage(access);
+      // 소분류는 중분류 담당자도 할 수 있다. 중분류 자체는 여전히 관리자만.
+      if (level === 'small') {
+        await assertCanManageMediumScope(client, context, access, projectId, mediumId, '이 중분류에 소분류를 만들');
+      } else {
+        assertCanManage(access);
+      }
       assertProjectMutable(access.project);
       const manager = level === 'medium'
         ? await resolveMediumManager(client, context, projectId, body.managerUid)
@@ -1884,7 +1910,12 @@ function registerPeakosNewProjectRoutes({
       client = await pool.connect();
       await client.query('BEGIN');
       const access = await loadProjectAccess(client, context, projectId, { lock: true });
-      assertCanManage(access);
+      // 소분류는 중분류 담당자도 할 수 있다. 중분류 자체는 여전히 관리자만.
+      if (level === 'small') {
+        await assertCanManageMediumScope(client, context, access, projectId, mediumId, '이 중분류의 소분류를 수정할');
+      } else {
+        assertCanManage(access);
+      }
       assertProjectMutable(access.project);
       const currentResult = await client.query(
         `SELECT * FROM ${table}
@@ -1974,7 +2005,12 @@ function registerPeakosNewProjectRoutes({
       client = await pool.connect();
       await client.query('BEGIN');
       const access = await loadProjectAccess(client, context, projectId, { lock: true });
-      assertCanManage(access);
+      // 소분류는 중분류 담당자도 할 수 있다. 중분류 자체는 여전히 관리자만.
+      if (level === 'small') {
+        await assertCanManageMediumScope(client, context, access, projectId, mediumId, '이 중분류의 소분류를 삭제할');
+      } else {
+        assertCanManage(access);
+      }
       assertProjectMutable(access.project);
       const dependent = level === 'medium'
         ? await client.query(

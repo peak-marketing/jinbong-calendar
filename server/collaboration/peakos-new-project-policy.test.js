@@ -18,6 +18,7 @@ const {
   NEW_PROJECT_REQUIRED_FUNCTIONS,
   NEW_PROJECT_REQUIRED_INDEXES,
   NEW_PROJECT_REQUIRED_TABLES,
+  newProjectMediumScopeDecision,
   NEW_PROJECT_TASK_STATUSES,
   MEETING_STATUSES,
   NEW_PROJECT_REQUIRED_TRIGGERS,
@@ -516,4 +517,31 @@ test('히스토리에 쓰는 entity_type과 상태값은 마이그레이션이 �
   for (const status of NEW_PROJECT_TASK_STATUSES) {
     assert.ok(toStatuses.has(status), `업무 상태 '${status}'가 history status CHECK에 없습니다`);
   }
+});
+
+// 중분류만 맡은 사람이 자기 분류를 정리하지 못하면, 소분류 하나 지우려고
+// 매번 프로젝트 담당자를 불러야 한다. 리더도 관리자도 아닌 경우를 못 박아 둔다.
+test('중분류 담당자는 프로젝트 관리자가 아니어도 자기 중분류를 정리할 수 있다', () => {
+  const base = { readOnly: false, canManage: false, isLead: false, uid: 'manager-uid' };
+
+  assert.equal(newProjectMediumScopeDecision({ ...base, mediumManagerUid: 'manager-uid' }).allowed, true);
+
+  // 남의 중분류는 손대지 못한다.
+  const other = newProjectMediumScopeDecision({ ...base, mediumManagerUid: 'someone-else' });
+  assert.equal(other.allowed, false);
+  assert.equal(other.status, 403);
+  assert.equal(other.code, 'NEW_PROJECT_MEDIUM_SCOPE_FORBIDDEN');
+
+  // 담당자가 비어 있으면 아무나 통과해서는 안 된다.
+  assert.equal(newProjectMediumScopeDecision({ ...base, mediumManagerUid: null }).allowed, false);
+  assert.equal(newProjectMediumScopeDecision({ ...base, uid: '', mediumManagerUid: '' }).allowed, false);
+
+  // 프로젝트 담당자와 관리자는 어느 중분류든 가능하다.
+  assert.equal(newProjectMediumScopeDecision({ ...base, isLead: true, mediumManagerUid: 'x' }).allowed, true);
+  assert.equal(newProjectMediumScopeDecision({ ...base, canManage: true, mediumManagerUid: 'x' }).allowed, true);
+
+  // 열람 전용은 자기 중분류라도 안 된다.
+  assert.equal(newProjectMediumScopeDecision({
+    ...base, readOnly: true, mediumManagerUid: 'manager-uid',
+  }).allowed, false);
 });
