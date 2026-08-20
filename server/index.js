@@ -120,6 +120,7 @@ const {
   registerPeakosTodoRoutes,
 } = require('./todos/peakos-todo-routes');
 const { registerPeakosDevExpenseRoutes } = require('./expenses/peakos-dev-expense-routes');
+const { registerPeakosIdeaRoutes } = require('./ideas/peakos-idea-routes');
 const {
   PEAK_WORKSPACE_ID,
   createPeakosWorkspaceService,
@@ -7501,6 +7502,23 @@ registerPeakosTodoRoutes({
   ],
   writeMiddlewares: [
     peakosWorkspaceService.requireWorkspace({ area: 'calendar', action: 'write', requireHeader: true }),
+  ],
+});
+
+// 아이디어 창구는 워크스페이스 구성원 누구나 쓴다. 상태 변경만 관리자 몫이다.
+registerPeakosIdeaRoutes({
+  app,
+  pool,
+  isManager: req => ['admin', 'manager'].includes(String(req?.workspace?.role || '')),
+  readMiddlewares: [
+    authMiddleware,
+    peakosOsEmailAuth.requireOsSession,
+    peakosWorkspaceService.requireWorkspace({ area: 'projects', action: 'read', requireHeader: true }),
+  ],
+  writeMiddlewares: [
+    authMiddleware,
+    peakosOsEmailAuth.requireOsSession,
+    peakosWorkspaceService.requireWorkspace({ area: 'projects', action: 'write', requireHeader: true }),
   ],
 });
 

@@ -26,6 +26,15 @@ const EXPENSES = [
     cardName:'', isSubscription:false, renewsOn:null, paid:false, memo:'', version:1,
     createdBy:{uid:'u',name:'김동우'} },
 ];
+const IDEAS = [
+  { id:'i1', title:'앞으로의 사업', category:'미래전망', summary:'중장기 방향 정리',
+    detail:'리워드·리뷰 이후 무엇을 할지', status:'reviewing', version:1,
+    createdAt:'2026-08-12T01:00:00.000Z', author:{uid:'e2e-test-user',name:'김대호'},
+    capabilities:{edit:true,remove:true,setStatus:true} },
+  { id:'i2', title:'프롬프팅팁', category:'개발', summary:'사내 공유', detail:'정리',
+    status:'adopted', version:2, createdAt:'2026-07-26T01:00:00.000Z',
+    author:{uid:'other',name:'패션TV봉이'}, capabilities:{edit:false,remove:false,setStatus:true} },
+];
 const TASKS = { tasks: [ { ...mk('w1','내 업무','doing'), project:{id:'p1',name:'매출',status:'active'},
   medium:{id:'m1',name:'인스타그램'}, small:{id:'s1',name:'단가체크'} } ] };
 
@@ -72,6 +81,8 @@ async function boot(page) {
     body: JSON.stringify({ readOnly:false, capabilities:{viewPortfolio:true,createProject:true}, projects:[P] }) }));
   await page.route('**/new-projects/p1', r => r.fulfill({ status:200, contentType:'application/json',
     body: JSON.stringify({ readOnly:false, capabilities:{manageProject:true}, project: P }) }));
+  await page.route('**/peakos/ideas**', r => r.fulfill({ status:200, contentType:'application/json',
+    body: JSON.stringify({ ideas: IDEAS, statuses:['open','reviewing','adopted','dropped'], canManage:true }) }));
   await page.route('**/peakos/dev-expenses**', r => r.fulfill({ status:200, contentType:'application/json',
     body: JSON.stringify({ expenses: EXPENSES, categories: [], cards: ['국민카드'], canWrite: true }) }));
   await page.setViewportSize({ width: 1600, height: 1000 });
@@ -103,6 +114,8 @@ for (const theme of ['dark', 'light']) {
     await grab('업무현황');
     await page.locator('.nav-item[data-view="dev-expense"]').click();
     await grab('개발비');
+    await page.locator('.nav-item[data-view="ideas"]').click();
+    await grab('아이디어');
     const uniq = new Map();
     found.forEach(r => { const k = r.where + '|' + r.sel + '|' + r.fg; if (!uniq.has(k)) uniq.set(k, r); });
     const failures = [...uniq.values()].sort((a, b) => a.ratio - b.ratio);

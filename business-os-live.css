@@ -18618,3 +18618,67 @@ html[data-theme="dark"] body .readonly-modal-close {
   background: var(--editor-surface);
   color: var(--editor-text);
 }
+
+/* ── 아이디어 창구 ─────────────────────────────────── */
+html body .idea-form { display: grid; gap: 10px; }
+html body .idea-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+html body .idea-form-grid > label { display: grid; gap: 5px; min-width: 0; }
+html body .idea-form-grid > label.wide { grid-column: 1 / -1; }
+html body .idea-form-grid > label > span { color: var(--editor-muted); font-size: 10px; font-weight: 850; }
+html body .idea-form-grid input,
+html body .idea-form-grid textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--editor-line-strong);
+  border-radius: 9px;
+  padding: 9px 11px;
+  background: var(--editor-surface);
+  color: var(--editor-ink);
+  font: inherit;
+  font-size: 12px;
+}
+html body .idea-form-grid textarea { resize: vertical; }
+html body .idea-form-actions { display: flex; justify-content: flex-end; }
+html body .idea-status {
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+html body .idea-status.is-open { background: var(--editor-action-soft); color: var(--editor-action-deep); }
+html body .idea-status.is-reviewing { background: var(--editor-amber-soft); color: var(--editor-amber-ink); }
+html body .idea-status.is-adopted { background: var(--editor-green-soft); color: var(--editor-green-ink); }
+html body .idea-status.is-dropped { background: var(--editor-subtle); color: var(--editor-muted); }
+html body .idea-card-actions { display: flex; gap: 5px; margin-left: auto; align-items: center; }
+html body .idea-card-actions > button,
+html body .idea-card-actions > select {
+  min-height: 26px;
+  border: 1px solid var(--editor-line-strong);
+  border-radius: 7px;
+  padding: 0 9px;
+  background: var(--editor-surface);
+  color: var(--editor-text);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+@media (max-width: 720px) {
+  html body .idea-form-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* 아이디어 카드도 토큰을 따른다 (다크에서 제목 명암비 1.13이었다) */
+html body .idea-card {
+  border-color: var(--editor-line);
+  background: var(--editor-surface);
+}
+html body .idea-card-head > strong { color: var(--editor-ink); }
+html body .idea-summary { color: var(--editor-text); }
+html body .idea-detail { color: var(--editor-muted); }
+html body .idea-card-foot,
+html body .idea-card-foot > span { color: var(--editor-muted); }

@@ -16416,16 +16416,54 @@
   };
   const REQUEST_PRIORITY = { urgent: '긴급', high: '높음', normal: '보통', low: '낮음' };
 
+  async function refreshIdeas() {
+    const payload = await callApi('GET', '/peakos/ideas', null, { headers: { 'X-PeakOS-Preview': '0' } });
+    liveIdeas = Array.isArray(payload?.ideas) ? payload.ideas : [];
+    return liveIdeas;
+  }
+
   async function loadIdeaData() {
-    const [ideas, requestPayload] = await Promise.all([
-      readOnlyApi('/ideas').catch(() => []),
+    const [ideaPayload, requestPayload] = await Promise.all([
+      // 아이디어는 이제 PEAK OS가 직접 들고 있다. 파라곤을 더는 읽지 않는다.
+      callApi('GET', '/peakos/ideas', null, { headers: { 'X-PeakOS-Preview': '0' } }).catch(() => null),
       readOnlyApi('/service-requests').catch(() => [])
     ]);
-    liveIdeas = Array.isArray(ideas) ? ideas : [];
+    liveIdeas = Array.isArray(ideaPayload?.ideas) ? ideaPayload.ideas : [];
     const requests = Array.isArray(requestPayload)
       ? requestPayload
       : (Array.isArray(requestPayload?.requests) ? requestPayload.requests : []);
     liveRequests = requests.filter(row => !row.deleted);
+  }
+
+  // ── 아이디어 창구 ──────────────────────────────────
+  // 예전에는 파라곤 아이디어를 그대로 비추기만 해서 아무도 글을 못 올렸다.
+  // 이제 PEAK OS가 직접 들고 있고, 여기서 바로 올린다.
+  const IDEA_STATUS_LABELS = Object.freeze({
+    open: '접수', reviewing: '검토 중', adopted: '채택', dropped: '보류',
+  });
+
+  function ideaCard(row) {
+    const status = IDEA_STATUS_LABELS[row.status] ? row.status : 'open';
+    const when = row.createdAt ? String(row.createdAt).slice(0, 10) : '';
+    return `<article class="idea-card" data-idea-id="${esc(row.id)}">
+      <div class="idea-card-head">
+        <strong>${esc(row.title || '제목 없음')}</strong>
+        <span class="idea-status is-${esc(status)}">${esc(IDEA_STATUS_LABELS[status])}</span>
+        ${row.category ? `<span class="kind-badge added">${esc(row.category)}</span>` : ''}
+      </div>
+      ${row.summary ? `<p class="idea-summary">${esc(row.summary)}</p>` : ''}
+      ${row.detail ? `<p class="idea-detail">${esc(row.detail)}</p>` : ''}
+      <div class="idea-card-foot">
+        <span>${esc(row.author?.name || '작성자 미상')}</span>
+        <span>${esc(when)}</span>
+        <span class="idea-card-actions">
+          ${row.capabilities?.setStatus ? `<select data-idea-status="${esc(row.id)}" aria-label="아이디어 상태">${Object.entries(IDEA_STATUS_LABELS).map(([key, label]) =>
+            `<option value="${esc(key)}" ${key === status ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>` : ''}
+          ${row.capabilities?.edit ? `<button type="button" data-idea-edit="${esc(row.id)}">수정</button>` : ''}
+          ${row.capabilities?.remove ? `<button class="structured-danger-button" type="button" data-idea-delete="${esc(row.id)}">삭제</button>` : ''}
+        </span>
+      </div>
+    </article>`;
   }
 
   function renderIdeaModule() {
@@ -16435,11 +16473,26 @@
     const option = (value, label, selected) => `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(label)}</option>`;
 
     moduleView.innerHTML = `
-      ${moduleStatusbar('아이디어', '파라곤에 쌓아 온 아이디어를 그대로 봅니다.', `${liveIdeas.length}건`)}
+      ${moduleStatusbar('아이디어', '떠오른 생각을 여기에 남겨 주세요.', `${liveIdeas.length}건`)}
       <section class="module-section">
         <div class="module-section-head">
-          <span><strong>아이디어</strong><small>${ideaCategory ? `${esc(ideaCategory)} · ` : ''}${esc(String(shown.length))}건${ideaCategory ? ` / 전체 ${liveIdeas.length}건` : ''}</small></span>
-          <span class="module-chip live">읽기 전용</span>
+          <span><strong>아이디어 올리기</strong><small>누구나 올릴 수 있고, 올린 사람이 고치거나 지울 수 있습니다.</small></span>
+        </div>
+        <div class="module-section-body">
+          <form class="idea-form" id="ideaForm">
+            <div class="idea-form-grid">
+              <label class="wide"><span>제목</span><input name="title" maxlength="180" required placeholder="예: 리뷰 요청 폼을 카카오톡으로 받기"></label>
+              <label><span>분류</span><input name="category" maxlength="60" list="ideaCategoryList" placeholder="예: 개발 / 영업 / 운영"><datalist id="ideaCategoryList">${cats.map(name => `<option value="${esc(name)}"></option>`).join('')}</datalist></label>
+              <label><span>한 줄 요약</span><input name="summary" maxlength="2000" placeholder="한 문장으로"></label>
+              <label class="wide"><span>내용</span><textarea name="detail" rows="4" maxlength="20000" placeholder="어떤 문제를 어떻게 풀자는 것인지 적어 주세요."></textarea></label>
+            </div>
+            <div class="idea-form-actions"><button class="structured-primary-button" type="submit">아이디어 올리기</button></div>
+          </form>
+        </div>
+      </section>
+      <section class="module-section">
+        <div class="module-section-head">
+          <span><strong>올라온 아이디어</strong><small>${ideaCategory ? `${esc(ideaCategory)} · ` : ''}${esc(String(shown.length))}건${ideaCategory ? ` / 전체 ${liveIdeas.length}건` : ''}</small></span>
         </div>
         <div class="module-section-body">
           <div class="ledger-filter">
@@ -16451,25 +16504,92 @@
               </select>
             </label>
           </div>
-          ${shown.length ? `<div class="idea-list">
-            ${shown.map(row => `<article class="idea-card">
-              <div class="idea-card-head">
-                <strong>${esc(row.title || '제목 없음')}</strong>
-                ${row.category ? `<span class="kind-badge added">${esc(row.category)}</span>` : ''}
-              </div>
-              ${row.summary ? `<p class="idea-summary">${esc(row.summary)}</p>` : ''}
-              ${row.detail ? `<p class="idea-detail">${esc(row.detail)}</p>` : ''}
-              <div class="idea-card-foot">
-                <span>${esc(row.owner_name || '작성자 미상')}</span>
-                <span>${esc(String(row.date || row.created_at || '').slice(0, 10))}</span>
-                ${row.source ? `<span>출처 ${esc(row.source)}</span>` : ''}
-                ${row.url ? `<a href="${esc(row.url)}" target="_blank" rel="noopener">링크</a>` : ''}
-              </div>
-            </article>`).join('')}
-          </div>` : '<p class="sales-state">조회 조건에 맞는 아이디어가 없습니다.</p>'}
+          ${shown.length ? `<div class="idea-list">${shown.map(ideaCard).join('')}</div>`
+            : '<p class="sales-state">아직 올라온 아이디어가 없습니다. 먼저 하나 남겨 보세요.</p>'}
         </div>
-      </section>
-      <div class="module-security"><span>▣</span><span><strong>기존 파라곤과 같은 자료입니다</strong><br>옮겨 담은 것이 아니라 같은 곳을 읽습니다. 파라곤에서 고치면 여기에도 바로 반영됩니다.</span></div>`;
+      </section>`;
+    wireIdeaModule();
+  }
+
+  async function saveIdea(method, path, payload, message) {
+    try {
+      await callApi(method, path, payload, { headers: { 'X-PeakOS-Preview': '0' } });
+      showToast(message);
+      await refreshIdeas();
+      renderIdeaModule();
+      return true;
+    } catch (error) {
+      showToast(error.message || '아이디어를 저장하지 못했습니다.');
+      return false;
+    }
+  }
+
+  function wireIdeaModule() {
+    const form = document.getElementById('ideaForm');
+    form?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const data = new FormData(form);
+      const record = {
+        title: String(data.get('title') || '').trim(),
+        category: String(data.get('category') || '').trim(),
+        summary: String(data.get('summary') || '').trim(),
+        detail: String(data.get('detail') || '').trim(),
+      };
+      if (!record.title) return showToast('제목을 입력해 주세요.');
+      const submit = form.querySelector('button[type="submit"]');
+      if (submit) submit.disabled = true;
+      const ok = await saveIdea('POST', '/peakos/ideas', record, '아이디어를 올렸습니다.');
+      if (!ok && submit) submit.disabled = false;
+    });
+
+    moduleView.querySelectorAll('[data-idea-status]').forEach(select => select.addEventListener('change', async () => {
+      const row = liveIdeas.find(entry => String(entry.id) === String(select.dataset.ideaStatus));
+      if (!row) return;
+      await saveIdea('PUT', `/peakos/ideas/${encodeURIComponent(row.id)}`, {
+        title: row.title, category: row.category, summary: row.summary, detail: row.detail,
+        status: select.value, expectedVersion: Number(row.version || 1),
+      }, '아이디어 상태를 바꿨습니다.');
+    }));
+
+    moduleView.querySelectorAll('[data-idea-edit]').forEach(button => button.addEventListener('click', () => {
+      const row = liveIdeas.find(entry => String(entry.id) === String(button.dataset.ideaEdit));
+      if (row) openIdeaEditor(row);
+    }));
+
+    moduleView.querySelectorAll('[data-idea-delete]').forEach(button => button.addEventListener('click', async () => {
+      const row = liveIdeas.find(entry => String(entry.id) === String(button.dataset.ideaDelete));
+      if (!row) return;
+      if (!window.confirm(`"${row.title}" 아이디어를 지울까요?`)) return;
+      await saveIdea('DELETE', `/peakos/ideas/${encodeURIComponent(row.id)}`, undefined, '아이디어를 지웠습니다.');
+    }));
+  }
+
+  function openIdeaEditor(row) {
+    openDetailModal('아이디어 수정', `<form class="collaboration-form idea-edit-form" id="ideaEditForm">
+      <div class="collaboration-form-grid">
+        <label class="wide"><span>제목</span><input name="title" maxlength="180" required value="${esc(row.title || '')}"></label>
+        <label><span>분류</span><input name="category" maxlength="60" value="${esc(row.category || '')}"></label>
+        <label><span>한 줄 요약</span><input name="summary" maxlength="2000" value="${esc(row.summary || '')}"></label>
+        <label class="wide"><span>내용</span><textarea name="detail" rows="5" maxlength="20000">${esc(row.detail || '')}</textarea></label>
+      </div>
+      <div class="collaboration-form-actions"><span></span><button type="button" data-collab-cancel>취소</button><button class="primary" type="submit">저장</button></div>
+    </form>`, { locked: true });
+    const form = document.getElementById('ideaEditForm');
+    form.querySelector('[data-collab-cancel]').addEventListener('click', () => closeDetailModal());
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const data = new FormData(form);
+      const title = String(data.get('title') || '').trim();
+      if (!title) return showToast('제목을 입력해 주세요.');
+      const ok = await saveIdea('PUT', `/peakos/ideas/${encodeURIComponent(row.id)}`, {
+        title,
+        category: String(data.get('category') || '').trim(),
+        summary: String(data.get('summary') || '').trim(),
+        detail: String(data.get('detail') || '').trim(),
+        expectedVersion: Number(row.version || 1),
+      }, '아이디어를 수정했습니다.');
+      if (ok) closeDetailModal();
+    });
   }
 
   function renderRequestModule() {
